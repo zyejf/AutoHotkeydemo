@@ -65,6 +65,7 @@ class SkillManager {
     ; =================================================================
     static _timers := Map()
     static _executionIds := Map()
+    static _cleanupTimer := 0
     static _eventHooks := []        ; IEventHook 实例列表
     static _controlHotkeyBindings := Map()
 
@@ -86,6 +87,12 @@ class SkillManager {
 
             this._BindHotkeys()
             this.InvalidateHoldSettingsCache()
+
+            if this._cleanupTimer
+                SetTimer(this._cleanupTimer, 0)
+            this._cleanupTimer := () => SkillManager._CleanupOrphanTimers()
+            SetTimer(this._cleanupTimer, 30000)
+
             SkillManager._Notify("技能管理器已启动", "success")
         } catch as e {
             ErrorSystem.LogError(e.Message, "ERROR", A_ThisFunc, A_LineNumber)
@@ -575,6 +582,12 @@ class SkillManager {
 
     static OnExit(*) {
         try {
+            if SkillManager._cleanupTimer {
+                try
+                    SetTimer(SkillManager._cleanupTimer, 0)
+                SkillManager._cleanupTimer := 0
+            }
+
             for id, group in SkillManager.Groups
                 group._ReleaseAllKeys()
 
