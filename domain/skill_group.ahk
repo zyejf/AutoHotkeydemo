@@ -734,11 +734,14 @@ class SkillGroup {
             } else {
                 SendInput("{Blind}{" key " Down}")
                 releaseKey := key
-                releaseFn := () => SendInput("{Blind}{" releaseKey " Up}")
                 if !this.HasProp("_pendingReleases")
                     this._pendingReleases := Map()
-                this._pendingReleases[key] := releaseFn
-                SetTimer(() => (this._pendingReleases.Has(key) ? this._pendingReleases.Delete(key) : 0, releaseFn.Call()), -duration)
+                if !this.HasProp("_releaseCounter")
+                    this._releaseCounter := 0
+                this._releaseCounter++
+                releaseId := this._releaseCounter
+                this._pendingReleases[key] := releaseId
+                SetTimer(() => (this._pendingReleases.Has(key) && this._pendingReleases[key] = releaseId ? this._pendingReleases.Delete(key) : 0, SendInput("{Blind}{" releaseKey " Up}")), -duration)
             }
             this._lastSend[key] := A_TickCount
 
