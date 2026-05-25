@@ -1,1 +1,0 @@
-D:\1demo\AutoHotkeydemo\domain\skill_group.ahk (744) : ==> Unexpected "{"
