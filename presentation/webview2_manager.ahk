@@ -134,6 +134,7 @@ class WebView2Manager extends IEventHook {
             safeCombined := StrReplace(safeCombined, "'", "\'")
             safeCombined := StrReplace(safeCombined, "`n", "\n")
             safeCombined := StrReplace(safeCombined, "`r", "\r")
+            safeCombined := StrReplace(safeCombined, "</", "<\/")
             WebView2Manager.wv.ExecuteScriptAsync("if(typeof updateDashboard==='function')updateDashboard('" safeCombined "');")
         } catch as e {
             _DebugLog("_PushStateUpdate error: " e.Message)
