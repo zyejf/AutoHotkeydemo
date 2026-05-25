@@ -282,7 +282,7 @@ class SkillManager {
 
             hotkeyStr := _GetProp(config, "hotkey", "")
             if hotkeyStr != "" {
-                ctrlHotkeys := this.ConfigStore.Has("CONTROL_HOTKEYS") ? this.ConfigStore.Get("CONTROL_HOTKEYS") : Map()
+                ctrlHotkeys := (!this.ConfigStore || !this.ConfigStore.Has("CONTROL_HOTKEYS")) ? Map() : this.ConfigStore.Get("CONTROL_HOTKEYS")
                 if ctrlHotkeys is Map {
                     for action, ctrlHk in ctrlHotkeys {
                         if ctrlHk = hotkeyStr {
