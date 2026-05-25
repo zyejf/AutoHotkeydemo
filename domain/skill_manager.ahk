@@ -586,6 +586,8 @@ class SkillManager {
             if !this.Groups.Has(id) || !this.Groups[id].active {
                 try {
                     SetTimer(timerFunc, 0)
+                } catch as e {
+                    ErrorSystem.LogError("_CleanupOrphanTimers: 停止定时器失败 id=" id " err=" e.Message, "WARNING", A_ThisFunc, A_LineNumber)
                 }
                 keysToRemove.Push(id)
             }
