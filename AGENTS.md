@@ -68,8 +68,10 @@ AutoHotkey v2 技能管理器 - 支持多种执行模式的按键连招管理系
 
 ### Testing Requirements
 
-- 运行语法检查: `"C:\Program Files\AutoHotkey\v2\AutoHotkey.exe" /ErrorStdOut asd.ahk`
-- 启动脚本: `"C:\Program Files\AutoHotkey\v2\AutoHotkey.exe" asd.ahk`
+- **AHK v2 路径**: `D:\Program Files\AutoHotkey\v2\AutoHotkey64.exe` (64位) 或 `D:\Program Files\AutoHotkey\v2\AutoHotkey.exe`
+- 运行语法检查: `& "D:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" /ErrorStdOut asd.ahk`
+- 启动脚本: `& "D:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" asd.ahk`
+- 运行测试套件: `& "D:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" tests\run_all_tests.ahk`
 - 查看调试日志（实时）: `Get-Content logs\debug.log -Tail 20 -Wait`
 - 查看应用日志: `Get-Content logs\app.log -Tail 10`
 - 过滤错误日志: `Select-String -Path logs\app.log -Pattern '"level":"ERROR"'`
