@@ -275,11 +275,21 @@ class SkillManager {
 
             hotkeyStr := _GetProp(config, "hotkey", "")
             if hotkeyStr != "" {
+                ctrlHotkeys := this.ConfigStore.Has("CONTROL_HOTKEYS") ? this.ConfigStore.Get("CONTROL_HOTKEYS") : Map()
+                if ctrlHotkeys is Map {
+                    for action, ctrlHk in ctrlHotkeys {
+                        if ctrlHk = hotkeyStr {
+                            SkillManager._Notify("警告: 热键 " hotkeyStr " 是控制热键(" action ")，分组热键将覆盖控制热键", "warning")
+                            break
+                        }
+                    }
+                }
                 try {
                     Hotkey(hotkeyStr, ((id) => (*) => this.ToggleGroup(id))(id))
                     Hotkey(hotkeyStr, "On")
                 } catch as hkErr {
                     SkillManager._Log("WARNING", "AddGroup: 热键注册失败 id=" id " hotkey=" hotkeyStr " err=" hkErr.Message)
+                    SkillManager._Notify("热键注册失败: " hotkeyStr " 可能被其他程序占用", "error")
                     this.Groups.Delete(id)
                     return false
                 }
