@@ -741,7 +741,12 @@ class SkillGroup {
                 this._releaseCounter++
                 releaseId := this._releaseCounter
                 this._pendingReleases[key] := releaseId
-                SetTimer(() => (this._pendingReleases.Has(key) && this._pendingReleases[key] = releaseId ? this._pendingReleases.Delete(key) : 0, SendInput("{Blind}{" releaseKey " Up}")), -duration)
+                SetTimer(() {
+                    if this._pendingReleases.Has(key) && this._pendingReleases[key] = releaseId {
+                        this._pendingReleases.Delete(key)
+                        SendInput("{Blind}{" releaseKey " Up}")
+                    }
+                }, -duration)
             }
             this._lastSend[key] := A_TickCount
 
