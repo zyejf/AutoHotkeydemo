@@ -1,0 +1,8 @@
+﻿mode=enhanced_hybrid
+periodicPressKeys.Length=0
+seqPressKeys.Length=0
+delay=10
+_executionCount=1
+passed=1
+failed=0
+reportPath=D:\1demo\AutoHotkeydemo\tests\reports\test_report_20260519_212019.json

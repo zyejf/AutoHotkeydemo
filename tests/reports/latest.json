@@ -1,0 +1,57 @@
+﻿{
+    "summary":  {
+                    "failed":  0,
+                    "warnings":  0,
+                    "total":  9,
+                    "passed":  9
+                },
+    "duration":  0.16524049999999998,
+    "timestamp":  "2026-05-14T00:57:46.7596218+08:00",
+    "results":  [
+                    {
+                        "Status":  "PASS",
+                        "RuntimeError":  false,
+                        "File":  "test_interfaces.ahk"
+                    },
+                    {
+                        "Status":  "PASS",
+                        "RuntimeError":  false,
+                        "File":  "test_mode_registry.ahk"
+                    },
+                    {
+                        "Status":  "PASS",
+                        "RuntimeError":  false,
+                        "File":  "test_skill_group.ahk"
+                    },
+                    {
+                        "Status":  "PASS",
+                        "RuntimeError":  false,
+                        "File":  "test_skill_manager.ahk"
+                    },
+                    {
+                        "Status":  "PASS",
+                        "RuntimeError":  false,
+                        "File":  "test_backup_core.ahk"
+                    },
+                    {
+                        "Status":  "PASS",
+                        "RuntimeError":  false,
+                        "File":  "test_debug_logger.ahk"
+                    },
+                    {
+                        "Status":  "PASS",
+                        "RuntimeError":  false,
+                        "File":  "test_error_system.ahk"
+                    },
+                    {
+                        "Status":  "PASS",
+                        "RuntimeError":  false,
+                        "File":  "test_json_logger.ahk"
+                    },
+                    {
+                        "Status":  "PASS",
+                        "RuntimeError":  false,
+                        "File":  "test_json_parser.ahk"
+                    }
+                ]
+}

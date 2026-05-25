@@ -1,10 +1,49 @@
 ; =================================================================
-; JSON 解析�?+ 序列化器 + 错误日志系统
+; JSON 解析器 + 序列化器 + 错误日志系统
 ; 版本: 1.0
 ; 说明: 简易JSON解析器，专为技能管理器配置文件设计
-;       支持详细错误日志记录和配置验�?; =================================================================
+; 支持详细错误日志记录和配置验证
+; =================================================================
 
 #Requires AutoHotkey v2.0
+#ErrorStdOut "UTF-8"
+#Warn VarUnset, OutputDebug
+#Warn Unreachable, OutputDebug
+#Warn LocalSameAsGlobal, Off
+
+; =================================================================
+; 调试日志兼容层（避免对DebugLogger的直接依赖）
+; =================================================================
+
+global _JsonDebugEnabled := false
+
+_JsonDebugInit() {
+    global _JsonDebugEnabled
+    _JsonDebugEnabled := false
+    try {
+        if (IsSet(SkillMgrDebugLogger) && IsObject(SkillMgrDebugLogger))
+            _JsonDebugEnabled := true
+    } catch as e {
+        _JsonDebugEnabled := false
+    }
+}
+
+_JsonDebugLog(msg) {
+    global _JsonDebugEnabled
+    if (_JsonDebugEnabled && IsSet(SkillMgrDebugLogger) && IsObject(SkillMgrDebugLogger))
+        SkillMgrDebugLogger.Log(msg)
+}
+
+; 数组连接函数（本地实现，避免对asd.ahk的依赖）
+_JsonJoin(arr, delimiter) {
+    result := ""
+    for i, item in arr {
+        if (i > 1)
+            result .= delimiter
+        result .= item
+    }
+    return result
+}
 
 ; =================================================================
 ; 第一部分: 错误类型定义
@@ -49,17 +88,22 @@ class JSONErrorType {
 	static INFO_PARSE_START := "I001"
 	static INFO_PARSE_SUCCESS := "I002"
     
-    ; 调试信息 (D = DEBUG)
-    static DEBUG_EDITOR_OPEN := "D001"
-    static DEBUG_MODE_CHANGE := "D002"
-    static DEBUG_KEY_ADD := "D003"
-    static DEBUG_KEY_EDIT := "D004"
-    static DEBUG_KEY_DELETE := "D005"
-    static DEBUG_CONFIG_SAVE := "D006"
-    static DEBUG_HOTKEY_TRIGGER := "D010"
-    static DEBUG_BACKUP_CREATE := "D020"
-    static DEBUG_BACKUP_RESTORE := "D021"
-    static DEBUG_VALIDATE_START := "D030"
+; 调试信息 (D = DEBUG)
+	static DEBUG_EDITOR_OPEN := "D001"
+	static DEBUG_MODE_CHANGE := "D002"
+	static DEBUG_KEY_ADD := "D003"
+	static DEBUG_KEY_EDIT := "D004"
+	static DEBUG_KEY_DELETE := "D005"
+	static DEBUG_CONFIG_SAVE := "D006"
+	static DEBUG_GROUP_ADD := "D007"
+	static DEBUG_GROUP_DELETE := "D008"
+	static DEBUG_HOTKEY_TRIGGER := "D010"
+	static DEBUG_BACKUP_CREATE := "D020"
+	static DEBUG_BACKUP_RESTORE := "D021"
+	static DEBUG_VALIDATE_START := "D030"
+
+	; 警告类型
+	static WARN_EMPTY_CONFIG := "W401"
 }
 
 ; =================================================================
@@ -391,11 +435,14 @@ class JSONParser {
     static filePath := ""
     static depth := 0
     static maxDepth := 100
+    static MAX_PARSE_DEPTH := 256
+    _depth := 0
     
 static Parse(jsonStr, filePath := "") {
-		; 移除 UTF-8 BOM
-		if (StrLen(jsonStr) > 0 && Ord(SubStr(jsonStr, 1, 1)) = 0xFEFF) {
-			DebugLogger.Log("Parse: Removed UTF-8 BOM")
+    _JsonDebugInit()
+    ; 移除 UTF-8 BOM
+    if (StrLen(jsonStr) > 0 && Ord(SubStr(jsonStr, 1, 1)) = 0xFEFF) {
+        _JsonDebugLog("Parse: Removed UTF-8 BOM")
 			jsonStr := SubStr(jsonStr, 2)
 		}
 
@@ -403,15 +450,15 @@ static Parse(jsonStr, filePath := "") {
 		this.pos := 1
 		this.len := StrLen(jsonStr)
 		this.filePath := filePath
-		this.depth := 0
+		this._depth := 0
 
-		DebugLogger.Log("=== JSONParser.Parse START ===")
-		DebugLogger.Log("File: " (filePath ? filePath : "(string)"))
-		DebugLogger.Log("Input length: " this.len)
+		_JsonDebugLog("=== JSONParser.Parse START ===")
+		_JsonDebugLog("File: " (filePath ? filePath : "(string)"))
+		_JsonDebugLog("Input length: " this.len)
 		if (this.len > 0 && this.len < 200)
-			DebugLogger.Log("Input preview: " jsonStr)
+			_JsonDebugLog("Input preview: " jsonStr)
 		else if (this.len > 0)
-			DebugLogger.Log("Input preview: " SubStr(jsonStr, 1, 100) "...")
+			_JsonDebugLog("Input preview: " SubStr(jsonStr, 1, 100) "...")
 
 		JSONLogger.Log(JSONError(
 			JSONErrorType.INFO_PARSE_START,
@@ -420,7 +467,7 @@ static Parse(jsonStr, filePath := "") {
 		))
 
 		if (this.len = 0) {
-			DebugLogger.Log("Parse: Empty input, returning empty Map")
+			_JsonDebugLog("Parse: Empty input, returning empty Map")
 			error := JSONError(JSONErrorType.SYNTAX_EMPTY_INPUT, "JSON字符串为空", 0, "", filePath)
 			JSONLogger.Log(error)
 			return Map()
@@ -469,19 +516,19 @@ static LoadFile(filePath) {
 		throw error
 	}
 
-	DebugLogger.Log("Using custom JSON parser - with enhanced error handling")
+	_JsonDebugLog("Using custom JSON parser - with enhanced error handling")
 	try {
 		return this.Parse(content, filePath)
 	} catch as parseErr {
-		DebugLogger.Log("Custom parser exception: " parseErr.Message)
-		DebugLogger.Log("Stack: " parseErr.Stack)
-		DebugLogger.Log("Trying to return fallback config...")
+		_JsonDebugLog("Custom parser exception: " parseErr.Message)
+		_JsonDebugLog("Stack: " parseErr.Stack)
+		_JsonDebugLog("Trying to return fallback config...")
 		return this._GetFallbackConfig()
 	}
 }
 
 static _GetFallbackConfig() {
-	DebugLogger.Log("Creating fallback config")
+	_JsonDebugLog("Creating fallback config")
 	return Map(
 		"version", "2.0",
 		"lastModified", A_Now,
@@ -511,53 +558,70 @@ static _GetFallbackConfig() {
 }
 
 static ParseValue() {
+		this._depth++
+		if (this._depth > this.MAX_PARSE_DEPTH) {
+			throw Error("JSON 嵌套深度超限 (MAX=" this.MAX_PARSE_DEPTH ")")
+		}
 		this.SkipWhitespace()
-		DebugLogger.Log("ParseValue: START at pos " this.pos)
+		_JsonDebugLog("ParseValue: START at pos " this.pos " depth=" this._depth)
 
 		if (this.pos > this.len) {
-			DebugLogger.Log("ParseValue: ERROR - Unexpected end at pos " this.pos)
+			_JsonDebugLog("ParseValue: ERROR - Unexpected end at pos " this.pos)
 			error := JSONError(JSONErrorType.SYNTAX_UNEXPECTED, "JSON意外结束", this.pos, "", this.filePath)
 			JSONLogger.Log(error)
+			this._depth--
 			throw error
 		}
 
 		c := SubStr(this.json, this.pos, 1)
 		cAscii := Ord(c)
-		DebugLogger.Log("ParseValue: char='" c "' ASCII=" cAscii " at pos " this.pos)
+		_JsonDebugLog("ParseValue: char='" c "' ASCII=" cAscii " at pos " this.pos)
 		branch := ""
 		switch c {
 			case "{":
-				DebugLogger.Log("ParseValue: branch -> object")
-				return this.ParseObject()
+				_JsonDebugLog("ParseValue: branch -> object")
+				result := this.ParseObject()
+				this._depth--
+				return result
 			case "[":
-				DebugLogger.Log("ParseValue: branch -> array")
-				return this.ParseArray()
+				_JsonDebugLog("ParseValue: branch -> array")
+				result := this.ParseArray()
+				this._depth--
+				return result
 			case '"':
-				DebugLogger.Log("ParseValue: branch -> string")
-				return this.ParseString()
+				_JsonDebugLog("ParseValue: branch -> string")
+				result := this.ParseString()
+				this._depth--
+				return result
 			case "t", "f":
-				DebugLogger.Log("ParseValue: branch -> bool")
-				return this.ParseBool()
+				_JsonDebugLog("ParseValue: branch -> bool")
+				result := this.ParseBool()
+				this._depth--
+				return result
 			case "-", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9":
-				DebugLogger.Log("ParseValue: branch -> number")
-				return this.ParseNumber()
+				_JsonDebugLog("ParseValue: branch -> number")
+				result := this.ParseNumber()
+				this._depth--
+				return result
 			default:
-				DebugLogger.Log("ParseValue: ERROR - Unexpected char '" c "' at pos " this.pos)
-				errorMsg := "意外字符: '" c "' (ASCII: " Asc(c) ")"
+				_JsonDebugLog("ParseValue: ERROR - Unexpected char '" c "' at pos " this.pos)
+				errorMsg := "意外字符: '" c "' (ASCII: " Ord(c) ")"
 				error := JSONError(JSONErrorType.SYNTAX_UNEXPECTED, errorMsg, this.pos, "", this.filePath)
 				error.SetPosition(this.pos, this.json)
 				error.suggestion := '期望: { [ " 数字 或 true/false'
 				JSONLogger.Log(error)
+				this._depth--
 				throw error
 		}
 	}
     
 static ParseObject() {
-		this.depth++
-		DebugLogger.Log("ParseObject: START, depth=" this.depth " pos=" this.pos)
-		if (this.depth > this.maxDepth) {
-			error := JSONError(JSONErrorType.STRUCT_DEPTH_EXCEEDED, "嵌套深度超过限制 (" this.maxDepth ")", this.pos, "", this.filePath)
+		this._depth++
+		_JsonDebugLog("ParseObject: START, depth=" this._depth " pos=" this.pos)
+		if (this._depth > this.MAX_PARSE_DEPTH) {
+			error := JSONError(JSONErrorType.STRUCT_DEPTH_EXCEEDED, "嵌套深度超过限制 (" this.MAX_PARSE_DEPTH ")", this.pos, "", this.filePath)
 			JSONLogger.Log(error)
+			this._depth--
 			throw error
 		}
 
@@ -566,9 +630,9 @@ static ParseObject() {
 		this.SkipWhitespace()
 
 		if (SubStr(this.json, this.pos, 1) = "}") {
-			DebugLogger.Log("ParseObject: empty object")
+			_JsonDebugLog("ParseObject: empty object")
 			this.pos++
-			this.depth--
+			this._depth--
 			return obj
 		}
 
@@ -576,7 +640,7 @@ static ParseObject() {
 		loop {
 			this.SkipWhitespace()
 			propIndex++
-			DebugLogger.Log("ParseObject: parsing property #" propIndex " at pos " this.pos)
+			_JsonDebugLog("ParseObject: parsing property #" propIndex " at pos " this.pos)
 
 			if (SubStr(this.json, this.pos, 1) != '"') {
 				error := JSONError(JSONErrorType.TYPE_INVALID_KEY, "对象键必须是字符串", this.pos, "", this.filePath)
@@ -587,7 +651,7 @@ static ParseObject() {
 			}
 
 			key := this.ParseString()
-			DebugLogger.Log("ParseObject: key='" key "'")
+			_JsonDebugLog("ParseObject: key='" key "'")
 			this.SkipWhitespace()
 
 			if (SubStr(this.json, this.pos, 1) != ":") {
@@ -599,14 +663,14 @@ static ParseObject() {
 			}
 
 			this.pos++
-			DebugLogger.Log("ParseObject: parsing value for key '" key "' at pos " this.pos)
+			_JsonDebugLog("ParseObject: parsing value for key '" key "' at pos " this.pos)
 			value := this.ParseValue()
-			DebugLogger.Log("ParseObject: value for '" key "' parsed, type=" Type(value))
+			_JsonDebugLog("ParseObject: value for '" key "' parsed, type=" Type(value))
 			obj[key] := value
 
 			this.SkipWhitespace()
 			c := SubStr(this.json, this.pos, 1)
-			DebugLogger.Log("ParseObject: after key-value pair, char='" c "' at pos " this.pos)
+			_JsonDebugLog("ParseObject: after key-value pair, char='" c "' at pos " this.pos)
 
 			if (c = ",") {
 				this.pos++
@@ -618,14 +682,14 @@ static ParseObject() {
 					warning.suggestion := "移除最后一个逗号"
 					JSONLogger.Log(warning)
 					this.pos++
-					this.depth--
+					this._depth--
 					return obj
 				}
 				continue
 			} else if (c = "}") {
-				DebugLogger.Log("ParseObject: object closed, " obj.Count " properties")
+				_JsonDebugLog("ParseObject: object closed, " obj.Count " properties")
 				this.pos++
-				this.depth--
+				this._depth--
 				return obj
 			} else {
 				error := JSONError(JSONErrorType.SYNTAX_MISSING_COMMA, "缺少逗号或对象未闭合", this.pos, "", this.filePath)
@@ -638,11 +702,12 @@ static ParseObject() {
 	}
     
 static ParseArray() {
-		this.depth++
-		DebugLogger.Log("ParseArray: START, depth=" this.depth " pos=" this.pos)
-		if (this.depth > this.maxDepth) {
-			error := JSONError(JSONErrorType.STRUCT_DEPTH_EXCEEDED, "嵌套深度超过限制 (" this.maxDepth ")", this.pos, "", this.filePath)
+		this._depth++
+		_JsonDebugLog("ParseArray: START, depth=" this._depth " pos=" this.pos)
+		if (this._depth > this.MAX_PARSE_DEPTH) {
+			error := JSONError(JSONErrorType.STRUCT_DEPTH_EXCEEDED, "嵌套深度超过限制 (" this.MAX_PARSE_DEPTH ")", this.pos, "", this.filePath)
 			JSONLogger.Log(error)
+			this._depth--
 			throw error
 		}
 
@@ -651,9 +716,9 @@ static ParseArray() {
 		this.SkipWhitespace()
 
 		if (SubStr(this.json, this.pos, 1) = "]") {
-			DebugLogger.Log("ParseArray: empty array")
+			_JsonDebugLog("ParseArray: empty array")
 			this.pos++
-			this.depth--
+			this._depth--
 			return arr
 		}
 
@@ -661,14 +726,14 @@ static ParseArray() {
 		loop {
 			this.SkipWhitespace()
 			elemIndex++
-			DebugLogger.Log("ParseArray: parsing element #" elemIndex " at pos " this.pos)
+			_JsonDebugLog("ParseArray: parsing element #" elemIndex " at pos " this.pos)
 			value := this.ParseValue()
-			DebugLogger.Log("ParseArray: element #" elemIndex " parsed, type=" Type(value) " value='" (IsObject(value) ? "(object)" : value) "'")
+			_JsonDebugLog("ParseArray: element #" elemIndex " parsed, type=" Type(value) " value='" (IsObject(value) ? "(object)" : value) "'")
 			arr.Push(value)
 			this.SkipWhitespace()
 
 			c := SubStr(this.json, this.pos, 1)
-			DebugLogger.Log("ParseArray: after element, char='" c "' at pos " this.pos)
+			_JsonDebugLog("ParseArray: after element, char='" c "' at pos " this.pos)
 			if (c = ",") {
 				this.pos++
 				this.SkipWhitespace()
@@ -679,14 +744,14 @@ static ParseArray() {
 					warning.suggestion := "移除最后一个逗号"
 					JSONLogger.Log(warning)
 					this.pos++
-					this.depth--
+					this._depth--
 					return arr
 				}
 				continue
 			} else if (c = "]") {
-				DebugLogger.Log("ParseArray: array closed, " arr.Length " elements")
+				_JsonDebugLog("ParseArray: array closed, " arr.Length " elements")
 				this.pos++
-				this.depth--
+				this._depth--
 				return arr
 			} else {
 				error := JSONError(JSONErrorType.SYNTAX_MISSING_COMMA, "缺少逗号或数组未闭合", this.pos, "", this.filePath)
@@ -758,22 +823,22 @@ static ParseNumber() {
 		hasDecimal := false
 		hasExponent := false
 
-		DebugLogger.Log("ParseNumber: START at pos " start)
+		_JsonDebugLog("ParseNumber: START at pos " start)
 
 		try {
 			currentChar := SubStr(this.json, this.pos, 1)
-			DebugLogger.Log("ParseNumber: char at pos " this.pos " is '" currentChar "' (ASCII " Ord(currentChar) ")")
+			_JsonDebugLog("ParseNumber: char at pos " this.pos " is '" currentChar "' (ASCII " Ord(currentChar) ")")
 		} catch as e {
-			DebugLogger.Log("ParseNumber: ERROR getting char - " e.Message)
+			_JsonDebugLog("ParseNumber: ERROR getting char - " e.Message)
 		}
 
 		if (SubStr(this.json, this.pos, 1) = "-") {
-			DebugLogger.Log("ParseNumber: found negative sign")
+			_JsonDebugLog("ParseNumber: found negative sign")
 			this.pos++
 		}
 
 		if (this.pos > this.len) {
-			DebugLogger.Log("ParseNumber: ERROR - incomplete number")
+			_JsonDebugLog("ParseNumber: ERROR - incomplete number")
 			error := JSONError(JSONErrorType.TYPE_INVALID_NUMBER, "数字不完整", start, "", this.filePath)
 			error.SetPosition(start, this.json)
 			JSONLogger.Log(error)
@@ -781,9 +846,9 @@ static ParseNumber() {
 		}
 
 		firstChar := SubStr(this.json, this.pos, 1)
-		DebugLogger.Log("ParseNumber: firstChar='" firstChar "'")
+		_JsonDebugLog("ParseNumber: firstChar='" firstChar "'")
 		if (firstChar < "0" || firstChar > "9") {
-			DebugLogger.Log("ParseNumber: ERROR - invalid start char '" firstChar "'")
+			_JsonDebugLog("ParseNumber: ERROR - invalid start char '" firstChar "'")
 			error := JSONError(JSONErrorType.TYPE_INVALID_NUMBER, "无效的数字起始: '" firstChar "'", this.pos, "", this.filePath)
 			error.SetPosition(this.pos, this.json)
 			error.suggestion := "数字应以 0-9 或负号开始"
@@ -791,58 +856,58 @@ static ParseNumber() {
 			throw error
 		}
 
-	DebugLogger.Log("ParseNumber: entering while loop...")
+	_JsonDebugLog("ParseNumber: entering while loop...")
 	loopCount := 0
 	while (this.pos <= this.len) {
 			loopCount++
 			c := SubStr(this.json, this.pos, 1)
 			cAscii := Ord(c)
-			DebugLogger.Log("ParseNumber: loop #" loopCount " pos=" this.pos " char='" c "' ASCII=" cAscii)
+			_JsonDebugLog("ParseNumber: loop #" loopCount " pos=" this.pos " char='" c "' ASCII=" cAscii)
 			if (cAscii >= 48 && cAscii <= 57) {  ; ASCII 48='0', 57='9'
-				DebugLogger.Log("ParseNumber: digit '" c "' found, pos++")
+				_JsonDebugLog("ParseNumber: digit '" c "' found, pos++")
 				this.pos++
 			} else if (c = "." && !hasDecimal) {
-				DebugLogger.Log("ParseNumber: decimal point found")
+				_JsonDebugLog("ParseNumber: decimal point found")
 				hasDecimal := true
 				this.pos++
 			} else if (c = "e" || c = "E") {
-				DebugLogger.Log("ParseNumber: exponent found")
+				_JsonDebugLog("ParseNumber: exponent found")
 				hasExponent := true
 				this.pos++
 				if (this.pos <= this.len) {
 					expSign := SubStr(this.json, this.pos, 1)
 					if (expSign = "+" || expSign = "-") {
-						DebugLogger.Log("ParseNumber: exponent sign '" expSign "'")
+						_JsonDebugLog("ParseNumber: exponent sign '" expSign "'")
 						this.pos++
 					}
 				}
 			} else {
-				DebugLogger.Log("ParseNumber: checking else conditions...")
+				_JsonDebugLog("ParseNumber: checking else conditions...")
 				isDigit := (cAscii >= 48 && cAscii <= 57)
 				isDecimal := (c = ".")
 				isExp := (c = "e" || c = "E")
-				DebugLogger.Log("ParseNumber: isDigit=" isDigit " isDecimal=" isDecimal " isExp=" isExp)
-				DebugLogger.Log("ParseNumber: non-number char '" c "' (ASCII " cAscii "), breaking loop")
+				_JsonDebugLog("ParseNumber: isDigit=" isDigit " isDecimal=" isDecimal " isExp=" isExp)
+				_JsonDebugLog("ParseNumber: non-number char '" c "' (ASCII " cAscii "), breaking loop")
 				break
 			}
 		}
 
-		DebugLogger.Log("ParseNumber: while loop done, pos=" this.pos)
+		_JsonDebugLog("ParseNumber: while loop done, pos=" this.pos)
 		numStr := SubStr(this.json, start, this.pos - start)
-		DebugLogger.Log("ParseNumber: extracted '" numStr "' (hasDecimal=" hasDecimal ", hasExponent=" hasExponent ")")
+		_JsonDebugLog("ParseNumber: extracted '" numStr "' (hasDecimal=" hasDecimal ", hasExponent=" hasExponent ")")
 
 		try {
 			if (hasDecimal || hasExponent) {
 				result := Float(numStr)
-				DebugLogger.Log("ParseNumber: result=" result " (Float)")
+				_JsonDebugLog("ParseNumber: result=" result " (Float)")
 				return result
 			} else {
 				result := Integer(numStr)
-				DebugLogger.Log("ParseNumber: result=" result " (Integer)")
+				_JsonDebugLog("ParseNumber: result=" result " (Integer)")
 				return result
 			}
 		} catch as e {
-			DebugLogger.Log("ParseNumber: ERROR - cannot parse '" numStr "' - " e.Message)
+			_JsonDebugLog("ParseNumber: ERROR - cannot parse '" numStr "' - " e.Message)
 			error := JSONError(JSONErrorType.TYPE_INVALID_NUMBER, "无法解析数字: '" numStr "'", start, "", this.filePath)
 			error.SetPosition(start, this.json)
 			JSONLogger.Log(error)
@@ -1035,6 +1100,54 @@ class ConfigValidator {
         return errors
     }
     
+    static ValidateHotkeys(config) {
+        errors := []
+        
+        ; 保留热键列表（控制热键 + 默认分组热键）
+        reservedHotkeys := Map()
+        for hk in ["F12", "^g", "^r", "^0", "^1", "^h"]
+            reservedHotkeys[hk] := true
+        for hk in ["F1", "F2", "F3", "F4", "F5", "F6"]
+            reservedHotkeys[hk] := true
+        
+        ; 收集所有分组热键
+        groupHotkeys := Map()
+        
+        ; 从 config 的 GroupSettings 收集热键
+        if (HasProp(config, "GroupSettings") && config.Has("GroupSettings")) {
+            gs := config["GroupSettings"]
+            if (gs is Map) {
+                for idStr, groupConfig in gs {
+                    hotkey := ""
+                    if (groupConfig is Map && groupConfig.Has("hotkey"))
+                        hotkey := groupConfig["hotkey"]
+                    else if (IsObject(groupConfig) && HasProp(groupConfig, "hotkey"))
+                        hotkey := groupConfig.hotkey
+                    
+                    if (hotkey = "") {
+                        errors.Push("分组 " idStr ": 热键不能为空")
+                        continue
+                    }
+                    
+                    ; 格式校验
+                    if (StrLen(hotkey) > 15)
+                        errors.Push("分组 " idStr ": 热键 '" hotkey "' 过长(>15字符)")
+                    
+                    ; 重复检测
+                    if (groupHotkeys.Has(hotkey))
+                        errors.Push("热键 '" hotkey "' 与分组 " groupHotkeys[hotkey] " 重复")
+                    groupHotkeys[hotkey] := idStr
+                    
+                    ; 保留字检测
+                    if (reservedHotkeys.Has(hotkey))
+                        errors.Push("热键 '" hotkey "' 是系统保留热键，请使用其他热键")
+                }
+            }
+        }
+        
+        return errors
+    }
+    
     static _ValidateGroup(id, config) {
         errors := []
         
@@ -1060,7 +1173,7 @@ class ConfigValidator {
             mode := this._GetField(config, "mode")
             if !this._ArrayContains(this.validModes, mode) {
                 error := JSONError(JSONErrorType.CONFIG_INVALID_MODE, "分组" id "有无效的模式: " mode, 0, "", "")
-                error.suggestion := "有效模式: " Join(this.validModes, ", ")
+                error.suggestion := "有效模式: " _JsonJoin(this.validModes, ", ")
                 JSONLogger.Log(error)
                 errors.Push(error)
             }
@@ -1071,58 +1184,184 @@ class ConfigValidator {
         return errors
     }
     
-    static _ValidateModeFields(id, mode, config) {
-        errors := []
-        
-        switch mode {
-            case "periodic":
-                if !this._HasField(config, "keys") || !this._HasField(config, "intervals") {
-                    error := JSONError(JSONErrorType.CONFIG_MISSING_FIELD, "分组" id " (periodic) 缺少 keys 或 intervals", 0, "", "")
-                    JSONLogger.Log(error)
-                    errors.Push(error)
-                }
-            case "sequence":
-                if !this._HasField(config, "keys") || !this._HasField(config, "delays") {
-                    error := JSONError(JSONErrorType.CONFIG_MISSING_FIELD, "分组" id " (sequence) 缺少 keys 或 delays", 0, "", "")
-                    JSONLogger.Log(error)
-                    errors.Push(error)
-                }
-            case "hybrid":
-                if !this._HasField(config, "periodic") || !this._HasField(config, "sequence") {
-                    error := JSONError(JSONErrorType.CONFIG_MISSING_FIELD, "分组" id " (hybrid) 缺少 periodic 或 sequence", 0, "", "")
-                    JSONLogger.Log(error)
-                    errors.Push(error)
-                }
-            case "enhanced_periodic":
-                if !this._HasField(config, "pressKeys") || !this._HasField(config, "intervals") {
-                    error := JSONError(JSONErrorType.CONFIG_MISSING_FIELD, "分组" id " (enhanced_periodic) 缺少 pressKeys 或 intervals", 0, "", "")
-                    JSONLogger.Log(error)
-                    errors.Push(error)
-                }
-            case "enhanced_sequence":
-                if !this._HasField(config, "pressKeys") || !this._HasField(config, "pressDelays") {
-                    error := JSONError(JSONErrorType.CONFIG_MISSING_FIELD, "分组" id " (enhanced_sequence) 缺少 pressKeys 或 pressDelays", 0, "", "")
-                    JSONLogger.Log(error)
-                    errors.Push(error)
-                }
-            case "enhanced_hybrid":
-                if !this._HasField(config, "periodic") || !this._HasField(config, "sequence") {
-                    error := JSONError(JSONErrorType.CONFIG_MISSING_FIELD, "分组" id " (enhanced_hybrid) 缺少 periodic 或 sequence", 0, "", "")
-                    JSONLogger.Log(error)
-                    errors.Push(error)
-                }
-            case "hold":
-                if !this._HasField(config, "holdKeys") {
-                    warning := JSONError(JSONErrorType.CONFIG_MISSING_FIELD, "分组" id " (hold) 缺少 holdKeys", 0, "", "")
-                    warning.level := "WARNING"
-                    warning.suggestion := "纯长按模式需要指定要长按的键"
-                    JSONLogger.Log(warning)
-                    errors.Push(warning)
-                }
-        }
-        
-        return errors
-    }
+static _ValidateModeFields(id, mode, config) {
+		errors := []
+		MIN_INTERVAL := 1
+
+		switch mode {
+			case "periodic":
+				if !this._HasField(config, "keys") || !this._HasField(config, "intervals") {
+					error := JSONError(JSONErrorType.CONFIG_MISSING_FIELD, "分组" id " (periodic) 缺少 keys 或 intervals", 0, "", "")
+					JSONLogger.Log(error)
+					errors.Push(error)
+				} else {
+					; 验证 intervals 边界
+					intervals := this._GetField(config, "intervals")
+					if (intervals is Array) {
+						for i, val in intervals {
+							if (val < MIN_INTERVAL) {
+								warning := JSONError(JSONErrorType.CONFIG_INVALID_FIELD, "分组" id " intervals[" i "]=" val " 小于最小值 " MIN_INTERVAL "，已自动修正", 0, "", "")
+								warning.level := "WARNING"
+								JSONLogger.Log(warning)
+								errors.Push(warning)
+							}
+						}
+					}
+				}
+			case "sequence":
+				if !this._HasField(config, "keys") || !this._HasField(config, "delays") {
+					error := JSONError(JSONErrorType.CONFIG_MISSING_FIELD, "分组" id " (sequence) 缺少 keys 或 delays", 0, "", "")
+					JSONLogger.Log(error)
+					errors.Push(error)
+				} else {
+					; 验证 delays 边界
+					delays := this._GetField(config, "delays")
+					if (delays is Array) {
+						for i, val in delays {
+							if (val < MIN_INTERVAL) {
+								warning := JSONError(JSONErrorType.CONFIG_INVALID_FIELD, "分组" id " delays[" i "]=" val " 小于最小值 " MIN_INTERVAL "，已自动修正", 0, "", "")
+								warning.level := "WARNING"
+								JSONLogger.Log(warning)
+								errors.Push(warning)
+							}
+						}
+					}
+				}
+	case "hybrid":
+		_JsonDebugLog("_ValidateModeFields: hybrid mode id=" id " config type=" Type(config))
+		groupsVal := this._GetField(config, "groups")
+		hasGroups := this._HasField(config, "groups") && IsObject(groupsVal) && groupsVal is Array && groupsVal.Length > 0
+		_JsonDebugLog("_ValidateModeFields: hasGroups=" hasGroups " groups type=" Type(groupsVal))
+		hasLegacy := this._HasField(config, "periodic") && this._HasField(config, "sequence")
+		if !hasGroups && !hasLegacy {
+			error := JSONError(JSONErrorType.CONFIG_MISSING_FIELD, "分组" id " (hybrid) 需要 groups 数组或 periodic/sequence 字段", 0, "", "")
+			JSONLogger.Log(error)
+			errors.Push(error)
+		}
+		if hasGroups {
+			MIN_INTERVAL := 1
+			for i, grp in groupsVal {
+				if !this._HasField(grp, "type") {
+					warning := JSONError(JSONErrorType.CONFIG_INVALID_FIELD, "分组" id " groups[" i "] 缺少 type 字段", 0, "", "")
+					warning.level := "WARNING"
+					JSONLogger.Log(warning)
+					errors.Push(warning)
+				}
+				pressKeysVal := this._GetField(grp, "pressKeys")
+				if !this._HasField(grp, "pressKeys") || (pressKeysVal is Array && pressKeysVal.Length = 0) {
+					warning := JSONError(JSONErrorType.CONFIG_INVALID_FIELD, "分组" id " groups[" i "] pressKeys 为空", 0, "", "")
+					warning.level := "WARNING"
+					JSONLogger.Log(warning)
+					errors.Push(warning)
+				}
+				grpType := this._HasField(grp, "type") ? this._GetField(grp, "type") : "periodic"
+				if (grpType = "sequence") {
+					seqInterval := this._HasField(grp, "seqInterval") ? this._GetField(grp, "seqInterval") : 100
+					if (seqInterval < MIN_INTERVAL) {
+						warning := JSONError(JSONErrorType.CONFIG_INVALID_FIELD, "分组" id " groups[" i "] seqInterval=" seqInterval " 小于最小值 " MIN_INTERVAL, 0, "", "")
+						warning.level := "WARNING"
+						JSONLogger.Log(warning)
+						errors.Push(warning)
+					}
+				}
+			}
+		}
+		case "enhanced_periodic":
+				if !this._HasField(config, "pressKeys") || !this._HasField(config, "intervals") {
+					error := JSONError(JSONErrorType.CONFIG_MISSING_FIELD, "分组" id " (enhanced_periodic) 缺少 pressKeys 或 intervals", 0, "", "")
+					JSONLogger.Log(error)
+					errors.Push(error)
+				} else {
+					; 验证 intervals 边界
+					intervals := this._GetField(config, "intervals")
+					if (intervals is Array) {
+						for i, val in intervals {
+							if (val < MIN_INTERVAL) {
+								warning := JSONError(JSONErrorType.CONFIG_INVALID_FIELD, "分组" id " intervals[" i "]=" val " 小于最小值 " MIN_INTERVAL "，已自动修正", 0, "", "")
+								warning.level := "WARNING"
+								JSONLogger.Log(warning)
+								errors.Push(warning)
+							}
+						}
+					}
+				}
+			case "enhanced_sequence":
+				if !this._HasField(config, "pressKeys") || !this._HasField(config, "pressDelays") {
+					error := JSONError(JSONErrorType.CONFIG_MISSING_FIELD, "分组" id " (enhanced_sequence) 缺少 pressKeys 或 pressDelays", 0, "", "")
+					JSONLogger.Log(error)
+					errors.Push(error)
+				} else {
+					; 验证 pressDelays 边界
+					pressDelays := this._GetField(config, "pressDelays")
+					if (pressDelays is Array) {
+						for i, val in pressDelays {
+							if (val < MIN_INTERVAL) {
+								warning := JSONError(JSONErrorType.CONFIG_INVALID_FIELD, "分组" id " pressDelays[" i "]=" val " 小于最小值 " MIN_INTERVAL "，已自动修正", 0, "", "")
+								warning.level := "WARNING"
+								JSONLogger.Log(warning)
+								errors.Push(warning)
+							}
+						}
+					}
+				}
+	case "enhanced_hybrid":
+		_JsonDebugLog("_ValidateModeFields: enhanced_hybrid mode id=" id " config type=" Type(config))
+		hasGroupsField := this._HasField(config, "groups")
+		groupsVal := hasGroupsField ? this._GetField(config, "groups") : ""
+		hasGroups := hasGroupsField && IsObject(groupsVal) && groupsVal is Array && groupsVal.Length > 0
+		_JsonDebugLog("_ValidateModeFields: hasGroupsField=" hasGroupsField " hasGroups=" hasGroups)
+		hasLegacy := this._HasField(config, "periodic") && this._HasField(config, "sequence")
+		_JsonDebugLog("_ValidateModeFields: hasLegacy=" hasLegacy)
+		if !hasGroups && !hasLegacy {
+		error := JSONError(JSONErrorType.CONFIG_MISSING_FIELD, "分组" id " (enhanced_hybrid) 需要 groups 数组或 periodic/sequence 字段", 0, "", "")
+			JSONLogger.Log(error)
+			errors.Push(error)
+		}
+		if hasGroups {
+			MIN_INTERVAL := 1
+			for i, grp in groupsVal {
+				if !this._HasField(grp, "type") {
+					warning := JSONError(JSONErrorType.CONFIG_INVALID_FIELD, "分组" id " groups[" i "] 缺少 type 字段", 0, "", "")
+					warning.level := "WARNING"
+					JSONLogger.Log(warning)
+					errors.Push(warning)
+				}
+				pressKeysVal := this._GetField(grp, "pressKeys")
+				if !this._HasField(grp, "pressKeys") {
+					warning := JSONError(JSONErrorType.CONFIG_INVALID_FIELD, "分组" id " groups[" i "] 缺少 pressKeys 字段", 0, "", "")
+					warning.level := "WARNING"
+					JSONLogger.Log(warning)
+					errors.Push(warning)
+				} else if (pressKeysVal is Array && pressKeysVal.Length = 0) {
+					; 空数组跳过验证（仅警告，不添加到 errors）
+					warning := JSONError(JSONErrorType.CONFIG_INVALID_FIELD, "分组" id " groups[" i "] pressKeys 为空，已跳过", 0, "", "")
+					warning.level := "WARNING"
+					JSONLogger.Log(warning)
+				}
+				grpType := this._HasField(grp, "type") ? this._GetField(grp, "type") : "periodic"
+				if (grpType = "sequence") {
+					seqInterval := this._HasField(grp, "seqInterval") ? this._GetField(grp, "seqInterval") : 100
+					if (seqInterval < MIN_INTERVAL) {
+						warning := JSONError(JSONErrorType.CONFIG_INVALID_FIELD, "分组" id " groups[" i "] seqInterval=" seqInterval " 小于最小值 " MIN_INTERVAL, 0, "", "")
+						warning.level := "WARNING"
+						JSONLogger.Log(warning)
+						errors.Push(warning)
+					}
+				}
+			}
+		}
+	case "hold":
+				if !this._HasField(config, "holdKeys") {
+					warning := JSONError(JSONErrorType.CONFIG_MISSING_FIELD, "分组" id " (hold) 缺少 holdKeys", 0, "", "")
+					warning.level := "WARNING"
+					warning.suggestion := "纯长按模式需要指定要长按的键"
+					JSONLogger.Log(warning)
+					errors.Push(warning)
+				}
+		}
+
+		return errors
+	}
     
     static _ValidateHotkeys(hotkeys) {
         errors := []
@@ -1153,8 +1392,8 @@ static _ValidateHoldSettings(settings) {
 					JSONLogger.Log(error)
 					errors.Push(error)
 				}
-			} catch {
-				warning := JSONError(JSONErrorType.CONFIG_INVALID_FIELD, "pressSpeed 格式无效: " speed, 0, "", "")
+			} catch as e {
+				warning := JSONError(JSONErrorType.CONFIG_INVALID_FIELD, "pressSpeed 格式无效: " speed " (" e.Message ")", 0, "", "")
 				warning.level := "WARNING"
 				JSONLogger.Log(warning)
 				errors.Push(warning)
@@ -1171,8 +1410,8 @@ static _ValidateHoldSettings(settings) {
 					JSONLogger.Log(warning)
 					errors.Push(warning)
 				}
-			} catch {
-				warning := JSONError(JSONErrorType.CONFIG_INVALID_FIELD, "debounceDelay 格式无效: " delay, 0, "", "")
+			} catch as e {
+				warning := JSONError(JSONErrorType.CONFIG_INVALID_FIELD, "debounceDelay 格式无效: " delay " (" e.Message ")", 0, "", "")
 				warning.level := "WARNING"
 				JSONLogger.Log(warning)
 				errors.Push(warning)
@@ -1194,13 +1433,28 @@ static _ValidateHoldSettings(settings) {
         return false
     }
     
-    static _GetField(obj, field) {
-        if (obj is Map)
-            return obj[field]
-        else if (IsObject(obj) && HasProp(obj, field))
-            return obj.%field%
-        return ""
-    }
+	static _GetField(obj, field) {
+		_JsonDebugLog("_GetField: field='" field "' obj type=" Type(obj))
+		if (obj is Map) {
+			if !obj.Has(field) {
+				_JsonDebugLog("_GetField: Map does NOT have field '" field "'")
+				return ""
+			}
+			val := obj[field]
+			_JsonDebugLog("_GetField: Map[" field "] type=" Type(val))
+			return val
+		} else if (IsObject(obj)) {
+			if !HasProp(obj, field) {
+				_JsonDebugLog("_GetField: Object does NOT have prop '" field "'")
+				return ""
+			}
+			val := obj.%field%
+			_JsonDebugLog("_GetField: obj." field " type=" Type(val))
+			return val
+		}
+		_JsonDebugLog("_GetField: obj is not Map or Object, returning ''")
+		return ""
+	}
     
     static _ArrayContains(arr, value) {
         for item in arr {

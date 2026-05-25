@@ -1,0 +1,149 @@
+﻿{
+  "details": [
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "场景A: GroupService.CreateGroup 正常创建",
+      "status": "PASS",
+      "test": "CreateGroup 返回 success=true",
+      "timestamp": "20260519125000"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "场景A: GroupService.CreateGroup 正常创建",
+      "status": "PASS",
+      "test": "ConfigStore 中 test_1 已存在",
+      "timestamp": "20260519125000"
+    },
+    {
+      "actual": "异常: 分组已存在: test_1",
+      "expected": "异常包含: 已存在",
+      "scenario": "场景B: GroupService.CreateGroup 重复ID",
+      "status": "PASS",
+      "test": "重复创建 test_1 应抛出'已存在'异常",
+      "timestamp": "20260519125000"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "场景C: GroupService.GetGroup 获取分组",
+      "status": "PASS",
+      "test": "新建分组的 active 属性为 false",
+      "timestamp": "20260519125000"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "场景D: GroupService.GetAllGroups 获取全部分组",
+      "status": "PASS",
+      "test": "GetAllGroups 返回值是 Map",
+      "timestamp": "20260519125000"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "场景D: GroupService.GetAllGroups 获取全部分组",
+      "status": "PASS",
+      "test": "返回值包含 test_1",
+      "timestamp": "20260519125000"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "场景D: GroupService.GetAllGroups 获取全部分组",
+      "status": "PASS",
+      "test": "分组总数 Count >= 1",
+      "timestamp": "20260519125000"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "场景E: GroupService.UpdateGroup 更新分组",
+      "status": "PASS",
+      "test": "UpdateGroup 返回 success=true",
+      "timestamp": "20260519125000"
+    },
+    {
+      "actual": "sequence",
+      "expected": "sequence",
+      "scenario": "场景E: GroupService.UpdateGroup 更新分组",
+      "status": "PASS",
+      "test": "更新后 mode 已变为 sequence",
+      "timestamp": "20260519125000"
+    },
+    {
+      "actual": "sequence",
+      "expected": "sequence",
+      "scenario": "场景E: GroupService.UpdateGroup 更新分组",
+      "status": "PASS",
+      "test": "ConfigStore 中 mode 已同步为 sequence",
+      "timestamp": "20260519125000"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "场景F: GroupService.DeleteGroup 正常删除",
+      "status": "PASS",
+      "test": "DeleteGroup 返回 success=true",
+      "timestamp": "20260519125000"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "场景F: GroupService.DeleteGroup 正常删除",
+      "status": "PASS",
+      "test": "ConfigStore 中 test_1 已被移除",
+      "timestamp": "20260519125000"
+    },
+    {
+      "actual": "异常: 分组不存在: nonexistent_group",
+      "expected": "异常包含: 不存在",
+      "scenario": "场景G: GroupService.DeleteGroup 不存在分组",
+      "status": "PASS",
+      "test": "删除不存在分组应抛出'不存在'异常",
+      "timestamp": "20260519125000"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "场景H: ConfigService.MigrateConfig 旧格式迁移",
+      "status": "PASS",
+      "test": "迁移后 repeatMode 字段不再存在",
+      "timestamp": "20260519125000"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "场景H: ConfigService.MigrateConfig 旧格式迁移",
+      "status": "PASS",
+      "test": "迁移后 keys 已转为 pressKeys",
+      "timestamp": "20260519125000"
+    },
+    {
+      "actual": "Space",
+      "expected": "Space",
+      "scenario": "场景H: ConfigService.MigrateConfig 旧格式迁移",
+      "status": "PASS",
+      "test": "迁移后 pressKeys 内容正确",
+      "timestamp": "20260519125000"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "场景I: ConfigService.MigrateConfig 清理 type 字段",
+      "status": "PASS",
+      "test": "迁移后旧字段 type 已被清除",
+      "timestamp": "20260519125000"
+    }
+  ],
+  "elapsedMs": 16,
+  "generatedAt": "20260519125000",
+  "summary": {
+    "failed": false,
+    "passed": 17,
+    "scenarios": 9,
+    "skipped": false,
+    "total": 17
+  }
+}

@@ -1,0 +1,178 @@
+<h2>方案 A — 卡片式布局（3个变体）</h2>
+<p class="subtitle">每个分组一张卡片，点击展开操作</p>
+
+<div class="split" style="margin-bottom: 2rem;">
+  <div class="mockup">
+    <div class="mockup-header">A1. 深色卡片 — 紧凑行</div>
+    <div class="mockup-body" style="background: #1a1a2e; padding: 16px; font-family: 'Segoe UI', sans-serif;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <span style="color: #e0e0e0; font-size: 14px; font-weight: 600;">技能管理器</span>
+        <div style="display: flex; gap: 6px;">
+          <button style="background: #16213e; color: #4fc3f7; border: 1px solid #4fc3f7; border-radius: 4px; padding: 4px 10px; font-size: 10px; cursor: pointer;">+ 新建</button>
+          <button style="background: #16213e; color: #aaa; border: 1px solid #444; border-radius: 4px; padding: 4px 10px; font-size: 10px;">⚙ 设置</button>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="background: #16213e; border-radius: 8px; padding: 10px 14px; border-left: 3px solid #4caf50;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="background: #4caf50; width: 8px; height: 8px; border-radius: 50%; display: inline-block;"></span>
+              <span style="color: #fff; font-weight: 600; font-size: 12px;">分组 1</span>
+              <span style="background: #1b5e20; color: #a5d6a7; padding: 2px 8px; border-radius: 10px; font-size: 9px;">F1</span>
+              <span style="color: #888; font-size: 10px;">混合模式</span>
+            </div>
+            <div style="display: flex; gap: 4px;">
+              <button style="background: transparent; color: #4fc3f7; border: none; font-size: 10px; cursor: pointer;">编辑</button>
+              <button style="background: transparent; color: #ef5350; border: none; font-size: 10px;">停止</button>
+            </div>
+          </div>
+        </div>
+        <div style="background: #16213e; border-radius: 8px; padding: 10px 14px; border-left: 3px solid #555;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="background: #555; width: 8px; height: 8px; border-radius: 50%; display: inline-block;"></span>
+              <span style="color: #fff; font-weight: 600; font-size: 12px;">分组 2</span>
+              <span style="background: #333; color: #999; padding: 2px 8px; border-radius: 10px; font-size: 9px;">F2</span>
+              <span style="color: #888; font-size: 10px;">序列模式</span>
+            </div>
+            <div style="display: flex; gap: 4px;">
+              <button style="background: transparent; color: #4fc3f7; border: none; font-size: 10px;">编辑</button>
+              <button style="background: transparent; color: #66bb6a; border: none; font-size: 10px;">启动</button>
+            </div>
+          </div>
+        </div>
+        <div style="background: #16213e; border-radius: 8px; padding: 10px 14px; border-left: 3px solid #555;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="background: #555; width: 8px; height: 8px; border-radius: 50%; display: inline-block;"></span>
+              <span style="color: #fff; font-weight: 600; font-size: 12px;">分组 3</span>
+              <span style="background: #333; color: #999; padding: 2px 8px; border-radius: 10px; font-size: 9px;">F3</span>
+              <span style="color: #888; font-size: 10px;">增强周期</span>
+            </div>
+            <div style="display: flex; gap: 4px;">
+              <button style="background: transparent; color: #4fc3f7; border: none; font-size: 10px;">编辑</button>
+              <button style="background: transparent; color: #66bb6a; border: none; font-size: 10px;">启动</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">A2. 深色卡片 — 展开详情</div>
+    <div class="mockup-body" style="background: #1a1a2e; padding: 16px; font-family: 'Segoe UI', sans-serif;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <span style="color: #e0e0e0; font-size: 14px; font-weight: 600;">技能管理器</span>
+        <div style="display: flex; gap: 6px;">
+          <button style="background: #16213e; color: #4fc3f7; border: 1px solid #4fc3f7; border-radius: 4px; padding: 4px 10px; font-size: 10px;">+ 新建</button>
+          <button style="background: #16213e; color: #aaa; border: 1px solid #444; border-radius: 4px; padding: 4px 10px; font-size: 10px;">⚙ 设置</button>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="background: #16213e; border-radius: 8px; padding: 10px 14px; border-left: 3px solid #4caf50;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="background: #4caf50; width: 8px; height: 8px; border-radius: 50%; display: inline-block;"></span>
+              <span style="color: #fff; font-weight: 600; font-size: 12px;">分组 1</span>
+              <span style="background: #1b5e20; color: #a5d6a7; padding: 2px 8px; border-radius: 10px; font-size: 9px;">F1</span>
+              <span style="color: #888; font-size: 10px;">混合模式</span>
+            </div>
+            <span style="color: #4caf50; font-size: 10px;">● 运行中</span>
+          </div>
+          <div style="background: #0d1117; border-radius: 6px; padding: 8px; margin-top: 6px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 9px;">
+              <span style="color: #888;">按键:</span><span style="color: #ccc;">m, a | 1, 2, 3, 4</span>
+              <span style="color: #888;">间隔:</span><span style="color: #ccc;">50ms | 200-2500ms</span>
+              <span style="color: #888;">组数:</span><span style="color: #ccc;">2 个子组</span>
+            </div>
+          </div>
+          <div style="display: flex; gap: 6px; margin-top: 8px;">
+            <button style="background: #1b5e20; color: #a5d6a7; border: none; border-radius: 4px; padding: 3px 10px; font-size: 9px;">停止</button>
+            <button style="background: #16213e; color: #4fc3f7; border: 1px solid #4fc3f7; border-radius: 4px; padding: 3px 10px; font-size: 9px;">编辑</button>
+            <button style="background: #16213e; color: #ef5350; border: 1px solid #ef5350; border-radius: 4px; padding: 3px 10px; font-size: 9px;">删除</button>
+            <button style="background: #16213e; color: #888; border: 1px solid #444; border-radius: 4px; padding: 3px 10px; font-size: 9px;">复制</button>
+          </div>
+        </div>
+        <div style="background: #16213e; border-radius: 8px; padding: 10px 14px; border-left: 3px solid #555;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="background: #555; width: 8px; height: 8px; border-radius: 50%; display: inline-block;"></span>
+              <span style="color: #fff; font-weight: 600; font-size: 12px;">分组 2</span>
+              <span style="background: #333; color: #999; padding: 2px 8px; border-radius: 10px; font-size: 9px;">F2</span>
+              <span style="color: #888; font-size: 10px;">序列模式</span>
+            </div>
+            <span style="color: #666; font-size: 10px;">○ 已停止</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mockup" style="margin-bottom: 2rem;">
+  <div class="mockup-header">A3. 浅色卡片 — 圆角毛玻璃</div>
+  <div class="mockup-body" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 16px; font-family: 'Segoe UI', sans-serif;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <span style="color: #fff; font-size: 14px; font-weight: 600;">技能管理器</span>
+      <div style="display: flex; gap: 6px;">
+        <button style="background: rgba(255,255,255,0.2); color: #fff; border: none; border-radius: 20px; padding: 4px 12px; font-size: 10px; backdrop-filter: blur(10px);">+ 新建分组</button>
+        <button style="background: rgba(255,255,255,0.15); color: #ddd; border: none; border-radius: 20px; padding: 4px 12px; font-size: 10px;">⚙</button>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <div style="background: rgba(255,255,255,0.15); backdrop-filter: blur(10px); border-radius: 12px; padding: 12px 16px; border: 1px solid rgba(255,255,255,0.2);">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="background: #4caf50; width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 6px #4caf50;"></div>
+            <span style="color: #fff; font-weight: 600; font-size: 12px;">分组 1</span>
+            <span style="background: rgba(255,255,255,0.2); color: #e0e0e0; padding: 2px 10px; border-radius: 12px; font-size: 9px;">F1</span>
+            <span style="color: rgba(255,255,255,0.7); font-size: 10px;">混合模式</span>
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <button style="background: rgba(255,255,255,0.2); color: #fff; border: none; border-radius: 12px; padding: 3px 10px; font-size: 9px;">编辑</button>
+            <button style="background: rgba(239,83,80,0.3); color: #ffcdd2; border: none; border-radius: 12px; padding: 3px 10px; font-size: 9px;">停止</button>
+          </div>
+        </div>
+      </div>
+      <div style="background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 12px; padding: 12px 16px; border: 1px solid rgba(255,255,255,0.1);">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="background: #666; width: 10px; height: 10px; border-radius: 50%;"></div>
+            <span style="color: #fff; font-weight: 600; font-size: 12px;">分组 2</span>
+            <span style="background: rgba(255,255,255,0.15); color: #bbb; padding: 2px 10px; border-radius: 12px; font-size: 9px;">F2</span>
+            <span style="color: rgba(255,255,255,0.5); font-size: 10px;">序列模式</span>
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <button style="background: rgba(255,255,255,0.2); color: #fff; border: none; border-radius: 12px; padding: 3px 10px; font-size: 9px;">编辑</button>
+            <button style="background: rgba(76,175,80,0.3); color: #c8e6c9; border: none; border-radius: 12px; padding: 3px 10px; font-size: 9px;">启动</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="a1" onclick="toggleSelect(this)">
+    <div class="letter">A1</div>
+    <div class="content">
+      <h3>深色紧凑行</h3>
+      <p>信息密度高，一屏看全。适合分组多、频繁切换的场景。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="a2" onclick="toggleSelect(this)">
+    <div class="letter">A2</div>
+    <div class="content">
+      <h3>深色展开详情</h3>
+      <p>点击展开显示按键/间隔等详情，无需打开编辑器。适合需要快速查看配置的场景。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="a3" onclick="toggleSelect(this)">
+    <div class="letter">A3</div>
+    <div class="content">
+      <h3>浅色毛玻璃</h3>
+      <p>渐变背景+毛玻璃效果，视觉最惊艳。但 AHK 原生 GUI 不支持 backdrop-filter，需用纯色模拟。</p>
+    </div>
+  </div>
+</div>

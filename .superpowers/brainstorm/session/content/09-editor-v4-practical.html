@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>技能管理器 v3.0 — 编辑器 V4 实用交互</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+  background-attachment: fixed;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+.glass {
+  background: rgba(255,255,255,0.12);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 16px;
+}
+.glass-input {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  color: #fff;
+  padding: 7px 10px;
+  font-size: 12px;
+  outline: none;
+  width: 100%;
+  transition: border-color 0.2s;
+}
+.glass-input:focus { border-color: rgba(255,255,255,0.5); }
+.glass-input::placeholder { color: rgba(255,255,255,0.35); }
+select.glass-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='rgba(255,255,255,0.6)' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 24px;
+  cursor: pointer;
+}
+select.glass-input option { background: #2d1b69; color: #fff; }
+.btn {
+  border: none;
+  border-radius: 8px;
+  padding: 7px 16px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.btn:hover { filter: brightness(1.1); }
+.btn-success { background: rgba(76,175,80,0.5); color: #fff; }
+.btn-ghost { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.12); }
+.btn-sm { padding: 4px 10px; font-size: 10px; border-radius: 6px; }
+.btn-icon {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.7);
+  border: none;
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.panel {
+  width: 520px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.panel-title { color: #fff; font-size: 14px; font-weight: 600; }
+.panel-body {
+  padding: 14px 18px;
+  overflow-y: auto;
+  flex: 1;
+}
+.panel-body::-webkit-scrollbar { width: 4px; }
+.panel-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
+.panel-footer {
+  padding: 10px 18px;
+  border-top: 1px solid rgba(255,255,255,0.1);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.section { margin-bottom: 14px; }
+.section-title {
+  color: rgba(255,255,255,0.5);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.form-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+.form-row .label {
+  color: rgba(255,255,255,0.6);
+  font-size: 11px;
+  min-width: 60px;
+  flex-shrink: 0;
+}
+.form-row .field { flex: 1; }
+
+/* 按键表格 - 核心交互改进 */
+.key-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 3px;
+}
+.key-table th {
+  color: rgba(255,255,255,0.4);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 8px;
+  text-align: left;
+  font-weight: 400;
+}
+.key-table td {
+  padding: 2px 4px;
+}
+.key-table input {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  color: #fff;
+  padding: 6px 8px;
+  font-size: 11px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.key-table input:focus { border-color: rgba(103,126,234,0.5); }
+.key-table input::placeholder { color: rgba(255,255,255,0.25); }
+.key-table .key-input { width: 70px; text-align: center; font-weight: 500; }
+.key-table .interval-input { width: 65px; text-align: center; }
+.key-table .unit { color: rgba(255,255,255,0.3); font-size: 9px; margin-left: 2px; }
+.key-table .row-actions {
+  display: flex;
+  gap: 2px;
+}
+.key-table .row-btn {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.3);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+.key-table .row-btn:hover { color: rgba(255,255,255,0.8); background: rgba(255,255,255,0.1); }
+.key-table .row-btn.del:hover { color: #ef5350; }
+.key-table .add-row td {
+  padding-top: 6px;
+}
+
+/* 子组标签页 */
+.sub-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 10px;
+  background: rgba(0,0,0,0.1);
+  border-radius: 8px;
+  padding: 3px;
+}
+.sub-tab {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.4);
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.sub-tab:hover { color: rgba(255,255,255,0.7); }
+.sub-tab.active {
+  background: rgba(103,126,234,0.3);
+  color: #c5caff;
+}
+.sub-tab .tab-close {
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.sub-tab:hover .tab-close { opacity: 0.5; }
+.sub-tab .tab-close:hover { opacity: 1; }
+.sub-tab-add {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.3);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.sub-tab-add:hover { color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.05); }
+
+.sub-content { display: none; }
+.sub-content.active { display: block; }
+
+/* 模式选择 - 简洁下拉 */
+.mode-select {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.mode-opt {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  padding: 4px 10px;
+  color: rgba(255,255,255,0.5);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.mode-opt:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8); }
+.mode-opt.active {
+  background: rgba(103,126,234,0.3);
+  border-color: rgba(103,126,234,0.5);
+  color: #c5caff;
+}
+
+/* 热键 */
+.hotkey-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.hotkey-display {
+  background: rgba(103,126,234,0.2);
+  border: 1px solid rgba(103,126,234,0.4);
+  border-radius: 8px;
+  color: #b3c6ff;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  min-width: 60px;
+  text-align: center;
+  transition: all 0.15s;
+  letter-spacing: 1px;
+}
+.hotkey-display:hover { background: rgba(103,126,234,0.35); }
+.hotkey-display.capturing {
+  background: rgba(239,83,80,0.2);
+  border-color: rgba(239,83,80,0.4);
+  color: #ffcdd2;
+  animation: capPulse 0.8s infinite;
+  min-width: 120px;
+}
+@keyframes capPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.hotkey-hint {
+  color: rgba(255,255,255,0.3);
+  font-size: 9px;
+}
+
+/* 高级选项折叠 */
+.adv-toggle {
+  color: rgba(255,255,255,0.4);
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+  transition: color 0.15s;
+}
+.adv-toggle:hover { color: rgba(255,255,255,0.7); }
+.adv-content {
+  display: none;
+  padding-top: 8px;
+}
+.adv-content.show { display: block; }
+
+.toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(10px);
+  color: #fff;
+  padding: 10px 24px;
+  border-radius: 24px;
+  font-size: 12px;
+  z-index: 200;
+  transition: transform 0.3s;
+  pointer-events: none;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+
+.sub-type-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.sub-type-label {
+  color: rgba(255,255,255,0.5);
+  font-size: 10px;
+}
+</style>
+</head>
+<body>
+
+<div class="panel glass">
+  <div class="panel-header">
+    <span class="panel-title">编辑分组 1</span>
+    <button class="btn-icon" onclick="showToast('关闭')">✕</button>
+  </div>
+
+  <div class="panel-body">
+    <!-- 基本信息 -->
+    <div class="section">
+      <div class="section-title">基本信息</div>
+      <div class="form-row">
+        <span class="label">ID</span>
+        <div class="field"><input class="glass-input" value="1" style="width:70px;" readonly></div>
+      </div>
+      <div class="form-row">
+        <span class="label">热键</span>
+        <div class="field">
+          <div class="hotkey-field">
+            <div class="hotkey-display" id="hotkeyDisp" onclick="toggleCapture()">F1</div>
+            <span class="hotkey-hint">点击后按键设置</span>
+          </div>
+        </div>
+      </div>
+      <div class="form-row">
+        <span class="label">模式</span>
+        <div class="field">
+          <div class="mode-select">
+            <span class="mode-opt" onclick="pickMode(this,'periodic')">周期性</span>
+            <span class="mode-opt" onclick="pickMode(this,'sequence')">序列</span>
+            <span class="mode-opt" onclick="pickMode(this,'enhanced_periodic')">增强周期</span>
+            <span class="mode-opt" onclick="pickMode(this,'enhanced_sequence')">增强序列</span>
+            <span class="mode-opt active" onclick="pickMode(this,'hybrid')">混合</span>
+            <span class="mode-opt" onclick="pickMode(this,'enhanced_hybrid')">增强混合</span>
+            <span class="mode-opt" onclick="pickMode(this,'hold')">长按</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 按键配置 - 混合模式用子组标签页 -->
+    <div class="section" id="keysSection">
+      <div class="section-title">按键配置</div>
+
+      <!-- 子组标签页 -->
+      <div class="sub-tabs" id="subTabs">
+        <button class="sub-tab active" onclick="switchSub(1)">
+          <span>子组 1</span>
+          <span class="tab-close" onclick="event.stopPropagation();removeSub(1)">×</span>
+        </button>
+        <button class="sub-tab" onclick="switchSub(2)">
+          <span>子组 2</span>
+          <span class="tab-close" onclick="event.stopPropagation();removeSub(2)">×</span>
+        </button>
+        <button class="sub-tab-add" onclick="addSub()">+</button>
+      </div>
+
+      <!-- 子组1内容 -->
+      <div class="sub-content active" id="sub1">
+        <div class="sub-type-row">
+          <span class="sub-type-label">子组类型:</span>
+          <select class="glass-input" style="width:100px;padding:4px 8px;font-size:10px;" onchange="updateSubType(1, this.value)">
+            <option value="periodic" selected>周期性</option>
+            <option value="sequence">序列</option>
+          </select>
+        </div>
+        <table class="key-table">
+          <thead>
+            <tr>
+              <th style="width:90px;">按键</th>
+              <th style="width:80px;">间隔 (ms)</th>
+              <th style="width:30px;"></th>
+            </tr>
+          </thead>
+          <tbody id="sub1Body">
+            <tr>
+              <td><input class="key-input" value="m" placeholder="键"></td>
+              <td><input class="interval-input" value="50" type="number" min="10"><span class="unit">ms</span></td>
+              <td><button class="row-btn del" onclick="removeRow(this)" title="删除">✕</button></td>
+            </tr>
+            <tr>
+              <td><input class="key-input" value="a" placeholder="键"></td>
+              <td><input class="interval-input" value="50" type="number" min="10"><span class="unit">ms</span></td>
+              <td><button class="row-btn del" onclick="removeRow(this)" title="删除">✕</button></td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr class="add-row">
+              <td colspan="3"><button class="btn btn-ghost btn-sm" onclick="addRow('sub1Body')">+ 添加按键</button></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <!-- 子组2内容 -->
+      <div class="sub-content" id="sub2">
+        <div class="sub-type-row">
+          <span class="sub-type-label">子组类型:</span>
+          <select class="glass-input" style="width:100px;padding:4px 8px;font-size:10px;" onchange="updateSubType(2, this.value)">
+            <option value="periodic">周期性</option>
+            <option value="sequence" selected>序列</option>
+          </select>
+        </div>
+        <table class="key-table">
+          <thead>
+            <tr>
+              <th style="width:90px;">按键</th>
+              <th style="width:80px;">延迟 (ms)</th>
+              <th style="width:30px;"></th>
+            </tr>
+          </thead>
+          <tbody id="sub2Body">
+            <tr>
+              <td><input class="key-input" value="1" placeholder="键"></td>
+              <td><input class="interval-input" value="200" type="number" min="10"><span class="unit">ms</span></td>
+              <td><button class="row-btn del" onclick="removeRow(this)" title="删除">✕</button></td>
+            </tr>
+            <tr>
+              <td><input class="key-input" value="2" placeholder="键"></td>
+              <td><input class="interval-input" value="220" type="number" min="10"><span class="unit">ms</span></td>
+              <td><button class="row-btn del" onclick="removeRow(this)" title="删除">✕</button></td>
+            </tr>
+            <tr>
+              <td><input class="key-input" value="3" placeholder="键"></td>
+              <td><input class="interval-input" value="240" type="number" min="10"><span class="unit">ms</span></td>
+              <td><button class="row-btn del" onclick="removeRow(this)" title="删除">✕</button></td>
+            </tr>
+            <tr>
+              <td><input class="key-input" value="4" placeholder="键"></td>
+              <td><input class="interval-input" value="2500" type="number" min="10"><span class="unit">ms</span></td>
+              <td><button class="row-btn del" onclick="removeRow(this)" title="删除">✕</button></td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr class="add-row">
+              <td colspan="3"><button class="btn btn-ghost btn-sm" onclick="addRow('sub2Body')">+ 添加按键</button></td>
+            </tr>
+          </tfoot>
+        </table>
+        <div class="form-row" style="margin-top:8px;">
+          <span class="label" style="min-width:60px;">循环间隔</span>
+          <div class="field" style="display:flex;align-items:center;gap:4px;">
+            <input class="glass-input" type="number" value="100" style="width:70px;">
+            <span style="color:rgba(255,255,255,0.3);font-size:9px;">ms</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 高级选项 -->
+    <div class="section">
+      <div class="adv-toggle" onclick="toggleAdv()">
+        <span id="advArrow">▶</span> 高级选项
+      </div>
+      <div class="adv-content" id="advContent">
+        <div class="form-row">
+          <span class="label">长按键</span>
+          <div class="field"><input class="glass-input" placeholder="如 Shift, Ctrl（逗号分隔）"></div>
+        </div>
+        <div class="form-row">
+          <span class="label">长按模式</span>
+          <div class="field">
+            <select class="glass-input" style="width:120px;">
+              <option>持续按住</option>
+              <option>周期按压</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <span class="label">按压模式</span>
+          <div class="field"><input class="glass-input" placeholder="按下,释放 (ms) 如 100,200"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel-footer">
+    <button class="btn btn-ghost" onclick="showToast('取消')">取消</button>
+    <button class="btn btn-success" onclick="showToast('已保存！')">💾 保存</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let isCapturing = false;
+let subCount = 2;
+let activeSub = 1;
+
+function toggleCapture() {
+  isCapturing = !isCapturing;
+  const d = document.getElementById('hotkeyDisp');
+  if (isCapturing) {
+    d.classList.add('capturing');
+    d.textContent = '请按键...';
+    document.addEventListener('keydown', captureKey);
+  } else {
+    d.classList.remove('capturing');
+    document.removeEventListener('keydown', captureKey);
+  }
+}
+
+function captureKey(e) {
+  e.preventDefault();
+  const name = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+  const d = document.getElementById('hotkeyDisp');
+  d.textContent = name;
+  d.classList.remove('capturing');
+  isCapturing = false;
+  document.removeEventListener('keydown', captureKey);
+}
+
+function pickMode(el, mode) {
+  document.querySelectorAll('.mode-opt').forEach(o => o.classList.remove('active'));
+  el.classList.add('active');
+  showToast('模式: ' + mode);
+}
+
+function switchSub(n) {
+  activeSub = n;
+  document.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.sub-content').forEach(c => c.classList.remove('active'));
+  const tabs = document.querySelectorAll('.sub-tab');
+  const idx = Array.from(tabs).findIndex(t => t.dataset.sub == n);
+  if (idx >= 0) tabs[idx].classList.add('active');
+  const content = document.getElementById('sub' + n);
+  if (content) content.classList.add('active');
+}
+
+function addSub() {
+  subCount++;
+  const n = subCount;
+  const tabs = document.getElementById('subTabs');
+  const addBtn = tabs.querySelector('.sub-tab-add');
+  
+  const tab = document.createElement('button');
+  tab.className = 'sub-tab';
+  tab.dataset.sub = n;
+  tab.onclick = () => switchSub(n);
+  tab.innerHTML = `<span>子组 ${n}</span><span class="tab-close" onclick="event.stopPropagation();removeSub(${n})">×</span>`;
+  tabs.insertBefore(tab, addBtn);
+  
+  const content = document.createElement('div');
+  content.className = 'sub-content';
+  content.id = 'sub' + n;
+  content.innerHTML = `
+    <div class="sub-type-row">
+      <span class="sub-type-label">子组类型:</span>
+      <select class="glass-input" style="width:100px;padding:4px 8px;font-size:10px;" onchange="updateSubType(${n}, this.value)">
+        <option value="periodic" selected>周期性</option>
+        <option value="sequence">序列</option>
+      </select>
+    </div>
+    <table class="key-table">
+      <thead><tr><th style="width:90px;">按键</th><th style="width:80px;">间隔 (ms)</th><th style="width:30px;"></th></tr></thead>
+      <tbody id="sub${n}Body"></tbody>
+      <tfoot><tr class="add-row"><td colspan="3"><button class="btn btn-ghost btn-sm" onclick="addRow('sub${n}Body')">+ 添加按键</button></td></tr></tfoot>
+    </table>
+  `;
+  document.getElementById('keysSection').appendChild(content);
+  
+  switchSub(n);
+  showToast('子组 ' + n + ' 已添加');
+}
+
+function removeSub(n) {
+  const tab = document.querySelector(`.sub-tab[data-sub="${n}"]`);
+  const content = document.getElementById('sub' + n);
+  if (tab) tab.remove();
+  if (content) content.remove();
+  
+  if (activeSub === n) {
+    const first = document.querySelector('.sub-tab');
+    if (first) {
+      first.classList.add('active');
+      const firstContent = document.querySelector('.sub-content');
+      if (firstContent) firstContent.classList.add('active');
+    }
+  }
+  showToast('子组已删除');
+}
+
+function updateSubType(n, type) {
+  const body = document.getElementById('sub' + n + 'Body');
+  if (!body) return;
+  const ths = body.closest('table').querySelectorAll('th');
+  if (type === 'sequence') {
+    ths[1].textContent = '延迟 (ms)';
+  } else {
+    ths[1].textContent = '间隔 (ms)';
+  }
+  showToast('子组 ' + n + ' 类型: ' + (type === 'sequence' ? '序列' : '周期性'));
+}
+
+function addRow(bodyId) {
+  const body = document.getElementById(bodyId);
+  if (!body) return;
+  const tr = document.createElement('tr');
+  const isSeq = body.closest('table').querySelector('th:nth-child(2)').textContent.includes('延迟');
+  tr.innerHTML = `
+    <td><input class="key-input" placeholder="键" autofocus></td>
+    <td><input class="interval-input" value="50" type="number" min="10"><span class="unit">ms</span></td>
+    <td><button class="row-btn del" onclick="removeRow(this)" title="删除">✕</button></td>
+  `;
+  body.appendChild(tr);
+  tr.querySelector('.key-input').focus();
+}
+
+function removeRow(btn) {
+  btn.closest('tr').remove();
+}
+
+function toggleAdv() {
+  const c = document.getElementById('advContent');
+  const a = document.getElementById('advArrow');
+  c.classList.toggle('show');
+  a.textContent = c.classList.contains('show') ? '▼' : '▶';
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+</script>
+</body>
+</html>

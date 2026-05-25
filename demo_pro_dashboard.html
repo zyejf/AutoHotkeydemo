@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>按键测试 - 专业调试仪表盘</title>
+<script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.5.1/echarts.min.js"></script>
+<script>if(typeof echarts==='undefined'){document.write('<scr'+'ipt src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></scr'+'ipt>')}</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0d1b2a;--card:#1b2838;--card2:#162230;--border:#1e3a5f;--accent:#00e5ff;--accent2:#00b8d4;--good:#00e676;--warn:#ffab00;--poor:#ff5252;--text:#e8eaf0;--muted:#607d8b;--font:'Segoe UI',system-ui,sans-serif}
+body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;overflow-x:hidden}
+.top-bar{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;background:linear-gradient(135deg,var(--card) 0%,var(--card2) 100%);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
+.top-bar h1{font-size:16px;font-weight:700;color:var(--accent);letter-spacing:1px}
+.top-bar h1 span{color:var(--muted);font-weight:400;font-size:12px;margin-left:8px}
+.mode-tabs{display:flex;gap:4px}
+.mode-tab{padding:5px 16px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:12px;transition:all .25s}
+.mode-tab:hover{border-color:var(--accent);color:var(--accent)}
+.mode-tab.active{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:600}
+.kpi-row{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;padding:14px 20px}
+.kpi{background:var(--card);border-radius:10px;padding:12px 14px;border:1px solid var(--border);position:relative;overflow:hidden;transition:border-color .3s}
+.kpi:hover{border-color:var(--accent)}
+.kpi .glow{position:absolute;top:-20px;right:-20px;width:60px;height:60px;border-radius:50%;opacity:.08}
+.kpi .label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px}
+.kpi .val{font-size:24px;font-weight:700;line-height:1}
+.kpi .sub{font-size:10px;color:var(--muted);margin-top:3px}
+.grid-2x2{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 20px 12px}
+.card{background:var(--card);border-radius:12px;border:1px solid var(--border);overflow:hidden;transition:border-color .3s}
+.card:hover{border-color:rgba(0,229,255,.3)}
+.card-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px 0}
+.card-head .title{font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px}
+.card-head .title .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.card-head .badge{font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(0,229,255,.1);color:var(--accent)}
+.card-body{padding:6px 10px 10px}
+.chart{width:100%;height:280px}
+.bottom-row{display:grid;grid-template-columns:1fr 1.5fr;gap:12px;padding:0 20px 20px}
+.table-wrap{max-height:300px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.table-wrap::-webkit-scrollbar{width:4px}
+.table-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+table{width:100%;border-collapse:collapse;font-size:11px}
+thead{position:sticky;top:0;z-index:1}
+th{background:var(--card2);color:var(--muted);padding:8px 10px;text-align:left;font-weight:600;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;user-select:none;white-space:nowrap}
+th:hover{color:var(--accent)}
+th .sort{font-size:9px;margin-left:2px}
+td{padding:6px 10px;border-bottom:1px solid rgba(30,58,95,.5);white-space:nowrap}
+tr:hover td{background:rgba(0,229,255,.04)}
+tr.highlight td{background:rgba(0,229,255,.1)}
+.tag{display:inline-block;padding:1px 8px;border-radius:8px;font-size:10px;font-weight:600}
+.tag.good{background:rgba(0,230,118,.15);color:var(--good)}
+.tag.acceptable{background:rgba(255,171,0,.15);color:var(--warn)}
+.tag.poor{background:rgba(255,82,82,.15);color:var(--poor)}
+.filter-bar{display:flex;gap:6px;padding:8px 14px;flex-wrap:wrap}
+.filter-btn{padding:3px 10px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:10px;transition:all .2s}
+.filter-btn:hover{border-color:var(--accent);color:var(--accent)}
+.filter-btn.active{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.empty-msg{text-align:center;padding:40px;color:var(--muted);font-size:13px}
+@media(max-width:900px){.grid-2x2{grid-template-columns:1fr}.bottom-row{grid-template-columns:1fr}.kpi-row{grid-template-columns:repeat(3,1fr)}}
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <h1>KEYTEST PRO <span>Debug Dashboard</span></h1>
+  <div class="mode-tabs">
+    <button class="mode-tab active" data-mode="periodic">Periodic</button>
+    <button class="mode-tab" data-mode="sequence">Sequence</button>
+    <button class="mode-tab" data-mode="hybrid">Hybrid</button>
+  </div>
+</div>
+
+<div class="kpi-row" id="kpiRow"></div>
+
+<div class="grid-2x2">
+  <div class="card">
+    <div class="card-head"><span class="title"><span class="dot"></span>偏差散点图</span><span class="badge">点击查看详情</span></div>
+    <div class="card-body"><div class="chart" id="scatterChart"></div></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><span class="title"><span class="dot"></span>间隔对比</span><span class="badge">期望 vs 实际</span></div>
+    <div class="card-body"><div class="chart" id="bulletChart"></div></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><span class="title"><span class="dot"></span>按压时长分布</span><span class="badge">5~200ms 有效</span></div>
+    <div class="card-body"><div class="chart" id="holdChart"></div></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><span class="title"><span class="dot"></span>按键时序泳道</span><span class="badge">缩放查看</span></div>
+    <div class="card-body"><div class="chart" id="swimChart"></div></div>
+  </div>
+</div>
+
+<div class="bottom-row">
+  <div class="card">
+    <div class="card-head"><span class="title"><span class="dot"></span>偏差累积分布</span><span class="badge">CDF</span></div>
+    <div class="card-body"><div class="chart" id="cdfChart"></div></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><span class="title"><span class="dot"></span>事件详情</span></div>
+    <div class="filter-bar" id="filterBar"></div>
+    <div class="card-body">
+      <div class="table-wrap">
+        <table id="eventTable">
+          <thead><tr>
+            <th data-col="idx"># <span class="sort"></span></th>
+            <th data-col="key">按键 <span class="sort"></span></th>
+            <th data-col="event">事件 <span class="sort"></span></th>
+            <th data-col="timestamp">时间 <span class="sort"></span></th>
+            <th data-col="device">设备 <span class="sort"></span></th>
+            <th data-col="deviation">偏差 <span class="sort"></span></th>
+            <th data-col="status">状态 <span class="sort"></span></th>
+          </tr></thead>
+          <tbody id="eventBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var MODES={
+  periodic:{name:'Periodic',keys:['1','2','3'],intervals:[100,150,200],subTypes:null},
+  sequence:{name:'Sequence',keys:['a','b','c'],delays:[100,150,200],totalCycle:450,subTypes:null},
+  hybrid:{name:'Hybrid',keys:['1','2','a','b'],intervals:[100,200,150,250],subTypes:{'1':'periodic','2':'periodic','a':'sequence','b':'sequence'},seqCycleInterval:400}
+};
+var COLORS=['#00e5ff','#7c4dff','#ffab00','#00e676','#ff5252','#40c4ff'];
+var currentMode='periodic';
+var charts={};
+var currentReport=null;
+var selectedKey=null;
+var sortCol=null;
+var sortDir=1;
+
+function rand(a,b){return Math.random()*(b-a)+a}
+function jitter(base,pct){return Math.round(base+base*rand(-pct,pct))}
+
+function generateReport(mode){
+  var cfg=MODES[mode];
+  var events=[];
+  var duration=5000;
+  if(mode==='periodic'){
+    cfg.keys.forEach(function(key,ki){
+      var iv=cfg.intervals[ki];
+      var t=iv;
+      while(t<duration){
+        events.push({key:key,event:'down',timestamp:t,device:'keyboard'});
+        events.push({key:key,event:'up',timestamp:t+jitter(15,0.3),device:'keyboard'});
+        t+=jitter(iv,0.08);
+      }
+    });
+  }else if(mode==='sequence'){
+    var t=0;
+    while(t<duration){
+      for(var i=0;i<cfg.keys.length;i++){
+        t+=jitter(cfg.delays[i],0.06);
+        if(t>=duration)break;
+        events.push({key:cfg.keys[i],event:'down',timestamp:t,device:'keyboard'});
+        events.push({key:cfg.keys[i],event:'up',timestamp:t+jitter(15,0.3),device:'keyboard'});
+      }
+    }
+  }else if(mode==='hybrid'){
+    var perKeys=[],seqKeys=[];
+    cfg.keys.forEach(function(k){
+      if(cfg.subTypes[k]==='periodic')perKeys.push(k);
+      else seqKeys.push(k);
+    });
+    perKeys.forEach(function(key){
+      var ki=cfg.keys.indexOf(key);
+      var iv=cfg.intervals[ki];
+      var t=iv;
+      while(t<duration){
+        events.push({key:key,event:'down',timestamp:t,device:'keyboard'});
+        events.push({key:key,event:'up',timestamp:t+jitter(15,0.3),device:'keyboard'});
+        t+=jitter(iv,0.08);
+      }
+    });
+    var t=0;
+    while(t<duration){
+      for(var i=0;i<seqKeys.length;i++){
+        var ki=cfg.keys.indexOf(seqKeys[i]);
+        t+=jitter(cfg.intervals[ki],0.06);
+        if(t>=duration)break;
+        events.push({key:seqKeys[i],event:'down',timestamp:t,device:'keyboard'});
+        events.push({key:seqKeys[i],event:'up',timestamp:t+jitter(15,0.3),device:'keyboard'});
+      }
+    }
+  }
+  events.sort(function(a,b){return a.timestamp-b.timestamp});
+  var details=[];
+  var lastDownByKey={};
+  events.forEach(function(e){
+    if(e.event!=='down')return;
+    if(lastDownByKey[e.key]!==undefined){
+      var actualInterval=e.timestamp-lastDownByKey[e.key];
+      var expectedInterval;
+      if(mode==='sequence'){
+        expectedInterval=cfg.totalCycle;
+      }else if(mode==='hybrid'&&cfg.subTypes&&cfg.subTypes[e.key]==='sequence'){
+        expectedInterval=cfg.seqCycleInterval;
+      }else{
+        var ki=cfg.keys.indexOf(e.key);
+        expectedInterval=cfg.intervals[ki];
+      }
+      var deviation=Math.round(Math.abs(actualInterval-expectedInterval)/expectedInterval*1000)/10;
+      var status=deviation<=20?'good':deviation<=50?'acceptable':'poor';
+      details.push({key:e.key,expectedInterval:expectedInterval,actualInterval:actualInterval,deviation:deviation,status:status});
+    }
+    lastDownByKey[e.key]=e.timestamp;
+  });
+  var holdDetails=[];
+  var pendingDowns={};
+  events.forEach(function(e){
+    if(e.event==='down'){
+      if(!pendingDowns[e.key])pendingDowns[e.key]=[];
+      pendingDowns[e.key].push(e.timestamp);
+    }else if(e.event==='up'&&pendingDowns[e.key]&&pendingDowns[e.key].length>0){
+      var downTs=pendingDowns[e.key].shift();
+      var holdDuration=Math.round(e.timestamp-downTs);
+      holdDetails.push({key:e.key,downTs:Math.round(downTs),upTs:Math.round(e.timestamp),holdDuration:holdDuration,valid:holdDuration>=5&&holdDuration<=200});
+    }
+  });
+  var devs=details.map(function(d){return d.deviation});
+  var avgDev=devs.length?Math.round(devs.reduce(function(a,b){return a+b},0)/devs.length*10)/10:0;
+  var maxDev=devs.length?Math.round(Math.max.apply(null,devs)*10)/10:0;
+  var downCount=events.filter(function(e){return e.event==='down'}).length;
+  var goodCount=details.filter(function(d){return d.status==='good'}).length;
+  var holdValid=holdDetails.filter(function(h){return h.valid}).length;
+  return{
+    groupId:'test-'+mode,mode:mode,duration:duration,
+    totalExpected:cfg.keys.length,totalActual:events.length,
+    orderCorrect:true,avgIntervalDeviation:avgDev,maxIntervalDeviation:maxDev,
+    sendSuccessRate:Math.min(downCount/(cfg.keys.length*Math.floor(duration/200)),1),
+    holdTimingCorrect:holdValid===holdDetails.length,
+    details:details,holdDetails:holdDetails,events:events
+  };
+}
+
+function renderKPI(report){
+  var row=document.getElementById('kpiRow');
+  var rate=Math.round(report.sendSuccessRate*100);
+  var holdRate=report.holdDetails.length?Math.round(report.holdDetails.filter(function(h){return h.valid}).length/report.holdDetails.length*100):100;
+  var goodRate=report.details.length?Math.round(report.details.filter(function(d){return d.status==='good'}).length/report.details.length*100):100;
+  var items=[
+    {label:'平均偏差',val:report.avgIntervalDeviation+'%',sub:'max '+report.maxIntervalDeviation+'%',color:report.avgIntervalDeviation<=20?'var(--good)':report.avgIntervalDeviation<=50?'var(--warn)':'var(--poor)'},
+    {label:'Good率',val:goodRate+'%',sub:report.details.filter(function(d){return d.status==='good'}).length+'/'+report.details.length,color:goodRate>=80?'var(--good)':goodRate>=50?'var(--warn)':'var(--poor)'},
+    {label:'发送成功率',val:rate+'%',sub:'expected '+report.totalExpected,color:rate>=95?'var(--good)':rate>=80?'var(--warn)':'var(--poor)'},
+    {label:'按压正确率',val:holdRate+'%',sub:report.holdDetails.filter(function(h){return h.valid}).length+'/'+report.holdDetails.length,color:holdRate>=90?'var(--good)':holdRate>=70?'var(--warn)':'var(--poor)'},
+    {label:'总事件数',val:report.totalActual,sub:'duration '+report.duration+'ms',color:'var(--accent)'},
+    {label:'顺序正确',val:report.orderCorrect?'YES':'NO',sub:report.holdTimingCorrect?'hold OK':'hold ERR',color:report.orderCorrect?'var(--good)':'var(--poor)'}
+  ];
+  row.innerHTML=items.map(function(it){
+    return '<div class="kpi"><div class="glow" style="background:'+it.color+'"></div><div class="label">'+it.label+'</div><div class="val" style="color:'+it.color+'">'+it.val+'</div><div class="sub">'+it.sub+'</div></div>';
+  }).join('');
+}
+
+function renderScatter(report){
+  var c=charts.scatter;if(!c){c=echarts.init(document.getElementById('scatterChart'));charts.scatter=c;}
+  var cfg=MODES[report.mode];
+  var series=cfg.keys.map(function(k,ki){
+    var pts=report.details.filter(function(d){return d.key===k}).map(function(d,i){
+      var actual=d.actualInterval-d.expectedInterval;
+      return{value:[i+1,Math.round(actual*10)/10,Math.round(d.deviation*10)/10],itemStyle:{color:d.status==='good'?'var(--good)':d.status==='acceptable'?'var(--warn)':'var(--poor)'},_data:d};
+    });
+    return{name:k,type:'scatter',data:pts,symbolSize:function(val){return Math.max(6,Math.min(16,val[2]/3));},emphasis:{itemStyle:{shadowBlur:10,shadowColor:'rgba(0,229,255,.5)'}},tooltip:{formatter:function(p){var d=p.data._data;return'<b>'+d.key+'</b> #'+(p.dataIndex+1)+'<br/>期望: '+d.expectedInterval+'ms<br/>实际: '+d.actualInterval+'ms<br/>偏差: '+d.deviation+'%<br/>差值: '+(d.actualInterval-d.expectedInterval)+'ms';}}};
+  });
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'item'},
+    legend:{data:cfg.keys,top:2,textStyle:{color:'var(--muted)',fontSize:10},itemWidth:10,itemHeight:10},
+    grid:{left:45,right:14,top:32,bottom:36},
+    xAxis:{type:'value',name:'事件序号',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{show:false}},
+    yAxis:{type:'value',name:'差值(ms)',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}},
+      splitArea:{show:true,areaStyle:{color:['rgba(0,230,118,.02)','rgba(255,82,82,.02)']}}},
+    dataZoom:[{type:'inside'},{type:'slider',height:14,bottom:2,borderColor:'var(--border)',fillerColor:'rgba(0,229,255,.08)',handleStyle:{color:'var(--accent)'},textStyle:{color:'var(--muted)',fontSize:9}}],
+    series:series
+  },true);
+}
+
+function renderBullet(report){
+  var c=charts.bullet;if(!c){c=echarts.init(document.getElementById('bulletChart'));charts.bullet=c;}
+  var cfg=MODES[report.mode];
+  var cats=cfg.keys;
+  var expectedData=cfg.keys.map(function(k,ki){
+    var iv;
+    if(report.mode==='sequence')iv=cfg.totalCycle;
+    else if(report.mode==='hybrid'&&cfg.subTypes&&cfg.subTypes[k]==='sequence')iv=cfg.seqCycleInterval;
+    else iv=cfg.intervals[ki];
+    return iv;
+  });
+  var actualData=cfg.keys.map(function(k){
+    var ds=report.details.filter(function(d){return d.key===k});
+    return ds.length?Math.round(ds.reduce(function(a,d){return a+d.actualInterval},0)/ds.length):0;
+  });
+  var devData=cfg.keys.map(function(k){
+    var ds=report.details.filter(function(d){return d.key===k});
+    return ds.length?Math.round(ds.reduce(function(a,d){return a+d.deviation},0)/ds.length*10)/10:0;
+  });
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis',formatter:function(ps){
+      var idx=ps[0].dataIndex;
+      return'<b>'+cats[idx]+'</b><br/>期望: '+expectedData[idx]+'ms<br/>实际: '+actualData[idx]+'ms<br/>平均偏差: '+devData[idx]+'%';
+    }},
+    grid:{left:50,right:20,top:20,bottom:30},
+    xAxis:{type:'value',name:'间隔(ms)',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
+    yAxis:{type:'category',data:cats,axisLabel:{color:'var(--text)',fontSize:12,fontWeight:600},axisLine:{lineStyle:{color:'var(--border)'}},axisTick:{show:false}},
+    series:[
+      {name:'期望',type:'bar',data:expectedData,barWidth:12,itemStyle:{color:'rgba(0,229,255,.2)',borderColor:'var(--accent)',borderWidth:1,borderRadius:2},z:1,label:{show:true,position:'right',formatter:function(p){return p.value+'ms'},color:'var(--accent)',fontSize:9}},
+      {name:'实际',type:'bar',data:actualData,barWidth:6,itemStyle:{color:function(p){var d=devData[p.dataIndex];return d<=20?'var(--good)':d<=50?'var(--warn)':'var(--poor)';},borderRadius:2},z:2,label:{show:true,position:'right',formatter:function(p){return p.value+'ms'},color:'var(--text)',fontSize:9}}
+    ]
+  },true);
+}
+
+function renderHold(report){
+  var c=charts.hold;if(!c){c=echarts.init(document.getElementById('holdChart'));charts.hold=c;}
+  var cfg=MODES[report.mode];
+  var bins=20,binSize=15;
+  var series=cfg.keys.map(function(k,ki){
+    var hds=report.holdDetails.filter(function(h){return h.key===k});
+    var counts=new Array(bins).fill(0);
+    hds.forEach(function(h){
+      var bi=Math.min(Math.floor(h.holdDuration/binSize),bins-1);
+      if(bi>=0)counts[bi]++;
+    });
+    return{name:k,type:'bar',stack:'hold',data:counts,barWidth:'70%',itemStyle:{color:COLORS[ki%COLORS.length],opacity:.8},emphasis:{itemStyle:{opacity:1}},tooltip:{formatter:function(p){return p.seriesName+'<br/>'+(p.dataIndex*binSize)+'~'+((p.dataIndex+1)*binSize)+'ms: '+p.value+'次';}}};
+  });
+  var xData=[];for(var i=0;i<bins;i++)xData.push(i*binSize);
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis'},
+    legend:{data:cfg.keys,top:2,textStyle:{color:'var(--muted)',fontSize:10},itemWidth:10,itemHeight:10},
+    grid:{left:40,right:14,top:32,bottom:30},
+    xAxis:{type:'category',data:xData,name:'按压时长(ms)',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{show:false}},
+    yAxis:{type:'value',name:'次数',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
+    series:series,
+    markLine:{silent:true,data:[{xAxis:5/binSize,lineStyle:{color:'var(--good)',type:'dashed',width:1},label:{formatter:'5ms',fontSize:8,color:'var(--good)'}},{xAxis:200/binSize,lineStyle:{color:'var(--poor)',type:'dashed',width:1},label:{formatter:'200ms',fontSize:8,color:'var(--poor)'}}]}
+  },true);
+}
+
+function renderSwim(report){
+  var c=charts.swim;if(!c){c=echarts.init(document.getElementById('swimChart'));charts.swim=c;}
+  var cfg=MODES[report.mode];
+  var series=[];
+  cfg.keys.forEach(function(k,ki){
+    var downs=[],ups=[];
+    report.events.forEach(function(e){if(e.key===k){if(e.event==='down')downs.push(e.timestamp);if(e.event==='up')ups.push(e.timestamp);}});
+    var barData=[];
+    for(var i=0;i<downs.length;i++){
+      var upTs=i<ups.length?ups[i]:downs[i]+15;
+      if(upTs<=downs[i])upTs=downs[i]+15;
+      barData.push([Math.round(downs[i]),Math.round(upTs),Math.round(upTs-downs[i]),k,i]);
+    }
+    series.push({
+      name:k,type:'custom',
+      renderItem:function(params,api){
+        var d0=api.value(0),d1=api.value(1),dur=api.value(2);
+        var s=api.coord([d0,params.seriesIndex]);
+        var e=api.coord([d1,params.seriesIndex]);
+        var h=14;
+        var rect=echarts.graphic.clipRectByRect({x:s[0],y:s[1]-h/2,width:Math.max(e[0]-s[0],1),height:h},{x:params.coordSys.x,y:params.coordSys.y,width:params.coordSys.width,height:params.coordSys.height});
+        if(!rect)return;
+        var color=dur>200?'var(--poor)':dur>100?'var(--warn)':COLORS[ki%COLORS.length];
+        return{type:'rect',shape:rect,style:{fill:color,opacity:.8},emphasis:{style:{opacity:1,shadowBlur:6,shadowColor:'rgba(0,229,255,.4)'}}};
+      },
+      data:barData,encode:{x:[0,1],y:0},
+      tooltip:{formatter:function(p){var d=p.data;return'<b>'+d[3]+'</b> #'+(d[4]+1)+'<br/>触发: '+d[0]+'ms<br/>持续: '+d[2]+'ms<br/>释放: '+d[1]+'ms';}}
+    });
+  });
+  var maxTs=report.events.length?Math.max.apply(null,report.events.map(function(e){return e.timestamp})):5000;
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{},
+    legend:{data:cfg.keys,top:2,textStyle:{color:'var(--muted)',fontSize:10},itemWidth:10,itemHeight:10},
+    grid:{left:50,right:16,top:32,bottom:40},
+    xAxis:{type:'value',name:'时间(ms)',nameTextStyle:{color:'var(--muted)',fontSize:9},min:0,max:Math.ceil(maxTs),axisLabel:{color:'var(--muted)',fontSize:9,formatter:function(v){return v+'ms'}},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{lineStyle:{color:'var(--border)',type:'dashed',opacity:.3}}},
+    yAxis:{type:'category',data:cfg.keys,axisLabel:{color:'var(--text)',fontSize:12,fontWeight:600},axisLine:{lineStyle:{color:'var(--border)'}},axisTick:{show:false}},
+    dataZoom:[{type:'slider',start:0,end:100,height:14,bottom:4,borderColor:'var(--border)',fillerColor:'rgba(0,229,255,.08)',handleStyle:{color:'var(--accent)'},textStyle:{color:'var(--muted)',fontSize:9}},{type:'inside'}],
+    series:series,
+    toolbox:{feature:{saveAsImage:{title:'保存'},dataZoom:{title:{zoom:'缩放',back:'还原'}}},right:10,top:0}
+  },true);
+}
+
+function renderCDF(report){
+  var c=charts.cdf;if(!c){c=echarts.init(document.getElementById('cdfChart'));charts.cdf=c;}
+  var cfg=MODES[report.mode];
+  var devs=report.details.map(function(d){return d.deviation}).sort(function(a,b){return a-b});
+  if(devs.length===0){c.setOption({backgroundColor:'transparent',title:{text:'无数据',left:'center',top:'center',textStyle:{color:'var(--muted)'}}},true);return;}
+  var cdfData=devs.map(function(d,i){return[d,Math.round((i+1)/devs.length*1000)/10];});
+  var p20idx=-1,p50idx=-1;
+  devs.forEach(function(d,i){if(d<=20&&p20idx<i)p20idx=i;if(d<=50&&p50idx<i)p50idx=i;});
+  var markLines=[];
+  if(p20idx>=0)markLines.push({xAxis:devs[p20idx],lineStyle:{color:'var(--good)',type:'dashed',width:1},label:{formatter:'20% line',fontSize:8,color:'var(--good)'}});
+  if(p50idx>=0)markLines.push({xAxis:devs[p50idx],lineStyle:{color:'var(--warn)',type:'dashed',width:1},label:{formatter:'50% line',fontSize:8,color:'var(--warn)'}});
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis',formatter:function(ps){return'偏差: '+ps[0].value[0]+'%<br/>CDF: '+ps[0].value[1]+'%';}},
+    grid:{left:45,right:14,top:16,bottom:30},
+    xAxis:{type:'value',name:'偏差%',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{show:false}},
+    yAxis:{type:'value',name:'CDF%',nameTextStyle:{color:'var(--muted)',fontSize:9},min:0,max:100,axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
+    series:[{type:'line',data:cdfData,smooth:true,symbol:'none',lineStyle:{color:'var(--accent)',width:2},areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(0,229,255,.2)'},{offset:1,color:'rgba(0,229,255,.01)'}]}},markLine:{silent:true,data:markLines}}],
+    dataZoom:[{type:'inside'}]
+  },true);
+}
+
+function renderFilterBar(report){
+  var bar=document.getElementById('filterBar');
+  var cfg=MODES[report.mode];
+  var html='<button class="filter-btn active" data-filter="all">全部</button>';
+  cfg.keys.forEach(function(k){html+='<button class="filter-btn" data-filter="'+k+'">'+k+'</button>';});
+  html+='<button class="filter-btn" data-filter="good">Good</button>';
+  html+='<button class="filter-btn" data-filter="acceptable">Acceptable</button>';
+  html+='<button class="filter-btn" data-filter="poor">Poor</button>';
+  bar.innerHTML=html;
+  bar.querySelectorAll('.filter-btn').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      bar.querySelectorAll('.filter-btn').forEach(function(b){b.classList.remove('active')});
+      this.classList.add('active');
+      renderTable(currentReport,this.dataset.filter);
+    });
+  });
+}
+
+function renderTable(report,filter){
+  filter=filter||'all';
+  var body=document.getElementById('eventBody');
+  var rows=[];
+  var devMap={};
+  report.details.forEach(function(d){devMap[d.key+'_'+d.actualInterval]=d;});
+  report.events.forEach(function(e,i){
+    var dev=devMap[e.key+'_'+e.timestamp];
+    var row={idx:i+1,key:e.key,event:e.event,timestamp:Math.round(e.timestamp),device:e.device,deviation:dev?dev.deviation:'-',status:dev?dev.status:'-'};
+    if(filter!=='all'){
+      if(filter==='good'||filter==='acceptable'||filter==='poor'){
+        if(row.status!==filter)return;
+      }else if(row.key!==filter)return;
+    }
+    rows.push(row);
+  });
+  if(sortCol){
+    rows.sort(function(a,b){
+      var va=a[sortCol],vb=b[sortCol];
+      if(typeof va==='number')return(va-vb)*sortDir;
+      return String(va).localeCompare(String(vb))*sortDir;
+    });
+  }
+  body.innerHTML=rows.map(function(r){
+    var tagClass=r.status!=='-'?'tag '+r.status:'';
+    var tagHtml=tagClass?'<span class="'+tagClass+'">'+r.status+'</span>':r.status;
+    return'<tr data-key="'+r.key+'"><td>'+r.idx+'</td><td><b>'+r.key+'</b></td><td>'+r.event+'</td><td>'+r.timestamp+'ms</td><td>'+r.device+'</td><td>'+(r.deviation!=='-'?r.deviation+'%':'-')+'</td><td>'+tagHtml+'</td></tr>';
+  }).join('');
+}
+
+function renderAll(mode){
+  currentReport=generateReport(mode);
+  renderKPI(currentReport);
+  renderScatter(currentReport);
+  renderBullet(currentReport);
+  renderHold(currentReport);
+  renderSwim(currentReport);
+  renderCDF(currentReport);
+  renderFilterBar(currentReport);
+  renderTable(currentReport,'all');
+}
+
+document.querySelectorAll('.mode-tab').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    document.querySelectorAll('.mode-tab').forEach(function(b){b.classList.remove('active')});
+    this.classList.add('active');
+    currentMode=this.dataset.mode;
+    renderAll(currentMode);
+  });
+});
+
+document.querySelectorAll('th[data-col]').forEach(function(th){
+  th.addEventListener('click',function(){
+    var col=this.dataset.col;
+    if(sortCol===col)sortDir*=-1;
+    else{sortCol=col;sortDir=1;}
+    var activeFilter=document.querySelector('.filter-btn.active');
+    renderTable(currentReport,activeFilter?activeFilter.dataset.filter:'all');
+  });
+});
+
+document.addEventListener('DOMContentLoaded',function(){renderAll('periodic')});
+window.addEventListener('resize',function(){Object.values(charts).forEach(function(c){c.resize()})});
+</script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+﻿{
+  "duration": 0.0,
+  "errors": [],
+  "suites": [
+    {
+      "duration": 0.0,
+      "endTime": 99544109,
+      "failed": 0,
+      "name": "test_simple.ahk",
+      "passed": 3,
+      "scenarios": [
+        {
+          "message": "true 应该通过",
+          "name": "场景 1: 简单断言",
+          "status": "passed"
+        },
+        {
+          "message": "1 应该等于 1",
+          "name": "场景 2: 相等断言",
+          "status": "passed"
+        },
+        {
+          "message": "字符串应该相等",
+          "name": "场景 3: 字符串相等",
+          "status": "passed"
+        }
+      ],
+      "skipped": 0,
+      "startTime": 99544109
+    }
+  ],
+  "summary": {
+    "failed": 0,
+    "passed": 3,
+    "skipped": 0,
+    "total": 3
+  },
+  "timestamp": "20260514001118"
+}

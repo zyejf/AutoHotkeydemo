@@ -1,0 +1,21 @@
+﻿{
+  "details": [
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "simple test",
+      "status": "PASS",
+      "test": "basic assert",
+      "timestamp": "20260519212019"
+    }
+  ],
+  "elapsedMs": false,
+  "generatedAt": "20260519212019",
+  "summary": {
+    "failed": false,
+    "passed": true,
+    "scenarios": true,
+    "skipped": false,
+    "total": true
+  }
+}

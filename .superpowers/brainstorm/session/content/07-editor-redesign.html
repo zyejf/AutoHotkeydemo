@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>技能管理器 v3.0 — 编辑器交互重设计</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+  background-attachment: fixed;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+.glass {
+  background: rgba(255,255,255,0.12);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 16px;
+}
+.glass-input {
+  background: rgba(255,255,255,0.1);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  color: #fff;
+  padding: 8px 12px;
+  font-size: 12px;
+  outline: none;
+  width: 100%;
+  transition: border-color 0.2s;
+}
+.glass-input:focus { border-color: rgba(255,255,255,0.5); }
+.glass-input::placeholder { color: rgba(255,255,255,0.4); }
+select.glass-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='rgba(255,255,255,0.6)' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 30px;
+  cursor: pointer;
+}
+select.glass-input option { background: #2d1b69; color: #fff; }
+.btn {
+  border: none;
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+.btn:hover { transform: translateY(-1px); }
+.btn-primary {
+  background: rgba(255,255,255,0.25);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.3);
+}
+.btn-primary:hover { background: rgba(255,255,255,0.35); }
+.btn-success {
+  background: rgba(76,175,80,0.4);
+  color: #c8e6c9;
+  border: 1px solid rgba(76,175,80,0.5);
+}
+.btn-success:hover { background: rgba(76,175,80,0.55); }
+.btn-danger {
+  background: rgba(239,83,80,0.3);
+  color: #ffcdd2;
+  border: 1px solid rgba(239,83,80,0.4);
+}
+.btn-danger:hover { background: rgba(239,83,80,0.45); }
+.btn-ghost {
+  background: transparent;
+  color: rgba(255,255,255,0.6);
+  border: 1px solid rgba(255,255,255,0.15);
+}
+.btn-ghost:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.btn-icon {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.7);
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+.btn-icon:hover { background: rgba(255,255,255,0.2); color: #fff; }
+
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+.modal-overlay.show { opacity: 1; pointer-events: all; }
+.modal {
+  width: 500px;
+  max-height: 88vh;
+  overflow: hidden;
+  transform: translateY(20px);
+  transition: transform 0.3s;
+}
+.modal-overlay.show .modal { transform: translateY(0); }
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.modal-title { color: #fff; font-size: 14px; font-weight: 600; }
+.modal-body {
+  padding: 16px 20px;
+  max-height: 62vh;
+  overflow-y: auto;
+}
+.modal-body::-webkit-scrollbar { width: 4px; }
+.modal-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
+.modal-footer {
+  padding: 12px 20px;
+  border-top: 1px solid rgba(255,255,255,0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.form-group { margin-bottom: 14px; }
+.form-label {
+  display: block;
+  color: rgba(255,255,255,0.6);
+  font-size: 10px;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.form-hint {
+  color: rgba(255,255,255,0.3);
+  font-size: 9px;
+  margin-top: 4px;
+}
+
+.step-indicator {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+}
+.step {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.15);
+  transition: background 0.3s;
+}
+.step.active { background: rgba(255,255,255,0.6); }
+.step.done { background: rgba(76,175,80,0.6); }
+
+.step-content { display: none; }
+.step-content.active { display: block; }
+
+.mode-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.mode-card {
+  background: rgba(255,255,255,0.06);
+  border: 2px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+.mode-card:hover {
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.2);
+}
+.mode-card.selected {
+  background: rgba(103,126,234,0.2);
+  border-color: rgba(103,126,234,0.6);
+}
+.mode-card .icon { font-size: 24px; margin-bottom: 6px; }
+.mode-card .name { color: #fff; font-size: 11px; font-weight: 500; }
+.mode-card .desc { color: rgba(255,255,255,0.4); font-size: 9px; margin-top: 4px; }
+
+.key-input-area {
+  background: rgba(0,0,0,0.15);
+  border: 1px dashed rgba(255,255,255,0.2);
+  border-radius: 10px;
+  padding: 12px;
+  min-height: 60px;
+  cursor: text;
+  transition: border-color 0.2s;
+}
+.key-input-area:focus-within,
+.key-input-area:hover {
+  border-color: rgba(255,255,255,0.4);
+}
+.key-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.key-tag {
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  padding: 4px 12px;
+  border-radius: 14px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  animation: tagIn 0.2s;
+}
+@keyframes tagIn {
+  from { transform: scale(0.8); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.key-tag .remove {
+  cursor: pointer;
+  opacity: 0.4;
+  font-size: 14px;
+  line-height: 1;
+  transition: opacity 0.2s;
+}
+.key-tag .remove:hover { opacity: 1; }
+.key-input-inline {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 11px;
+  outline: none;
+  min-width: 40px;
+  flex: 1;
+}
+.key-input-inline::placeholder { color: rgba(255,255,255,0.3); }
+
+.interval-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.interval-row .key-label {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.8);
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 10px;
+  min-width: 40px;
+  text-align: center;
+}
+.interval-row input {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  color: #fff;
+  padding: 4px 8px;
+  font-size: 11px;
+  width: 80px;
+  outline: none;
+  text-align: center;
+}
+.interval-row input:focus { border-color: rgba(255,255,255,0.4); }
+.interval-row .unit { color: rgba(255,255,255,0.4); font-size: 10px; }
+
+.sub-group-card {
+  background: rgba(0,0,0,0.12);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 10px;
+}
+.sub-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.sub-group-title {
+  color: rgba(255,255,255,0.8);
+  font-size: 12px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sub-group-num {
+  background: rgba(103,126,234,0.3);
+  color: #b3c6ff;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+}
+.sub-group-type {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.7);
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 9px;
+}
+
+.preview-box {
+  background: rgba(0,0,0,0.2);
+  border-radius: 10px;
+  padding: 12px;
+  margin-top: 10px;
+}
+.preview-title {
+  color: rgba(255,255,255,0.5);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+.preview-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 11px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.preview-item:last-child { border: none; }
+.preview-label { color: rgba(255,255,255,0.4); }
+.preview-value { color: rgba(255,255,255,0.9); }
+
+.toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(10px);
+  color: #fff;
+  padding: 10px 24px;
+  border-radius: 24px;
+  font-size: 12px;
+  z-index: 200;
+  transition: transform 0.3s;
+  pointer-events: none;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+
+.hotkey-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hotkey-input .glass-input { flex: 1; }
+.hotkey-capture {
+  background: rgba(103,126,234,0.3);
+  border: 1px solid rgba(103,126,234,0.5);
+  color: #b3c6ff;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+.hotkey-capture:hover { background: rgba(103,126,234,0.45); }
+.hotkey-capture.capturing {
+  background: rgba(239,83,80,0.3);
+  border-color: rgba(239,83,80,0.5);
+  color: #ffcdd2;
+  animation: capturePulse 1s infinite;
+}
+@keyframes capturePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  margin: 16px 0;
+}
+</style>
+</head>
+<body>
+
+<button class="btn btn-primary" style="position:fixed;top:20px;right:20px;z-index:50;padding:10px 20px;font-size:13px;" onclick="openEditor('')">
+  ✏️ 打开编辑器 Demo
+</button>
+
+<div class="modal-overlay" id="editorOverlay">
+  <div class="modal glass">
+    <div class="modal-header">
+      <span class="modal-title" id="editorTitle">新建分组</span>
+      <button class="btn-icon" onclick="closeEditor()">✕</button>
+    </div>
+
+    <div class="step-indicator">
+      <div class="step active" id="step1Bar"></div>
+      <div class="step" id="step2Bar"></div>
+      <div class="step" id="step3Bar"></div>
+    </div>
+
+    <div class="modal-body">
+      <!-- Step 1: 基本信息 + 模式选择 -->
+      <div class="step-content active" id="step1">
+        <div class="form-group">
+          <label class="form-label">热键</label>
+          <div class="hotkey-input">
+            <input class="glass-input" id="editHotkey" value="F1" placeholder="按下热键...">
+            <button class="hotkey-capture" id="captureBtn" onclick="toggleCapture()">🎹 录入</button>
+          </div>
+          <div class="form-hint">点击"录入"后按下你想设置的快捷键</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">选择执行模式</label>
+          <div class="mode-cards" id="modeCards">
+            <div class="mode-card" data-mode="periodic" onclick="selectMode(this)">
+              <div class="icon">⏱</div>
+              <div class="name">周期性按键</div>
+              <div class="desc">固定间隔重复按键</div>
+            </div>
+            <div class="mode-card" data-mode="sequence" onclick="selectMode(this)">
+              <div class="icon">🎬</div>
+              <div class="name">序列按键</div>
+              <div class="desc">按顺序依次按键</div>
+            </div>
+            <div class="mode-card" data-mode="enhanced_periodic" onclick="selectMode(this)">
+              <div class="icon">⚡</div>
+              <div class="name">增强周期性</div>
+              <div class="desc">每个键独立间隔</div>
+            </div>
+            <div class="mode-card" data-mode="enhanced_sequence" onclick="selectMode(this)">
+              <div class="icon">🔗</div>
+              <div class="name">增强序列</div>
+              <div class="desc">每个键独立延迟</div>
+            </div>
+            <div class="mode-card selected" data-mode="hybrid" onclick="selectMode(this)">
+              <div class="icon">🔀</div>
+              <div class="name">混合模式</div>
+              <div class="desc">多个子组并行执行</div>
+            </div>
+            <div class="mode-card" data-mode="enhanced_hybrid" onclick="selectMode(this)">
+              <div class="icon">🔀⚡</div>
+              <div class="name">增强混合</div>
+              <div class="desc">增强版多子组</div>
+            </div>
+            <div class="mode-card" data-mode="hold" onclick="selectMode(this)" style="grid-column: span 2;">
+              <div class="icon">🤏</div>
+              <div class="name">纯长按</div>
+              <div class="desc">持续按住某个键</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: 配置按键和参数 -->
+      <div class="step-content" id="step2">
+        <div id="simpleModeFields">
+          <div class="form-group">
+            <label class="form-label">按键列表</label>
+            <div class="key-input-area" onclick="document.getElementById('keyInputField').focus()">
+              <div class="key-tags" id="keyTags">
+                <span class="key-tag">m <span class="remove" onclick="removeKey(this)">×</span></span>
+                <span class="key-tag">a <span class="remove" onclick="removeKey(this)">×</span></span>
+              </div>
+              <input class="key-input-inline" id="keyInputField" placeholder="输入按键名后按 Enter 添加..." onkeydown="addKey(event)">
+            </div>
+            <div class="form-hint">输入按键名（如 Space, 1, a, Shift）后按 Enter 添加</div>
+          </div>
+
+          <div class="form-group" id="intervalGroup">
+            <label class="form-label">按键间隔</label>
+            <div id="intervalRows">
+              <div class="interval-row">
+                <span class="key-label">m</span>
+                <input type="number" value="50" min="10">
+                <span class="unit">ms</span>
+              </div>
+              <div class="interval-row">
+                <span class="key-label">a</span>
+                <input type="number" value="50" min="10">
+                <span class="unit">ms</span>
+              </div>
+            </div>
+            <div class="form-hint">每个按键的触发间隔（毫秒）</div>
+          </div>
+
+          <div class="form-group" id="delayGroup" style="display:none;">
+            <label class="form-label">按键延迟</label>
+            <div id="delayRows">
+              <div class="interval-row">
+                <span class="key-label">1</span>
+                <input type="number" value="100" min="10">
+                <span class="unit">ms 后</span>
+              </div>
+              <div class="interval-row">
+                <span class="key-label">2</span>
+                <input type="number" value="150" min="10">
+                <span class="unit">ms 后</span>
+              </div>
+            </div>
+            <div class="form-hint">每个按键按下后的等待时间</div>
+          </div>
+        </div>
+
+        <div id="hybridModeFields" style="display:none;">
+          <div class="sub-group-card" id="subGroup1">
+            <div class="sub-group-header">
+              <span class="sub-group-title">
+                <span class="sub-group-num">1</span>
+                周期性子组
+              </span>
+              <span class="sub-group-type">周期性</span>
+            </div>
+            <div class="form-group">
+              <label class="form-label">按键</label>
+              <div class="key-input-area" onclick="this.querySelector('input').focus()" style="min-height:40px;">
+                <div class="key-tags">
+                  <span class="key-tag">m <span class="remove" onclick="removeKey(this)">×</span></span>
+                  <span class="key-tag">a <span class="remove" onclick="removeKey(this)">×</span></span>
+                </div>
+                <input class="key-input-inline" placeholder="按 Enter 添加..." onkeydown="addKey(event)">
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">间隔</label>
+              <div>
+                <div class="interval-row">
+                  <span class="key-label">m</span>
+                  <input type="number" value="50" min="10">
+                  <span class="unit">ms</span>
+                </div>
+                <div class="interval-row">
+                  <span class="key-label">a</span>
+                  <input type="number" value="50" min="10">
+                  <span class="unit">ms</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sub-group-card" id="subGroup2">
+            <div class="sub-group-header">
+              <span class="sub-group-title">
+                <span class="sub-group-num">2</span>
+                序列子组
+              </span>
+              <span class="sub-group-type">序列</span>
+            </div>
+            <div class="form-group">
+              <label class="form-label">按键</label>
+              <div class="key-input-area" onclick="this.querySelector('input').focus()" style="min-height:40px;">
+                <div class="key-tags">
+                  <span class="key-tag">1 <span class="remove" onclick="removeKey(this)">×</span></span>
+                  <span class="key-tag">2 <span class="remove" onclick="removeKey(this)">×</span></span>
+                  <span class="key-tag">3 <span class="remove" onclick="removeKey(this)">×</span></span>
+                  <span class="key-tag">4 <span class="remove" onclick="removeKey(this)">×</span></span>
+                </div>
+                <input class="key-input-inline" placeholder="按 Enter 添加..." onkeydown="addKey(event)">
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">延迟</label>
+              <div>
+                <div class="interval-row">
+                  <span class="key-label">1</span>
+                  <input type="number" value="200" min="10">
+                  <span class="unit">ms</span>
+                </div>
+                <div class="interval-row">
+                  <span class="key-label">2</span>
+                  <input type="number" value="220" min="10">
+                  <span class="unit">ms</span>
+                </div>
+                <div class="interval-row">
+                  <span class="key-label">3</span>
+                  <input type="number" value="240" min="10">
+                  <span class="unit">ms</span>
+                </div>
+                <div class="interval-row">
+                  <span class="key-label">4</span>
+                  <input type="number" value="2500" min="10">
+                  <span class="unit">ms</span>
+                </div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">序列循环间隔</label>
+              <input class="glass-input" type="number" value="100" min="10" style="width:120px;">
+              <span class="unit" style="color:rgba(255,255,255,0.4);font-size:10px;margin-left:6px;">ms</span>
+            </div>
+          </div>
+
+          <button class="btn btn-ghost" onclick="showToast('子组已添加（Demo）')" style="width:100%;margin-top:4px;">+ 添加子组</button>
+        </div>
+
+        <div id="holdModeFields" style="display:none;">
+          <div class="form-group">
+            <label class="form-label">长按按键</label>
+            <div class="key-input-area" onclick="this.querySelector('input').focus()" style="min-height:40px;">
+              <div class="key-tags">
+                <span class="key-tag">Shift <span class="remove" onclick="removeKey(this)">×</span></span>
+              </div>
+              <input class="key-input-inline" placeholder="按 Enter 添加..." onkeydown="addKey(event)">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">长按时长</label>
+            <input class="glass-input" type="number" value="1000" min="100" style="width:140px;">
+            <span class="unit" style="color:rgba(255,255,255,0.4);font-size:10px;margin-left:6px;">ms</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">长按模式</label>
+            <div style="display:flex;gap:8px;">
+              <div class="mode-card selected" style="padding:8px;" onclick="selectHoldMode(this)" data-hold="continuous">
+                <div class="name" style="font-size:10px;">持续按住</div>
+              </div>
+              <div class="mode-card" style="padding:8px;" onclick="selectHoldMode(this)" data-hold="periodic">
+                <div class="name" style="font-size:10px;">周期按压</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3: 预览确认 -->
+      <div class="step-content" id="step3">
+        <div class="preview-box">
+          <div class="preview-title">配置预览</div>
+          <div class="preview-item">
+            <span class="preview-label">热键</span>
+            <span class="preview-value" id="previewHotkey">F1</span>
+          </div>
+          <div class="preview-item">
+            <span class="preview-label">模式</span>
+            <span class="preview-value" id="previewMode">混合模式</span>
+          </div>
+          <div class="preview-item">
+            <span class="preview-label">按键</span>
+            <span class="preview-value" id="previewKeys">m, a | 1, 2, 3, 4</span>
+          </div>
+          <div class="preview-item">
+            <span class="preview-label">间隔/延迟</span>
+            <span class="preview-value" id="previewIntervals">50ms | 200-2500ms</span>
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <div class="preview-box" style="background:rgba(76,175,80,0.08);border:1px solid rgba(76,175,80,0.15);">
+          <div class="preview-title" style="color:rgba(76,175,80,0.6);">执行模拟</div>
+          <div style="color:rgba(255,255,255,0.7);font-size:10px;line-height:1.8;" id="simPreview">
+            按 F1 启动后：<br>
+            → 子组1: 每 50ms 循环按 m, a<br>
+            → 子组2: 每 100ms 循环序列 1→2→3→4 (延迟 200/220/240/2500ms)
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <div>
+        <button class="btn btn-ghost" id="prevBtn" onclick="prevStep()" style="display:none;">← 上一步</button>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost" onclick="closeEditor()">取消</button>
+        <button class="btn btn-primary" id="nextBtn" onclick="nextStep()">下一步 →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let currentStep = 1;
+let selectedMode = 'hybrid';
+let isCapturing = false;
+
+const MODE_NAMES = {
+  periodic: '周期性按键',
+  sequence: '序列按键',
+  enhanced_periodic: '增强周期性',
+  enhanced_sequence: '增强序列',
+  hybrid: '混合模式',
+  enhanced_hybrid: '增强混合',
+  hold: '纯长按'
+};
+
+function openEditor(id) {
+  document.getElementById('editorOverlay').classList.add('show');
+  currentStep = 1;
+  updateSteps();
+}
+
+function closeEditor() {
+  document.getElementById('editorOverlay').classList.remove('show');
+  isCapturing = false;
+  document.getElementById('captureBtn').classList.remove('capturing');
+  document.getElementById('captureBtn').textContent = '🎹 录入';
+}
+
+function selectMode(el) {
+  document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedMode = el.dataset.mode;
+  updateModeFields();
+}
+
+function selectHoldMode(el) {
+  el.parentElement.querySelectorAll('.mode-card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+function updateModeFields() {
+  const simple = document.getElementById('simpleModeFields');
+  const hybrid = document.getElementById('hybridModeFields');
+  const hold = document.getElementById('holdModeFields');
+  const intervalGroup = document.getElementById('intervalGroup');
+  const delayGroup = document.getElementById('delayGroup');
+
+  simple.style.display = 'none';
+  hybrid.style.display = 'none';
+  hold.style.display = 'none';
+
+  if (selectedMode === 'hybrid' || selectedMode === 'enhanced_hybrid') {
+    hybrid.style.display = 'block';
+  } else if (selectedMode === 'hold') {
+    hold.style.display = 'block';
+  } else {
+    simple.style.display = 'block';
+    intervalGroup.style.display = (selectedMode === 'periodic' || selectedMode === 'enhanced_periodic') ? 'block' : 'none';
+    delayGroup.style.display = (selectedMode === 'sequence' || selectedMode === 'enhanced_sequence') ? 'block' : 'none';
+  }
+}
+
+function addKey(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const input = e.target;
+    const val = input.value.trim();
+    if (val) {
+      const tag = document.createElement('span');
+      tag.className = 'key-tag';
+      tag.innerHTML = `${val} <span class="remove" onclick="removeKey(this)">×</span>`;
+      input.parentElement.querySelector('.key-tags').appendChild(tag);
+      input.value = '';
+    }
+  }
+}
+
+function removeKey(el) {
+  el.parentElement.remove();
+}
+
+function toggleCapture() {
+  isCapturing = !isCapturing;
+  const btn = document.getElementById('captureBtn');
+  if (isCapturing) {
+    btn.classList.add('capturing');
+    btn.textContent = '⏹ 停止';
+    document.addEventListener('keydown', captureKey);
+  } else {
+    btn.classList.remove('capturing');
+    btn.textContent = '🎹 录入';
+    document.removeEventListener('keydown', captureKey);
+  }
+}
+
+function captureKey(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const keyName = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+  document.getElementById('editHotkey').value = keyName;
+  isCapturing = false;
+  const btn = document.getElementById('captureBtn');
+  btn.classList.remove('capturing');
+  btn.textContent = '🎹 录入';
+  document.removeEventListener('keydown', captureKey);
+  showToast(`热键已设置为 ${keyName}`);
+}
+
+function nextStep() {
+  if (currentStep < 3) {
+    currentStep++;
+    updateSteps();
+  } else {
+    closeEditor();
+    showToast('分组已保存！');
+  }
+}
+
+function prevStep() {
+  if (currentStep > 1) {
+    currentStep--;
+    updateSteps();
+  }
+}
+
+function updateSteps() {
+  for (let i = 1; i <= 3; i++) {
+    const bar = document.getElementById(`step${i}Bar`);
+    const content = document.getElementById(`step${i}`);
+    bar.classList.remove('active', 'done');
+    content.classList.remove('active');
+    if (i < currentStep) bar.classList.add('done');
+    if (i === currentStep) {
+      bar.classList.add('active');
+      content.classList.add('active');
+    }
+  }
+
+  document.getElementById('prevBtn').style.display = currentStep > 1 ? 'inline-flex' : 'none';
+  document.getElementById('nextBtn').textContent = currentStep === 3 ? '💾 保存' : '下一步 →';
+
+  if (currentStep === 2) {
+    updateModeFields();
+  }
+  if (currentStep === 3) {
+    updatePreview();
+  }
+}
+
+function updatePreview() {
+  document.getElementById('previewHotkey').textContent = document.getElementById('editHotkey').value;
+  document.getElementById('previewMode').textContent = MODE_NAMES[selectedMode];
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+document.getElementById('editorOverlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('editorOverlay')) closeEditor();
+});
+</script>
+</body>
+</html>

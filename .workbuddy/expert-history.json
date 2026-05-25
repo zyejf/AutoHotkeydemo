@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "sessions": {
+    "0be9734fc3f940d4bfac3938c2f05aa9": [
+      {
+        "expertId": "CodeReviewExpert",
+        "name": "Kim",
+        "profession": "代码审查专家",
+        "avatarUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/avatars/02-Engineering/CodeReviewExpert/CodeReviewExpert.png",
+        "promptUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/experts/02-Engineering/CodeReviewExpert/CodeReviewExpert_zh.md",
+        "usedAt": 1775146916970,
+        "industryId": "all"
+      },
+      {
+        "expertId": "SeniorDeveloper",
+        "name": "Will",
+        "profession": "高级开发工程师",
+        "avatarUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/avatars/02-Engineering/SeniorDeveloper/SeniorDeveloper.png",
+        "promptUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/experts/02-Engineering/SeniorDeveloper/SeniorDeveloper_zh.md",
+        "usedAt": 1775144455669,
+        "industryId": "all"
+      }
+    ]
+  },
+  "lastUpdated": 1775147109555
+}

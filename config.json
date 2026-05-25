@@ -6,7 +6,43 @@
     "toggleAll": "^1",
     "toggleHoldMode": "^h"
   },
-  "GroupSettings": {},
+  "GroupSettings": {
+    "1": {
+      "groups": [
+        {
+          "intervals": [
+            50,
+            50,
+            50
+          ],
+          "pressKeys": [
+            "1",
+            "2",
+            "3"
+          ],
+          "type": "periodic"
+        },
+        {
+          "delays": [
+            200,
+            500,
+            2000
+          ],
+          "pressKeys": [
+            "A",
+            "S",
+            "D"
+          ],
+          "type": "sequence"
+        }
+      ],
+      "hotkey": "F1",
+      "keyPressDuration": 10,
+      "mode": "hybrid",
+      "name": "1",
+      "seqInterval": 100
+    }
+  },
   "HoldSettings": {
     "allowOverlap": false,
     "checkInterval": 50,
@@ -14,6 +50,6 @@
     "pressSpeed": 80,
     "releaseOnEmergency": true
   },
-  "lastModified": "20260319104732",
-  "version": "2.0"
+  "lastModified": "20260524121027",
+  "version": "3.0"
 }

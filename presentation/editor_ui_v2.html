@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+:root {
+  --bg-primary: #0f0a1e;
+  --bg-secondary: #1a1232;
+  --bg-tertiary: #241b42;
+  --accent: #7c5cfc;
+  --accent-light: #a78bfa;
+  --accent-glow: rgba(124,92,252,0.3);
+  --success: #4ade80;
+  --danger: #f87171;
+  --warning: #fbbf24;
+  --text-primary: #f1f0f5;
+  --text-secondary: rgba(241,240,245,0.6);
+  --text-muted: rgba(241,240,245,0.35);
+  --glass-bg: rgba(255,255,255,0.05);
+  --glass-border: rgba(255,255,255,0.08);
+  --glass-hover: rgba(255,255,255,0.1);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.4);
+  --transition: 0.2s cubic-bezier(0.4,0,0.2,1);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  min-height: 100vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+body::before {
+  content: '';
+  position: fixed;
+  top: -50%; left: -50%;
+  width: 200%; height: 200%;
+  background: radial-gradient(ellipse at 30% 20%, rgba(124,92,252,0.15) 0%, transparent 50%),
+              radial-gradient(ellipse at 70% 80%, rgba(167,139,250,0.1) 0%, transparent 50%);
+  animation: bgShift 20s ease-in-out infinite alternate;
+  z-index: 0; pointer-events: none;
+}
+@keyframes bgShift { 0% { transform: translate(0,0); } 100% { transform: translate(-3%,-3%); } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+.app { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100vh; }
+.glass { background: var(--glass-bg); backdrop-filter: blur(24px) saturate(1.2); -webkit-backdrop-filter: blur(24px) saturate(1.2); border: 1px solid var(--glass-border); }
+
+.header { display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border-bottom: 1px solid var(--glass-border); animation: fadeIn 0.3s ease; }
+.header-title { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.header-title .icon { width: 26px; height: 26px; border-radius: var(--radius-sm); background: linear-gradient(135deg, var(--accent), #a78bfa); display: flex; align-items: center; justify-content: center; font-size: 13px; }
+.header-actions { display: flex; gap: 6px; }
+
+.body { flex: 1; overflow-y: auto; padding: 14px 20px; scrollbar-width: thin; scrollbar-color: var(--glass-border) transparent; }
+.body::-webkit-scrollbar { width: 4px; }
+.body::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 2px; }
+
+.footer { padding: 10px 20px; border-top: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center; animation: fadeIn 0.3s ease 0.1s both; }
+
+.section { margin-bottom: 16px; animation: fadeIn 0.3s ease both; }
+.section-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.section-label::after { content: ''; flex: 1; height: 1px; background: var(--glass-border); }
+
+.form-row { display: flex; gap: 10px; margin-bottom: 8px; align-items: center; }
+.form-label { font-size: 12px; color: var(--text-secondary); min-width: 56px; flex-shrink: 0; }
+.form-field { flex: 1; }
+
+.input { width: 100%; background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: var(--radius-sm); color: var(--text-primary); padding: 7px 10px; font-size: 12px; font-family: inherit; outline: none; transition: var(--transition); }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.input::placeholder { color: var(--text-muted); }
+select.input { appearance: none; cursor: pointer; }
+
+.mode-group { margin-bottom: 12px; }
+.mode-group-label { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
+.mode-pills { display: flex; gap: 4px; flex-wrap: wrap; }
+.mode-pill {
+  background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 20px;
+  padding: 5px 14px; font-size: 11px; color: var(--text-secondary); cursor: pointer;
+  transition: var(--transition); font-family: inherit; user-select: none;
+}
+.mode-pill:hover { background: var(--glass-hover); color: var(--text-primary); }
+.mode-pill.active {
+  background: linear-gradient(135deg, rgba(124,92,252,0.25), rgba(167,139,250,0.15));
+  border-color: rgba(124,92,252,0.4); color: var(--accent-light);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.hotkey-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: linear-gradient(135deg, rgba(124,92,252,0.2), rgba(167,139,250,0.1));
+  border: 1px solid rgba(124,92,252,0.3); border-radius: var(--radius-md);
+  color: var(--accent-light); padding: 6px 14px; font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: var(--transition); min-width: 80px; justify-content: center;
+}
+.hotkey-badge:hover { box-shadow: 0 0 16px var(--accent-glow); }
+.hotkey-badge.capturing { animation: pulse 1s ease-in-out infinite; border-color: var(--warning); color: var(--warning); }
+
+.key-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; padding: 4px 6px; border-radius: var(--radius-sm); transition: var(--transition); }
+.key-row:hover { background: rgba(255,255,255,0.03); }
+.key-cell { width: 80px; text-align: center; font-weight: 600; cursor: pointer; }
+.key-cell:hover { border-color: var(--accent) !important; }
+.interval-cell { width: 70px; text-align: center; }
+.unit-label { color: var(--text-muted); font-size: 9px; margin-left: 2px; }
+.del-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px; padding: 2px 4px; border-radius: var(--radius-sm); transition: var(--transition); line-height: 1; }
+.del-btn:hover { color: var(--danger); background: rgba(248,113,113,0.1); }
+
+.btn { border: none; border-radius: var(--radius-sm); padding: 7px 16px; font-size: 12px; font-weight: 500; cursor: pointer; font-family: inherit; transition: var(--transition); display: inline-flex; align-items: center; gap: 6px; }
+.btn-primary { background: linear-gradient(135deg, var(--accent), #6d4de8); color: #fff; box-shadow: 0 2px 12px var(--accent-glow); }
+.btn-primary:hover { box-shadow: 0 4px 20px rgba(124,92,252,0.4); transform: translateY(-1px); }
+.btn-ghost { background: var(--glass-bg); color: var(--text-secondary); border: 1px solid var(--glass-border); }
+.btn-ghost:hover { background: var(--glass-hover); color: var(--text-primary); }
+.btn-sm { padding: 4px 10px; font-size: 10px; }
+.btn-add { background: var(--glass-bg); border: 1px dashed var(--glass-border); color: var(--text-muted); padding: 5px 12px; font-size: 11px; border-radius: var(--radius-sm); cursor: pointer; font-family: inherit; transition: var(--transition); width: 100%; text-align: center; }
+.btn-add:hover { border-color: var(--accent); color: var(--accent-light); background: rgba(124,92,252,0.05); }
+
+.chip { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 20px; color: var(--text-secondary); padding: 3px 10px; font-size: 10px; cursor: pointer; font-family: inherit; transition: var(--transition); }
+.chip:hover { background: var(--glass-hover); color: var(--text-primary); }
+
+.sub-group-card {
+  background: rgba(0,0,0,0.15); border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md); padding: 10px 12px; margin-bottom: 8px;
+}
+.sub-group-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.sub-group-title { font-size: 11px; font-weight: 600; color: var(--accent-light); }
+.sub-group-type { font-size: 10px; color: var(--text-muted); }
+
+.enhance-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(74,222,128,0.08); border: 1px solid rgba(74,222,128,0.2);
+  border-radius: 20px; padding: 2px 8px; font-size: 9px; color: rgba(74,222,128,0.7);
+}
+
+.preview-card { background: rgba(0,0,0,0.2); border: 1px solid var(--glass-border); border-radius: var(--radius-lg); padding: 12px 14px; margin-top: 4px; }
+.preview-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; color: rgba(74,222,128,0.5); margin-bottom: 6px; display: flex; align-items: center; gap: 4px; }
+.preview-label::before { content: '▶'; font-size: 7px; }
+.timeline { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; font-size: 11px; }
+.timeline-key { background: linear-gradient(135deg, rgba(124,92,252,0.2), rgba(167,139,250,0.1)); border: 1px solid rgba(124,92,252,0.25); color: var(--accent-light); padding: 2px 8px; border-radius: 20px; font-weight: 600; font-size: 10px; }
+.timeline-arrow { color: var(--text-muted); font-size: 10px; }
+.timeline-time { color: var(--text-muted); font-size: 9px; font-variant-numeric: tabular-nums; }
+.timeline-loop { color: rgba(74,222,128,0.5); font-size: 10px; }
+.timeline-hold { background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.2); color: rgba(251,191,36,0.7); padding: 2px 8px; border-radius: 20px; font-size: 10px; }
+
+.toast-container { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 1000; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
+.toast { background: rgba(15,10,30,0.9); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); color: var(--text-primary); padding: 10px 24px; border-radius: var(--radius-xl); font-size: 12px; box-shadow: var(--shadow-md); animation: toastIn 0.3s ease, toastOut 0.3s ease 2s forwards; pointer-events: auto; }
+.toast.success { border-color: rgba(74,222,128,0.3); }
+.toast.error { border-color: rgba(248,113,113,0.3); }
+@keyframes toastIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes toastOut { from { opacity: 1; } to { opacity: 0; transform: translateY(-8px); } }
+
+.overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 100; display: none; justify-content: center; align-items: center; }
+.overlay.show { display: flex; }
+.picker-panel { width: 380px; max-height: 80vh; border-radius: var(--radius-xl); padding: 18px; box-shadow: var(--shadow-md); }
+.picker-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.picker-title { font-size: 14px; font-weight: 600; }
+.picker-close { background: var(--glass-bg); border: 1px solid var(--glass-border); color: var(--text-secondary); width: 26px; height: 26px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; transition: var(--transition); }
+.picker-close:hover { background: rgba(248,113,113,0.1); border-color: rgba(248,113,113,0.3); color: var(--danger); }
+.picker-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; max-height: 220px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--glass-border) transparent; }
+.picker-grid::-webkit-scrollbar { width: 3px; }
+.picker-grid::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 2px; }
+.picker-section-label { grid-column: span 8; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin: 6px 0 3px; padding-bottom: 2px; border-bottom: 1px solid var(--glass-border); }
+.picker-key { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: var(--radius-sm); color: var(--text-secondary); padding: 4px 2px; font-size: 10px; cursor: pointer; text-align: center; font-family: inherit; transition: var(--transition); }
+.picker-key:hover { background: rgba(124,92,252,0.15); border-color: rgba(124,92,252,0.3); color: var(--accent-light); }
+
+.validation-msg { font-size: 10px; margin-top: 3px; padding: 3px 8px; border-radius: var(--radius-sm); display: none; }
+.validation-msg.error { display: block; color: var(--danger); background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.15); }
+
+.mode-desc { font-size: 10px; color: var(--text-muted); margin-top: 4px; padding: 4px 8px; background: rgba(124,92,252,0.05); border-radius: var(--radius-sm); border-left: 2px solid var(--accent); }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div class="header-title">
+      <div class="icon">⚡</div>
+      <span id="panelTitle">添加新分组</span>
+    </div>
+    <div class="header-actions">
+      <button class="chip" onclick="handleAction('duplicate')">复制</button>
+      <button class="chip" onclick="handleAction('template')">模板</button>
+    </div>
+  </div>
+
+  <div class="body">
+    <div class="section">
+      <div class="section-label">基本信息</div>
+      <div class="form-row">
+        <span class="form-label">ID</span>
+        <div class="form-field">
+          <input class="input" id="idInput" placeholder="分组标识" style="width:100px;">
+          <div class="validation-msg" id="idError"></div>
+        </div>
+      </div>
+      <div class="form-row">
+        <span class="form-label">热键</span>
+        <div class="form-field">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div class="hotkey-badge" id="hotkeyDisp" onclick="captureHotkey()">点击设置</div>
+            <span style="color:var(--text-muted);font-size:10px;">点击后按键绑定</span>
+          </div>
+        </div>
+      </div>
+      <div class="form-row">
+        <span class="form-label">按键时长</span>
+        <div class="form-field">
+          <div style="display:flex;align-items:center;gap:4px;">
+            <input class="input" id="keyPressDuration" value="15" type="number" min="5" max="100" style="width:60px;text-align:center;">
+            <span class="unit-label">ms</span>
+            <span style="color:var(--text-muted);font-size:9px;margin-left:4px;">(5-100)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">执行模式</div>
+      <div class="mode-group">
+        <div class="mode-group-label">基础模式</div>
+        <div class="mode-pills">
+          <span class="mode-pill" data-mode="periodic" onclick="pickMode(this)">🔄 周期性</span>
+          <span class="mode-pill" data-mode="sequence" onclick="pickMode(this)">📋 序列</span>
+          <span class="mode-pill" data-mode="hybrid" onclick="pickMode(this)">🔀 混合</span>
+        </div>
+      </div>
+      <div class="mode-group">
+        <div class="mode-group-label">增强模式 <span class="enhance-badge">+ 长按键</span></div>
+        <div class="mode-pills">
+          <span class="mode-pill" data-mode="enhanced_periodic" onclick="pickMode(this)">🔄 增强周期</span>
+          <span class="mode-pill" data-mode="enhanced_sequence" onclick="pickMode(this)">📋 增强序列</span>
+          <span class="mode-pill active" data-mode="enhanced_hybrid" onclick="pickMode(this)">🔀 增强混合</span>
+        </div>
+      </div>
+      <div class="mode-group">
+        <div class="mode-group-label">特殊模式</div>
+        <div class="mode-pills">
+          <span class="mode-pill" data-mode="hold" onclick="pickMode(this)">⏳ 长按</span>
+        </div>
+      </div>
+      <div class="mode-desc" id="modeDesc">混合模式 + 可选长按功能。同时执行周期性按键和序列按键，支持长按键。</div>
+    </div>
+
+    <div class="section" id="configSection">
+    </div>
+
+    <div class="section" id="holdSection" style="display:none;">
+      <div class="section-label">长按键 <span class="enhance-badge">增强模式专属</span></div>
+      <div class="form-row">
+        <span class="form-label">长按键</span>
+        <div class="form-field" id="holdKeysContainer"></div>
+      </div>
+      <div class="form-row">
+        <span class="form-label">长按模式</span>
+        <div class="form-field">
+          <select class="input" id="holdModeSelect" style="width:140px;">
+            <option value="continuous">持续按住</option>
+            <option value="periodic">周期按压</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">执行预览</div>
+      <div class="preview-card">
+        <div class="preview-label">按热键启动后</div>
+        <div class="timeline" id="previewTimeline"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div style="display:flex;gap:6px;">
+      <button class="chip" onclick="handleAction('import')">导入</button>
+      <button class="chip" onclick="handleAction('export')">导出</button>
+      <button class="chip" onclick="handleAction('reset')">重置</button>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-ghost" onclick="cancelEdit()">取消</button>
+      <button class="btn btn-primary" onclick="saveConfig()">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="keyPickerOverlay">
+  <div class="picker-panel glass">
+    <div class="picker-header">
+      <span class="picker-title">选择按键</span>
+      <button class="picker-close" onclick="closeKeyPicker()">×</button>
+    </div>
+    <div style="margin-bottom:10px;">
+      <input class="input" id="keySearch" placeholder="搜索按键..." oninput="filterKeys()">
+    </div>
+    <div class="picker-grid" id="keyGrid"></div>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+var ALL_KEYS = [
+  {section:"功能键",keys:["F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12"]},
+  {section:"数字",keys:["1","2","3","4","5","6","7","8","9","0"]},
+  {section:"字母",keys:"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")},
+  {section:"特殊",keys:["Space","Enter","Tab","Esc","Backspace","Delete","Insert","Home","End","PgUp","PgDn"]},
+  {section:"方向",keys:["Up","Down","Left","Right"]},
+  {section:"修饰",keys:["Shift","Ctrl","Alt","Win"]},
+  {section:"鼠标",keys:["LButton","RButton","MButton","XButton1","XButton2"]},
+  {section:"符号",keys:["`","-","=","[","]","\\",";","'",",",".","/"]}
+];
+
+var MODE_INFO = {
+  periodic: { name: "周期性", desc: "定时重复按下指定的按键。每个按键有独立的触发间隔。", fields: ["keys","intervals"] },
+  sequence: { name: "序列", desc: "按顺序依次按下指定的按键，每个按键之间有延迟。", fields: ["keys","delays"] },
+  hybrid: { name: "混合", desc: "同时执行多个子组，每个子组可以是周期性或序列。", fields: ["groups"] },
+  enhanced_periodic: { name: "增强周期", desc: "周期性按键 + 可选长按功能。", fields: ["pressKeys","intervals"], enhanced: true },
+  enhanced_sequence: { name: "增强序列", desc: "序列按键 + 可选长按功能。", fields: ["pressKeys","pressDelays"], enhanced: true },
+  enhanced_hybrid: { name: "增强混合", desc: "混合模式 + 可选长按功能。同时执行周期性按键和序列按键。", fields: ["groups"], enhanced: true },
+  hold: { name: "长按", desc: "按住指定按键不放，支持定时释放和自动重复。", fields: ["holdKeys","holdDuration"] }
+};
+
+function escHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+var currentMode = "enhanced_hybrid";
+var keyPickerTarget = null;
+var config = {
+  keys: [{key:"Space",interval:50},{key:"1",interval:100},{key:"2",interval:100}],
+  groups: [
+    {type:"periodic", pressKeys:["Space"], intervals:[50]},
+    {type:"sequence", pressKeys:["1","2","3"], delays:[100,100,100]}
+  ],
+  seqInterval: 100,
+  holdKeys: ["Shift"],
+  holdMode: "continuous",
+  holdDuration: 0,
+  autoRepeat: false,
+  repeatInterval: 1000
+};
+
+function init() {
+  renderKeyGrid();
+  pickModeByValue(currentMode);
+}
+
+function renderKeyGrid() {
+  var grid = document.getElementById("keyGrid");
+  var html = "";
+  for (var s=0; s<ALL_KEYS.length; s++) {
+    html += '<div class="picker-section-label">' + escHtml(ALL_KEYS[s].section) + '</div>';
+    for (var k=0; k<ALL_KEYS[s].keys.length; k++) {
+      var keyName = ALL_KEYS[s].keys[k];
+      html += '<button class="picker-key" data-key="' + escAttr(keyName) + '">' + escHtml(keyName) + '</button>';
+    }
+  }
+  grid.innerHTML = html;
+  grid.addEventListener('click', function(e) {
+    var btn = e.target.closest('.picker-key');
+    if (btn) pickKey(btn.getAttribute('data-key'));
+  });
+}
+
+function filterKeys() {
+  var q = document.getElementById("keySearch").value.toLowerCase();
+  var btns = document.querySelectorAll(".picker-key");
+  var sections = document.querySelectorAll(".picker-section-label");
+  var sectionVisible = {};
+  for (var i=0; i<btns.length; i++) {
+    var visible = btns[i].textContent.toLowerCase().indexOf(q) >= 0;
+    btns[i].style.display = visible ? "" : "none";
+    var p = btns[i].previousElementSibling;
+    while (p && !p.classList.contains("picker-section-label")) p = p.previousElementSibling;
+    if (p) sectionVisible[p.textContent] = (sectionVisible[p.textContent] || false) || visible;
+  }
+  for (var j=0; j<sections.length; j++) {
+    sections[j].style.display = sectionVisible[sections[j].textContent] ? "" : "none";
+  }
+}
+
+function openKeyPicker(target) {
+  keyPickerTarget = target;
+  document.getElementById("keyPickerOverlay").classList.add("show");
+  document.getElementById("keySearch").value = "";
+  filterKeys();
+  document.getElementById("keySearch").focus();
+}
+
+function closeKeyPicker() {
+  document.getElementById("keyPickerOverlay").classList.remove("show");
+  keyPickerTarget = null;
+}
+
+function pickKey(key) {
+  if (keyPickerTarget) {
+    keyPickerTarget.value = key;
+    var idx = keyPickerTarget.getAttribute("data-idx");
+    var group = keyPickerTarget.getAttribute("data-group");
+    if (group !== null) {
+      config.groups[parseInt(group)].pressKeys[parseInt(idx)] = key;
+    } else if (idx !== null) {
+      config.keys[parseInt(idx)].key = key;
+    }
+    updatePreview();
+  }
+  closeKeyPicker();
+}
+
+function captureHotkey() {
+  var d = document.getElementById("hotkeyDisp");
+  d.textContent = "请按键...";
+  d.classList.add("capturing");
+  document.addEventListener("keydown", function handler(e) {
+    e.preventDefault(); e.stopPropagation();
+    var parts = [];
+    if (e.ctrlKey) parts.push("Ctrl");
+    if (e.altKey) parts.push("Alt");
+    if (e.shiftKey) parts.push("Shift");
+    var keyName = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+    if (["Control","Alt","Shift","Meta"].indexOf(e.key) === -1) parts.push(keyName);
+    d.textContent = parts.join("+");
+    d.classList.remove("capturing");
+    document.removeEventListener("keydown", handler);
+  });
+}
+
+window.onHotkeyCaptured = function(key) {
+  var d = document.getElementById("hotkeyDisp");
+  d.textContent = key;
+  d.classList.remove("capturing");
+};
+
+function pickMode(el) {
+  var mode = el.getAttribute("data-mode");
+  pickModeByValue(mode);
+}
+
+function pickModeByValue(mode) {
+  currentMode = mode;
+  var pills = document.querySelectorAll(".mode-pill");
+  for (var i=0; i<pills.length; i++) {
+    pills[i].classList.toggle("active", pills[i].getAttribute("data-mode") === mode);
+  }
+  var info = MODE_INFO[mode];
+  document.getElementById("modeDesc").textContent = info.desc;
+  renderConfigSection();
+  renderHoldSection();
+  updatePreview();
+}
+
+function renderConfigSection() {
+  var section = document.getElementById("configSection");
+  var html = '<div class="section-label">按键配置</div>';
+
+  if (currentMode === "periodic" || currentMode === "enhanced_periodic") {
+    html += renderKeyIntervalTable(config.keys, "");
+  } else if (currentMode === "sequence" || currentMode === "enhanced_sequence") {
+    html += renderKeyDelayTable(config.keys, "");
+  } else if (currentMode === "hybrid" || currentMode === "enhanced_hybrid") {
+    html += renderSubGroups();
+  } else if (currentMode === "hold") {
+    html += renderHoldConfig();
+  }
+
+  section.innerHTML = html;
+}
+
+function renderKeyIntervalTable(keys, prefix) {
+  var html = '<div style="margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;"><span style="font-size:10px;color:var(--text-muted);">按键 → 间隔</span></div>';
+  for (var i=0; i<keys.length; i++) {
+    html += '<div class="key-row">';
+    html += '<input class="input key-cell" value="' + keys[i].key + '" onclick="openKeyPicker(this)" data-idx="' + i + '" readonly>';
+    html += '<input class="input interval-cell" value="' + (keys[i].interval||50) + '" type="number" min="10" data-idx="' + i + '" onchange="updateKeyInterval(' + i + ',this.value)">';
+    html += '<span class="unit-label">ms</span>';
+    html += '<button class="del-btn" onclick="deleteKey(' + i + ')">×</button>';
+    html += '</div>';
+  }
+  html += '<button class="btn-add" onclick="addKey()" style="margin-top:4px;">+ 添加按键</button>';
+  return html;
+}
+
+function renderKeyDelayTable(keys, prefix) {
+  var html = '<div style="margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;"><span style="font-size:10px;color:var(--text-muted);">按键 → 延迟</span></div>';
+  for (var i=0; i<keys.length; i++) {
+    html += '<div class="key-row">';
+    html += '<input class="input key-cell" value="' + keys[i].key + '" onclick="openKeyPicker(this)" data-idx="' + i + '" readonly>';
+    html += '<input class="input interval-cell" value="' + (keys[i].delay||100) + '" type="number" min="10" data-idx="' + i + '" onchange="updateKeyDelay(' + i + ',this.value)">';
+    html += '<span class="unit-label">ms</span>';
+    html += '<button class="del-btn" onclick="deleteKey(' + i + ')">×</button>';
+    html += '</div>';
+  }
+  html += '<button class="btn-add" onclick="addKey()" style="margin-top:4px;">+ 添加按键</button>';
+  return html;
+}
+
+function renderSubGroups() {
+  var html = '<div style="margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;"><span style="font-size:10px;color:var(--text-muted);">子组列表</span><button class="btn btn-ghost btn-sm" onclick="addSubGroup()">+ 子组</button></div>';
+  html += '<div class="form-row" style="margin-bottom:8px;"><span class="form-label">序列间隔</span><div class="form-field"><div style="display:flex;align-items:center;gap:4px;"><input class="input" id="seqIntervalInput" value="' + (config.seqInterval||100) + '" type="number" min="10" style="width:70px;text-align:center;" onchange="config.seqInterval=parseInt(this.value)||100"><span class="unit-label">ms</span><span style="color:var(--text-muted);font-size:9px;margin-left:4px;">序列子组循环间隔</span></div></div></div>';
+  for (var i=0; i<config.groups.length; i++) {
+    var g = config.groups[i];
+    var typeLabel = g.type === "periodic" ? "🔄 周期性" : "📋 序列";
+    html += '<div class="sub-group-card">';
+    html += '<div class="sub-group-header">';
+    html += '<span class="sub-group-title">子组 ' + (i+1) + '</span>';
+    html += '<div style="display:flex;gap:4px;align-items:center;">';
+    html += '<select class="input" style="width:90px;padding:3px 6px;font-size:10px;" onchange="changeSubGroupType(' + i + ',this.value)">';
+    html += '<option value="periodic"' + (g.type==="periodic"?" selected":"") + '>🔄 周期性</option>';
+    html += '<option value="sequence"' + (g.type==="sequence"?" selected":"") + '>📋 序列</option>';
+    html += '</select>';
+    html += '<button class="del-btn" onclick="deleteSubGroup(' + i + ')">×</button>';
+    html += '</div></div>';
+
+    if (g.type === "periodic") {
+      for (var j=0; j<g.pressKeys.length; j++) {
+        html += '<div class="key-row">';
+        html += '<input class="input key-cell" value="' + g.pressKeys[j] + '" onclick="openKeyPicker(this)" data-group="' + i + '" data-idx="' + j + '" readonly>';
+        html += '<input class="input interval-cell" value="' + (g.intervals[j]||50) + '" type="number" min="10" onchange="updateSubKeyInterval(' + i + ',' + j + ',this.value)">';
+        html += '<span class="unit-label">ms</span>';
+        html += '<button class="del-btn" onclick="deleteSubKey(' + i + ',' + j + ')">×</button>';
+        html += '</div>';
+      }
+    } else {
+      for (var j=0; j<g.pressKeys.length; j++) {
+        html += '<div class="key-row">';
+        html += '<input class="input key-cell" value="' + g.pressKeys[j] + '" onclick="openKeyPicker(this)" data-group="' + i + '" data-idx="' + j + '" readonly>';
+        html += '<input class="input interval-cell" value="' + (g.delays[j]||100) + '" type="number" min="10" onchange="updateSubKeyDelay(' + i + ',' + j + ',this.value)">';
+        html += '<span class="unit-label">ms</span>';
+        html += '<button class="del-btn" onclick="deleteSubKey(' + i + ',' + j + ')">×</button>';
+        html += '</div>';
+      }
+    }
+    html += '<button class="btn-add" onclick="addSubKey(' + i + ')" style="margin-top:4px;font-size:10px;padding:3px 8px;">+ 添加</button>';
+    html += '</div>';
+  }
+  return html;
+}
+
+function renderHoldConfig() {
+  var html = '<div style="margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;"><span style="font-size:10px;color:var(--text-muted);">长按按键</span></div>';
+  for (var i=0; i<config.holdKeys.length; i++) {
+    html += '<div class="key-row">';
+    html += '<input class="input key-cell" value="' + config.holdKeys[i] + '" onclick="openKeyPicker(this)" data-idx="' + i + '" readonly style="width:120px;">';
+    html += '<button class="del-btn" onclick="deleteHoldKey(' + i + ')">×</button>';
+    html += '</div>';
+  }
+  html += '<button class="btn-add" onclick="addHoldKey()" style="margin-top:4px;">+ 添加长按键</button>';
+  html += '<div class="form-row" style="margin-top:10px;">';
+  html += '<span class="form-label">按住时长</span>';
+  html += '<div class="form-field"><div style="display:flex;align-items:center;gap:4px;">';
+  html += '<input class="input" id="holdDurationInput" value="' + config.holdDuration + '" type="number" min="0" style="width:70px;text-align:center;">';
+  html += '<span class="unit-label">ms</span>';
+  html += '<span style="color:var(--text-muted);font-size:9px;margin-left:4px;">0=持续</span>';
+  html += '</div></div></div>';
+  html += '<div class="form-row">';
+  html += '<span class="form-label">自动重复</span>';
+  html += '<div class="form-field"><div style="display:flex;align-items:center;gap:8px;">';
+  html += '<input type="checkbox" id="autoRepeatCheck"' + (config.autoRepeat?' checked':'') + ' onchange="config.autoRepeat=this.checked">';
+  html += '<span style="font-size:10px;color:var(--text-muted);">释放后自动重新按住</span>';
+  html += '</div></div></div>';
+  html += '<div class="form-row">';
+  html += '<span class="form-label">重复间隔</span>';
+  html += '<div class="form-field"><div style="display:flex;align-items:center;gap:4px;">';
+  html += '<input class="input" id="repeatIntervalInput" value="' + config.repeatInterval + '" type="number" min="100" style="width:70px;text-align:center;">';
+  html += '<span class="unit-label">ms</span>';
+  html += '</div></div></div>';
+  return html;
+}
+
+function renderHoldSection() {
+  var isEnhanced = MODE_INFO[currentMode] && MODE_INFO[currentMode].enhanced;
+  var isHold = currentMode === "hold";
+  document.getElementById("holdSection").style.display = (isEnhanced && !isHold) ? "" : "none";
+  if (isEnhanced && !isHold) {
+    var container = document.getElementById("holdKeysContainer");
+    var html = '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">';
+    for (var i=0; i<config.holdKeys.length; i++) {
+      html += '<span class="chip" style="cursor:pointer;" onclick="removeHoldKey(' + i + ')">' + config.holdKeys[i] + ' ×</span>';
+    }
+    html += '<button class="chip" onclick="addHoldKey()" style="border-style:dashed;">+ 添加</button>';
+    html += '</div>';
+    container.innerHTML = html;
+  }
+}
+
+function addKey() {
+  config.keys.push({key:"?", interval:50, delay:100});
+  renderConfigSection();
+  updatePreview();
+}
+
+function deleteKey(idx) {
+  if (config.keys.length <= 1) { showToast("至少保留一个按键", "error"); return; }
+  config.keys.splice(idx, 1);
+  renderConfigSection();
+  updatePreview();
+}
+
+function updateKeyInterval(idx, val) {
+  var v = parseInt(val);
+  if (isNaN(v) || v < 10) { showToast("间隔最小10ms", "error"); return; }
+  config.keys[idx].interval = v;
+  updatePreview();
+}
+
+function updateKeyDelay(idx, val) {
+  var v = parseInt(val);
+  if (isNaN(v) || v < 10) { showToast("延迟最小10ms", "error"); return; }
+  config.keys[idx].delay = v;
+  updatePreview();
+}
+
+function addSubGroup() {
+  config.groups.push({type:"periodic", pressKeys:["?"], intervals:[50]});
+  renderConfigSection();
+  updatePreview();
+}
+
+function deleteSubGroup(idx) {
+  if (config.groups.length <= 1) { showToast("至少保留一个子组", "error"); return; }
+  config.groups.splice(idx, 1);
+  renderConfigSection();
+  updatePreview();
+}
+
+function changeSubGroupType(idx, type) {
+  var g = config.groups[idx];
+  g.type = type;
+  if (type === "periodic") {
+    g.intervals = g.pressKeys.map(function() { return 50; });
+    delete g.delays;
+  } else {
+    g.delays = g.pressKeys.map(function() { return 100; });
+    delete g.intervals;
+  }
+  renderConfigSection();
+  updatePreview();
+}
+
+function addSubKey(groupIdx) {
+  config.groups[groupIdx].pressKeys.push("?");
+  if (config.groups[groupIdx].type === "periodic") {
+    config.groups[groupIdx].intervals.push(50);
+  } else {
+    config.groups[groupIdx].delays.push(100);
+  }
+  renderConfigSection();
+  updatePreview();
+}
+
+function deleteSubKey(groupIdx, keyIdx) {
+  var g = config.groups[groupIdx];
+  if (g.pressKeys.length <= 1) { showToast("至少保留一个按键", "error"); return; }
+  g.pressKeys.splice(keyIdx, 1);
+  if (g.type === "periodic") g.intervals.splice(keyIdx, 1);
+  else g.delays.splice(keyIdx, 1);
+  renderConfigSection();
+  updatePreview();
+}
+
+function updateSubKeyInterval(groupIdx, keyIdx, val) {
+  var v = parseInt(val);
+  if (isNaN(v) || v < 10) return;
+  config.groups[groupIdx].intervals[keyIdx] = v;
+  updatePreview();
+}
+
+function updateSubKeyDelay(groupIdx, keyIdx, val) {
+  var v = parseInt(val);
+  if (isNaN(v) || v < 10) return;
+  config.groups[groupIdx].delays[keyIdx] = v;
+  updatePreview();
+}
+
+function addHoldKey() {
+  config.holdKeys.push("?");
+  renderHoldSection();
+  if (currentMode === "hold") renderConfigSection();
+  updatePreview();
+}
+
+function deleteHoldKey(idx) {
+  config.holdKeys.splice(idx, 1);
+  renderHoldSection();
+  if (currentMode === "hold") renderConfigSection();
+  updatePreview();
+}
+
+function removeHoldKey(idx) {
+  config.holdKeys.splice(idx, 1);
+  renderHoldSection();
+  updatePreview();
+}
+
+function updatePreview() {
+  var timeline = document.getElementById("previewTimeline");
+  var html = "";
+
+  if (currentMode === "hold") {
+    for (var i=0; i<config.holdKeys.length; i++) {
+      if (i > 0) html += '<span class="timeline-arrow">+</span>';
+      html += '<span class="timeline-hold">' + config.holdKeys[i] + ' ⏳</span>';
+    }
+    if (config.holdDuration > 0) {
+      html += '<span class="timeline-arrow">→</span><span class="timeline-time">' + config.holdDuration + 'ms</span>';
+      if (config.autoRepeat) html += '<span class="timeline-loop">↻ 重复</span>';
+    } else {
+      html += '<span class="timeline-loop">持续</span>';
+    }
+    timeline.innerHTML = html;
+    return;
+  }
+
+  var isHybrid = currentMode === "hybrid" || currentMode === "enhanced_hybrid";
+  var isPeriodic = currentMode.indexOf("periodic") >= 0;
+  var isSequence = currentMode.indexOf("sequence") >= 0;
+
+  if (isHybrid) {
+    for (var g=0; g<config.groups.length; g++) {
+      if (g > 0) html += '<span class="timeline-arrow">‖</span>';
+      var group = config.groups[g];
+      html += '<span style="font-size:9px;color:var(--text-muted);">[' + (group.type==="periodic"?"周期":"序列") + ']</span>';
+      for (var k=0; k<group.pressKeys.length; k++) {
+        if (k > 0) html += '<span class="timeline-arrow">→</span>';
+        html += '<span class="timeline-key">' + group.pressKeys[k] + '</span>';
+        if (k < group.pressKeys.length - 1) {
+          var t = group.type === "periodic" ? (group.intervals[k]||50) : (group.delays[k]||100);
+          html += '<span class="timeline-time">' + t + 'ms</span>';
+        }
+      }
+      if (group.type === "periodic") html += '<span class="timeline-loop">↻</span>';
+    }
+  } else {
+    var keys = config.keys;
+    for (var i=0; i<keys.length; i++) {
+      if (i > 0) html += '<span class="timeline-arrow">→</span>';
+      var t = isPeriodic ? (keys[i-1]?keys[i-1].interval||50:50) : (keys[i-1]?keys[i-1].delay||100:100);
+      if (i > 0) html += '<span class="timeline-time">' + t + 'ms</span><span class="timeline-arrow">→</span>';
+      html += '<span class="timeline-key">' + keys[i].key + '</span>';
+    }
+    if (isPeriodic) html += '<span class="timeline-loop">↻ 循环</span>';
+  }
+
+  var isEnhanced = MODE_INFO[currentMode] && MODE_INFO[currentMode].enhanced;
+  if (isEnhanced && config.holdKeys.length > 0) {
+    html += '<span class="timeline-arrow">+</span>';
+    for (var h=0; h<config.holdKeys.length; h++) {
+      if (h > 0) html += '<span class="timeline-arrow">+</span>';
+      html += '<span class="timeline-hold">' + config.holdKeys[h] + ' ⏳</span>';
+    }
+  }
+
+  timeline.innerHTML = html;
+}
+
+function showToast(msg, type) {
+  var container = document.getElementById("toastContainer");
+  var toast = document.createElement("div");
+  toast.className = "toast" + (type ? " " + type : "");
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(function() { toast.remove(); }, 2500);
+}
+
+function validate() {
+  var id = document.getElementById("idInput").value.trim();
+  var errEl = document.getElementById("idError");
+  if (!id) { errEl.textContent = "请输入分组ID"; errEl.className = "validation-msg error"; return false; }
+  if (!/^[a-zA-Z_]\w*$/.test(id)) { errEl.textContent = "ID只能包含字母、数字和下划线，且以字母开头"; errEl.className = "validation-msg error"; return false; }
+  errEl.className = "validation-msg";
+  return true;
+}
+
+function saveConfig() {
+  if (!validate()) return;
+  var result = {
+    id: document.getElementById("idInput").value.trim(),
+    hotkey: document.getElementById("hotkeyDisp").textContent,
+    mode: currentMode,
+    keyPressDuration: parseInt(document.getElementById("keyPressDuration").value) || 15
+  };
+
+  if (currentMode === "periodic") {
+    result.keys = config.keys.map(function(k) { return k.key; });
+    result.intervals = config.keys.map(function(k) { return k.interval || 50; });
+  } else if (currentMode === "sequence") {
+    result.keys = config.keys.map(function(k) { return k.key; });
+    result.delays = config.keys.map(function(k) { return k.delay || 100; });
+  } else if (currentMode === "hybrid" || currentMode === "enhanced_hybrid") {
+    result.groups = config.groups.map(function(g) {
+      var obj = { type: g.type, pressKeys: g.pressKeys.slice() };
+      if (g.type === "periodic") obj.intervals = g.intervals.slice();
+      else obj.delays = g.delays.slice();
+      return obj;
+    });
+    result.seqInterval = parseInt(document.getElementById("seqIntervalInput").value) || 100;
+  } else if (currentMode === "enhanced_periodic") {
+    result.pressKeys = config.keys.map(function(k) { return k.key; });
+    result.intervals = config.keys.map(function(k) { return k.interval || 50; });
+  } else if (currentMode === "enhanced_sequence") {
+    result.pressKeys = config.keys.map(function(k) { return k.key; });
+    result.pressDelays = config.keys.map(function(k) { return k.delay || 100; });
+  } else if (currentMode === "hold") {
+    result.holdKeys = config.holdKeys.slice();
+    result.holdDuration = parseInt(document.getElementById("holdDurationInput").value) || 0;
+    result.autoRepeat = document.getElementById("autoRepeatCheck").checked;
+    result.repeatInterval = parseInt(document.getElementById("repeatIntervalInput").value) || 1000;
+  }
+
+  var isEnhanced = MODE_INFO[currentMode] && MODE_INFO[currentMode].enhanced;
+  if (isEnhanced && currentMode !== "hold") {
+    result.holdKeys = config.holdKeys.filter(function(k) { return k !== "?"; });
+    result.holdMode = document.getElementById("holdModeSelect").value;
+  }
+
+  var jsonStr = JSON.stringify(result, null, 2);
+  if (window.chrome && window.chrome.webview && window.chrome.webview.hostObjects) {
+    try {
+      var saveResult = window.chrome.webview.hostObjects.sync.ahk.SaveConfig(jsonStr);
+      if (saveResult === false) {
+        showToast("保存失败，请检查配置", "error");
+      } else {
+        showToast("已保存！", "success");
+      }
+    } catch(e) {
+      showToast("保存失败: " + e.message, "error");
+    }
+  }
+}
+
+function cancelEdit() {
+  if (window.chrome && window.chrome.webview && window.chrome.webview.hostObjects) {
+    window.chrome.webview.hostObjects.sync.ahk.CancelEdit();
+  }
+}
+
+function handleAction(action) {
+  if (action === 'import') {
+    loadConfigFromAHK();
+  } else if (action === 'export') {
+    var json = JSON.stringify(buildConfigObject(), null, 2);
+    showToast("配置已导出到控制台", "success");
+  } else if (action === 'reset') {
+    config = {
+      keys: [{key:"?",interval:50}],
+      groups: [{type:"periodic", pressKeys:["?"], intervals:[50]}],
+      seqInterval: 100,
+      holdKeys: [],
+      holdMode: "continuous",
+      holdDuration: 0,
+      autoRepeat: false,
+      repeatInterval: 1000
+    };
+    document.getElementById("idInput").value = "";
+    document.getElementById("hotkeyDisp").textContent = "点击设置";
+    document.getElementById("keyPressDuration").value = "15";
+    pickModeByValue(currentMode);
+    showToast("已重置", "success");
+  } else if (action === 'duplicate') {
+    showToast("已复制当前配置", "success");
+  } else if (action === 'template') {
+    showToast("模板功能开发中", "success");
+  }
+}
+
+function loadConfigFromAHK() {
+  try {
+    if (window.chrome && window.chrome.webview && window.chrome.webview.hostObjects) {
+      var jsonStr = window.chrome.webview.hostObjects.sync.ahk.LoadConfig();
+      if (jsonStr) {
+        applyConfig(jsonStr);
+        showToast("配置已加载", "success");
+      }
+    } else {
+      showToast("非WebView2环境", "error");
+    }
+  } catch(e) {
+    showToast("加载失败: " + e.message, "error");
+  }
+}
+
+function applyConfig(jsonStr) {
+  try {
+    var cfg = JSON.parse(jsonStr);
+    if (cfg.id) document.getElementById("idInput").value = cfg.id;
+    if (cfg.hotkey) document.getElementById("hotkeyDisp").textContent = cfg.hotkey;
+    if (cfg.keyPressDuration) document.getElementById("keyPressDuration").value = cfg.keyPressDuration;
+    if (cfg.mode) {
+      currentMode = cfg.mode;
+      var pills = document.querySelectorAll(".mode-pill");
+      for (var i=0; i<pills.length; i++) {
+        pills[i].classList.toggle("active", pills[i].getAttribute("data-mode") === currentMode);
+      }
+      document.getElementById("modeDesc").textContent = MODE_INFO[currentMode].desc;
+    }
+
+    if (cfg.mode === "periodic") {
+      config.keys = (cfg.keys||[]).map(function(k,i) { return {key:k, interval:(cfg.intervals||[])[i]||50}; });
+    } else if (cfg.mode === "sequence") {
+      config.keys = (cfg.keys||[]).map(function(k,i) { return {key:k, delay:(cfg.delays||[])[i]||100}; });
+    } else if (cfg.mode === "enhanced_periodic") {
+      config.keys = (cfg.pressKeys||[]).map(function(k,i) { return {key:k, interval:(cfg.intervals||[])[i]||50}; });
+      config.holdKeys = cfg.holdKeys || [];
+      config.holdMode = cfg.holdMode || "continuous";
+    } else if (cfg.mode === "enhanced_sequence") {
+      config.keys = (cfg.pressKeys||[]).map(function(k,i) { return {key:k, delay:(cfg.pressDelays||[])[i]||100}; });
+      config.holdKeys = cfg.holdKeys || [];
+      config.holdMode = cfg.holdMode || "continuous";
+    } else if (cfg.mode === "hybrid" || cfg.mode === "enhanced_hybrid") {
+      if (cfg.groups && cfg.groups.length > 0) {
+        config.groups = cfg.groups.map(function(g) {
+          return {
+            type: g.type || "periodic",
+            pressKeys: g.pressKeys || [],
+            intervals: g.intervals || [],
+            delays: g.delays || []
+          };
+        });
+      }
+      config.seqInterval = cfg.seqInterval || 100;
+      if (cfg.mode === "enhanced_hybrid") {
+        config.holdKeys = cfg.holdKeys || [];
+        config.holdMode = cfg.holdMode || "continuous";
+      }
+    } else if (cfg.mode === "hold") {
+      config.holdKeys = cfg.holdKeys || [];
+      config.holdDuration = cfg.holdDuration || 0;
+      config.autoRepeat = cfg.autoRepeat || false;
+      config.repeatInterval = cfg.repeatInterval || 1000;
+    }
+
+    renderConfigSection();
+    renderHoldSection();
+    updatePreview();
+  } catch(e) {
+    showToast("解析配置失败: " + e.message, "error");
+  }
+}
+
+function buildConfigObject() {
+  var result = {
+    id: document.getElementById("idInput").value.trim(),
+    hotkey: document.getElementById("hotkeyDisp").textContent,
+    mode: currentMode,
+    keyPressDuration: parseInt(document.getElementById("keyPressDuration").value) || 15
+  };
+  return result;
+}
+
+window.applyConfig = applyConfig;
+
+init();
+</script>
+</body>
+</html>

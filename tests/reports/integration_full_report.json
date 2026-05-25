@@ -1,0 +1,1205 @@
+﻿{
+  "details": [
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "0: 依赖注入初始化",
+      "status": "PASS",
+      "test": "ModeRegistry 已注册 periodic",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "0: 依赖注入初始化",
+      "status": "PASS",
+      "test": "ModeRegistry 已注册 sequence",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "0: 依赖注入初始化",
+      "status": "PASS",
+      "test": "ModeRegistry 已注册 hybrid",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "0: 依赖注入初始化",
+      "status": "PASS",
+      "test": "ModeRegistry 已注册 enhanced_periodic",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "0: 依赖注入初始化",
+      "status": "PASS",
+      "test": "ModeRegistry 已注册 enhanced_sequence",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "0: 依赖注入初始化",
+      "status": "PASS",
+      "test": "ModeRegistry 已注册 enhanced_hybrid",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "0: 依赖注入初始化",
+      "status": "PASS",
+      "test": "ModeRegistry 已注册 hold",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "无异常",
+      "expected": "无异常",
+      "scenario": "1: periodic 模式全流程",
+      "status": "PASS",
+      "test": "创建 periodic 分组不崩溃",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "periodic",
+      "expected": "periodic",
+      "scenario": "1: periodic 模式全流程",
+      "status": "PASS",
+      "test": "mode = periodic",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "2",
+      "expected": "2",
+      "scenario": "1: periodic 模式全流程",
+      "status": "PASS",
+      "test": "keys.Length = 2",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "2",
+      "expected": "2",
+      "scenario": "1: periodic 模式全流程",
+      "status": "PASS",
+      "test": "_isMouse 已初始化",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "1: periodic 模式全流程",
+      "status": "PASS",
+      "test": "Space 不是鼠标键",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "2",
+      "expected": "2",
+      "scenario": "1: periodic 模式全流程",
+      "status": "PASS",
+      "test": "_lastTriggerTimes 已初始化",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "1: periodic 模式全流程",
+      "status": "PASS",
+      "test": "_groupTriggerTimes 为空(非混合模式)",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "1: periodic 模式全流程",
+      "status": "PASS",
+      "test": "_seqSteps 为空(非混合模式)",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "1: periodic 模式全流程",
+      "status": "PASS",
+      "test": "激活返回 true",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "1: periodic 模式全流程",
+      "status": "PASS",
+      "test": "active = true",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "1: periodic 模式全流程",
+      "status": "PASS",
+      "test": "Execute 返回正延迟",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "1: periodic 模式全流程",
+      "status": "PASS",
+      "test": "执行计数 = 1",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "1: periodic 模式全流程",
+      "status": "PASS",
+      "test": "停用返回 false",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "1: periodic 模式全流程",
+      "status": "PASS",
+      "test": "active = false",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "1: periodic 模式全流程",
+      "status": "PASS",
+      "test": "_heldKeys 已清空",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "2",
+      "expected": "2",
+      "scenario": "1: periodic 模式全流程",
+      "status": "PASS",
+      "test": "_lastTriggerTimes 保留(停用不清空)",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "无异常",
+      "expected": "无异常",
+      "scenario": "2: sequence 模式全流程",
+      "status": "PASS",
+      "test": "创建 sequence 分组不崩溃",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "sequence",
+      "expected": "sequence",
+      "scenario": "2: sequence 模式全流程",
+      "status": "PASS",
+      "test": "mode = sequence",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "2: sequence 模式全流程",
+      "status": "PASS",
+      "test": "初始步骤 = 1",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "3",
+      "expected": "3",
+      "scenario": "2: sequence 模式全流程",
+      "status": "PASS",
+      "test": "_isMouse 已初始化",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "2",
+      "expected": "2",
+      "scenario": "2: sequence 模式全流程",
+      "status": "PASS",
+      "test": "执行后步骤 = 2",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "3",
+      "expected": "3",
+      "scenario": "2: sequence 模式全流程",
+      "status": "PASS",
+      "test": "执行后步骤 = 3",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "2: sequence 模式全流程",
+      "status": "PASS",
+      "test": "循环回步骤 = 1",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "2: sequence 模式全流程",
+      "status": "PASS",
+      "test": "sequence 停用成功",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "无异常",
+      "expected": "无异常",
+      "scenario": "3: hybrid 模式全流程",
+      "status": "PASS",
+      "test": "创建 hybrid 分组不崩溃",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "hybrid",
+      "expected": "hybrid",
+      "scenario": "3: hybrid 模式全流程",
+      "status": "PASS",
+      "test": "mode = hybrid",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "3: hybrid 模式全流程",
+      "status": "PASS",
+      "test": "_groupTriggerTimes 已填充",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "3: hybrid 模式全流程",
+      "status": "PASS",
+      "test": "_seqSteps 已填充",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "3: hybrid 模式全流程",
+      "status": "PASS",
+      "test": "hybrid 无 holdKeys 时 _isHoldMouse 为空数组",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "3: hybrid 模式全流程",
+      "status": "PASS",
+      "test": "hybrid 激活成功",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "3: hybrid 模式全流程",
+      "status": "PASS",
+      "test": "hybrid Execute 返回正延迟",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "3: hybrid 模式全流程",
+      "status": "PASS",
+      "test": "hybrid 停用成功",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "无异常",
+      "expected": "无异常",
+      "scenario": "4: enhanced_periodic 模式全流程",
+      "status": "PASS",
+      "test": "创建 enhanced_periodic 分组不崩溃",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "enhanced_periodic",
+      "expected": "enhanced_periodic",
+      "scenario": "4: enhanced_periodic 模式全流程",
+      "status": "PASS",
+      "test": "mode = enhanced_periodic",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "3",
+      "expected": "3",
+      "scenario": "4: enhanced_periodic 模式全流程",
+      "status": "PASS",
+      "test": "_pressMouse 已初始化",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "4: enhanced_periodic 模式全流程",
+      "status": "PASS",
+      "test": "RButton 是鼠标键",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "4: enhanced_periodic 模式全流程",
+      "status": "PASS",
+      "test": "Space 不是鼠标键",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "4: enhanced_periodic 模式全流程",
+      "status": "PASS",
+      "test": "_isHoldMouse 已初始化",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "4: enhanced_periodic 模式全流程",
+      "status": "PASS",
+      "test": "Shift 不是鼠标键",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "4: enhanced_periodic 模式全流程",
+      "status": "PASS",
+      "test": "_heldKeyMouse 初始为空",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "4: enhanced_periodic 模式全流程",
+      "status": "PASS",
+      "test": "enhanced_periodic 激活成功",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "4: enhanced_periodic 模式全流程",
+      "status": "PASS",
+      "test": "enhanced_periodic Execute 返回正延迟",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "4: enhanced_periodic 模式全流程",
+      "status": "PASS",
+      "test": "enhanced_periodic 停用成功",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "无异常",
+      "expected": "无异常",
+      "scenario": "5: enhanced_sequence 模式全流程",
+      "status": "PASS",
+      "test": "创建 enhanced_sequence 分组不崩溃",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "enhanced_sequence",
+      "expected": "enhanced_sequence",
+      "scenario": "5: enhanced_sequence 模式全流程",
+      "status": "PASS",
+      "test": "mode = enhanced_sequence",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "3",
+      "expected": "3",
+      "scenario": "5: enhanced_sequence 模式全流程",
+      "status": "PASS",
+      "test": "holdTriggers 已初始化",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "5: enhanced_sequence 模式全流程",
+      "status": "PASS",
+      "test": "_isHoldMouse 已初始化",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "5: enhanced_sequence 模式全流程",
+      "status": "PASS",
+      "test": "enhanced_sequence 激活成功",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "5: enhanced_sequence 模式全流程",
+      "status": "PASS",
+      "test": "enhanced_sequence Execute 返回正延迟",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "5: enhanced_sequence 模式全流程",
+      "status": "PASS",
+      "test": "enhanced_sequence 停用成功",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "无异常",
+      "expected": "无异常",
+      "scenario": "6: enhanced_hybrid 模式全流程",
+      "status": "PASS",
+      "test": "创建 enhanced_hybrid 分组不崩溃",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "enhanced_hybrid",
+      "expected": "enhanced_hybrid",
+      "scenario": "6: enhanced_hybrid 模式全流程",
+      "status": "PASS",
+      "test": "mode = enhanced_hybrid",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "2",
+      "expected": "2",
+      "scenario": "6: enhanced_hybrid 模式全流程",
+      "status": "PASS",
+      "test": "_periodicMouse 已初始化",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "6: enhanced_hybrid 模式全流程",
+      "status": "PASS",
+      "test": "LButton 是鼠标键",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "2",
+      "expected": "2",
+      "scenario": "6: enhanced_hybrid 模式全流程",
+      "status": "PASS",
+      "test": "_seqMouse 已初始化",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "6: enhanced_hybrid 模式全流程",
+      "status": "PASS",
+      "test": "_isHoldMouse 已初始化",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "6: enhanced_hybrid 模式全流程",
+      "status": "PASS",
+      "test": "enhanced_hybrid 激活成功",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "6: enhanced_hybrid 模式全流程",
+      "status": "PASS",
+      "test": "enhanced_hybrid Execute 返回正延迟",
+      "timestamp": "20260521074153"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "6: enhanced_hybrid 模式全流程",
+      "status": "PASS",
+      "test": "enhanced_hybrid 停用成功",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "无异常",
+      "expected": "无异常",
+      "scenario": "7: hold 模式全流程",
+      "status": "PASS",
+      "test": "创建 hold 分组不崩溃",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "hold",
+      "expected": "hold",
+      "scenario": "7: hold 模式全流程",
+      "status": "PASS",
+      "test": "mode = hold",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "2",
+      "expected": "2",
+      "scenario": "7: hold 模式全流程",
+      "status": "PASS",
+      "test": "_isHoldMouse 已初始化",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "7: hold 模式全流程",
+      "status": "PASS",
+      "test": "RButton 是鼠标键",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "7: hold 模式全流程",
+      "status": "PASS",
+      "test": "Shift 不是鼠标键",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "7: hold 模式全流程",
+      "status": "PASS",
+      "test": "hold 激活成功",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "7: hold 模式全流程",
+      "status": "PASS",
+      "test": "hold Execute 返回正延迟",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "7: hold 模式全流程",
+      "status": "PASS",
+      "test": "hold 停用成功",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "无异常",
+      "expected": "无异常",
+      "scenario": "8: SkillManager 多分组管理",
+      "status": "PASS",
+      "test": "SkillManager.Init 不崩溃",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "3",
+      "expected": "3",
+      "scenario": "8: SkillManager 多分组管理",
+      "status": "PASS",
+      "test": "3 个分组已注册",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "8: SkillManager 多分组管理",
+      "status": "PASS",
+      "test": "分组1 存在",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "8: SkillManager 多分组管理",
+      "status": "PASS",
+      "test": "分组2 存在",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "8: SkillManager 多分组管理",
+      "status": "PASS",
+      "test": "分组3 存在",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "8: SkillManager 多分组管理",
+      "status": "PASS",
+      "test": "初始无活跃分组",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "9: ConfigValidator 集成",
+      "status": "PASS",
+      "test": "有效配置验证通过(errors=0)",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "9: ConfigValidator 集成",
+      "status": "PASS",
+      "test": "无效配置有验证错误",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "10: ConfigStore 集成",
+      "status": "PASS",
+      "test": "ConfigStore 有 GroupSettings",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "10: ConfigStore 集成",
+      "status": "PASS",
+      "test": "ConfigStore 有 HoldSettings",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "10: ConfigStore 集成",
+      "status": "PASS",
+      "test": "ConfigStore 有 CONTROL_HOTKEYS",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "10: ConfigStore 集成",
+      "status": "PASS",
+      "test": "HoldSettings 是对象",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "20",
+      "expected": "20",
+      "scenario": "10: ConfigStore 集成",
+      "status": "PASS",
+      "test": "debounceDelay = 20",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "11: JSON 往返集成",
+      "status": "PASS",
+      "test": "序列化包含 RButton",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "无异常",
+      "expected": "无异常",
+      "scenario": "11: JSON 往返集成",
+      "status": "PASS",
+      "test": "重新解析不崩溃",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "RButton",
+      "expected": "RButton",
+      "scenario": "11: JSON 往返集成",
+      "status": "PASS",
+      "test": "RButton 往返一致",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "12: ModeRegistry 执行器集成",
+      "status": "PASS",
+      "test": "periodic 执行器存在",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "12: ModeRegistry 执行器集成",
+      "status": "PASS",
+      "test": "periodic 执行器实现 IExecutor",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "12: ModeRegistry 执行器集成",
+      "status": "PASS",
+      "test": "sequence 执行器存在",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "12: ModeRegistry 执行器集成",
+      "status": "PASS",
+      "test": "sequence 执行器实现 IExecutor",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "12: ModeRegistry 执行器集成",
+      "status": "PASS",
+      "test": "hybrid 执行器存在",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "12: ModeRegistry 执行器集成",
+      "status": "PASS",
+      "test": "hybrid 执行器实现 IExecutor",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "12: ModeRegistry 执行器集成",
+      "status": "PASS",
+      "test": "enhanced_periodic 执行器存在",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "12: ModeRegistry 执行器集成",
+      "status": "PASS",
+      "test": "enhanced_periodic 执行器实现 IExecutor",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "12: ModeRegistry 执行器集成",
+      "status": "PASS",
+      "test": "enhanced_sequence 执行器存在",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "12: ModeRegistry 执行器集成",
+      "status": "PASS",
+      "test": "enhanced_sequence 执行器实现 IExecutor",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "12: ModeRegistry 执行器集成",
+      "status": "PASS",
+      "test": "enhanced_hybrid 执行器存在",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "12: ModeRegistry 执行器集成",
+      "status": "PASS",
+      "test": "enhanced_hybrid 执行器实现 IExecutor",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "12: ModeRegistry 执行器集成",
+      "status": "PASS",
+      "test": "hold 执行器存在",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "12: ModeRegistry 执行器集成",
+      "status": "PASS",
+      "test": "hold 执行器实现 IExecutor",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "无异常",
+      "expected": "无异常",
+      "scenario": "13: 鼠标键检测精确性",
+      "status": "PASS",
+      "test": "创建鼠标测试分组不崩溃",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "13: 鼠标键检测精确性",
+      "status": "PASS",
+      "test": "LButton 是鼠标键",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "13: 鼠标键检测精确性",
+      "status": "PASS",
+      "test": "RButton 是鼠标键",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "13: 鼠标键检测精确性",
+      "status": "PASS",
+      "test": "MButton 是鼠标键",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "13: 鼠标键检测精确性",
+      "status": "PASS",
+      "test": "a 不是鼠标键",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "13: 鼠标键检测精确性",
+      "status": "PASS",
+      "test": "F1 不是鼠标键",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "13: 鼠标键检测精确性",
+      "status": "PASS",
+      "test": "^LButton 修饰后仍检测为鼠标键",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "13: 鼠标键检测精确性",
+      "status": "PASS",
+      "test": "+RButton 修饰后仍检测为鼠标键",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "无异常",
+      "expected": "无异常",
+      "scenario": "14: _heldKeyMouse 缓存正确性",
+      "status": "PASS",
+      "test": "创建 holdMouse 测试分组不崩溃",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "14: _heldKeyMouse 缓存正确性",
+      "status": "PASS",
+      "test": "RButton holdMouse = true",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "14: _heldKeyMouse 缓存正确性",
+      "status": "PASS",
+      "test": "Shift holdMouse = false",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "15: 快速激活/停用循环",
+      "status": "PASS",
+      "test": "快速循环: active = true",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "15: 快速激活/停用循环",
+      "status": "PASS",
+      "test": "快速循环: active = false",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "15: 快速激活/停用循环",
+      "status": "PASS",
+      "test": "停用后 _heldKeys 清空",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "15: 快速激活/停用循环",
+      "status": "PASS",
+      "test": "停用后 _heldKeyMouse 清空",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "成功",
+      "expected": "成功",
+      "scenario": "16: GroupService 集成",
+      "status": "PASS",
+      "test": "GroupService.CreateGroup",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "16: GroupService 集成",
+      "status": "PASS",
+      "test": "GroupService 添加后分组存在",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "成功",
+      "expected": "成功",
+      "scenario": "16: GroupService 集成",
+      "status": "PASS",
+      "test": "GroupService.DeleteGroup",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "16: GroupService 集成",
+      "status": "PASS",
+      "test": "GroupService 删除后分组不存在",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "17: 紧急停止集成",
+      "status": "PASS",
+      "test": "初始非紧急模式",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "17: 紧急停止集成",
+      "status": "PASS",
+      "test": "紧急模式已激活",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "17: 紧急停止集成",
+      "status": "PASS",
+      "test": "紧急停止后无活跃分组",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "无异常",
+      "expected": "无异常",
+      "scenario": "18: 配置文件加载集成",
+      "status": "PASS",
+      "test": "加载 config.json 不崩溃",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "18: 配置文件加载集成",
+      "status": "PASS",
+      "test": "配置是对象",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "18: 配置文件加载集成",
+      "status": "PASS",
+      "test": "配置有 GroupSettings",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "18: 配置文件加载集成",
+      "status": "PASS",
+      "test": "配置有 HoldSettings",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "18: 配置文件加载集成",
+      "status": "PASS",
+      "test": "配置有 version",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "18: 配置文件加载集成",
+      "status": "PASS",
+      "test": "GroupSettings 有分组",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "19: _IsValidKeyName 优化后正确性",
+      "status": "PASS",
+      "test": "a 有效",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "19: _IsValidKeyName 优化后正确性",
+      "status": "PASS",
+      "test": "Space 有效",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "19: _IsValidKeyName 优化后正确性",
+      "status": "PASS",
+      "test": "F1 有效",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "19: _IsValidKeyName 优化后正确性",
+      "status": "PASS",
+      "test": "F12 有效",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "19: _IsValidKeyName 优化后正确性",
+      "status": "PASS",
+      "test": "LButton 有效",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "19: _IsValidKeyName 优化后正确性",
+      "status": "PASS",
+      "test": "RButton 有效",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "19: _IsValidKeyName 优化后正确性",
+      "status": "PASS",
+      "test": "MButton 有效",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "19: _IsValidKeyName 优化后正确性",
+      "status": "PASS",
+      "test": "^a 有效",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "19: _IsValidKeyName 优化后正确性",
+      "status": "PASS",
+      "test": "+Space 有效",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "19: _IsValidKeyName 优化后正确性",
+      "status": "PASS",
+      "test": "空字符串无效",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "19: _IsValidKeyName 优化后正确性",
+      "status": "PASS",
+      "test": "F24 有效",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "19: _IsValidKeyName 优化后正确性",
+      "status": "PASS",
+      "test": "F13 有效",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "19: _IsValidKeyName 优化后正确性",
+      "status": "PASS",
+      "test": "InvalidButton 无效",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "20: HoldSettings 缓存集成",
+      "status": "PASS",
+      "test": "首次获取 HoldSettings 成功",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "20: HoldSettings 缓存集成",
+      "status": "PASS",
+      "test": "缓存已标记为干净",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "20: HoldSettings 缓存集成",
+      "status": "PASS",
+      "test": "第二次获取使用缓存(同一对象)",
+      "timestamp": "20260521074154"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "20: HoldSettings 缓存集成",
+      "status": "PASS",
+      "test": "缓存已标记为脏",
+      "timestamp": "20260521074154"
+    }
+  ],
+  "elapsedMs": 125,
+  "generatedAt": "20260521074154",
+  "summary": {
+    "failed": false,
+    "passed": 149,
+    "scenarios": 21,
+    "skipped": false,
+    "total": 149
+  }
+}

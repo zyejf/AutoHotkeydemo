@@ -1,0 +1,37 @@
+﻿{
+  "details": [
+    {
+      "actual": "enhanced_hybrid",
+      "expected": "enhanced_hybrid",
+      "scenario": "",
+      "status": "PASS",
+      "test": "BUG-1.1: mode",
+      "timestamp": "20260519214943"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "",
+      "status": "PASS",
+      "test": "BUG-1.1: ppk empty",
+      "timestamp": "20260519214943"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "",
+      "status": "PASS",
+      "test": "BUG-1.1: delay>0 but no keys",
+      "timestamp": "20260519214943"
+    }
+  ],
+  "elapsedMs": false,
+  "generatedAt": "20260519214943",
+  "summary": {
+    "failed": false,
+    "passed": 3,
+    "scenarios": false,
+    "skipped": false,
+    "total": 3
+  }
+}

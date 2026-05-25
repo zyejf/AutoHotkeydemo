@@ -1,0 +1,89 @@
+; =================================================================
+; 基础设施层 - 通用工具函数
+; 版本: 3.0
+; 说明: 跨模块共享的通用工具函数
+; =================================================================
+
+#Requires AutoHotkey v2.0
+#ErrorStdOut "UTF-8"
+#Warn VarUnset, OutputDebug
+#Warn Unreachable, OutputDebug
+#Warn LocalSameAsGlobal, Off
+
+StrJoin(sep, parts*) {
+    result := ""
+    for part in parts {
+        if result != ""
+            result .= sep
+        result .= part
+    }
+    return result
+}
+
+_GetProp(obj, key, default := "") {
+    if obj is Map
+        return obj.Has(key) ? obj[key] : default
+    else if IsObject(obj) && HasProp(obj, key)
+        return obj.%key%
+    return default
+}
+
+class LogRotator {
+    static Rotate(logFile, keepCount := 5) {
+        try {
+            if !FileExist(logFile)
+                return true
+
+            timestamp := StrReplace(StrReplace(A_Now, ":", ""), " ", "_") "_" A_MSec
+            backupFile := RegExReplace(logFile, "\.log$", "_" timestamp ".log.bak")
+            FileMove(logFile, backupFile, 1)
+
+            LogRotator._CleanupOldBackups(logFile, keepCount)
+            return true
+        } catch as e {
+            OutputDebug("LogRotator.Rotate failed: " e.Message)
+            return false
+        }
+    }
+
+    static _CleanupOldBackups(logFile, keepCount) {
+        try {
+            pattern := RegExReplace(logFile, "\.log$", "_*.log.bak")
+            backups := []
+
+            Loop Files, pattern {
+                try {
+                    ft := FileGetTime(A_LoopFileFullPath, "M")
+                    backups.Push({path: A_LoopFileFullPath, time: ft})
+                } catch {
+                    backups.Push({path: A_LoopFileFullPath, time: "0"})
+                }
+            }
+
+            if backups.Length <= keepCount
+                return
+
+            n := backups.Length
+            loop n - 1 {
+                i := A_Index + 1
+                key := backups[i]
+                j := i - 1
+                while j >= 1 && backups[j].time < key.time {
+                    backups[j + 1] := backups[j]
+                    j--
+                }
+                backups[j + 1] := key
+            }
+
+            deleteCount := backups.Length - keepCount
+            loop deleteCount {
+                try
+                    FileDelete(backups[A_Index].path)
+                catch as e
+                    OutputDebug("LogRotator: failed to delete " backups[A_Index].path ": " e.Message)
+            }
+        } catch as e {
+            OutputDebug("LogRotator._CleanupOldBackups failed: " e.Message)
+        }
+    }
+}

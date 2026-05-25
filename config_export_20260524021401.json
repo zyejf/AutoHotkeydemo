@@ -1,0 +1,197 @@
+﻿{
+  "CONTROL_HOTKEYS": {
+    "emergency": "f12",
+    "releaseAllHolds": "^r",
+    "showStatus": "^0",
+    "toggleAll": "^1",
+    "toggleHoldMode": "^h"
+  },
+  "GroupSettings": {
+    "1": {
+      "groups": [
+        {
+          "intervals": [
+            50,
+            50
+          ],
+          "pressKeys": [
+            "m",
+            "a"
+          ],
+          "type": "periodic"
+        },
+        {
+          "intervals": [
+            200,
+            220,
+            240,
+            2500
+          ],
+          "pressKeys": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ],
+          "type": "periodic"
+        }
+      ],
+      "hotkey": "F1",
+      "keyPressDuration": 10,
+      "mode": "hybrid",
+      "seqInterval": 100
+    },
+    "2": {
+      "delays": [
+        100,
+        100,
+        100,
+        100
+      ],
+      "hotkey": "F2",
+      "keyPressDuration": 15,
+      "keys": [
+        "1",
+        "2",
+        "3",
+        "q"
+      ],
+      "mode": "sequence",
+      "pressDelays": [
+        100,
+        100,
+        100,
+        100
+      ],
+      "pressKeys": [
+        "1",
+        "2",
+        "3",
+        "q"
+      ]
+    },
+    "3": {
+      "holdKeys": [
+        "Shift"
+      ],
+      "hotkey": "F3",
+      "intervals": [
+        50,
+        50,
+        50,
+        50,
+        50,
+        50
+      ],
+      "keyPressDuration": 15,
+      "mode": "enhanced_periodic",
+      "pressKeys": [
+        "space",
+        "1",
+        "2",
+        "3",
+        "RButton",
+        "space"
+      ]
+    },
+    "4": {
+      "groups": [
+        {
+          "intervals": [
+            100
+          ],
+          "pressKeys": [
+            "Space"
+          ],
+          "type": "periodic"
+        },
+        {
+          "delays": [
+            100,
+            100,
+            100,
+            100,
+            100
+          ],
+          "pressKeys": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "q"
+          ],
+          "seqInterval": 100,
+          "type": "sequence"
+        }
+      ],
+      "holdKeys": [
+        "Shift",
+        "Ctrl"
+      ],
+      "hotkey": "F4",
+      "keyPressDuration": 15,
+      "mode": "enhanced_hybrid",
+      "seqInterval": 100
+    },
+    "5": {
+      "holdKeys": [
+        "Shift"
+      ],
+      "hotkey": "F5",
+      "intervals": [
+        50
+      ],
+      "keyPressDuration": 15,
+      "mode": "enhanced_periodic",
+      "pressKeys": [
+        "5"
+      ]
+    },
+    "6": {
+      "autoRepeat": 0,
+      "holdDuration": 700,
+      "holdKeys": [
+        "RButton"
+      ],
+      "hotkey": "F6",
+      "keyPressDuration": 15,
+      "mode": "hold",
+      "repeatInterval": 1000
+    },
+    "test_autotest": {
+      "active": 0,
+      "hotkey": "F9",
+      "intervals": [
+        1000
+      ],
+      "keyPressDuration": 15,
+      "keys": [
+        "b"
+      ],
+      "mode": "periodic",
+      "name": "AutoTest_Renamed"
+    },
+    "test_autotest_copy_mpio3nxs": {
+      "holdMode": "continuous",
+      "hotkey": "",
+      "intervals": [
+        1000
+      ],
+      "keyPressDuration": 15,
+      "keys": [
+        "b"
+      ],
+      "mode": "periodic",
+      "name": "AutoTest_Renamed 副本"
+    }
+  },
+  "HoldSettings": {
+    "allowOverlap": 0,
+    "checkInterval": 50,
+    "debounceDelay": 20,
+    "pressSpeed": 80,
+    "releaseOnEmergency": 1
+  },
+  "lastModified": "20260403002633",
+  "version": "3.0"
+}

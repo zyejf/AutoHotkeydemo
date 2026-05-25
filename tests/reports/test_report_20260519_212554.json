@@ -1,0 +1,37 @@
+﻿{
+  "details": [
+    {
+      "actual": "enhanced_hybrid",
+      "expected": "enhanced_hybrid",
+      "scenario": "BUG-1.1",
+      "status": "PASS",
+      "test": "mode check",
+      "timestamp": "20260519212554"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "BUG-1.1",
+      "status": "PASS",
+      "test": "periodicPressKeys empty",
+      "timestamp": "20260519212554"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "BUG-1.1",
+      "status": "PASS",
+      "test": "seqPressKeys empty",
+      "timestamp": "20260519212554"
+    }
+  ],
+  "elapsedMs": false,
+  "generatedAt": "20260519212554",
+  "summary": {
+    "failed": false,
+    "passed": 3,
+    "scenarios": true,
+    "skipped": false,
+    "total": 3
+  }
+}

@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>按键测试 - 热力图+雷达图分析</title>
+<script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.5.1/echarts.min.js"></script>
+<script>if(typeof echarts==='undefined'){document.write('<scr'+'ipt src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></scr'+'ipt>')}</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#1c1c2e;--card:#252540;--border:#3a3a5c;--text:#e8e8f0;--dim:#9898b0;--accent:#7c5cfc;--green:#00e676;--yellow:#ffab40;--red:#ff5252;--cyan:#18ffff}
+body{background:var(--bg);color:var(--text);font-family:'Inter','Segoe UI',system-ui,sans-serif;padding:20px;min-height:100vh}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;padding:12px 18px;background:var(--card);border-radius:10px;border:1px solid var(--border)}
+.header h1{font-size:16px;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.mode-tabs{display:flex;gap:6px}
+.mtab{padding:5px 14px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--dim);cursor:pointer;font-size:11px;transition:all .2s}
+.mtab:hover{border-color:var(--accent);color:var(--accent)}
+.mtab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px}
+.card{background:var(--card);border-radius:10px;border:1px solid var(--border);overflow:hidden}
+.card-head{padding:8px 14px;font-size:12px;font-weight:600;color:var(--accent);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.card-head .badge{font-size:9px;padding:2px 8px;border-radius:10px;background:rgba(124,92,252,.15);color:var(--accent)}
+.chart-box{height:300px}
+.card.full{grid-column:1/-1}
+.chart-box.tall{height:340px}
+.stats-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.stat{background:var(--card);border-radius:10px;padding:10px 14px;border:1px solid var(--border);text-align:center}
+.stat .s-label{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+.stat .s-val{font-size:20px;font-weight:700;margin-top:2px}
+.toolbar{display:flex;gap:6px;padding:4px 14px}
+.toolbar button{padding:3px 10px;border-radius:14px;border:1px solid var(--border);background:transparent;color:var(--dim);cursor:pointer;font-size:10px;transition:all .2s}
+.toolbar button:hover{border-color:var(--accent);color:var(--accent)}
+.toolbar button.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+@media(max-width:900px){.grid2,.grid3{grid-template-columns:1fr}.stats-bar{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>◈ 按键测试深度分析</h1>
+  <div class="mode-tabs">
+    <button class="mtab active" data-mode="periodic">Periodic</button>
+    <button class="mtab" data-mode="sequence">Sequence</button>
+    <button class="mtab" data-mode="hybrid">Hybrid</button>
+  </div>
+</div>
+
+<div class="stats-bar" id="statsBar"></div>
+
+<div class="grid2">
+  <div class="card">
+    <div class="card-head"><span>偏差热力图</span><span class="badge">HEATMAP</span></div>
+    <div class="chart-box" id="heatmapChart"></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><span>综合性能雷达</span><span class="badge">RADAR</span></div>
+    <div class="chart-box" id="radarChart"></div>
+  </div>
+</div>
+
+<div class="grid3">
+  <div class="card">
+    <div class="card-head"><span>偏差分布直方图</span><span class="badge">HISTOGRAM</span></div>
+    <div class="chart-box" id="histChart"></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><span>按键间隔箱线图</span><span class="badge">BOXPLOT</span></div>
+    <div class="chart-box" id="boxChart"></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><span>按压时长散点图</span><span class="badge">SCATTER</span></div>
+    <div class="chart-box" id="scatterChart"></div>
+  </div>
+</div>
+
+<script>
+var MODES={
+  periodic:{name:'Periodic',keys:['1','2','3'],intervals:[100,150,200]},
+  sequence:{name:'Sequence',keys:['a','b','c'],delays:[100,150,200],totalCycle:450},
+  hybrid:{name:'Hybrid',keys:['1','2','a','b'],intervals:[100,200,150,250],subTypes:{'1':'periodic','2':'periodic','a':'sequence','b':'sequence'},seqCycleInterval:400}
+};
+var COLORS=['#7c5cfc','#18ffff','#ffab40','#00e676','#ff5252','#9898b0'];
+var currentMode='periodic';
+var charts={};
+
+function genData(mode){
+  var cfg=MODES[mode],details=[],holdDetails=[];
+  var dur=5000,keyCount={};
+  cfg.keys.forEach(function(k){keyCount[k]=0;});
+  if(mode==='periodic'){
+    var last={};cfg.keys.forEach(function(k,i){last[k]=-cfg.intervals[i];});
+    for(var t=0;t<dur;t+=2){
+      for(var i=0;i<cfg.keys.length;i++){
+        var k=cfg.keys[i],iv=cfg.intervals[i];
+        if(t-last[k]>=iv){
+          var hd=Math.round(15+15*(Math.random()-0.5));
+          keyCount[k]++;
+          if(last[k]>=0){var a=t-last[k],d=Math.round(Math.abs(a-iv)/iv*1000)/10;details.push({key:k,expected:iv,actual:a,dev:d,status:d<=20?'good':d<=50?'acc':'poor'});}
+          holdDetails.push({key:k,hold:hd});
+          last[k]=t;
+        }
+      }
+    }
+  }else if(mode==='sequence'){
+    var last={};cfg.keys.forEach(function(k){last[k]=-cfg.totalCycle;});
+    var step=0,t=0;
+    while(t<dur){
+      var k=cfg.keys[step%cfg.keys.length],delay=cfg.delays[step%cfg.delays.length];
+      var hd=Math.round(15+15*(Math.random()-0.5));
+      keyCount[k]++;
+      if(last[k]>=0){var a=t-last[k],d=Math.round(Math.abs(a-cfg.totalCycle)/cfg.totalCycle*1000)/10;details.push({key:k,expected:cfg.totalCycle,actual:a,dev:d,status:d<=20?'good':d<=50?'acc':'poor'});}
+      holdDetails.push({key:k,hold:hd});
+      last[k]=t;t+=delay;step++;
+    }
+  }else{
+    var pKeys=cfg.keys.filter(function(k){return cfg.subTypes[k]==='periodic';});
+    var sKeys=cfg.keys.filter(function(k){return cfg.subTypes[k]==='sequence';});
+    var pIv={};pKeys.forEach(function(k){pIv[k]=cfg.intervals[cfg.keys.indexOf(k)];});
+    var sDel={};sKeys.forEach(function(k){sDel[k]=cfg.intervals[cfg.keys.indexOf(k)];});
+    var last={};cfg.keys.forEach(function(k,i){last[k]=-cfg.intervals[i];});
+    var lastSeq=-cfg.seqCycleInterval;
+    for(var t=0;t<dur;t+=2){
+      for(var i=0;i<pKeys.length;i++){
+        var k=pKeys[i],iv=pIv[k];
+        if(t-last[k]>=iv){
+          var hd=Math.round(15+15*(Math.random()-0.5));keyCount[k]++;
+          if(last[k]>=0){var a=t-last[k],d=Math.round(Math.abs(a-iv)/iv*1000)/10;details.push({key:k,expected:iv,actual:a,dev:d,status:d<=20?'good':d<=50?'acc':'poor'});}
+          holdDetails.push({key:k,hold:hd});last[k]=t;
+        }
+      }
+      if(t-lastSeq>=cfg.seqCycleInterval&&sKeys.length>0){
+        var st=t;
+        for(var j=0;j<sKeys.length;j++){
+          var sk=sKeys[j],delay=sDel[sk];
+          var hd=Math.round(15+15*(Math.random()-0.5));keyCount[sk]++;
+          if(last[sk]>=0){var a=st-last[sk],d=Math.round(Math.abs(a-cfg.seqCycleInterval)/cfg.seqCycleInterval*1000)/10;details.push({key:sk,expected:cfg.seqCycleInterval,actual:a,dev:d,status:d<=20?'good':d<=50?'acc':'poor'});}
+          holdDetails.push({key:sk,hold:hd});last[sk]=st;st+=delay;
+        }
+        lastSeq=t;
+      }
+    }
+  }
+  var ds=0,dm=0;details.forEach(function(d){ds+=d.dev;dm=Math.max(dm,d.dev);});
+  return{details:details,holdDetails:holdDetails,keyCount:keyCount,avgDev:details.length?Math.round(ds/details.length*10)/10:0,maxDev:Math.round(dm*10)/10,mode:mode};
+}
+
+function renderStats(data){
+  var bar=document.getElementById('statsBar');
+  var total=Object.values(data.keyCount).reduce(function(a,b){return a+b;},0);
+  var good=data.details.filter(function(d){return d.status==='good';}).length;
+  var rate=data.details.length?Math.round(good/data.details.length*100):100;
+  bar.innerHTML=
+    '<div class="stat"><div class="s-label">模式</div><div class="s-val" style="color:var(--accent)">'+MODES[data.mode].name+'</div></div>'+
+    '<div class="stat"><div class="s-label">总测试</div><div class="s-val" style="color:var(--cyan)">'+total+'</div></div>'+
+    '<div class="stat"><div class="s-label">平均偏差</div><div class="s-val" style="color:'+(data.avgDev<=10?'var(--green)':data.avgDev<=30?'var(--yellow)':'var(--red)')+'">'+data.avgDev+'%</div></div>'+
+    '<div class="stat"><div class="s-label">Good率</div><div class="s-val" style="color:'+(rate>=80?'var(--green)':rate>=50?'var(--yellow)':'var(--red)')+'">'+rate+'%</div></div>';
+}
+
+function renderHeatmap(data){
+  var c=charts.heatmap;if(!c){c=echarts.init(document.getElementById('heatmapChart'),'dark');charts.heatmap=c;}
+  var cfg=MODES[data.mode];
+  var bins=20,devByBin={};
+  cfg.keys.forEach(function(k){devByBin[k]=new Array(bins).fill(0);});
+  data.details.forEach(function(d){
+    var bi=Math.min(Math.floor(d.dev/5),bins-1);
+    devByBin[d.key][bi]++;
+  });
+  var hmData=[];
+  cfg.keys.forEach(function(k,ki){
+    devByBin[k].forEach(function(v,bi){hmData.push([bi,ki,v]);});
+  });
+  var maxV=Math.max.apply(null,hmData.map(function(d){return d[2];}))||1;
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{formatter:function(p){return '按键 '+cfg.keys[p.data[1]]+'<br/>偏差 '+(p.data[0]*5)+'~'+((p.data[0]+1)*5)+'%<br/>次数 '+p.data[2];}},
+    grid:{left:50,right:40,top:10,bottom:30},
+    xAxis:{type:'category',data:Array.from({length:bins},function(_,i){return i*5+'%';}),axisLabel:{color:'#9898b0',fontSize:9,interval:4},axisLine:{lineStyle:{color:'#3a3a5c'}},splitLine:{show:false}},
+    yAxis:{type:'category',data:cfg.keys,axisLabel:{color:'#9898b0',fontSize:11},axisLine:{lineStyle:{color:'#3a3a5c'}},axisTick:{show:false}},
+    visualMap:{min:0,max:maxV,orient:'horizontal',left:'center',bottom:0,inRange:{color:['#252540','#7c5cfc','#ff5252']},textStyle:{color:'#9898b0',fontSize:9},text:['高','低'],show:true,itemWidth:10,itemHeight:80},
+    series:[{type:'heatmap',data:hmData,label:{show:false},emphasis:{itemStyle:{shadowBlur:10,shadowColor:'rgba(124,92,252,0.5)'}}}]
+  },true);
+}
+
+function renderRadar(data){
+  var c=charts.radar;if(!c){c=echarts.init(document.getElementById('radarChart'),'dark');charts.radar=c;}
+  var cfg=MODES[data.mode];
+  var indicators=[{name:'精度',max:100},{name:'稳定性',max:100},{name:'响应速度',max:100},{name:'Good率',max:100},{name:'覆盖率',max:100}];
+  var keyValues=cfg.keys.map(function(k){
+    var kd=data.details.filter(function(d){return d.key===k;});
+    var good=kd.filter(function(d){return d.status==='good';}).length;
+    var avgD=kd.length?kd.reduce(function(s,d){return s+d.dev;},0)/kd.length:0;
+    var maxD=kd.length?Math.max.apply(null,kd.map(function(d){return d.dev;})):0;
+    var minD=kd.length?Math.min.apply(null,kd.map(function(d){return d.dev;})):0;
+    var stability=maxD-minD;
+    return[
+      Math.max(0,100-avgD*2),
+      Math.max(0,100-stability),
+      Math.max(0,100-avgD),
+      kd.length?Math.round(good/kd.length*100):100,
+      Math.min(100,kd.length*5)
+    ];
+  });
+  var series=cfg.keys.map(function(k,i){
+    return{name:k,type:'radar',data:[{value:keyValues[i],name:k}],
+      lineStyle:{color:COLORS[i%COLORS.length],width:2},
+      areaStyle:{color:COLORS[i%COLORS.length],opacity:0.1},
+      itemStyle:{color:COLORS[i%COLORS.length]},
+      symbol:'circle',symbolSize:4};
+  });
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{},
+    legend:{data:cfg.keys,bottom:4,textStyle:{color:'#9898b0',fontSize:10}},
+    radar:{indicator:indicators,radius:'62%',center:['50%','48%'],
+      axisName:{color:'#9898b0',fontSize:9},
+      splitArea:{areaStyle:{color:['rgba(124,92,252,0.02)','rgba(124,92,252,0.05)']}},
+      splitLine:{lineStyle:{color:'#3a3a5c'}},
+      axisLine:{lineStyle:{color:'#3a3a5c'}}},
+    series:series
+  },true);
+}
+
+function renderHist(data){
+  var c=charts.hist;if(!c){c=echarts.init(document.getElementById('histChart'),'dark');charts.hist=c;}
+  var bins=Array.from({length:10},function(_,i){return i*10;});
+  var counts=new Array(10).fill(0);
+  data.details.forEach(function(d){var bi=Math.min(Math.floor(d.dev/10),9);counts[bi]++;});
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis',axisPointer:{type:'shadow'}},
+    grid:{left:36,right:10,top:10,bottom:24},
+    xAxis:{type:'category',data:bins.map(function(b){return b+'~'+(b+10)+'%';}),axisLabel:{color:'#9898b0',fontSize:8,rotate:25},axisLine:{lineStyle:{color:'#3a3a5c'}},axisTick:{show:false}},
+    yAxis:{type:'value',axisLabel:{color:'#9898b0',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'#3a3a5c',type:'dashed'}}},
+    series:[{type:'bar',data:counts.map(function(v,i){return{value:v,itemStyle:{color:i<2?'#00e676':i<5?'#ffab40':'#ff5252',borderRadius:[3,3,0,0]}};}),barWidth:'60%'}]
+  },true);
+}
+
+function renderBox(data){
+  var c=charts.box;if(!c){c=echarts.init(document.getElementById('boxChart'),'dark');charts.box=c;}
+  var cfg=MODES[data.mode];
+  var boxData=cfg.keys.map(function(k){
+    var devs=data.details.filter(function(d){return d.key===k;}).map(function(d){return d.dev;}).sort(function(a,b){return a-b;});
+    if(!devs.length) return{min:0,Q1:0,median:0,Q3:0,max:0};
+    var q1=devs[Math.floor(devs.length*0.25)];
+    var med=devs[Math.floor(devs.length*0.5)];
+    var q3=devs[Math.floor(devs.length*0.75)];
+    return{min:devs[0],Q1:q1,median:med,Q3:q3,max:devs[devs.length-1]};
+  });
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis'},
+    grid:{left:36,right:10,top:10,bottom:24},
+    xAxis:{type:'category',data:cfg.keys,axisLabel:{color:'#9898b0',fontSize:11},axisLine:{lineStyle:{color:'#3a3a5c'}},axisTick:{show:false}},
+    yAxis:{type:'value',name:'偏差%',nameTextStyle:{color:'#9898b0',fontSize:9},axisLabel:{color:'#9898b0',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'#3a3a5c',type:'dashed'}}},
+    series:[{type:'boxplot',data:boxData.map(function(b){return[b.min,b.Q1,b.median,b.Q3,b.max];}),
+      itemStyle:{color:'rgba(124,92,252,0.3)',borderColor:'#7c5cfc',borderWidth:1.5},
+      boxWidth:['30%','50%']}]
+  },true);
+}
+
+function renderScatter(data){
+  var c=charts.scatter;if(!c){c=echarts.init(document.getElementById('scatterChart'),'dark');charts.scatter=c;}
+  var cfg=MODES[data.mode];
+  var series=cfg.keys.map(function(k,ki){
+    var pts=[];
+    data.holdDetails.filter(function(h){return h.key===k;}).forEach(function(h,i){pts.push([i,h.hold]);});
+    return{name:k,type:'scatter',data:pts,symbolSize:5,
+      itemStyle:{color:COLORS[ki%COLORS.length],opacity:0.7},
+      emphasis:{itemStyle:{borderColor:'#fff',borderWidth:1}}};
+  });
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{formatter:function(p){return p.seriesName+' #'+(p.dataIndex+1)+'<br/>按压: '+p.data[1]+'ms';}},
+    legend:{data:cfg.keys,bottom:4,textStyle:{color:'#9898b0',fontSize:10}},
+    grid:{left:36,right:10,top:10,bottom:36},
+    xAxis:{type:'value',axisLabel:{color:'#9898b0',fontSize:9},axisLine:{lineStyle:{color:'#3a3a5c'}},splitLine:{show:false}},
+    yAxis:{type:'value',name:'ms',nameTextStyle:{color:'#9898b0',fontSize:9},axisLabel:{color:'#9898b0',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'#3a3a5c',type:'dashed'}}},
+    series:series
+  },true);
+}
+
+function renderAll(mode){
+  var data=genData(mode);
+  renderStats(data);
+  renderHeatmap(data);
+  renderRadar(data);
+  renderHist(data);
+  renderBox(data);
+  renderScatter(data);
+}
+
+document.querySelectorAll('.mtab').forEach(function(tab){
+  tab.addEventListener('click',function(){
+    document.querySelectorAll('.mtab').forEach(function(t){t.classList.remove('active');});
+    this.classList.add('active');
+    currentMode=this.dataset.mode;
+    renderAll(currentMode);
+  });
+});
+
+document.addEventListener('DOMContentLoaded',function(){renderAll('periodic');});
+window.addEventListener('resize',function(){Object.values(charts).forEach(function(c){c.resize();});});
+</script>
+</body>
+</html>

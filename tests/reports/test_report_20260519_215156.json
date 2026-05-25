@@ -1,0 +1,21 @@
+﻿{
+  "details": [
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "",
+      "status": "PASS",
+      "test": "1=1",
+      "timestamp": "20260519215156"
+    }
+  ],
+  "elapsedMs": false,
+  "generatedAt": "20260519215156",
+  "summary": {
+    "failed": false,
+    "passed": true,
+    "scenarios": false,
+    "skipped": false,
+    "total": true
+  }
+}

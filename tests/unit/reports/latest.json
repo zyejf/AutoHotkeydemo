@@ -1,0 +1,84 @@
+﻿{
+  "duration": 0.0,
+  "errors": [],
+  "suites": [
+    {
+      "duration": 0.0,
+      "endTime": 99174734,
+      "failed": 0,
+      "name": "test_interfaces.ahk",
+      "passed": 12,
+      "scenarios": [
+        {
+          "message": "ILogger.Log 抛出异常",
+          "name": "场景 1: ILogger 接口契约",
+          "status": "passed"
+        },
+        {
+          "message": "INotifier.Notify 抛出异常",
+          "name": "场景 2: INotifier 接口契约",
+          "status": "passed"
+        },
+        {
+          "message": "INotifier.ShowBriefInfo 抛出异常",
+          "name": "场景 2: INotifier 接口契约",
+          "status": "passed"
+        },
+        {
+          "message": "IConfigStore.Load 抛出异常",
+          "name": "场景 3: IConfigStore 接口契约",
+          "status": "passed"
+        },
+        {
+          "message": "IConfigStore.Save 抛出异常",
+          "name": "场景 3: IConfigStore 接口契约",
+          "status": "passed"
+        },
+        {
+          "message": "IConfigStore.Get 抛出异常",
+          "name": "场景 3: IConfigStore 接口契约",
+          "status": "passed"
+        },
+        {
+          "message": "IConfigStore.Set 抛出异常",
+          "name": "场景 3: IConfigStore 接口契约",
+          "status": "passed"
+        },
+        {
+          "message": "IConfigStore.Has 抛出异常",
+          "name": "场景 3: IConfigStore 接口契约",
+          "status": "passed"
+        },
+        {
+          "message": "IExecutor.Execute 抛出异常",
+          "name": "场景 4: IExecutor 接口契约",
+          "status": "passed"
+        },
+        {
+          "message": "IExecutor.GetModeName 抛出异常",
+          "name": "场景 4: IExecutor 接口契约",
+          "status": "passed"
+        },
+        {
+          "message": "IHealthChecker.Check 抛出异常",
+          "name": "场景 5: IHealthChecker 接口契约",
+          "status": "passed"
+        },
+        {
+          "message": "IEventHook.OnEvent 抛出异常",
+          "name": "场景 6: IEventHook 接口契约",
+          "status": "passed"
+        }
+      ],
+      "skipped": 0,
+      "startTime": 99174734
+    }
+  ],
+  "summary": {
+    "failed": 0,
+    "passed": 12,
+    "skipped": 0,
+    "total": 12
+  },
+  "timestamp": "20260514000508"
+}

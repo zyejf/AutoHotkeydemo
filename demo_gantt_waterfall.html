@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>按键测试 - 甘特图+瀑布流时间线</title>
+<script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.5.1/echarts.min.js"></script>
+<script>if(typeof echarts==='undefined'){document.write('<scr'+'ipt src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></scr'+'ipt>')}</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0f1923;--card:#1a2733;--border:#2d3f4f;--text:#d4e0ed;--dim:#7a8fa0;--accent:#00bcd4;--green:#4caf50;--yellow:#ffc107;--red:#f44336;--orange:#ff9800;--purple:#9c27b0}
+body{background:var(--bg);color:var(--text);font-family:'Fira Code','Cascadia Code',Consolas,monospace;padding:16px;min-height:100vh}
+.top{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:var(--card);border:1px solid var(--border);border-radius:6px;margin-bottom:14px}
+.top h1{font-size:14px;font-weight:700;color:var(--accent)}
+.top .tabs{display:flex;gap:4px}
+.top .tabs button{padding:4px 12px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--dim);cursor:pointer;font-size:11px;font-family:inherit;transition:all .15s}
+.top .tabs button:hover{border-color:var(--accent);color:var(--accent)}
+.top .tabs button.active{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.kpi-row{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:14px}
+.kpi{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:8px 10px;text-align:center}
+.kpi .k-label{font-size:8px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+.kpi .k-val{font-size:18px;font-weight:700;margin-top:2px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:14px}
+.card-head{padding:6px 12px;font-size:11px;font-weight:600;color:var(--accent);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.card-head .info{font-size:9px;color:var(--dim)}
+.ch{height:300px}
+.card.wide .ch{height:360px}
+.waterfall{padding:10px 12px;max-height:240px;overflow-y:auto}
+.wf-row{display:flex;align-items:center;gap:6px;padding:3px 0;font-size:10px;border-bottom:1px solid rgba(45,63,79,0.4)}
+.wf-row .wf-key{min-width:24px;font-weight:700;color:var(--accent)}
+.wf-row .wf-bar{flex:1;display:flex;align-items:center;position:relative;height:14px}
+.wf-row .wf-seg{height:10px;border-radius:2px;position:absolute;transition:opacity .2s}
+.wf-row .wf-seg.down{background:var(--green);opacity:0.8}
+.wf-row .wf-seg.up{background:var(--yellow);opacity:0.6}
+.wf-row .wf-seg.err{background:var(--red);opacity:0.9}
+.wf-row .wf-ts{min-width:50px;color:var(--dim);text-align:right;font-size:9px}
+.wf-row:hover .wf-seg{opacity:1}
+.legend-row{display:flex;gap:12px;padding:4px 12px;font-size:9px;color:var(--dim)}
+.legend-row .l-item{display:flex;align-items:center;gap:3px}
+.legend-row .l-dot{width:8px;height:8px;border-radius:2px}
+@media(max-width:900px){.kpi-row{grid-template-columns:repeat(3,1fr)}}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <h1>▸ 按键时序分析器</h1>
+  <div class="tabs">
+    <button class="active" data-mode="periodic">Periodic</button>
+    <button data-mode="sequence">Sequence</button>
+    <button data-mode="hybrid">Hybrid</button>
+  </div>
+</div>
+
+<div class="kpi-row" id="kpiRow"></div>
+
+<div class="card wide">
+  <div class="card-head"><span>按键时序甘特图</span><span class="info">拖拽缩放 | 滚轮缩放</span></div>
+  <div class="legend-row">
+    <span class="l-item"><span class="l-dot" style="background:var(--green)"></span>按下</span>
+    <span class="l-item"><span class="l-dot" style="background:var(--yellow)"></span>释放</span>
+    <span class="l-item"><span class="l-dot" style="background:var(--red)"></span>异常</span>
+    <span class="l-item"><span class="l-dot" style="background:var(--accent)"></span>期望间隔</span>
+  </div>
+  <div class="ch" id="ganttChart"></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><span>瀑布流时间线</span><span class="info">最新事件在顶部</span></div>
+  <div class="waterfall" id="waterfallBody"></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><span>间隔偏差瀑布图</span><span class="info">正偏差=延迟 | 负偏差=提前</span></div>
+  <div class="ch" id="devWaterfallChart"></div>
+</div>
+
+<script>
+var MODES={
+  periodic:{name:'Periodic',keys:['1','2','3'],intervals:[100,150,200]},
+  sequence:{name:'Sequence',keys:['a','b','c'],intervals:[450,450,450],delays:[100,150,200],totalCycle:450},
+  hybrid:{name:'Hybrid',keys:['1','2','a','b'],intervals:[100,200,150,250],subTypes:{'1':'periodic','2':'periodic','a':'sequence','b':'sequence'},seqCycleInterval:400}
+};
+var COLORS=['#00bcd4','#9c27b0','#ffc107','#4caf50','#f44336','#7a8fa0'];
+var currentMode='periodic';
+var charts={};
+
+function genData(mode){
+  var cfg=MODES[mode],events=[],details=[];
+  var dur=4000,keyCount={};
+  cfg.keys.forEach(function(k){keyCount[k]=0;});
+  var lastDown={};
+  if(mode==='periodic'){
+    cfg.keys.forEach(function(k,i){lastDown[k]=-cfg.intervals[i];});
+    for(var t=0;t<dur;t+=2){
+      for(var i=0;i<cfg.keys.length;i++){
+        var k=cfg.keys[i],iv=cfg.intervals[i];
+        if(t-lastDown[k]>=iv){
+          var hd=Math.round(15+15*(Math.random()-0.5));
+          events.push({key:k,ev:'down',ts:t});events.push({key:k,ev:'up',ts:t+hd});
+          keyCount[k]++;
+          if(lastDown[k]>=0){var a=t-lastDown[k],d=Math.round(Math.abs(a-iv)/iv*1000)/10;details.push({key:k,expected:iv,actual:a,dev:d,ts:t});}
+          lastDown[k]=t;
+        }
+      }
+    }
+  }else if(mode==='sequence'){
+    cfg.keys.forEach(function(k){lastDown[k]=-cfg.totalCycle;});
+    var step=0,t=0;
+    while(t<dur){
+      var k=cfg.keys[step%cfg.keys.length],delay=cfg.delays[step%cfg.delays.length];
+      var hd=Math.round(15+15*(Math.random()-0.5));
+      events.push({key:k,ev:'down',ts:t});events.push({key:k,ev:'up',ts:t+hd});
+      keyCount[k]++;
+      if(lastDown[k]>=0){var a=t-lastDown[k],d=Math.round(Math.abs(a-cfg.totalCycle)/cfg.totalCycle*1000)/10;details.push({key:k,expected:cfg.totalCycle,actual:a,dev:d,ts:t});}
+      lastDown[k]=t;t+=delay;step++;
+    }
+  }else{
+    var pKeys=cfg.keys.filter(function(k){return cfg.subTypes[k]==='periodic';});
+    var sKeys=cfg.keys.filter(function(k){return cfg.subTypes[k]==='sequence';});
+    var pIv={};pKeys.forEach(function(k){pIv[k]=cfg.intervals[cfg.keys.indexOf(k)];});
+    var sDel={};sKeys.forEach(function(k){sDel[k]=cfg.intervals[cfg.keys.indexOf(k)];});
+    cfg.keys.forEach(function(k,i){lastDown[k]=-cfg.intervals[i];});
+    var lastSeq=-cfg.seqCycleInterval;
+    for(var t=0;t<dur;t+=2){
+      for(var i=0;i<pKeys.length;i++){
+        var k=pKeys[i],iv=pIv[k];
+        if(t-lastDown[k]>=iv){
+          var hd=Math.round(15+15*(Math.random()-0.5));
+          events.push({key:k,ev:'down',ts:t});events.push({key:k,ev:'up',ts:t+hd});
+          keyCount[k]++;
+          if(lastDown[k]>=0){var a=t-lastDown[k],d=Math.round(Math.abs(a-iv)/iv*1000)/10;details.push({key:k,expected:iv,actual:a,dev:d,ts:t});}
+          lastDown[k]=t;
+        }
+      }
+      if(t-lastSeq>=cfg.seqCycleInterval&&sKeys.length>0){
+        var st=t;
+        for(var j=0;j<sKeys.length;j++){
+          var sk=sKeys[j],delay=sDel[sk];
+          var hd=Math.round(15+15*(Math.random()-0.5));
+          events.push({key:sk,ev:'down',ts:st});events.push({key:sk,ev:'up',ts:st+hd});
+          keyCount[sk]++;
+          if(lastDown[sk]>=0){var a=st-lastDown[sk],d=Math.round(Math.abs(a-cfg.seqCycleInterval)/cfg.seqCycleInterval*1000)/10;details.push({key:sk,expected:cfg.seqCycleInterval,actual:a,dev:d,ts:st});}
+          lastDown[sk]=st;st+=delay;
+        }
+        lastSeq=t;
+      }
+    }
+  }
+  var ds=0,dm=0;details.forEach(function(d){ds+=d.dev;dm=Math.max(dm,d.dev);});
+  return{events:events,details:details,keyCount:keyCount,avgDev:details.length?Math.round(ds/details.length*10)/10:0,maxDev:Math.round(dm*10)/10,mode:mode};
+}
+
+function renderKPI(data){
+  var row=document.getElementById('kpiRow');
+  var total=Object.values(data.keyCount).reduce(function(a,b){return a+b;},0);
+  var good=data.details.filter(function(d){return d.dev<=20;}).length;
+  var acc=data.details.filter(function(d){return d.dev>20&&d.dev<=50;}).length;
+  var poor=data.details.filter(function(d){return d.dev>50;}).length;
+  var rate=data.details.length?Math.round(good/data.details.length*100):100;
+  row.innerHTML=
+    '<div class="kpi"><div class="k-label">模式</div><div class="k-val" style="color:var(--accent)">'+MODES[data.mode].name+'</div></div>'+
+    '<div class="kpi"><div class="k-label">总事件</div><div class="k-val" style="color:var(--accent)">'+total+'</div></div>'+
+    '<div class="kpi"><div class="k-label">Good</div><div class="k-val" style="color:var(--green)">'+good+'</div></div>'+
+    '<div class="kpi"><div class="k-label">Acceptable</div><div class="k-val" style="color:var(--yellow)">'+acc+'</div></div>'+
+    '<div class="kpi"><div class="k-label">Poor</div><div class="k-val" style="color:var(--red)">'+poor+'</div></div>'+
+    '<div class="kpi"><div class="k-label">Good率</div><div class="k-val" style="color:'+(rate>=80?'var(--green)':rate>=50?'var(--yellow)':'var(--red)')+'">'+rate+'%</div></div>';
+}
+
+function renderGantt(data){
+  var c=charts.gantt;if(!c){c=echarts.init(document.getElementById('ganttChart'),'dark');charts.gantt=c;}
+  var cfg=MODES[data.mode];
+  var series=[];
+  cfg.keys.forEach(function(k,ki){
+    var downs=[],ups=[];
+    data.events.forEach(function(e){if(e.key===k){if(e.ev==='down')downs.push(e.ts);if(e.ev==='up')ups.push(e.ts);}});
+    var barData=[];
+    for(var i=0;i<downs.length;i++){
+      var upTs=i<ups.length?ups[i]:downs[i]+15;
+      if(upTs<=downs[i])upTs=downs[i]+15;
+      barData.push([downs[i],upTs,upTs-downs[i],k,i]);
+    }
+    series.push({
+      name:k,type:'custom',
+      renderItem:function(params,api){
+        var downTs=api.value(0),upTs=api.value(1),dur=api.value(2);
+        var s=api.coord([downTs,params.seriesIndex]);
+        var e=api.coord([upTs,params.seriesIndex]);
+        var h=16;
+        var rect=echarts.graphic.clipRectByRect(
+          {x:s[0],y:s[1]-h/2,width:Math.max(e[0]-s[0],1),height:h},
+          {x:params.coordSys.x,y:params.coordSys.y,width:params.coordSys.width,height:params.coordSys.height}
+        );
+        if(!rect)return;
+        var color=dur>200?'#f44336':dur>100?'#ffc107':'#4caf50';
+        return{type:'rect',shape:rect,style:{fill:color,opacity:0.85},emphasis:{style:{opacity:1}}};
+      },
+      data:barData,
+      encode:{x:[0,1],y:0},
+      tooltip:{formatter:function(p){var d=p.data;return '<b>'+d[3]+'</b> #'+(d[4]+1)+'<br/>触发: '+d[0]+'ms<br/>持续: '+d[2]+'ms<br/>释放: '+d[1]+'ms';}}
+    });
+  });
+  var maxTs=Math.max.apply(null,data.events.map(function(e){return e.ts;}))||4000;
+  var markLines=[];
+  cfg.keys.forEach(function(k,ki){
+    var iv=data.mode==='hybrid'&&MODES[data.mode].subTypes&&MODES[data.mode].subTypes[k]==='sequence'?MODES[data.mode].seqCycleInterval:MODES[data.mode].intervals[ki];
+    for(var t=iv;t<maxTs;t+=iv){
+      markLines.push({coord:[t,ki],symbol:'none',lineStyle:{color:'rgba(0,188,212,0.2)',type:'dashed',width:1}});
+    }
+  });
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{},
+    legend:{data:cfg.keys,top:4,textStyle:{color:'#7a8fa0',fontSize:10}},
+    grid:{left:50,right:16,top:36,bottom:44},
+    xAxis:{type:'value',name:'时间(ms)',nameTextStyle:{color:'#7a8fa0',fontSize:9},min:0,max:maxTs,axisLabel:{color:'#7a8fa0',formatter:function(v){return v+'ms';}},axisLine:{lineStyle:{color:'#2d3f4f'}},splitLine:{lineStyle:{color:'#2d3f4f',type:'dashed',opacity:0.3}}},
+    yAxis:{type:'category',data:cfg.keys,axisLabel:{color:'#7a8fa0',fontSize:11},axisLine:{lineStyle:{color:'#2d3f4f'}},axisTick:{show:false}},
+    dataZoom:[{type:'slider',start:0,end:100,height:16,bottom:4,borderColor:'#2d3f4f',fillerColor:'rgba(0,188,212,0.1)',handleStyle:{color:'#00bcd4'},textStyle:{color:'#7a8fa0',fontSize:9}},{type:'inside'}],
+    series:series,
+    toolbox:{feature:{saveAsImage:{title:'保存'},restore:{title:'重置'},dataZoom:{title:{zoom:'缩放',back:'还原'}}},right:10,top:0}
+  },true);
+}
+
+function renderWaterfall(data){
+  var body=document.getElementById('waterfallBody');
+  body.innerHTML='';
+  var maxTs=Math.max.apply(null,data.events.map(function(e){return e.ts;}))||4000;
+  var evts=data.events.slice(-80).reverse();
+  evts.forEach(function(e){
+    var row=document.createElement('div');
+    row.className='wf-row';
+    var pct=(e.ts/maxTs*100);
+    var segClass=e.ev==='down'?'down':e.ev==='up'?'up':'err';
+    var segWidth=e.ev==='down'?1.5:0.8;
+    row.innerHTML='<span class="wf-key">'+e.key+'</span>'+
+      '<span class="wf-bar"><span class="wf-seg '+segClass+'" style="left:'+pct+'%;width:'+segWidth+'%"></span></span>'+
+      '<span class="wf-ts">'+e.ts+'ms</span>';
+    body.appendChild(row);
+  });
+}
+
+function renderDevWaterfall(data){
+  var el=document.getElementById('devWaterfallChart');
+  var c=charts.devWf;if(!c){c=echarts.init(el,'dark');charts.devWf=c;}
+  var cfg=MODES[data.mode];
+  var series=cfg.keys.map(function(k,ki){
+    var pts=data.details.filter(function(d){return d.key===k;}).map(function(d,i){
+      return{value:[i,d.dev],itemStyle:{color:d.dev<=20?'#4caf50':d.dev<=50?'#ffc107':'#f44336'}};
+    });
+    return{name:k,type:'bar',data:pts,barWidth:'60%',itemStyle:{borderRadius:[2,2,0,0]},
+      tooltip:{formatter:function(p){return p.seriesName+' #'+(p.dataIndex+1)+'<br/>偏差: '+p.data[1]+'%';}}};
+  });
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis'},
+    legend:{data:cfg.keys,top:4,textStyle:{color:'#7a8fa0',fontSize:10}},
+    grid:{left:40,right:14,top:36,bottom:30},
+    xAxis:{type:'value',axisLabel:{color:'#7a8fa0',fontSize:9},axisLine:{lineStyle:{color:'#2d3f4f'}},splitLine:{show:false}},
+    yAxis:{type:'value',name:'偏差%',nameTextStyle:{color:'#7a8fa0',fontSize:9},axisLabel:{color:'#7a8fa0',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'#2d3f4f',type:'dashed'}}},
+    series:series,
+    markLine:{silent:true,data:[{yAxis:20,lineStyle:{color:'#4caf50',type:'dashed',width:1},label:{formatter:'20%',fontSize:8,color:'#4caf50'}},{yAxis:50,lineStyle:{color:'#ffc107',type:'dashed',width:1},label:{formatter:'50%',fontSize:8,color:'#ffc107'}}]}
+  },true);
+}
+
+function renderAll(mode){
+  var data=genData(mode);
+  renderKPI(data);
+  renderGantt(data);
+  renderWaterfall(data);
+  renderDevWaterfall(data);
+}
+
+document.querySelectorAll('.tabs button').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    document.querySelectorAll('.tabs button').forEach(function(b){b.classList.remove('active');});
+    this.classList.add('active');
+    currentMode=this.dataset.mode;
+    renderAll(currentMode);
+  });
+});
+
+document.addEventListener('DOMContentLoaded',function(){renderAll('periodic');});
+window.addEventListener('resize',function(){Object.values(charts).forEach(function(c){c.resize();});});
+</script>
+</body>
+</html>

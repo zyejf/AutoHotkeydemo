@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>按键测试 - 实时监控仪表盘</title>
+<script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.5.1/echarts.min.js"></script>
+<script>if(typeof echarts==='undefined'){document.write('<scr'+'ipt src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></scr'+'ipt>')}</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#c9d1d9;--dim:#8b949e;--accent:#58a6ff;--green:#3fb950;--yellow:#d29922;--red:#f85149;--purple:#bc8cff}
+body{background:var(--bg);color:var(--text);font-family:'SF Mono','Cascadia Code',Consolas,monospace;padding:16px;min-height:100vh}
+.topbar{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:14px}
+.topbar .title{font-size:14px;font-weight:700;color:var(--accent);letter-spacing:1px}
+.topbar .status{display:flex;gap:12px;align-items:center;font-size:11px}
+.topbar .status .dot{width:7px;height:7px;border-radius:50%;animation:pulse 1.5s infinite}
+.topbar .status .dot.on{background:var(--green)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.gauge-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}
+.gauge-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center}
+.gauge-card .gauge-title{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.gauge-box{height:130px}
+.gauge-card .gauge-val{font-size:20px;font-weight:700;margin-top:-8px}
+.main-grid{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:14px}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.panel-head{padding:8px 12px;font-size:11px;font-weight:600;color:var(--accent);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.panel-head .tag{font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(88,166,255,.15);color:var(--accent)}
+.chart-area{height:260px}
+.log-panel{background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:14px}
+.log-head{padding:8px 12px;font-size:11px;font-weight:600;color:var(--accent);border-bottom:1px solid var(--border)}
+.log-body{height:120px;overflow-y:auto;padding:6px 12px;font-size:10px;line-height:1.6}
+.log-body .entry{display:flex;gap:8px;padding:1px 0}
+.log-body .ts{color:var(--dim);min-width:70px}
+.log-body .ev-down{color:var(--green)}
+.log-body .ev-up{color:var(--yellow)}
+.log-body .ev-err{color:var(--red)}
+.ctrl-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ctrl-row select,.ctrl-row button{padding:4px 10px;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:11px;font-family:inherit;cursor:pointer}
+.ctrl-row button:hover{border-color:var(--accent);color:var(--accent)}
+.ctrl-row button.active{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+@media(max-width:900px){.gauge-row{grid-template-columns:repeat(2,1fr)}.main-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="title">⬢ KEYTEST MONITOR</div>
+  <div class="status">
+    <span><span class="dot on"></span> LIVE</span>
+    <span id="clock" style="color:var(--dim)"></span>
+  </div>
+</div>
+
+<div class="gauge-row" id="gaugeRow"></div>
+
+<div class="main-grid">
+  <div class="panel">
+    <div class="panel-head">
+      <span>实时时序偏差</span>
+      <span class="tag">STREAMING</span>
+    </div>
+    <div class="chart-area" id="streamChart"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-head">
+      <span>按键健康度</span>
+      <span class="tag">HEALTH</span>
+    </div>
+    <div class="chart-area" id="healthChart"></div>
+  </div>
+</div>
+
+<div class="log-panel">
+  <div class="log-head">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span>事件日志</span>
+      <div class="ctrl-row">
+        <select id="modeSelect">
+          <option value="periodic">Periodic</option>
+          <option value="sequence">Sequence</option>
+          <option value="hybrid">Hybrid</option>
+        </select>
+        <button id="btnStart">▶ 开始</button>
+        <button id="btnStop">■ 停止</button>
+        <button id="btnReset">↺ 重置</button>
+      </div>
+    </div>
+  </div>
+  <div class="log-body" id="logBody"></div>
+</div>
+
+<script>
+var MODES = {
+  periodic:{name:'Periodic',keys:['1','2','3'],intervals:[100,150,200]},
+  sequence:{name:'Sequence',keys:['a','b','c'],delays:[100,150,200],totalCycle:450},
+  hybrid:{name:'Hybrid',keys:['1','2','a','b'],intervals:[100,200,150,250],subTypes:{'1':'periodic','2':'periodic','a':'sequence','b':'sequence'},seqCycleInterval:400}
+};
+var COLORS=['#58a6ff','#bc8cff','#d29922','#3fb950','#f85149','#8b949e'];
+var currentMode='periodic';
+var running=false, timer=null, tick=0;
+var streamData={}, healthData={}, devHistory={};
+var charts={};
+var logEl=document.getElementById('logBody');
+
+function initMode(mode){
+  var cfg=MODES[mode];
+  streamData={};healthData={};devHistory={};
+  cfg.keys.forEach(function(k){
+    streamData[k]=[];
+    healthData[k]={good:0,acc:0,poor:0,total:0};
+    devHistory[k]=[];
+  });
+  tick=0;
+  logEl.innerHTML='';
+}
+
+function addLog(ts,key,ev){
+  var cls=ev==='down'?'ev-down':ev==='up'?'ev-up':'ev-err';
+  var row=document.createElement('div');
+  row.className='entry';
+  row.innerHTML='<span class="ts">'+ts+'ms</span><span class="'+cls+'">['+ev.toUpperCase()+']</span><span>'+key+'</span>';
+  logEl.appendChild(row);
+  if(logEl.children.length>200) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop=logEl.scrollHeight;
+}
+
+function renderGauges(){
+  var row=document.getElementById('gaugeRow');
+  var cfg=MODES[currentMode];
+  row.innerHTML='';
+  cfg.keys.forEach(function(k,i){
+    var h=healthData[k];
+    var rate=h.total>0?Math.round(h.good/h.total*100):100;
+    var color=rate>=80?'var(--green)':rate>=50?'var(--yellow)':'var(--red)';
+    var card=document.createElement('div');
+    card.className='gauge-card';
+    card.innerHTML='<div class="gauge-title">按键 '+k+'</div><div class="gauge-box" id="gauge_'+k+'"></div><div class="gauge-val" style="color:'+color+'">'+rate+'%</div>';
+    row.appendChild(card);
+  });
+  cfg.keys.forEach(function(k,i){
+    var h=healthData[k];
+    var rate=h.total>0?Math.round(h.good/h.total*100):100;
+    var g=echarts.init(document.getElementById('gauge_'+k),'dark');
+    g.setOption({
+      backgroundColor:'transparent',
+      series:[{type:'gauge',startAngle:220,endAngle:-40,radius:'90%',center:['50%','60%'],
+        axisLine:{lineStyle:{width:8,color:[[0.5,'#f85149'],[0.8,'#d29922'],[1,'#3fb950']]}},
+        pointer:{width:3,length:'60%',itemStyle:{color:'#c9d1d9'}},
+        axisTick:{show:false},axisLabel:{show:false},splitLine:{show:false},
+        detail:{show:false},
+        data:[{value:rate}]
+      }]
+    });
+  });
+}
+
+function renderStreamChart(){
+  var c=charts.stream;
+  if(!c){c=echarts.init(document.getElementById('streamChart'),'dark');charts.stream=c;}
+  var cfg=MODES[currentMode];
+  var series=cfg.keys.map(function(k,i){
+    return {name:k,type:'line',data:streamData[k].slice(-60),smooth:true,symbol:'none',
+      lineStyle:{width:1.5,color:COLORS[i%COLORS.length]},areaStyle:{opacity:0.05},
+      itemStyle:{color:COLORS[i%COLORS.length]}};
+  });
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis'},
+    legend:{data:cfg.keys,top:4,textStyle:{color:'#8b949e',fontSize:10}},
+    grid:{left:40,right:14,top:30,bottom:30},
+    xAxis:{type:'category',data:Array.from({length:60},function(_,i){return ''+(i+1);}),axisLabel:{show:false},axisLine:{lineStyle:{color:'#30363d'}},splitLine:{show:false}},
+    yAxis:{type:'value',name:'偏差%',nameTextStyle:{color:'#8b949e',fontSize:9},axisLabel:{color:'#8b949e',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'#30363d',type:'dashed'}},
+      splitNumber:4},
+    series:series,
+    markLine:{silent:true,data:[{yAxis:20,lineStyle:{color:'#3fb950',type:'dashed',width:1}},{yAxis:50,lineStyle:{color:'#d29922',type:'dashed',width:1}}]}
+  },true);
+}
+
+function renderHealthChart(){
+  var c=charts.health;
+  if(!c){c=echarts.init(document.getElementById('healthChart'),'dark');charts.health=c;}
+  var cfg=MODES[currentMode];
+  var data=cfg.keys.map(function(k,i){
+    var h=healthData[k];
+    return {value:h.total,name:k,itemStyle:{color:COLORS[i%COLORS.length]}};
+  });
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'item',formatter:function(p){return p.name+': '+p.value+'次';}},
+    legend:{orient:'vertical',right:6,top:'center',textStyle:{color:'#8b949e',fontSize:10}},
+    series:[{type:'pie',radius:['42%','68%'],center:['38%','50%'],
+      label:{show:true,formatter:'{b}\n{d}%',color:'#c9d1d9',fontSize:10},
+      data:data,
+      emphasis:{itemStyle:{shadowBlur:10,shadowColor:'rgba(0,0,0,0.5)'}}
+    }]
+  },true);
+}
+
+function simulateTick(){
+  var cfg=MODES[currentMode];
+  tick++;
+  cfg.keys.forEach(function(k,i){
+    var dev=Math.round(Math.random()*30+Math.random()*5);
+    var status=dev<=20?'good':dev<=50?'acc':'poor';
+    healthData[k][status]++;
+    healthData[k].total++;
+    streamData[k].push(dev);
+    if(streamData[k].length>60) streamData[k].shift();
+    if(tick%3===0){
+      addLog(tick*50,k,Math.random()>0.1?'down':'up');
+    }
+  });
+  renderStreamChart();
+  if(tick%5===0) renderHealthChart();
+  if(tick%10===0) renderGauges();
+}
+
+function startSim(){
+  if(running)return;
+  running=true;
+  initMode(currentMode);
+  renderGauges();
+  renderStreamChart();
+  renderHealthChart();
+  timer=setInterval(simulateTick,800);
+}
+
+function stopSim(){
+  running=false;
+  if(timer){clearInterval(timer);timer=null;}
+}
+
+document.getElementById('btnStart').onclick=startSim;
+document.getElementById('btnStop').onclick=stopSim;
+document.getElementById('btnReset').onclick=function(){stopSim();initMode(currentMode);renderGauges();renderStreamChart();renderHealthChart();};
+document.getElementById('modeSelect').onchange=function(){stopSim();currentMode=this.value;initMode(currentMode);renderGauges();renderStreamChart();renderHealthChart();};
+
+setInterval(function(){
+  var d=new Date();
+  document.getElementById('clock').textContent=d.toLocaleTimeString();
+},1000);
+
+document.addEventListener('DOMContentLoaded',function(){
+  initMode('periodic');
+  renderGauges();
+  renderStreamChart();
+  renderHealthChart();
+});
+
+window.addEventListener('resize',function(){Object.values(charts).forEach(function(c){c.resize();});});
+</script>
+</body>
+</html>

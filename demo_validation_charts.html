@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>按键测试验证可视化</title>
+<script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.5.1/echarts.min.js"></script>
+<script>if(typeof echarts==='undefined'){document.write('<scr'+'ipt src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></scr'+'ipt>')}</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg-primary:#1a1a2e;--bg-secondary:#16213e;--bg-card:#0f3460;--text-primary:#e0e0e0;--text-secondary:#a0a0b0;--accent:#4fc3f7;--good:#4CAF50;--acceptable:#FF9800;--poor:#FF5722;--border:#2a2a4a}
+body{background:var(--bg-primary);color:var(--text-primary);font-family:'Segoe UI',system-ui,-apple-system,sans-serif;padding:20px;min-height:100vh}
+.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding:14px 20px;background:var(--bg-secondary);border-radius:12px;border:1px solid var(--border);flex-wrap:wrap;gap:10px}
+.header h1{font-size:18px;font-weight:600;color:var(--accent)}
+.controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.mode-tabs{display:flex;gap:6px}
+.mode-tab{padding:5px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);cursor:pointer;font-size:12px;transition:all .2s}
+.mode-tab:hover{border-color:var(--accent);color:var(--accent)}
+.mode-tab.active{background:var(--accent);color:#1a1a2e;border-color:var(--accent);font-weight:600}
+.btn{padding:5px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);cursor:pointer;font-size:12px;transition:all .2s}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.primary{background:var(--accent);color:#1a1a2e;border-color:var(--accent)}
+.summary-row{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:18px}
+.summary-card{background:var(--bg-secondary);border-radius:10px;padding:12px 14px;border:1px solid var(--border);text-align:center}
+.summary-card .label{font-size:10px;color:var(--text-secondary);margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px}
+.summary-card .value{font-size:22px;font-weight:700}
+.summary-card .value.good{color:var(--good)}
+.summary-card .value.warn{color:var(--acceptable)}
+.summary-card .value.bad{color:var(--poor)}
+.summary-card .value.info{color:var(--accent)}
+.charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.chart-card{background:var(--bg-secondary);border-radius:12px;border:1px solid var(--border);overflow:hidden}
+.chart-card.full-width{grid-column:1/-1}
+.chart-title{padding:10px 14px 0;font-size:13px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:6px}
+.chart-title .icon{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.chart-container{width:100%;height:340px}
+.chart-card.full-width .chart-container{height:280px}
+.toolbar{display:flex;gap:6px;padding:6px 14px}
+.toolbar button{padding:3px 10px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);cursor:pointer;font-size:11px;transition:all .2s}
+.toolbar button:hover{border-color:var(--accent);color:var(--accent)}
+.toolbar button.active{background:var(--accent);color:#1a1a2e;border-color:var(--accent)}
+.legend-bar{display:flex;gap:14px;padding:0 14px 6px;font-size:11px;color:var(--text-secondary)}
+.legend-bar .item{display:flex;align-items:center;gap:4px}
+.legend-bar .dot{width:8px;height:8px;border-radius:2px}
+.batch-panel{background:var(--bg-secondary);border-radius:12px;border:1px solid var(--border);padding:14px;margin-bottom:14px}
+.batch-panel h3{font-size:13px;font-weight:600;margin-bottom:10px;color:var(--accent)}
+.batch-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:900px){.charts-grid{grid-template-columns:1fr}.summary-row{grid-template-columns:repeat(3,1fr)}.batch-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>⌨ 按键测试验证可视化</h1>
+  <div class="controls">
+    <div class="mode-tabs">
+      <button class="mode-tab active" data-mode="periodic">Periodic</button>
+      <button class="mode-tab" data-mode="sequence">Sequence</button>
+      <button class="mode-tab" data-mode="hybrid">Hybrid</button>
+    </div>
+    <button class="btn primary" id="runBatch">批量测试</button>
+    <button class="btn" id="clearBatch">清除历史</button>
+  </div>
+</div>
+
+<div class="summary-row" id="summaryRow"></div>
+
+<div class="charts-grid">
+  <div class="chart-card">
+    <div class="chart-title"><span class="icon"></span>按键状态分布</div>
+    <div class="legend-bar">
+      <span class="item"><span class="dot" style="background:var(--good)"></span>Good (≤20%)</span>
+      <span class="item"><span class="dot" style="background:var(--acceptable)"></span>Acceptable (≤50%)</span>
+      <span class="item"><span class="dot" style="background:var(--poor)"></span>Poor (>50%)</span>
+    </div>
+    <div class="chart-container" id="statusChart"></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title"><span class="icon"></span>响应时间趋势</div>
+    <div class="toolbar">
+      <button class="active" data-range="all">全部</button>
+      <button data-range="50">近50次</button>
+      <button data-range="20">近20次</button>
+    </div>
+    <div class="chart-container" id="trendChart"></div>
+  </div>
+
+  <div class="chart-card full-width">
+    <div class="chart-title"><span class="icon"></span>时序波形图</div>
+    <div class="chart-container" id="timelineChart"></div>
+  </div>
+</div>
+
+<div class="batch-panel" id="batchPanel" style="display:none">
+  <h3>📊 批次对比</h3>
+  <div class="batch-grid">
+    <div class="chart-container" id="batchCompareChart" style="height:300px"></div>
+    <div class="chart-container" id="batchDevChart" style="height:300px"></div>
+  </div>
+</div>
+
+<script>
+var MODES = {
+  periodic: {
+    name: 'Periodic', keys: ['1','2','3'], intervals: [100,150,200], subTypes: null
+  },
+  sequence: {
+    name: 'Sequence', keys: ['a','b','c'], delays: [100,150,200], subTypes: null,
+    totalCycle: 450
+  },
+  hybrid: {
+    name: 'Hybrid', keys: ['1','2','a','b'], intervals: [100,200,150,250],
+    subTypes: {'1':'periodic','2':'periodic','a':'sequence','b':'sequence'},
+    seqCycleInterval: 400
+  }
+};
+
+var currentMode = 'periodic';
+var charts = {};
+var batchHistory = [];
+
+function rand(min,max){ return Math.random()*(max-min)+min; }
+function jitter(base,pct){ return Math.round(base+base*rand(-pct,pct)); }
+
+function generateData(mode){
+  var cfg = MODES[mode];
+  var details = [], holdDetails = [], events = [];
+  var duration = 3000, keyCount = {};
+  cfg.keys.forEach(function(k){ keyCount[k] = 0; });
+
+  if (mode === 'periodic') {
+    var lastDown = {};
+    cfg.keys.forEach(function(k,i){ lastDown[k] = -cfg.intervals[i]; });
+    for (var t = 0; t < duration; t += 2) {
+      for (var i = 0; i < cfg.keys.length; i++) {
+        var k = cfg.keys[i], iv = cfg.intervals[i];
+        if (t - lastDown[k] >= iv) {
+          var holdDur = jitter(15, 0.3);
+          events.push({key:k, event:'down', timestamp:t});
+          events.push({key:k, event:'up', timestamp:t + holdDur});
+          keyCount[k]++;
+          if (lastDown[k] >= 0) {
+            var actual = t - lastDown[k], dev = Math.round(Math.abs(actual - iv) / iv * 1000) / 10;
+            details.push({key:k, expectedInterval:iv, actualInterval:actual, deviation:dev, status:dev<=20?'good':dev<=50?'acceptable':'poor'});
+          }
+          holdDetails.push({key:k, downTs:t, upTs:t+holdDur, holdDuration:holdDur, valid:holdDur>=5&&holdDur<=200});
+          lastDown[k] = t;
+        }
+      }
+    }
+  } else if (mode === 'sequence') {
+    var step = 0, lastKeyDown = {};
+    cfg.keys.forEach(function(k){ lastKeyDown[k] = -cfg.totalCycle; });
+    var t = 0;
+    while (t < duration) {
+      var k = cfg.keys[step % cfg.keys.length];
+      var delay = cfg.delays[step % cfg.delays.length];
+      var holdDur = jitter(15, 0.3);
+      events.push({key:k, event:'down', timestamp:t});
+      events.push({key:k, event:'up', timestamp:t + holdDur});
+      keyCount[k]++;
+      if (lastKeyDown[k] >= 0) {
+        var actual = t - lastKeyDown[k], dev = Math.round(Math.abs(actual - cfg.totalCycle) / cfg.totalCycle * 1000) / 10;
+        details.push({key:k, expectedInterval:cfg.totalCycle, actualInterval:actual, deviation:dev, status:dev<=20?'good':dev<=50?'acceptable':'poor'});
+      }
+      holdDetails.push({key:k, downTs:t, upTs:t+holdDur, holdDuration:holdDur, valid:holdDur>=5&&holdDur<=200});
+      lastKeyDown[k] = t;
+      t += delay;
+      step++;
+    }
+  } else if (mode === 'hybrid') {
+    var periodicKeys = cfg.keys.filter(function(k){return cfg.subTypes[k]==='periodic';});
+    var seqKeys = cfg.keys.filter(function(k){return cfg.subTypes[k]==='sequence';});
+    var periodicIv = {};
+    periodicKeys.forEach(function(k,i){ periodicIv[k] = cfg.intervals[cfg.keys.indexOf(k)]; });
+    var seqDelays = {};
+    seqKeys.forEach(function(k,i){ seqDelays[k] = cfg.intervals[cfg.keys.indexOf(k)]; });
+    var lastDown = {};
+    cfg.keys.forEach(function(k,i){ lastDown[k] = -cfg.intervals[i]; });
+    var seqStep = 0, lastSeqCycle = -cfg.seqCycleInterval;
+    for (var t = 0; t < duration; t += 2) {
+      for (var i = 0; i < periodicKeys.length; i++) {
+        var k = periodicKeys[i], iv = periodicIv[k];
+        if (t - lastDown[k] >= iv) {
+          var holdDur = jitter(15, 0.3);
+          events.push({key:k, event:'down', timestamp:t});
+          events.push({key:k, event:'up', timestamp:t + holdDur});
+          keyCount[k]++;
+          if (lastDown[k] >= 0) {
+            var actual = t - lastDown[k], dev = Math.round(Math.abs(actual - iv) / iv * 1000) / 10;
+            details.push({key:k, expectedInterval:iv, actualInterval:actual, deviation:dev, status:dev<=20?'good':dev<=50?'acceptable':'poor'});
+          }
+          holdDetails.push({key:k, downTs:t, upTs:t+holdDur, holdDuration:holdDur, valid:holdDur>=5&&holdDur<=200});
+          lastDown[k] = t;
+        }
+      }
+      if (t - lastSeqCycle >= cfg.seqCycleInterval && seqKeys.length > 0) {
+        var seqT = t;
+        for (var j = 0; j < seqKeys.length; j++) {
+          var sk = seqKeys[j], delay = seqDelays[sk];
+          var holdDur = jitter(15, 0.3);
+          events.push({key:sk, event:'down', timestamp:seqT});
+          events.push({key:sk, event:'up', timestamp:seqT + holdDur});
+          keyCount[sk]++;
+          if (lastDown[sk] >= 0) {
+            var actual = seqT - lastDown[sk], dev = Math.round(Math.abs(actual - cfg.seqCycleInterval) / cfg.seqCycleInterval * 1000) / 10;
+            details.push({key:sk, expectedInterval:cfg.seqCycleInterval, actualInterval:actual, deviation:dev, status:dev<=20?'good':dev<=50?'acceptable':'poor'});
+          }
+          holdDetails.push({key:sk, downTs:seqT, upTs:seqT+holdDur, holdDuration:holdDur, valid:holdDur>=5&&holdDur<=200});
+          lastDown[sk] = seqT;
+          seqT += delay;
+        }
+        lastSeqCycle = t;
+      }
+    }
+  }
+
+  var devSum = 0, devMax = 0;
+  details.forEach(function(d){ devSum += d.deviation; devMax = Math.max(devMax, d.deviation); });
+  var avgDev = details.length > 0 ? Math.round(devSum / details.length * 10) / 10 : 0;
+  return {details:details, holdDetails:holdDetails, events:events, keyCount:keyCount, avgDev:avgDev, maxDev:Math.round(devMax*10)/10, orderCorrect:true, sendSuccessRate:1.0, mode:mode};
+}
+
+function renderSummary(data){
+  var row = document.getElementById('summaryRow');
+  var avgClass = data.avgDev<=10?'good':data.avgDev<=30?'warn':'bad';
+  var maxClass = data.maxDev<=20?'good':data.maxDev<=50?'warn':'bad';
+  var totalTests = Object.values(data.keyCount).reduce(function(a,b){return a+b;},0);
+  row.innerHTML =
+    '<div class="summary-card"><div class="label">模式</div><div class="value info">'+MODES[data.mode].name+'</div></div>'+
+    '<div class="summary-card"><div class="label">总测试次数</div><div class="value info">'+totalTests+'</div></div>'+
+    '<div class="summary-card"><div class="label">平均偏差</div><div class="value '+avgClass+'">'+data.avgDev+'%</div></div>'+
+    '<div class="summary-card"><div class="label">最大偏差</div><div class="value '+maxClass+'">'+data.maxDev+'%</div></div>'+
+    '<div class="summary-card"><div class="label">顺序正确</div><div class="value '+(data.orderCorrect?'good':'bad')+'">'+(data.orderCorrect?'✓':'✗')+'</div></div>';
+}
+
+var COLORS = ['#4fc3f7','#ab47bc','#ffa726','#66bb6a','#ef5350','#78909c'];
+
+function renderStatusChart(data){
+  var chart = charts.status;
+  if(!chart){ chart = echarts.init(document.getElementById('statusChart'),'dark'); charts.status = chart; }
+  var keys = MODES[data.mode].keys;
+  var goodArr=[], accArr=[], poorArr=[];
+  keys.forEach(function(k){
+    var kd = data.details.filter(function(d){return d.key===k;});
+    goodArr.push(kd.filter(function(d){return d.status==='good';}).length);
+    accArr.push(kd.filter(function(d){return d.status==='acceptable';}).length);
+    poorArr.push(kd.filter(function(d){return d.status==='poor';}).length);
+  });
+  chart.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis',axisPointer:{type:'shadow'},formatter:function(ps){
+      var s='<b>按键 '+ps[0].axisValue+'</b><br/>';
+      ps.forEach(function(p){if(p.value>0) s+=p.marker+p.seriesName+': '+p.value+'<br/>';});
+      return s;
+    }},
+    legend:{data:['Good','Acceptable','Poor'],top:4,textStyle:{color:'#a0a0b0',fontSize:10}},
+    grid:{left:40,right:16,top:36,bottom:24},
+    xAxis:{type:'category',data:keys,axisLabel:{color:'#a0a0b0',fontSize:11},axisLine:{lineStyle:{color:'#2a2a4a'}},axisTick:{show:false}},
+    yAxis:{type:'value',axisLabel:{color:'#a0a0b0'},axisLine:{show:false},splitLine:{lineStyle:{color:'#2a2a4a',type:'dashed'}}},
+    series:[
+      {name:'Good',type:'bar',stack:'total',data:goodArr,itemStyle:{color:'#4CAF50'},barWidth:'45%'},
+      {name:'Acceptable',type:'bar',stack:'total',data:accArr,itemStyle:{color:'#FF9800'}},
+      {name:'Poor',type:'bar',stack:'total',data:poorArr,itemStyle:{color:'#FF5722',borderRadius:[3,3,0,0]}}
+    ],
+    toolbox:{feature:{saveAsImage:{title:'保存'},restore:{title:'重置'},dataZoom:{title:{zoom:'区域缩放',back:'还原'}}},right:10,top:0},
+    dataZoom:[{type:'inside'}]
+  },true);
+}
+
+function renderTrendChart(data,range){
+  var chart = charts.trend;
+  if(!chart){ chart = echarts.init(document.getElementById('trendChart'),'dark'); charts.trend = chart; }
+  var keys = MODES[data.mode].keys;
+  var details = range&&range!=='all' ? data.details.slice(-parseInt(range)) : data.details;
+  var seriesMap = {};
+  keys.forEach(function(k){ seriesMap[k] = []; });
+  details.forEach(function(d,i){
+    if(seriesMap[d.key]) seriesMap[d.key].push([i, d.deviation]);
+  });
+  var series = keys.map(function(k,i){
+    return {
+      name:k, type:'line', data:seriesMap[k], symbol:'circle', symbolSize:3, showSymbol:false,
+      lineStyle:{width:1.5,color:COLORS[i%COLORS.length]},
+      itemStyle:{color:COLORS[i%COLORS.length]},
+      emphasis:{focus:'series'}
+    };
+  });
+  chart.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis',formatter:function(params){
+      var s='<b>事件 #'+(params[0]?params[0].dataIndex+1:'')+'</b><br/>';
+      params.forEach(function(p){if(p.data)s+=p.marker+p.seriesName+': '+p.data[1]+'%<br/>';});
+      return s;
+    }},
+    legend:{data:keys,top:4,textStyle:{color:'#a0a0b0',fontSize:10}},
+    grid:{left:45,right:16,top:36,bottom:44},
+    xAxis:{type:'value',axisLabel:{color:'#a0a0b0',fontSize:10},axisLine:{lineStyle:{color:'#2a2a4a'}},splitLine:{show:false}},
+    yAxis:{type:'value',name:'偏差 %',nameTextStyle:{color:'#a0a0b0',fontSize:9},axisLabel:{color:'#a0a0b0'},axisLine:{show:false},splitLine:{lineStyle:{color:'#2a2a4a',type:'dashed'}}},
+    dataZoom:[{type:'slider',start:0,end:100,height:16,bottom:4,borderColor:'#2a2a4a',fillerColor:'rgba(79,195,247,0.15)',handleStyle:{color:'#4fc3f7'},textStyle:{color:'#a0a0b0',fontSize:9}},{type:'inside'}],
+    series:series,
+    toolbox:{feature:{saveAsImage:{title:'保存'},restore:{title:'重置'},dataZoom:{title:{zoom:'区域缩放',back:'还原'}}},right:10,top:0},
+    markLine:{silent:true,data:[
+      {yAxis:20,lineStyle:{color:'#4CAF50',type:'dashed',width:1},label:{formatter:'20%',position:'insideEndTop',fontSize:9,color:'#4CAF50'}},
+      {yAxis:50,lineStyle:{color:'#FF9800',type:'dashed',width:1},label:{formatter:'50%',position:'insideEndTop',fontSize:9,color:'#FF9800'}}
+    ]}
+  },true);
+}
+
+function renderTimelineChart(data){
+  var chart = charts.timeline;
+  if(!chart){ chart = echarts.init(document.getElementById('timelineChart'),'dark'); charts.timeline = chart; }
+  var keys = MODES[data.mode].keys;
+  var series = [];
+  keys.forEach(function(k,ki){
+    var keyDowns = [];
+    var keyUps = [];
+    data.events.forEach(function(e){
+      if(e.key===k && e.event==='down') keyDowns.push(e.timestamp);
+      if(e.key===k && e.event==='up') keyUps.push(e.timestamp);
+    });
+    var barData = [];
+    for(var i=0;i<keyDowns.length;i++){
+      var upTs = (i<keyUps.length) ? keyUps[i] : keyDowns[i]+15;
+      if(upTs <= keyDowns[i]) upTs = keyDowns[i]+15;
+      barData.push([keyDowns[i], upTs, upTs-keyDowns[i], k, i]);
+    }
+    series.push({
+      name:k, type:'custom',
+      renderItem:function(params,api){
+        var downTs=api.value(0), upTs=api.value(1);
+        var start = api.coord([downTs, params.seriesIndex]);
+        var end = api.coord([upTs, params.seriesIndex]);
+        var h = 14;
+        var rectShape = echarts.graphic.clipRectByRect(
+          {x:start[0], y:start[1]-h/2, width:Math.max(end[0]-start[0],1), height:h},
+          {x:params.coordSys.x, y:params.coordSys.y, width:params.coordSys.width, height:params.coordSys.height}
+        );
+        return rectShape && {type:'rect',shape:rectShape,style:{fill:api.visual('color'),opacity:0.85}};
+      },
+      data:barData,
+      encode:{x:[0,1],y:0},
+      itemStyle:{color:COLORS[ki%COLORS.length]},
+      tooltip:{formatter:function(p){
+        var d=p.data;
+        return '<b>'+d[3]+'</b> #'+(d[4]+1)+'<br/>触发: '+d[0]+'ms<br/>持续: '+d[2]+'ms';
+      }}
+    });
+  });
+  chart.setOption({
+    backgroundColor:'transparent',
+    tooltip:{},
+    legend:{data:keys,top:4,textStyle:{color:'#a0a0b0',fontSize:10}},
+    grid:{left:50,right:16,top:36,bottom:44},
+    xAxis:{type:'value',name:'时间 (ms)',nameTextStyle:{color:'#a0a0b0',fontSize:9},axisLabel:{color:'#a0a0b0',formatter:function(v){return v+'ms';}},axisLine:{lineStyle:{color:'#2a2a4a'}},splitLine:{lineStyle:{color:'#2a2a4a',type:'dashed',opacity:0.3}}},
+    yAxis:{type:'category',data:keys,axisLabel:{color:'#a0a0b0',fontSize:11},axisLine:{lineStyle:{color:'#2a2a4a'}},axisTick:{show:false}},
+    dataZoom:[{type:'slider',start:0,end:100,height:16,bottom:4,borderColor:'#2a2a4a',fillerColor:'rgba(79,195,247,0.15)',handleStyle:{color:'#4fc3f7'},textStyle:{color:'#a0a0b0',fontSize:9}},{type:'inside'}],
+    series:series,
+    toolbox:{feature:{saveAsImage:{title:'保存'},restore:{title:'重置'},dataZoom:{title:{zoom:'区域缩放',back:'还原'}}},right:10,top:0}
+  },true);
+}
+
+function renderBatchCharts(){
+  if(batchHistory.length<1){document.getElementById('batchPanel').style.display='none';return;}
+  document.getElementById('batchPanel').style.display='block';
+
+  var cmpChart = charts.batchCompare;
+  if(!cmpChart){cmpChart=echarts.init(document.getElementById('batchCompareChart'),'dark');charts.batchCompare=cmpChart;}
+  var devChart = charts.batchDev;
+  if(!devChart){devChart=echarts.init(document.getElementById('batchDevChart'),'dark');charts.batchDev=devChart;}
+
+  var labels=batchHistory.map(function(b,i){return '测试'+(i+1)+'('+MODES[b.mode].name+')';});
+  var avgDevs=batchHistory.map(function(b){return b.avgDev;});
+  var maxDevs=batchHistory.map(function(b){return b.maxDev;});
+  var totalTests=batchHistory.map(function(b){return Object.values(b.keyCount).reduce(function(a,c){return a+c;},0);});
+
+  cmpChart.setOption({
+    backgroundColor:'transparent',title:{text:'平均/最大偏差对比',textStyle:{color:'#a0a0b0',fontSize:12},left:10,top:4},
+    tooltip:{trigger:'axis'},legend:{data:['平均偏差','最大偏差'],top:4,right:10,textStyle:{color:'#a0a0b0',fontSize:10}},
+    grid:{left:40,right:16,top:36,bottom:24},
+    xAxis:{type:'category',data:labels,axisLabel:{color:'#a0a0b0',fontSize:9,rotate:20},axisLine:{lineStyle:{color:'#2a2a4a'}},axisTick:{show:false}},
+    yAxis:{type:'value',name:'%',axisLabel:{color:'#a0a0b0'},axisLine:{show:false},splitLine:{lineStyle:{color:'#2a2a4a',type:'dashed'}}},
+    series:[
+      {name:'平均偏差',type:'bar',data:avgDevs,itemStyle:{color:'#4fc3f7',borderRadius:[3,3,0,0]},barWidth:'30%'},
+      {name:'最大偏差',type:'bar',data:maxDevs,itemStyle:{color:'#ef5350',borderRadius:[3,3,0,0]},barWidth:'30%'}
+    ],
+    toolbox:{feature:{saveAsImage:{title:'保存'},restore:{title:'重置'}}}
+  },true);
+
+  devChart.setOption({
+    backgroundColor:'transparent',title:{text:'测试次数对比',textStyle:{color:'#a0a0b0',fontSize:12},left:10,top:4},
+    tooltip:{trigger:'axis'},grid:{left:40,right:16,top:36,bottom:24},
+    xAxis:{type:'category',data:labels,axisLabel:{color:'#a0a0b0',fontSize:9,rotate:20},axisLine:{lineStyle:{color:'#2a2a4a'}},axisTick:{show:false}},
+    yAxis:{type:'value',axisLabel:{color:'#a0a0b0'},axisLine:{show:false},splitLine:{lineStyle:{color:'#2a2a4a',type:'dashed'}}},
+    series:[{type:'bar',data:totalTests,itemStyle:{color:'#66bb6a',borderRadius:[3,3,0,0]},barWidth:'40%'}],
+    toolbox:{feature:{saveAsImage:{title:'保存'},restore:{title:'重置'}}}
+  },true);
+}
+
+function renderAll(mode){
+  var data = generateData(mode);
+  renderSummary(data);
+  renderStatusChart(data);
+  renderTrendChart(data,'all');
+  renderTimelineChart(data);
+  return data;
+}
+
+document.querySelectorAll('.mode-tab').forEach(function(tab){
+  tab.addEventListener('click',function(){
+    document.querySelectorAll('.mode-tab').forEach(function(t){t.classList.remove('active');});
+    this.classList.add('active');
+    currentMode = this.dataset.mode;
+    renderAll(currentMode);
+  });
+});
+
+document.querySelectorAll('.toolbar button').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    this.parentElement.querySelectorAll('button').forEach(function(b){b.classList.remove('active');});
+    this.classList.add('active');
+    var data = generateData(currentMode);
+    renderTrendChart(data, this.dataset.range);
+  });
+});
+
+document.getElementById('runBatch').addEventListener('click',function(){
+  var modes = ['periodic','sequence','hybrid'];
+  modes.forEach(function(m){
+    var data = generateData(m);
+    batchHistory.push(data);
+  });
+  renderBatchCharts();
+});
+
+document.getElementById('clearBatch').addEventListener('click',function(){
+  batchHistory = [];
+  renderBatchCharts();
+});
+
+window.addEventListener('resize',function(){
+  Object.values(charts).forEach(function(c){c.resize();});
+});
+
+document.addEventListener('DOMContentLoaded',function(){renderAll('periodic');});
+</script>
+</body>
+</html>

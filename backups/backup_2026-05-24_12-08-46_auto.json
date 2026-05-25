@@ -1,0 +1,19 @@
+﻿{
+  "CONTROL_HOTKEYS": {
+    "emergency": "f12",
+    "releaseAllHolds": "^r",
+    "showStatus": "^0",
+    "toggleAll": "^1",
+    "toggleHoldMode": "^h"
+  },
+  "GroupSettings": {},
+  "HoldSettings": {
+    "allowOverlap": false,
+    "checkInterval": 50,
+    "debounceDelay": 20,
+    "pressSpeed": 80,
+    "releaseOnEmergency": true
+  },
+  "lastModified": "20260524115553",
+  "version": "3.0"
+}

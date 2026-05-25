@@ -1,0 +1,117 @@
+﻿{
+  "CONTROL_HOTKEYS": {
+    "emergency": "f12",
+    "releaseAllHolds": "^r",
+    "showStatus": "^0",
+    "toggleAll": "^1",
+    "toggleHoldMode": "^h"
+  },
+  "GroupSettings": {
+    "1": {
+      "groups": [
+        {
+          "intervals": [
+            50,
+            50,
+            50
+          ],
+          "pressKeys": [
+            "1",
+            "2",
+            "3"
+          ],
+          "type": "periodic"
+        },
+        {
+          "delays": [
+            200,
+            500,
+            2000
+          ],
+          "pressKeys": [
+            "A",
+            "B",
+            "C"
+          ],
+          "type": "sequence"
+        }
+      ],
+      "hotkey": "F1",
+      "keyPressDuration": 10,
+      "mode": "hybrid",
+      "name": "1",
+      "seqInterval": 100
+    },
+    "hybrid4_1779593662854": {
+      "active": false,
+      "groups": [
+        {
+          "intervals": [
+            100,
+            200
+          ],
+          "pressKeys": [
+            "1",
+            "2"
+          ],
+          "type": "periodic"
+        },
+        {
+          "delays": [
+            150,
+            250
+          ],
+          "pressKeys": [
+            "a",
+            "b"
+          ],
+          "type": "sequence"
+        }
+      ],
+      "hotkey": "F7",
+      "keyPressDuration": 15,
+      "mode": "hybrid",
+      "name": "Hybrid4"
+    },
+    "hybrid9_1779594950713": {
+      "active": false,
+      "groups": [
+        {
+          "intervals": [
+            100,
+            200
+          ],
+          "pressKeys": [
+            "1",
+            "2"
+          ],
+          "type": "periodic"
+        },
+        {
+          "delays": [
+            150,
+            250
+          ],
+          "pressKeys": [
+            "a",
+            "b"
+          ],
+          "type": "sequence"
+        }
+      ],
+      "hotkey": "F9",
+      "keyPressDuration": 15,
+      "mode": "hybrid",
+      "name": "Hybrid9"
+    }
+  },
+  "HoldSettings": {
+    "allowOverlap": false,
+    "checkInterval": 50,
+    "debounceDelay": 20,
+    "pressSpeed": 80,
+    "releaseOnEmergency": true
+  },
+  "lastModified": "20260524114345",
+  "version": "3.0"
+}

@@ -1,0 +1,2 @@
+D:\1demo\AutoHotkeydemo\tests\test_infra_full.ahk (209) : ==> The following reserved word must not be used as a variable name:
+"throw"

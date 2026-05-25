@@ -1,0 +1,29 @@
+﻿{
+  "details": [
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "Bridge: 空JSON",
+      "status": "PASS",
+      "test": "空JSON不崩溃",
+      "timestamp": "20260516052602"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "Bridge: 正常创建",
+      "status": "PASS",
+      "test": "正常创建成功",
+      "timestamp": "20260516052602"
+    }
+  ],
+  "elapsedMs": 63,
+  "generatedAt": "20260516052602",
+  "summary": {
+    "failed": false,
+    "passed": 2,
+    "scenarios": 2,
+    "skipped": false,
+    "total": 2
+  }
+}

@@ -1,0 +1,269 @@
+﻿{
+  "details": [
+    {
+      "actual": "10",
+      "expected": "10",
+      "scenario": "执行模式: PeriodicExecutor",
+      "status": "PASS",
+      "test": "PeriodicExecutor 返回10",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "2",
+      "expected": "2",
+      "scenario": "执行模式: SequenceExecutor",
+      "status": "PASS",
+      "test": "Sequence: 第1步后currentStep=2",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "10",
+      "expected": "10",
+      "scenario": "执行模式: EnhancedPeriodicExecutor",
+      "status": "PASS",
+      "test": "EnhancedPeriodicExecutor 返回10",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "2",
+      "expected": "2",
+      "scenario": "执行模式: EnhancedSequenceExecutor",
+      "status": "PASS",
+      "test": "EnhancedSequence: 步进到2",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "10",
+      "expected": "10",
+      "scenario": "执行模式: HybridExecutor",
+      "status": "PASS",
+      "test": "HybridExecutor 返回10",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "10",
+      "expected": "10",
+      "scenario": "执行模式: EnhancedHybridExecutor",
+      "status": "PASS",
+      "test": "EnhancedHybridExecutor 返回10",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "执行模式: HoldExecutor",
+      "status": "PASS",
+      "test": "HoldExecutor 返回数值",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "执行模式: 未激活组不执行",
+      "status": "PASS",
+      "test": "未激活组返回0",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "异常: JSONParser空字符串返回空Map",
+      "status": "PASS",
+      "test": "空字符串返回Map",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "异常: JSONParser空字符串返回空Map",
+      "status": "PASS",
+      "test": "空Map无键",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "异常: JSONParser畸形JSON抛出异常",
+      "status": "PASS",
+      "test": "畸形JSON抛出异常被捕获",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "异常: JSONSerializer序列化数字",
+      "status": "PASS",
+      "test": "序列化数字不崩溃",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "异常: ConfigValidator空配置",
+      "status": "PASS",
+      "test": "空配置验证不崩溃",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "异常: SkillManager删除不存在的分组",
+      "status": "PASS",
+      "test": "删除不存在的分组返回false/0",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "异常: ModeRegistry未注册模式",
+      "status": "PASS",
+      "test": "未注册模式返回false",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "<空字符串>",
+      "expected": "<空字符串>",
+      "scenario": "异常: ModeRegistry.GetExecutor未注册模式返回空",
+      "status": "PASS",
+      "test": "未注册模式返回空字符串",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "异常: JSONSerializer序列化Map",
+      "status": "PASS",
+      "test": "序列化Map不崩溃",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "时序: 多分组独立状态",
+      "status": "PASS",
+      "test": "多分组独立激活状态",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "时序: Emergency紧急停止",
+      "status": "PASS",
+      "test": "紧急模式已激活",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "时序: Emergency紧急停止",
+      "status": "PASS",
+      "test": "紧急模式已重置",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "3",
+      "expected": "3",
+      "scenario": "时序: SkillGroup执行计数",
+      "status": "PASS",
+      "test": "执行3次后计数为3",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "时序: ModeRegistry全模式注册验证",
+      "status": "PASS",
+      "test": "至少7种模式已注册",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "配置: JSONSerializer序列化配置",
+      "status": "PASS",
+      "test": "配置序列化成功",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "配置: JSONParser反序列化配置",
+      "status": "PASS",
+      "test": "配置反序列化为Map",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "F1",
+      "expected": "F1",
+      "scenario": "配置: JSONParser反序列化配置",
+      "status": "PASS",
+      "test": "反序列化hotkey正确",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "配置: ConfigValidator验证合法配置",
+      "status": "PASS",
+      "test": "合法配置验证不崩溃",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "配置: BackupCore创建备份",
+      "status": "PASS",
+      "test": "备份返回结果Map",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "Bridge模拟: JSONParser解析Bridge输入",
+      "status": "PASS",
+      "test": "Bridge JSON解析为Map",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "periodic",
+      "expected": "periodic",
+      "scenario": "Bridge模拟: JSONParser解析Bridge输入",
+      "status": "PASS",
+      "test": "Bridge mode正确",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "Bridge模拟: GroupService创建分组ID",
+      "status": "PASS",
+      "test": "生成分组ID",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "Bridge模拟: ConfigStore.HasGroup不存在的组",
+      "status": "PASS",
+      "test": "不存在的分组返回false",
+      "timestamp": "20260519125520"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "Bridge模拟: 序列化分组配置",
+      "status": "PASS",
+      "test": "分组配置序列化包含ID",
+      "timestamp": "20260519125520"
+    }
+  ],
+  "elapsedMs": 78,
+  "generatedAt": "20260519125520",
+  "summary": {
+    "failed": false,
+    "passed": 32,
+    "scenarios": 28,
+    "skipped": false,
+    "total": 32
+  }
+}

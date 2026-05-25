@@ -1,0 +1,37 @@
+﻿{
+  "details": [
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "Test 1",
+      "status": "PASS",
+      "test": "简单断言",
+      "timestamp": "20260516050131"
+    },
+    {
+      "actual": "10",
+      "expected": "10",
+      "scenario": "Test 1",
+      "status": "PASS",
+      "test": "相等断言",
+      "timestamp": "20260516050131"
+    },
+    {
+      "actual": "无异常",
+      "expected": "无异常",
+      "scenario": "Test 1",
+      "status": "PASS",
+      "test": "不抛异常",
+      "timestamp": "20260516050131"
+    }
+  ],
+  "elapsedMs": 15,
+  "generatedAt": "20260516050131",
+  "summary": {
+    "failed": false,
+    "passed": 3,
+    "scenarios": true,
+    "skipped": false,
+    "total": 3
+  }
+}

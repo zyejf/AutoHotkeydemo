@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>按键测试 - 分页式多视图</title>
+<script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.5.1/echarts.min.js"></script>
+<script>if(typeof echarts==='undefined'){document.write('<scr'+'ipt src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></scr'+'ipt>')}</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#101820;--card:#1a2332;--card2:#152030;--border:#263040;--accent:#00bfa5;--accent2:#64ffda;--good:#00e676;--warn:#ffab00;--poor:#ff5252;--text:#e0e8f0;--muted:#607d8b;--font:'Segoe UI',system-ui,sans-serif}
+body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;display:flex;flex-direction:column}
+.nav{display:flex;align-items:center;justify-content:space-between;padding:10px 20px;background:var(--card);border-bottom:2px solid var(--accent);position:sticky;top:0;z-index:100}
+.nav h1{font-size:15px;font-weight:700;color:var(--accent2);letter-spacing:1px}
+.nav h1 span{color:var(--muted);font-weight:400;font-size:11px;margin-left:6px}
+.tab-group{display:flex;gap:2px}
+.tab{padding:6px 18px;border-radius:6px 6px 0 0;border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:12px;transition:all .2s;position:relative}
+.tab:hover{color:var(--accent)}
+.tab.active{background:var(--bg);color:var(--accent2);font-weight:600}
+.tab.active::after{content:'';position:absolute;bottom:-2px;left:0;right:0;height:2px;background:var(--accent)}
+.mode-tabs{display:flex;gap:4px}
+.mode-tab{padding:4px 12px;border-radius:14px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:11px;transition:all .2s}
+.mode-tab:hover{border-color:var(--accent);color:var(--accent)}
+.mode-tab.active{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:600}
+.page{display:none;flex:1;padding:16px 20px;overflow-y:auto}
+.page.active{display:block}
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.kpi{background:var(--card);border-radius:10px;padding:14px;border:1px solid var(--border);position:relative}
+.kpi .label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
+.kpi .val{font-size:22px;font-weight:700}
+.kpi .sub{font-size:10px;color:var(--muted);margin-top:2px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.card{background:var(--card);border-radius:10px;border:1px solid var(--border);overflow:hidden}
+.card-head{padding:10px 14px 0;display:flex;align-items:center;gap:6px}
+.card-head .dot{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.card-head .title{font-size:13px;font-weight:600}
+.chart{width:100%;height:320px}
+.chart-lg{height:400px}
+.full{grid-column:1/-1}
+.toolbar{display:flex;gap:6px;padding:6px 14px}
+.toolbar button{padding:3px 10px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:10px;transition:all .2s}
+.toolbar button:hover{border-color:var(--accent);color:var(--accent)}
+.toolbar button.active{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.play-bar{display:flex;align-items:center;gap:10px;padding:8px 14px}
+.play-btn{width:32px;height:32px;border-radius:50%;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.play-btn:hover{background:var(--accent);color:var(--bg)}
+.speed-label{font-size:10px;color:var(--muted)}
+.progress-bar{flex:1;height:4px;background:var(--border);border-radius:2px;position:relative;cursor:pointer}
+.progress-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .1s}
+.time-label{font-size:10px;color:var(--muted);min-width:60px;text-align:right}
+.table-wrap{max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.table-wrap::-webkit-scrollbar{width:4px}
+.table-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+table{width:100%;border-collapse:collapse;font-size:11px}
+thead{position:sticky;top:0;z-index:1}
+th{background:var(--card2);color:var(--muted);padding:8px 10px;text-align:left;font-weight:600;text-transform:uppercase;letter-spacing:.5px;cursor:pointer}
+th:hover{color:var(--accent)}
+td{padding:6px 10px;border-bottom:1px solid rgba(38,48,64,.5)}
+tr:hover td{background:rgba(0,191,165,.04)}
+.tag{display:inline-block;padding:1px 8px;border-radius:8px;font-size:10px;font-weight:600}
+.tag.good{background:rgba(0,230,118,.15);color:var(--good)}
+.tag.acceptable{background:rgba(255,171,0,.15);color:var(--warn)}
+.tag.poor{background:rgba(255,82,82,.15);color:var(--poor)}
+.export-bar{display:flex;gap:8px;padding:10px 14px}
+.export-btn{padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:11px;transition:all .2s}
+.export-btn:hover{border-color:var(--accent);color:var(--accent)}
+@media(max-width:900px){.grid-2{grid-template-columns:1fr}.kpi-row{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <h1>KEYTEST <span>Multi-View</span></h1>
+  <div class="tab-group">
+    <button class="tab active" data-page="overview">总览</button>
+    <button class="tab" data-page="timeline">时序</button>
+    <button class="tab" data-page="deviation">偏差</button>
+    <button class="tab" data-page="detail">详情</button>
+  </div>
+  <div class="mode-tabs">
+    <button class="mode-tab active" data-mode="periodic">Periodic</button>
+    <button class="mode-tab" data-mode="sequence">Sequence</button>
+    <button class="mode-tab" data-mode="hybrid">Hybrid</button>
+  </div>
+</div>
+
+<div class="page active" id="page-overview">
+  <div class="kpi-row" id="kpiRow"></div>
+  <div class="grid-2">
+    <div class="card"><div class="card-head"><span class="dot"></span><span class="title">状态分布</span></div><div class="chart" id="statusChart"></div></div>
+    <div class="card"><div class="card-head"><span class="dot"></span><span class="title">偏差趋势</span></div><div class="chart" id="trendChart"></div></div>
+    <div class="card full"><div class="card-head"><span class="dot"></span><span class="title">按键间隔对比</span></div><div class="chart" id="intervalChart"></div></div>
+  </div>
+</div>
+
+<div class="page" id="page-timeline">
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-head"><span class="dot"></span><span class="title">按键时序泳道</span></div>
+    <div class="play-bar">
+      <button class="play-btn" id="playBtn">▶</button>
+      <span class="speed-label">1x</span>
+      <div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+      <span class="time-label" id="timeLabel">0ms</span>
+    </div>
+    <div class="chart chart-lg" id="swimChart"></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><span class="dot"></span><span class="title">按压时长分布</span></div>
+    <div class="chart" id="holdChart"></div>
+  </div>
+</div>
+
+<div class="page" id="page-deviation">
+  <div class="grid-2">
+    <div class="card"><div class="card-head"><span class="dot"></span><span class="title">偏差散点图</span></div><div class="chart chart-lg" id="scatterChart"></div></div>
+    <div class="card"><div class="card-head"><span class="dot"></span><span class="title">偏差CDF曲线</span></div><div class="chart chart-lg" id="cdfChart"></div></div>
+    <div class="card full"><div class="card-head"><span class="dot"></span><span class="title">各按键偏差箱线图</span></div><div class="chart" id="boxChart"></div></div>
+  </div>
+</div>
+
+<div class="page" id="page-detail">
+  <div class="card">
+    <div class="card-head"><span class="dot"></span><span class="title">事件详情表</span></div>
+    <div class="export-bar">
+      <button class="export-btn" id="exportJSON">导出 JSON</button>
+      <button class="export-btn" id="exportCSV">导出 CSV</button>
+    </div>
+    <div class="table-wrap">
+      <table id="detailTable">
+        <thead><tr>
+          <th>#</th><th>按键</th><th>事件</th><th>时间</th><th>设备</th><th>期望间隔</th><th>实际间隔</th><th>偏差</th><th>状态</th>
+        </tr></thead>
+        <tbody id="detailBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+var MODES={
+  periodic:{name:'Periodic',keys:['1','2','3'],intervals:[100,150,200],subTypes:null},
+  sequence:{name:'Sequence',keys:['a','b','c'],delays:[100,150,200],totalCycle:450,subTypes:null},
+  hybrid:{name:'Hybrid',keys:['1','2','a','b'],intervals:[100,200,150,250],subTypes:{'1':'periodic','2':'periodic','a':'sequence','b':'sequence'},seqCycleInterval:400}
+};
+var COLORS=['#00bfa5','#7c4dff','#ffab00','#00e676','#ff5252','#40c4ff'];
+var currentMode='periodic';
+var charts={};
+var currentReport=null;
+var playTimer=null;
+var playPos=0;
+
+function rand(a,b){return Math.random()*(b-a)+a}
+function jitter(base,pct){return Math.round(base+base*rand(-pct,pct))}
+
+function generateReport(mode){
+  var cfg=MODES[mode];var events=[];var duration=5000;
+  if(mode==='periodic'){cfg.keys.forEach(function(key,ki){var iv=cfg.intervals[ki];var t=iv;while(t<duration){events.push({key:key,event:'down',timestamp:t,device:'keyboard'});events.push({key:key,event:'up',timestamp:t+jitter(15,0.3),device:'keyboard'});t+=jitter(iv,0.08);}});}
+  else if(mode==='sequence'){var t=0;while(t<duration){for(var i=0;i<cfg.keys.length;i++){t+=jitter(cfg.delays[i],0.06);if(t>=duration)break;events.push({key:cfg.keys[i],event:'down',timestamp:t,device:'keyboard'});events.push({key:cfg.keys[i],event:'up',timestamp:t+jitter(15,0.3),device:'keyboard'});}}}
+  else if(mode==='hybrid'){var perKeys=[],seqKeys=[];cfg.keys.forEach(function(k){if(cfg.subTypes[k]==='periodic')perKeys.push(k);else seqKeys.push(k);});perKeys.forEach(function(key){var ki=cfg.keys.indexOf(key);var iv=cfg.intervals[ki];var t=iv;while(t<duration){events.push({key:key,event:'down',timestamp:t,device:'keyboard'});events.push({key:key,event:'up',timestamp:t+jitter(15,0.3),device:'keyboard'});t+=jitter(iv,0.08);}});var t=0;while(t<duration){for(var i=0;i<seqKeys.length;i++){var ki=cfg.keys.indexOf(seqKeys[i]);t+=jitter(cfg.intervals[ki],0.06);if(t>=duration)break;events.push({key:seqKeys[i],event:'down',timestamp:t,device:'keyboard'});events.push({key:seqKeys[i],event:'up',timestamp:t+jitter(15,0.3),device:'keyboard'});}}}
+  events.sort(function(a,b){return a.timestamp-b.timestamp});
+  var details=[];var lastDownByKey={};
+  events.forEach(function(e){if(e.event!=='down')return;if(lastDownByKey[e.key]!==undefined){var actualInterval=e.timestamp-lastDownByKey[e.key];var expectedInterval;if(mode==='sequence')expectedInterval=cfg.totalCycle;else if(mode==='hybrid'&&cfg.subTypes&&cfg.subTypes[e.key]==='sequence')expectedInterval=cfg.seqCycleInterval;else{var ki=cfg.keys.indexOf(e.key);expectedInterval=cfg.intervals[ki];}var deviation=Math.round(Math.abs(actualInterval-expectedInterval)/expectedInterval*1000)/10;var status=deviation<=20?'good':deviation<=50?'acceptable':'poor';details.push({key:e.key,expectedInterval:expectedInterval,actualInterval:actualInterval,deviation:deviation,status:status});}lastDownByKey[e.key]=e.timestamp;});
+  var holdDetails=[];var pendingDowns={};
+  events.forEach(function(e){if(e.event==='down'){if(!pendingDowns[e.key])pendingDowns[e.key]=[];pendingDowns[e.key].push(e.timestamp);}else if(e.event==='up'&&pendingDowns[e.key]&&pendingDowns[e.key].length>0){var downTs=pendingDowns[e.key].shift();var holdDuration=Math.round(e.timestamp-downTs);holdDetails.push({key:e.key,downTs:Math.round(downTs),upTs:Math.round(e.timestamp),holdDuration:holdDuration,valid:holdDuration>=5&&holdDuration<=200});}});
+  var devs=details.map(function(d){return d.deviation});var avgDev=devs.length?Math.round(devs.reduce(function(a,b){return a+b},0)/devs.length*10)/10:0;var maxDev=devs.length?Math.round(Math.max.apply(null,devs)*10)/10:0;
+  var downCount=events.filter(function(e){return e.event==='down'}).length;var holdValid=holdDetails.filter(function(h){return h.valid}).length;
+  return{groupId:'test-'+mode,mode:mode,duration:duration,totalExpected:cfg.keys.length,totalActual:events.length,orderCorrect:true,avgIntervalDeviation:avgDev,maxIntervalDeviation:maxDev,sendSuccessRate:Math.min(downCount/(cfg.keys.length*Math.floor(duration/200)),1),holdTimingCorrect:holdValid===holdDetails.length,details:details,holdDetails:holdDetails,events:events};
+}
+
+function renderKPI(report){
+  var row=document.getElementById('kpiRow');
+  var goodRate=report.details.length?Math.round(report.details.filter(function(d){return d.status==='good'}).length/report.details.length*100):100;
+  var holdRate=report.holdDetails.length?Math.round(report.holdDetails.filter(function(h){return h.valid}).length/report.holdDetails.length*100):100;
+  var items=[
+    {label:'平均偏差',val:report.avgIntervalDeviation+'%',sub:'max '+report.maxIntervalDeviation+'%',color:report.avgIntervalDeviation<=20?'var(--good)':report.avgIntervalDeviation<=50?'var(--warn)':'var(--poor)'},
+    {label:'Good率',val:goodRate+'%',color:goodRate>=80?'var(--good)':goodRate>=50?'var(--warn)':'var(--poor)'},
+    {label:'发送成功率',val:Math.round(report.sendSuccessRate*100)+'%',color:report.sendSuccessRate>=0.95?'var(--good)':'var(--warn)'},
+    {label:'按压正确率',val:holdRate+'%',color:holdRate>=90?'var(--good)':'var(--warn)'}
+  ];
+  row.innerHTML=items.map(function(it){return'<div class="kpi"><div class="label">'+it.label+'</div><div class="val" style="color:'+it.color+'">'+it.val+'</div>'+(it.sub?'<div class="sub">'+it.sub+'</div>':'')+'</div>';}).join('');
+}
+
+function renderStatus(report){
+  var c=charts.status;if(!c){c=echarts.init(document.getElementById('statusChart'));charts.status=c;}
+  var cfg=MODES[report.mode];
+  var series=cfg.keys.map(function(k,ki){
+    var ds=report.details.filter(function(d){return d.key===k});
+    var good=ds.filter(function(d){return d.status==='good'}).length;
+    var acc=ds.filter(function(d){return d.status==='acceptable'}).length;
+    var poor=ds.filter(function(d){return d.status==='poor'}).length;
+    return{name:k,type:'bar',stack:'s',data:[good,acc,poor],barWidth:'50%',itemStyle:{color:COLORS[ki%COLORS.length],opacity:.85},tooltip:{formatter:function(p){return p.seriesName+'<br/>'+['Good','Acceptable','Poor'][p.dataIndex]+': '+p.value;}}};
+  });
+  c.setOption({
+    backgroundColor:'transparent',tooltip:{trigger:'axis'},
+    legend:{data:cfg.keys,top:2,textStyle:{color:'var(--muted)',fontSize:10},itemWidth:10,itemHeight:10},
+    grid:{left:40,right:14,top:30,bottom:24},
+    xAxis:{type:'category',data:['Good','Acceptable','Poor'],axisLabel:{color:'var(--muted)',fontSize:10},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{show:false}},
+    yAxis:{type:'value',axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
+    series:series
+  },true);
+}
+
+function renderTrend(report){
+  var c=charts.trend;if(!c){c=echarts.init(document.getElementById('trendChart'));charts.trend=c;}
+  var cfg=MODES[report.mode];
+  var series=cfg.keys.map(function(k,ki){
+    var pts=report.details.filter(function(d){return d.key===k}).map(function(d,i){return[i+1,d.deviation]});
+    return{name:k,type:'line',data:pts,smooth:true,symbol:'circle',symbolSize:3,lineStyle:{width:1.5,color:COLORS[ki%COLORS.length]},itemStyle:{color:COLORS[ki%COLORS.length]}};
+  });
+  c.setOption({
+    backgroundColor:'transparent',tooltip:{trigger:'item'},
+    legend:{data:cfg.keys,top:2,textStyle:{color:'var(--muted)',fontSize:10},itemWidth:10,itemHeight:10},
+    grid:{left:40,right:14,top:30,bottom:28},
+    xAxis:{type:'value',axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{show:false}},
+    yAxis:{type:'value',name:'偏差%',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
+    dataZoom:[{type:'inside'}],
+    series:series,
+    markLine:{silent:true,data:[{yAxis:20,lineStyle:{color:'var(--good)',type:'dashed',width:1},label:{formatter:'20%',fontSize:8,color:'var(--good)'}},{yAxis:50,lineStyle:{color:'var(--warn)',type:'dashed',width:1},label:{formatter:'50%',fontSize:8,color:'var(--warn)'}}]}
+  },true);
+}
+
+function renderInterval(report){
+  var c=charts.interval;if(!c){c=echarts.init(document.getElementById('intervalChart'));charts.interval=c;}
+  var cfg=MODES[report.mode];
+  var expectedData=cfg.keys.map(function(k,ki){
+    if(report.mode==='sequence')return cfg.totalCycle;
+    if(report.mode==='hybrid'&&cfg.subTypes&&cfg.subTypes[k]==='sequence')return cfg.seqCycleInterval;
+    return cfg.intervals[ki];
+  });
+  var actualData=cfg.keys.map(function(k){
+    var ds=report.details.filter(function(d){return d.key===k});
+    return ds.length?Math.round(ds.reduce(function(a,d){return a+d.actualInterval},0)/ds.length):0;
+  });
+  c.setOption({
+    backgroundColor:'transparent',tooltip:{trigger:'axis',formatter:function(ps){var idx=ps[0].dataIndex;return'<b>'+cfg.keys[idx]+'</b><br/>期望: '+expectedData[idx]+'ms<br/>实际: '+actualData[idx]+'ms<br/>差值: '+(actualData[idx]-expectedData[idx])+'ms';}},
+    legend:{data:['期望间隔','实际间隔'],top:2,textStyle:{color:'var(--muted)',fontSize:10}},
+    grid:{left:50,right:14,top:28,bottom:28},
+    xAxis:{type:'category',data:cfg.keys,axisLabel:{color:'var(--text)',fontSize:12,fontWeight:600},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{show:false}},
+    yAxis:{type:'value',name:'间隔(ms)',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
+    series:[
+      {name:'期望间隔',type:'bar',data:expectedData,barWidth:'35%',itemStyle:{color:'rgba(0,191,165,.25)',borderColor:'var(--accent)',borderWidth:1,borderRadius:3},label:{show:true,position:'top',formatter:function(p){return p.value+'ms'},color:'var(--accent)',fontSize:9}},
+      {name:'实际间隔',type:'bar',data:actualData,barWidth:'25%',itemStyle:{color:function(p){var d=Math.abs(actualData[p.dataIndex]-expectedData[p.dataIndex])/expectedData[p.dataIndex]*100;return d<=20?'var(--good)':d<=50?'var(--warn)':'var(--poor)';},borderRadius:3},label:{show:true,position:'top',formatter:function(p){return p.value+'ms'},color:'var(--text)',fontSize:9}}
+    ]
+  },true);
+}
+
+function renderSwim(report){
+  var c=charts.swim;if(!c){c=echarts.init(document.getElementById('swimChart'));charts.swim=c;}
+  var cfg=MODES[report.mode];
+  var series=[];
+  cfg.keys.forEach(function(k,ki){
+    var downs=[],ups=[];
+    report.events.forEach(function(e){if(e.key===k){if(e.event==='down')downs.push(e.timestamp);if(e.event==='up')ups.push(e.timestamp);}});
+    var barData=[];
+    for(var i=0;i<downs.length;i++){var upTs=i<ups.length?ups[i]:downs[i]+15;if(upTs<=downs[i])upTs=downs[i]+15;barData.push([Math.round(downs[i]),Math.round(upTs),Math.round(upTs-downs[i]),k,i]);}
+    series.push({name:k,type:'custom',renderItem:function(params,api){var d0=api.value(0),d1=api.value(1),dur=api.value(2);var s=api.coord([d0,params.seriesIndex]);var e=api.coord([d1,params.seriesIndex]);var h=16;var rect=echarts.graphic.clipRectByRect({x:s[0],y:s[1]-h/2,width:Math.max(e[0]-s[0],1),height:h},{x:params.coordSys.x,y:params.coordSys.y,width:params.coordSys.width,height:params.coordSys.height});if(!rect)return;var color=dur>200?'var(--poor)':dur>100?'var(--warn)':COLORS[ki%COLORS.length];return{type:'rect',shape:rect,style:{fill:color,opacity:.8},emphasis:{style:{opacity:1,shadowBlur:6,shadowColor:'rgba(0,191,165,.4)'}}};},data:barData,encode:{x:[0,1],y:0},tooltip:{formatter:function(p){var d=p.data;return'<b>'+d[3]+'</b> #'+(d[4]+1)+'<br/>触发: '+d[0]+'ms<br/>持续: '+d[2]+'ms';}}});
+  });
+  var maxTs=report.events.length?Math.max.apply(null,report.events.map(function(e){return e.timestamp})):5000;
+  c.setOption({
+    backgroundColor:'transparent',tooltip:{},
+    legend:{data:cfg.keys,top:2,textStyle:{color:'var(--muted)',fontSize:10},itemWidth:10,itemHeight:10},
+    grid:{left:50,right:16,top:30,bottom:40},
+    xAxis:{type:'value',name:'时间(ms)',nameTextStyle:{color:'var(--muted)',fontSize:9},min:0,max:Math.ceil(maxTs),axisLabel:{color:'var(--muted)',fontSize:9,formatter:function(v){return v+'ms'}},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{lineStyle:{color:'var(--border)',type:'dashed',opacity:.3}}},
+    yAxis:{type:'category',data:cfg.keys,axisLabel:{color:'var(--text)',fontSize:12,fontWeight:600},axisLine:{lineStyle:{color:'var(--border)'}},axisTick:{show:false}},
+    dataZoom:[{type:'slider',start:0,end:100,height:14,bottom:4,borderColor:'var(--border)',fillerColor:'rgba(0,191,165,.08)',handleStyle:{color:'var(--accent)'},textStyle:{color:'var(--muted)',fontSize:9}},{type:'inside'}],
+    series:series,
+    toolbox:{feature:{saveAsImage:{title:'保存'},dataZoom:{title:{zoom:'缩放',back:'还原'}}},right:10,top:0}
+  },true);
+}
+
+function renderHold(report){
+  var c=charts.hold;if(!c){c=echarts.init(document.getElementById('holdChart'));charts.hold=c;}
+  var cfg=MODES[report.mode];
+  var bins=20,binSize=15;
+  var series=cfg.keys.map(function(k,ki){
+    var hds=report.holdDetails.filter(function(h){return h.key===k});
+    var counts=new Array(bins).fill(0);
+    hds.forEach(function(h){var bi=Math.min(Math.floor(h.holdDuration/binSize),bins-1);if(bi>=0)counts[bi]++;});
+    return{name:k,type:'bar',stack:'hold',data:counts,barWidth:'70%',itemStyle:{color:COLORS[ki%COLORS.length],opacity:.8},tooltip:{formatter:function(p){return p.seriesName+'<br/>'+(p.dataIndex*binSize)+'~'+((p.dataIndex+1)*binSize)+'ms: '+p.value+'次';}}};
+  });
+  var xData=[];for(var i=0;i<bins;i++)xData.push(i*binSize);
+  c.setOption({
+    backgroundColor:'transparent',tooltip:{trigger:'axis'},
+    legend:{data:cfg.keys,top:2,textStyle:{color:'var(--muted)',fontSize:10},itemWidth:10,itemHeight:10},
+    grid:{left:40,right:14,top:30,bottom:28},
+    xAxis:{type:'category',data:xData,name:'按压时长(ms)',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{show:false}},
+    yAxis:{type:'value',axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
+    series:series
+  },true);
+}
+
+function renderScatter(report){
+  var c=charts.scatter;if(!c){c=echarts.init(document.getElementById('scatterChart'));charts.scatter=c;}
+  var cfg=MODES[report.mode];
+  var series=cfg.keys.map(function(k,ki){
+    var pts=report.details.filter(function(d){return d.key===k}).map(function(d,i){
+      var actual=d.actualInterval-d.expectedInterval;
+      return{value:[i+1,Math.round(actual*10)/10,Math.round(d.deviation*10)/10],itemStyle:{color:d.status==='good'?'var(--good)':d.status==='acceptable'?'var(--warn)':'var(--poor)'},_data:d};
+    });
+    return{name:k,type:'scatter',data:pts,symbolSize:function(val){return Math.max(6,Math.min(14,val[2]/3));},tooltip:{formatter:function(p){var d=p.data._data;return'<b>'+d.key+'</b> #'+(p.dataIndex+1)+'<br/>期望: '+d.expectedInterval+'ms<br/>实际: '+d.actualInterval+'ms<br/>偏差: '+d.deviation+'%';}}};
+  });
+  c.setOption({
+    backgroundColor:'transparent',tooltip:{trigger:'item'},
+    legend:{data:cfg.keys,top:2,textStyle:{color:'var(--muted)',fontSize:10},itemWidth:10,itemHeight:10},
+    grid:{left:50,right:14,top:30,bottom:36},
+    xAxis:{type:'value',name:'事件序号',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{show:false}},
+    yAxis:{type:'value',name:'差值(ms)',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
+    dataZoom:[{type:'inside'},{type:'slider',height:14,bottom:2,borderColor:'var(--border)',fillerColor:'rgba(0,191,165,.08)',handleStyle:{color:'var(--accent)'},textStyle:{color:'var(--muted)',fontSize:9}}],
+    series:series
+  },true);
+}
+
+function renderCDF(report){
+  var c=charts.cdf;if(!c){c=echarts.init(document.getElementById('cdfChart'));charts.cdf=c;}
+  var devs=report.details.map(function(d){return d.deviation}).sort(function(a,b){return a-b});
+  if(devs.length===0){c.setOption({backgroundColor:'transparent',title:{text:'无数据',left:'center',top:'center',textStyle:{color:'var(--muted)'}}},true);return;}
+  var cdfData=devs.map(function(d,i){return[d,Math.round((i+1)/devs.length*1000)/10];});
+  c.setOption({
+    backgroundColor:'transparent',tooltip:{trigger:'axis',formatter:function(ps){return'偏差: '+ps[0].value[0]+'%<br/>CDF: '+ps[0].value[1]+'%';}},
+    grid:{left:45,right:14,top:16,bottom:30},
+    xAxis:{type:'value',name:'偏差%',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{show:false}},
+    yAxis:{type:'value',name:'CDF%',nameTextStyle:{color:'var(--muted)',fontSize:9},min:0,max:100,axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
+    series:[{type:'line',data:cdfData,smooth:true,symbol:'none',lineStyle:{color:'var(--accent)',width:2},areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(0,191,165,.2)'},{offset:1,color:'rgba(0,191,165,.01)'}]}}}],
+    dataZoom:[{type:'inside'}]
+  },true);
+}
+
+function renderBox(report){
+  var c=charts.box;if(!c){c=echarts.init(document.getElementById('boxChart'));charts.box=c;}
+  var cfg=MODES[report.mode];
+  var boxData=cfg.keys.map(function(k){
+    var devs=report.details.filter(function(d){return d.key===k}).map(function(d){return d.deviation}).sort(function(a,b){return a-b});
+    if(devs.length===0)return[0,0,0,0,0];
+    var min=devs[0],max=devs[devs.length-1];
+    var q1=devs[Math.floor(devs.length*.25)],median=devs[Math.floor(devs.length*.5)],q3=devs[Math.floor(devs.length*.75)];
+    return[Math.round(min*10)/10,Math.round(q1*10)/10,Math.round(median*10)/10,Math.round(q3*10)/10,Math.round(max*10)/10];
+  });
+  c.setOption({
+    backgroundColor:'transparent',tooltip:{trigger:'item',formatter:function(p){if(p.seriesType!=='boxplot')return'';var d=p.data;return'<b>'+cfg.keys[p.dataIndex]+'</b><br/>Min: '+d[1]+'%<br/>Q1: '+d[2]+'%<br/>Median: '+d[3]+'%<br/>Q3: '+d[4]+'%<br/>Max: '+d[5]+'%';}},
+    grid:{left:50,right:14,top:20,bottom:28},
+    xAxis:{type:'value',name:'偏差%',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
+    yAxis:{type:'category',data:cfg.keys,axisLabel:{color:'var(--text)',fontSize:12,fontWeight:600},axisLine:{lineStyle:{color:'var(--border)'}},axisTick:{show:false}},
+    series:[{type:'boxplot',data:boxData,itemStyle:{color:'rgba(0,191,165,.3)',borderColor:'var(--accent)',borderWidth:1}}]
+  },true);
+}
+
+function renderDetailTable(report){
+  var body=document.getElementById('detailBody');
+  var devMap={};
+  report.details.forEach(function(d,i){devMap[d.key+'_'+i]=d;});
+  var keyIdx={};
+  var rows=[];
+  report.events.forEach(function(e,i){
+    if(e.event==='down'){
+      if(keyIdx[e.key]===undefined)keyIdx[e.key]=0;
+      var dev=devMap[e.key+'_'+keyIdx[e.key]];
+      keyIdx[e.key]++;
+      rows.push({idx:i+1,key:e.key,event:e.event,timestamp:Math.round(e.timestamp),device:e.device,expected:dev?dev.expectedInterval:'-',actual:dev?dev.actualInterval:'-',deviation:dev?dev.deviation:'-',status:dev?dev.status:'-'});
+    }else{
+      rows.push({idx:i+1,key:e.key,event:e.event,timestamp:Math.round(e.timestamp),device:e.device,expected:'-',actual:'-',deviation:'-',status:'-'});
+    }
+  });
+  body.innerHTML=rows.map(function(r){
+    var tagHtml=r.status!=='-'?'<span class="tag '+r.status+'">'+r.status+'</span>':'-';
+    return'<tr><td>'+r.idx+'</td><td><b>'+r.key+'</b></td><td>'+r.event+'</td><td>'+r.timestamp+'ms</td><td>'+r.device+'</td><td>'+(r.expected!=='-'?r.expected+'ms':'-')+'</td><td>'+(r.actual!=='-'?r.actual+'ms':'-')+'</td><td>'+(r.deviation!=='-'?r.deviation+'%':'-')+'</td><td>'+tagHtml+'</td></tr>';
+  }).join('');
+}
+
+function initPlay(report){
+  var btn=document.getElementById('playBtn');
+  var bar=document.getElementById('progressBar');
+  var fill=document.getElementById('progressFill');
+  var label=document.getElementById('timeLabel');
+  var maxTs=report.duration;
+  btn.onclick=function(){
+    if(playTimer){clearInterval(playTimer);playTimer=null;btn.textContent='▶';return;}
+    playPos=0;btn.textContent='⏸';
+    playTimer=setInterval(function(){
+      playPos+=50;fill.style.width=Math.min(playPos/maxTs*100,100)+'%';label.textContent=playPos+'ms';
+      if(playPos>=maxTs){clearInterval(playTimer);playTimer=null;btn.textContent='▶';}
+    },50);
+  };
+  bar.onclick=function(e){
+    var rect=bar.getBoundingClientRect();
+    var pct=(e.clientX-rect.left)/rect.width;
+    playPos=Math.round(pct*maxTs);fill.style.width=pct*100+'%';label.textContent=playPos+'ms';
+  };
+}
+
+function initExport(report){
+  document.getElementById('exportJSON').onclick=function(){
+    var blob=new Blob([JSON.stringify(report,null,2)],{type:'application/json'});
+    var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='keytest_report_'+report.mode+'.json';a.click();
+  };
+  document.getElementById('exportCSV').onclick=function(){
+    var header='按键,事件,时间,设备,期望间隔,实际间隔,偏差,状态\n';
+    var csv=header+report.events.map(function(e,i){return e.key+','+e.event+','+Math.round(e.timestamp)+','+e.device+',,,,'}).join('\n');
+    var blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+    var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='keytest_events_'+report.mode+'.csv';a.click();
+  };
+}
+
+function renderAll(mode){
+  currentReport=generateReport(mode);
+  renderKPI(currentReport);
+  renderStatus(currentReport);
+  renderTrend(currentReport);
+  renderInterval(currentReport);
+  renderSwim(currentReport);
+  renderHold(currentReport);
+  renderScatter(currentReport);
+  renderCDF(currentReport);
+  renderBox(currentReport);
+  renderDetailTable(currentReport);
+  initPlay(currentReport);
+  initExport(currentReport);
+}
+
+document.querySelectorAll('.tab').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active')});
+    this.classList.add('active');
+    document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active')});
+    document.getElementById('page-'+this.dataset.page).classList.add('active');
+    setTimeout(function(){Object.values(charts).forEach(function(c){c.resize()})},100);
+  });
+});
+
+document.querySelectorAll('.mode-tab').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    document.querySelectorAll('.mode-tab').forEach(function(b){b.classList.remove('active')});
+    this.classList.add('active');
+    currentMode=this.dataset.mode;
+    renderAll(currentMode);
+  });
+});
+
+document.addEventListener('DOMContentLoaded',function(){renderAll('periodic')});
+window.addEventListener('resize',function(){Object.values(charts).forEach(function(c){c.resize()})});
+</script>
+</body>
+</html>

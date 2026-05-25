@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>技能管理器 v3.0 — 编辑器 V3 单页面板</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+  background-attachment: fixed;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+.glass {
+  background: rgba(255,255,255,0.12);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 16px;
+}
+.glass-input {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  color: #fff;
+  padding: 7px 10px;
+  font-size: 12px;
+  outline: none;
+  width: 100%;
+  transition: border-color 0.2s;
+}
+.glass-input:focus { border-color: rgba(255,255,255,0.5); }
+.glass-input::placeholder { color: rgba(255,255,255,0.35); }
+select.glass-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='rgba(255,255,255,0.6)' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 24px;
+  cursor: pointer;
+}
+select.glass-input option { background: #2d1b69; color: #fff; }
+.btn {
+  border: none;
+  border-radius: 8px;
+  padding: 7px 16px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.btn:hover { filter: brightness(1.1); }
+.btn-primary {
+  background: rgba(255,255,255,0.25);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.3);
+}
+.btn-success {
+  background: rgba(76,175,80,0.5);
+  color: #fff;
+}
+.btn-ghost {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.7);
+  border: 1px solid rgba(255,255,255,0.12);
+}
+.btn-icon {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.7);
+  border: none;
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 12px;
+}
+.btn-icon:hover { background: rgba(255,255,255,0.2); }
+
+.panel {
+  width: 480px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.panel-title { color: #fff; font-size: 14px; font-weight: 600; }
+.panel-body {
+  padding: 14px 18px;
+  overflow-y: auto;
+  flex: 1;
+}
+.panel-body::-webkit-scrollbar { width: 4px; }
+.panel-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
+.panel-footer {
+  padding: 10px 18px;
+  border-top: 1px solid rgba(255,255,255,0.1);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.section {
+  margin-bottom: 14px;
+}
+.section-title {
+  color: rgba(255,255,255,0.5);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.form-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+.form-row .label {
+  color: rgba(255,255,255,0.6);
+  font-size: 11px;
+  min-width: 65px;
+  flex-shrink: 0;
+}
+.form-row .field { flex: 1; }
+
+.key-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 8px;
+  background: rgba(0,0,0,0.15);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  min-height: 34px;
+  align-items: center;
+  cursor: text;
+}
+.key-chips:focus-within { border-color: rgba(255,255,255,0.4); }
+.chip {
+  background: rgba(103,126,234,0.3);
+  color: #c5caff;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.chip .x {
+  cursor: pointer;
+  opacity: 0.4;
+  font-size: 12px;
+}
+.chip .x:hover { opacity: 1; }
+.chip-input {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 11px;
+  outline: none;
+  min-width: 30px;
+  flex: 1;
+}
+.chip-input::placeholder { color: rgba(255,255,255,0.25); }
+
+.sub-section {
+  background: rgba(0,0,0,0.1);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.sub-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.sub-label {
+  color: rgba(255,255,255,0.7);
+  font-size: 11px;
+  font-weight: 500;
+}
+.sub-type-badge {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.5);
+  padding: 1px 8px;
+  border-radius: 8px;
+  font-size: 9px;
+}
+
+.interval-grid {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 4px 6px;
+  align-items: center;
+  font-size: 10px;
+}
+.interval-grid .key-name {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.6);
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-align: center;
+  min-width: 28px;
+}
+.interval-grid input {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 4px;
+  color: #fff;
+  padding: 3px 6px;
+  font-size: 10px;
+  width: 100%;
+  outline: none;
+  text-align: center;
+}
+.interval-grid input:focus { border-color: rgba(255,255,255,0.3); }
+.interval-grid .unit { color: rgba(255,255,255,0.3); font-size: 9px; }
+
+.hint {
+  color: rgba(255,255,255,0.25);
+  font-size: 9px;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(10px);
+  color: #fff;
+  padding: 10px 24px;
+  border-radius: 24px;
+  font-size: 12px;
+  z-index: 200;
+  transition: transform 0.3s;
+  pointer-events: none;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+
+.mode-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.mode-tab {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  padding: 4px 10px;
+  color: rgba(255,255,255,0.5);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.mode-tab:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8); }
+.mode-tab.active {
+  background: rgba(103,126,234,0.3);
+  border-color: rgba(103,126,234,0.5);
+  color: #c5caff;
+}
+
+.hotkey-btn {
+  background: rgba(103,126,234,0.25);
+  border: 1px solid rgba(103,126,234,0.4);
+  color: #b3c6ff;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  min-width: 80px;
+  text-align: center;
+  transition: all 0.15s;
+}
+.hotkey-btn:hover { background: rgba(103,126,234,0.4); }
+.hotkey-btn.capturing {
+  background: rgba(239,83,80,0.25);
+  border-color: rgba(239,83,80,0.4);
+  color: #ffcdd2;
+  animation: pulse 1s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+</style>
+</head>
+<body>
+
+<div class="panel glass">
+  <div class="panel-header">
+    <span class="panel-title">编辑分组 1</span>
+    <button class="btn-icon" onclick="showToast('关闭')">✕</button>
+  </div>
+
+  <div class="panel-body">
+    <!-- 基本信息 -->
+    <div class="section">
+      <div class="section-title">基本信息</div>
+      <div class="form-row">
+        <span class="label">分组 ID</span>
+        <div class="field">
+          <input class="glass-input" value="1" style="width:80px;" readonly>
+        </div>
+      </div>
+      <div class="form-row">
+        <span class="label">热键</span>
+        <div class="field" style="display:flex;gap:6px;">
+          <button class="hotkey-btn" id="hotkeyBtn" onclick="toggleCapture()">F1</button>
+          <span class="hint" style="align-self:center;">点击后按键设置</span>
+        </div>
+      </div>
+      <div class="form-row">
+        <span class="label">执行模式</span>
+        <div class="field">
+          <div class="mode-tabs" id="modeTabs">
+            <span class="mode-tab" onclick="selectMode('periodic')">周期性</span>
+            <span class="mode-tab" onclick="selectMode('sequence')">序列</span>
+            <span class="mode-tab" onclick="selectMode('enhanced_periodic')">增强周期</span>
+            <span class="mode-tab" onclick="selectMode('enhanced_sequence')">增强序列</span>
+            <span class="mode-tab active" onclick="selectMode('hybrid')">混合</span>
+            <span class="mode-tab" onclick="selectMode('enhanced_hybrid')">增强混合</span>
+            <span class="mode-tab" onclick="selectMode('hold')">长按</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 模式参数 - 混合模式 -->
+    <div class="section" id="modeSection">
+      <div class="section-title">模式参数</div>
+
+      <!-- 子组1: 周期性 -->
+      <div class="sub-section" id="sub1">
+        <div class="sub-header">
+          <span class="sub-label">子组 1</span>
+          <div style="display:flex;gap:4px;align-items:center;">
+            <select class="glass-input" style="width:80px;padding:3px 6px;font-size:10px;" onchange="updateSubGroupType(this)">
+              <option value="periodic" selected>周期性</option>
+              <option value="sequence">序列</option>
+            </select>
+            <button class="btn-icon" style="width:22px;height:22px;font-size:10px;" onclick="this.closest('.sub-section').remove();showToast('子组已删除')">✕</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <span class="label" style="min-width:40px;">按键</span>
+          <div class="field">
+            <div class="key-chips" onclick="this.querySelector('input').focus()">
+              <span class="chip">m <span class="x" onclick="this.parentElement.remove()">×</span></span>
+              <span class="chip">a <span class="x" onclick="this.parentElement.remove()">×</span></span>
+              <input class="chip-input" placeholder="输入后回车..." onkeydown="addChip(event)">
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <span class="label" style="min-width:40px;">间隔</span>
+          <div class="field">
+            <div class="interval-grid">
+              <span class="key-name">m</span><input type="number" value="50" min="10"><span class="unit">ms</span>
+              <span class="key-name">a</span><input type="number" value="50" min="10"><span class="unit">ms</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 子组2: 序列 -->
+      <div class="sub-section" id="sub2">
+        <div class="sub-header">
+          <span class="sub-label">子组 2</span>
+          <div style="display:flex;gap:4px;align-items:center;">
+            <select class="glass-input" style="width:80px;padding:3px 6px;font-size:10px;">
+              <option value="periodic">周期性</option>
+              <option value="sequence" selected>序列</option>
+            </select>
+            <button class="btn-icon" style="width:22px;height:22px;font-size:10px;" onclick="this.closest('.sub-section').remove();showToast('子组已删除')">✕</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <span class="label" style="min-width:40px;">按键</span>
+          <div class="field">
+            <div class="key-chips" onclick="this.querySelector('input').focus()">
+              <span class="chip">1 <span class="x" onclick="this.parentElement.remove()">×</span></span>
+              <span class="chip">2 <span class="x" onclick="this.parentElement.remove()">×</span></span>
+              <span class="chip">3 <span class="x" onclick="this.parentElement.remove()">×</span></span>
+              <span class="chip">4 <span class="x" onclick="this.parentElement.remove()">×</span></span>
+              <input class="chip-input" placeholder="输入后回车..." onkeydown="addChip(event)">
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <span class="label" style="min-width:40px;">延迟</span>
+          <div class="field">
+            <div class="interval-grid">
+              <span class="key-name">1</span><input type="number" value="200" min="10"><span class="unit">ms</span>
+              <span class="key-name">2</span><input type="number" value="220" min="10"><span class="unit">ms</span>
+              <span class="key-name">3</span><input type="number" value="240" min="10"><span class="unit">ms</span>
+              <span class="key-name">4</span><input type="number" value="2500" min="10"><span class="unit">ms</span>
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <span class="label" style="min-width:40px;">循环</span>
+          <div class="field" style="display:flex;align-items:center;gap:4px;">
+            <input class="glass-input" type="number" value="100" style="width:70px;">
+            <span class="unit" style="color:rgba(255,255,255,0.3);font-size:9px;">ms 间隔</span>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-ghost" style="width:100%;font-size:10px;" onclick="addSubGroup()">+ 添加子组</button>
+    </div>
+
+    <!-- 增强选项（可折叠） -->
+    <div class="section">
+      <div class="section-title" style="cursor:pointer;" onclick="toggleAdvanced()">
+        高级选项 ▾
+      </div>
+      <div id="advancedSection" style="display:none;">
+        <div class="form-row">
+          <span class="label">长按键</span>
+          <div class="field">
+            <div class="key-chips" onclick="this.querySelector('input').focus()">
+              <input class="chip-input" placeholder="如 Shift, Ctrl..." onkeydown="addChip(event)">
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <span class="label">长按模式</span>
+          <div class="field">
+            <select class="glass-input" style="width:120px;">
+              <option>持续按住</option>
+              <option>周期按压</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <span class="label">长按模式</span>
+          <div class="field" style="display:flex;align-items:center;gap:4px;">
+            <input class="glass-input" placeholder="如 100,200" style="width:120px;">
+            <span class="hint">按下,释放 (ms)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel-footer">
+    <button class="btn btn-ghost" onclick="showToast('取消')">取消</button>
+    <button class="btn btn-success" onclick="showToast('已保存！')">💾 保存</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let isCapturing = false;
+
+function toggleCapture() {
+  isCapturing = !isCapturing;
+  const btn = document.getElementById('hotkeyBtn');
+  if (isCapturing) {
+    btn.classList.add('capturing');
+    btn.textContent = '按下按键...';
+    document.addEventListener('keydown', captureKey);
+  } else {
+    btn.classList.remove('capturing');
+    document.removeEventListener('keydown', captureKey);
+  }
+}
+
+function captureKey(e) {
+  e.preventDefault();
+  const keyName = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+  const btn = document.getElementById('hotkeyBtn');
+  btn.textContent = keyName;
+  btn.classList.remove('capturing');
+  isCapturing = false;
+  document.removeEventListener('keydown', captureKey);
+}
+
+function selectMode(mode) {
+  document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+  showToast('模式: ' + mode);
+}
+
+function addChip(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const input = e.target;
+    const val = input.value.trim();
+    if (val) {
+      const chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.innerHTML = `${val} <span class="x" onclick="this.parentElement.remove()">×</span>`;
+      input.parentElement.insertBefore(chip, input);
+      input.value = '';
+    }
+  }
+}
+
+function addSubGroup() {
+  const section = document.getElementById('modeSection');
+  const btn = section.querySelector('.btn-ghost:last-child');
+  const count = section.querySelectorAll('.sub-section').length + 1;
+  
+  const sub = document.createElement('div');
+  sub.className = 'sub-section';
+  sub.innerHTML = `
+    <div class="sub-header">
+      <span class="sub-label">子组 ${count}</span>
+      <div style="display:flex;gap:4px;align-items:center;">
+        <select class="glass-input" style="width:80px;padding:3px 6px;font-size:10px;">
+          <option value="periodic">周期性</option>
+          <option value="sequence">序列</option>
+        </select>
+        <button class="btn-icon" style="width:22px;height:22px;font-size:10px;" onclick="this.closest('.sub-section').remove();showToast('子组已删除')">✕</button>
+      </div>
+    </div>
+    <div class="form-row">
+      <span class="label" style="min-width:40px;">按键</span>
+      <div class="field">
+        <div class="key-chips" onclick="this.querySelector('input').focus()">
+          <input class="chip-input" placeholder="输入后回车..." onkeydown="addChip(event)">
+        </div>
+      </div>
+    </div>
+    <div class="form-row">
+      <span class="label" style="min-width:40px;">间隔</span>
+      <div class="field">
+        <div class="interval-grid">
+          <span class="key-name">?</span><input type="number" value="50" min="10"><span class="unit">ms</span>
+        </div>
+      </div>
+    </div>
+  `;
+  section.insertBefore(sub, btn);
+  showToast('子组 ' + count + ' 已添加');
+}
+
+function toggleAdvanced() {
+  const s = document.getElementById('advancedSection');
+  s.style.display = s.style.display === 'none' ? 'block' : 'none';
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,173 @@
+﻿{
+  "details": [
+    {
+      "actual": "periodic",
+      "expected": "periodic",
+      "scenario": "1: periodic 模式",
+      "status": "PASS",
+      "test": "periodic 模式正确",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "3",
+      "expected": "3",
+      "scenario": "1: periodic 模式",
+      "status": "PASS",
+      "test": "periodic 按键数=3",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "sequence",
+      "expected": "sequence",
+      "scenario": "2: sequence 模式",
+      "status": "PASS",
+      "test": "sequence 模式正确",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "3",
+      "expected": "3",
+      "scenario": "2: sequence 模式",
+      "status": "PASS",
+      "test": "sequence 延迟数=3",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "enhanced_periodic",
+      "expected": "enhanced_periodic",
+      "scenario": "3: enhanced_periodic 模式",
+      "status": "PASS",
+      "test": "enhanced_periodic 模式正确",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "3: enhanced_periodic 模式",
+      "status": "PASS",
+      "test": "enhanced_periodic holdKeys数=1",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "enhanced_sequence",
+      "expected": "enhanced_sequence",
+      "scenario": "4: enhanced_sequence 模式",
+      "status": "PASS",
+      "test": "enhanced_sequence 模式正确",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "4: enhanced_sequence 模式",
+      "status": "PASS",
+      "test": "enhanced_sequence holdKeys数=1",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "continuous",
+      "expected": "continuous",
+      "scenario": "4: enhanced_sequence 模式",
+      "status": "PASS",
+      "test": "enhanced_sequence holdMode=continuous",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "continuous",
+      "expected": "continuous",
+      "scenario": "5: enhanced_sequence 无 holdMode",
+      "status": "PASS",
+      "test": "holdMode 默认=continuous",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "hybrid",
+      "expected": "hybrid",
+      "scenario": "6: hybrid 模式",
+      "status": "PASS",
+      "test": "hybrid 模式正确",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "enhanced_hybrid",
+      "expected": "enhanced_hybrid",
+      "scenario": "7: enhanced_hybrid 模式",
+      "status": "PASS",
+      "test": "enhanced_hybrid 模式正确",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "2",
+      "expected": "2",
+      "scenario": "7: enhanced_hybrid 模式",
+      "status": "PASS",
+      "test": "enhanced_hybrid holdKeys数=2",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "hold",
+      "expected": "hold",
+      "scenario": "8: hold 模式",
+      "status": "PASS",
+      "test": "hold 模式正确",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "700",
+      "expected": "700",
+      "scenario": "8: hold 模式",
+      "status": "PASS",
+      "test": "hold 持续时长=700",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "periodic",
+      "expected": "periodic",
+      "scenario": "9: enhanced_sequence holdMode=periodic",
+      "status": "PASS",
+      "test": "holdMode=periodic 正确保存",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "10: ConfigValidator 缺少必需字段",
+      "status": "PASS",
+      "test": "缺少keys字段应报错",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "11: JSON 序列化/反序列化往返",
+      "status": "PASS",
+      "test": "序列化结果非空",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "enhanced_periodic",
+      "expected": "enhanced_periodic",
+      "scenario": "11: JSON 序列化/反序列化往返",
+      "status": "PASS",
+      "test": "反序列化模式正确",
+      "timestamp": "20260515080543"
+    },
+    {
+      "actual": "continuous",
+      "expected": "continuous",
+      "scenario": "11: JSON 序列化/反序列化往返",
+      "status": "PASS",
+      "test": "反序列化holdMode正确",
+      "timestamp": "20260515080543"
+    }
+  ],
+  "elapsedMs": false,
+  "generatedAt": "20260515080543",
+  "summary": {
+    "failed": false,
+    "passed": 20,
+    "scenarios": 11,
+    "skipped": false,
+    "total": 20
+  }
+}

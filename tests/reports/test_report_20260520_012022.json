@@ -1,0 +1,229 @@
+﻿{
+  "details": [
+    {
+      "actual": "enhanced_hybrid",
+      "expected": "enhanced_hybrid",
+      "scenario": "BUG-1.1: enhanced_hybrid empty sub-group pressKeys causes no key output",
+      "status": "PASS",
+      "test": "BUG-1.1: mode is enhanced_hybrid",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "BUG-1.1: enhanced_hybrid empty sub-group pressKeys causes no key output",
+      "status": "PASS",
+      "test": "BUG-1.1: periodicPressKeys is empty (root cause)",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "BUG-1.1: enhanced_hybrid empty sub-group pressKeys causes no key output",
+      "status": "PASS",
+      "test": "BUG-1.1: seqPressKeys is empty (root cause)",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "BUG-1.1: enhanced_hybrid empty sub-group pressKeys causes no key output",
+      "status": "PASS",
+      "test": "BUG-1.1 FIX: Execute returns 0 for empty arrays (stop timer)",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "BUG-1.2 FIX: ConfigValidator should report empty arrays",
+      "status": "PASS",
+      "test": "BUG-1.2 FIX: ConfigValidator should report empty array issue",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "BUG-1.2 FIX: ConfigValidator should report empty arrays",
+      "status": "PASS",
+      "test": "BUG-1.2 FIX: empty array config should fail validation",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "BUG-1.3: Valid enhanced_hybrid config comparison",
+      "status": "PASS",
+      "test": "BUG-1.3: valid config periodicPressKeys has 1 key",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "3",
+      "expected": "3",
+      "scenario": "BUG-1.3: Valid enhanced_hybrid config comparison",
+      "status": "PASS",
+      "test": "BUG-1.3: valid config seqPressKeys has 3 keys",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "BUG-4.1 FIX: GetExecutor should throw for unregistered mode",
+      "status": "PASS",
+      "test": "BUG-4.1 FIX: GetExecutor should throw for unregistered mode",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "BUG-4.2 FIX: SkillGroup.Execute returns 0 for unregistered mode",
+      "status": "PASS",
+      "test": "BUG-4.2 FIX: unregistered mode returns delay=0 (stop timer)",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "BUG-6.1 FIX: hold mode holdDuration expired sets active=false",
+      "status": "PASS",
+      "test": "BUG-6.1 FIX: active=true after activation",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "BUG-6.1 FIX: hold mode holdDuration expired sets active=false",
+      "status": "PASS",
+      "test": "BUG-6.1 FIX: holdDuration expired returns delay=0 (stop timer)",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "BUG-6.1 FIX: hold mode holdDuration expired sets active=false",
+      "status": "PASS",
+      "test": "BUG-6.1 FIX: active=false after holdDuration expired (state sync)",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "BUG-8.1 FIX: enhanced_periodic empty pressKeys should fail validation",
+      "status": "PASS",
+      "test": "BUG-8.1 FIX: empty pressKeys/intervals should fail validation",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "BUG-8.2 FIX: enhanced_sequence empty pressDelays should report warning",
+      "status": "PASS",
+      "test": "BUG-8.2 FIX: pressDelays empty uses default delays (acceptable)",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "BUG-10.1 FIX: _lastSend cleared after Toggle off",
+      "status": "PASS",
+      "test": "BUG-10.1 FIX: _lastSend cleared after Toggle off",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "enhanced_sequence",
+      "expected": "enhanced_sequence",
+      "scenario": "BUG-3.1: ConfigStore.InitDefaults group1 mode",
+      "status": "PASS",
+      "test": "BUG-3.1: InitDefaults group1 mode is enhanced_sequence",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "BUG-3.2 FIX: config.json group4 pressKeys now matches defaults",
+      "status": "PASS",
+      "test": "BUG-3.2 FIX: config.json group4 periodic pressKeys not empty",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "scenario": "BUG-3.2 FIX: config.json group4 pressKeys now matches defaults",
+      "status": "PASS",
+      "test": "BUG-3.2 FIX: InitDefaults group4 periodic pressKeys len=1",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "BUG-3.2 FIX: config.json group4 pressKeys now matches defaults",
+      "status": "PASS",
+      "test": "BUG-3.2 FIX: config file matches defaults (consistency restored)",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "BUG-5.1 FIX: executionId prevents stale timer after stop",
+      "status": "PASS",
+      "test": "BUG-5.1 FIX: enhanced_periodic Execute returns delay>0",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "BUG-5.1 FIX: executionId prevents stale timer after stop",
+      "status": "PASS",
+      "test": "BUG-5.1 FIX: _timers deleted after stop",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "BUG-5.1 FIX: executionId prevents stale timer after stop",
+      "status": "PASS",
+      "test": "BUG-5.1 FIX: grpSeq.active still true (executionId guards closure)",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "BUG-5.1 FIX: executionId prevents stale timer after stop",
+      "status": "PASS",
+      "test": "BUG-5.1 FIX: Execute still returns delay>0 (executionId prevents stale timer)",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "0",
+      "expected": "0",
+      "scenario": "BUG-5.2: active=false Execute returns 0",
+      "status": "PASS",
+      "test": "BUG-5.2: active=false Execute returns 0",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "BUG-8.1: enhanced_periodic empty pressKeys should fail validation",
+      "status": "PASS",
+      "test": "BUG-8.1 FIX: enhanced_periodic empty pressKeys should fail validation",
+      "timestamp": "20260520012022"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "BUG-8.2: enhanced_sequence empty pressKeys should fail validation",
+      "status": "PASS",
+      "test": "BUG-8.2 FIX: enhanced_sequence empty pressKeys should fail validation",
+      "timestamp": "20260520012022"
+    }
+  ],
+  "elapsedMs": 15,
+  "generatedAt": "20260520012022",
+  "summary": {
+    "failed": false,
+    "passed": 27,
+    "scenarios": 15,
+    "skipped": false,
+    "total": 27
+  }
+}

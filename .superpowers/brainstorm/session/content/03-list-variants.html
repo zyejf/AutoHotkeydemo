@@ -1,0 +1,120 @@
+<h2>方案 B — 优化列表式布局（3个变体）</h2>
+<p class="subtitle">保留 ListView 核心，优化视觉和交互</p>
+
+<div class="split" style="margin-bottom: 2rem;">
+  <div class="mockup">
+    <div class="mockup-header">B1. 浅色圆角 — 工具栏分组</div>
+    <div class="mockup-body" style="background: #fafafa; padding: 16px; font-family: 'Segoe UI', sans-serif;">
+      <div style="background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); padding: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid #eee;">
+          <span style="font-size: 14px; font-weight: 600; color: #333;">技能管理器</span>
+          <div style="display: flex; gap: 4px;">
+            <button style="background: #1976d2; color: #fff; border: none; border-radius: 6px; padding: 5px 12px; font-size: 10px;">+ 新建分组</button>
+          </div>
+        </div>
+        <div style="background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
+            <tr style="background: #f5f5f5;"><th style="padding: 6px 10px; text-align: left; color: #666; font-weight: 500;">ID</th><th style="padding: 6px; color: #666; font-weight: 500;">热键</th><th style="padding: 6px; color: #666; font-weight: 500;">模式</th><th style="padding: 6px; color: #666; font-weight: 500;">状态</th><th style="padding: 6px; color: #666; font-weight: 500;">操作</th></tr>
+            <tr style="border-bottom: 1px solid #f0f0f0;"><td style="padding: 8px 10px; color: #333; font-weight: 500;">1</td><td style="padding: 8px;"><span style="background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 4px; font-size: 9px;">F1</span></td><td style="padding: 8px; color: #555;">混合模式</td><td style="padding: 8px;"><span style="background: #e8f5e9; color: #2e7d32; padding: 2px 8px; border-radius: 10px; font-size: 9px;">● 运行中</span></td><td style="padding: 8px;"><button style="background: none; border: none; color: #1976d2; font-size: 9px; cursor: pointer;">编辑</button></td></tr>
+            <tr style="border-bottom: 1px solid #f0f0f0;"><td style="padding: 8px 10px; color: #333; font-weight: 500;">2</td><td style="padding: 8px;"><span style="background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 4px; font-size: 9px;">F2</span></td><td style="padding: 8px; color: #555;">序列模式</td><td style="padding: 8px;"><span style="background: #f5f5f5; color: #999; padding: 2px 8px; border-radius: 10px; font-size: 9px;">○ 已停止</span></td><td style="padding: 8px;"><button style="background: none; border: none; color: #1976d2; font-size: 9px;">编辑</button></td></tr>
+            <tr><td style="padding: 8px 10px; color: #333; font-weight: 500;">3</td><td style="padding: 8px;"><span style="background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 4px; font-size: 9px;">F3</span></td><td style="padding: 8px; color: #555;">增强周期</td><td style="padding: 8px;"><span style="background: #f5f5f5; color: #999; padding: 2px 8px; border-radius: 10px; font-size: 9px;">○ 已停止</span></td><td style="padding: 8px;"><button style="background: none; border: none; color: #1976d2; font-size: 9px;">编辑</button></td></tr>
+          </table>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 12px;">
+          <div style="display: flex; gap: 4px;">
+            <button style="background: #f5f5f5; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 5px 12px; font-size: 9px;">编辑</button>
+            <button style="background: #f5f5f5; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 5px 12px; font-size: 9px;">删除</button>
+            <button style="background: #f5f5f5; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 5px 12px; font-size: 9px;">开关</button>
+          </div>
+          <div style="display: flex; gap: 4px;">
+            <button style="background: #f5f5f5; color: #888; border: 1px solid #ddd; border-radius: 6px; padding: 5px 12px; font-size: 9px;">导入</button>
+            <button style="background: #f5f5f5; color: #888; border: 1px solid #ddd; border-radius: 6px; padding: 5px 12px; font-size: 9px;">导出</button>
+            <button style="background: #f5f5f5; color: #888; border: 1px solid #ddd; border-radius: 6px; padding: 5px 12px; font-size: 9px;">⚙ 设置</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">B2. 深色列表 — 状态高亮</div>
+    <div class="mockup-body" style="background: #1e1e1e; padding: 16px; font-family: 'Segoe UI', sans-serif;">
+      <div style="background: #252526; border-radius: 10px; padding: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid #333;">
+          <span style="font-size: 14px; font-weight: 600; color: #e0e0e0;">技能管理器</span>
+          <button style="background: #0d47a1; color: #90caf9; border: none; border-radius: 6px; padding: 5px 12px; font-size: 10px;">+ 新建</button>
+        </div>
+        <div style="border: 1px solid #333; border-radius: 8px; overflow: hidden;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
+            <tr style="background: #2d2d2d;"><th style="padding: 6px 10px; text-align: left; color: #888; font-weight: 500;">ID</th><th style="padding: 6px; color: #888; font-weight: 500;">热键</th><th style="padding: 6px; color: #888; font-weight: 500;">模式</th><th style="padding: 6px; color: #888; font-weight: 500;">状态</th></tr>
+            <tr style="border-bottom: 1px solid #333; background: rgba(76,175,80,0.05);"><td style="padding: 8px 10px; color: #e0e0e0; font-weight: 500;">1</td><td style="padding: 8px;"><span style="background: #1a237e; color: #82b1ff; padding: 2px 8px; border-radius: 4px; font-size: 9px;">F1</span></td><td style="padding: 8px; color: #aaa;">混合模式</td><td style="padding: 8px;"><span style="color: #4caf50; font-size: 9px;">● 运行中</span></td></tr>
+            <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px 10px; color: #e0e0e0; font-weight: 500;">2</td><td style="padding: 8px;"><span style="background: #1a237e; color: #82b1ff; padding: 2px 8px; border-radius: 4px; font-size: 9px;">F2</span></td><td style="padding: 8px; color: #aaa;">序列模式</td><td style="padding: 8px;"><span style="color: #666; font-size: 9px;">○ 已停止</span></td></tr>
+            <tr><td style="padding: 8px 10px; color: #e0e0e0; font-weight: 500;">3</td><td style="padding: 8px;"><span style="background: #1a237e; color: #82b1ff; padding: 2px 8px; border-radius: 4px; font-size: 9px;">F3</span></td><td style="padding: 8px; color: #aaa;">增强周期</td><td style="padding: 8px;"><span style="color: #666; font-size: 9px;">○ 已停止</span></td></tr>
+          </table>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 12px;">
+          <div style="display: flex; gap: 4px;">
+            <button style="background: #333; color: #ccc; border: 1px solid #444; border-radius: 6px; padding: 5px 12px; font-size: 9px;">编辑</button>
+            <button style="background: #333; color: #ef5350; border: 1px solid #c62828; border-radius: 6px; padding: 5px 12px; font-size: 9px;">删除</button>
+            <button style="background: #333; color: #66bb6a; border: 1px solid #2e7d32; border-radius: 6px; padding: 5px 12px; font-size: 9px;">开关</button>
+          </div>
+          <div style="display: flex; gap: 4px;">
+            <button style="background: #333; color: #888; border: 1px solid #444; border-radius: 6px; padding: 5px 12px; font-size: 9px;">⚙</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mockup" style="margin-bottom: 2rem;">
+  <div class="mockup-header">B3. 浅色列表 — 分组标签页</div>
+  <div class="mockup-body" style="background: #f0f2f5; padding: 16px; font-family: 'Segoe UI', sans-serif;">
+    <div style="background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); overflow: hidden;">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #eee;">
+        <span style="font-size: 14px; font-weight: 600; color: #333;">技能管理器</span>
+        <button style="background: #1976d2; color: #fff; border: none; border-radius: 6px; padding: 5px 12px; font-size: 10px;">+ 新建分组</button>
+      </div>
+      <div style="display: flex; border-bottom: 2px solid #eee; padding: 0 16px;">
+        <div style="padding: 8px 16px; color: #1976d2; border-bottom: 2px solid #1976d2; margin-bottom: -2px; font-size: 11px; font-weight: 500;">全部 (6)</div>
+        <div style="padding: 8px 16px; color: #999; font-size: 11px;">运行中 (1)</div>
+        <div style="padding: 8px 16px; color: #999; font-size: 11px;">已停止 (5)</div>
+      </div>
+      <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
+        <tr style="background: #fafafa;"><th style="padding: 6px 16px; text-align: left; color: #888; font-weight: 500;">ID</th><th style="padding: 6px; color: #888;">热键</th><th style="padding: 6px; color: #888;">模式</th><th style="padding: 6px; color: #888;">状态</th><th style="padding: 6px; color: #888;">操作</th></tr>
+        <tr style="border-bottom: 1px solid #f0f0f0;"><td style="padding: 8px 16px; font-weight: 500;">1</td><td style="padding: 8px;"><span style="background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 4px; font-size: 9px;">F1</span></td><td style="padding: 8px; color: #555;">混合</td><td style="padding: 8px;"><span style="color: #4caf50; font-size: 9px;">● 运行中</span></td><td style="padding: 8px;"><span style="color: #1976d2; font-size: 9px; cursor: pointer;">编辑 · 复制 · 删除</span></td></tr>
+        <tr><td style="padding: 8px 16px; font-weight: 500;">2</td><td style="padding: 8px;"><span style="background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 4px; font-size: 9px;">F2</span></td><td style="padding: 8px; color: #555;">序列</td><td style="padding: 8px;"><span style="color: #999; font-size: 9px;">○ 停止</span></td><td style="padding: 8px;"><span style="color: #1976d2; font-size: 9px;">编辑 · 复制 · 删除</span></td></tr>
+      </table>
+      <div style="padding: 10px 16px; border-top: 1px solid #eee; display: flex; gap: 8px;">
+        <button style="background: none; border: none; color: #888; font-size: 9px;">导入</button>
+        <button style="background: none; border: none; color: #888; font-size: 9px;">导出</button>
+        <button style="background: none; border: none; color: #888; font-size: 9px;">热重载</button>
+        <button style="background: none; border: none; color: #888; font-size: 9px;">备份</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="b1" onclick="toggleSelect(this)">
+    <div class="letter">B1</div>
+    <div class="content">
+      <h3>浅色圆角工具栏</h3>
+      <p>Material Design 风格，按钮分组清晰，状态用彩色标签。改动适中。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b2" onclick="toggleSelect(this)">
+    <div class="letter">B2</div>
+    <div class="content">
+      <h3>深色状态高亮</h3>
+      <p>VS Code 风格深色主题，运行行有微弱绿色背景。适合游戏场景。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b3" onclick="toggleSelect(this)">
+    <div class="letter">B3</div>
+    <div class="content">
+      <h3>浅色标签页过滤</h3>
+      <p>顶部标签页过滤"全部/运行中/已停止"，操作用文字链接。最实用。</p>
+    </div>
+  </div>
+</div>

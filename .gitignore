@@ -1,0 +1,9 @@
+# Windows artifacts
+nul
+
+# Logs
+logs/
+*.log
+
+# AutoHotkey compiled files
+*.exe

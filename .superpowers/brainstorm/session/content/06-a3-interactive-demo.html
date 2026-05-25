@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>技能管理器 v3.0 — A3 毛玻璃设计 Demo</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+  background-attachment: fixed;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+.glass {
+  background: rgba(255,255,255,0.12);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 16px;
+}
+.glass-dark {
+  background: rgba(0,0,0,0.2);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+}
+.glass-input {
+  background: rgba(255,255,255,0.1);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  color: #fff;
+  padding: 8px 12px;
+  font-size: 12px;
+  outline: none;
+  width: 100%;
+  transition: border-color 0.2s;
+}
+.glass-input:focus {
+  border-color: rgba(255,255,255,0.5);
+}
+.glass-input::placeholder {
+  color: rgba(255,255,255,0.4);
+}
+select.glass-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='rgba(255,255,255,0.6)' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 30px;
+  cursor: pointer;
+}
+select.glass-input option {
+  background: #2d1b69;
+  color: #fff;
+}
+.btn {
+  border: none;
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+.btn:hover { transform: translateY(-1px); }
+.btn-primary {
+  background: rgba(255,255,255,0.25);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.3);
+}
+.btn-primary:hover { background: rgba(255,255,255,0.35); }
+.btn-success {
+  background: rgba(76,175,80,0.4);
+  color: #c8e6c9;
+  border: 1px solid rgba(76,175,80,0.5);
+}
+.btn-success:hover { background: rgba(76,175,80,0.55); }
+.btn-danger {
+  background: rgba(239,83,80,0.3);
+  color: #ffcdd2;
+  border: 1px solid rgba(239,83,80,0.4);
+}
+.btn-danger:hover { background: rgba(239,83,80,0.45); }
+.btn-ghost {
+  background: transparent;
+  color: rgba(255,255,255,0.6);
+  border: 1px solid rgba(255,255,255,0.15);
+}
+.btn-ghost:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.btn-icon {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.7);
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+.btn-icon:hover { background: rgba(255,255,255,0.2); color: #fff; }
+
+.app {
+  width: 520px;
+  max-height: 90vh;
+  overflow: hidden;
+}
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.app-title {
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.app-title .version {
+  font-size: 9px;
+  background: rgba(255,255,255,0.15);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 400;
+}
+.header-actions {
+  display: flex;
+  gap: 6px;
+}
+.app-body {
+  padding: 16px 20px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.app-body::-webkit-scrollbar { width: 4px; }
+.app-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
+
+.group-card {
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  transition: all 0.3s;
+  cursor: default;
+}
+.group-card.running {
+  background: rgba(76,175,80,0.08);
+  border: 1px solid rgba(76,175,80,0.2);
+}
+.group-card.stopped {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.group-card:hover {
+  background: rgba(255,255,255,0.12);
+}
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.card-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-dot.running {
+  background: #4caf50;
+  box-shadow: 0 0 8px rgba(76,175,80,0.6);
+  animation: pulse 2s infinite;
+}
+.status-dot.stopped {
+  background: #666;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.group-name {
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+}
+.hotkey-badge {
+  background: rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.9);
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+.mode-label {
+  color: rgba(255,255,255,0.5);
+  font-size: 10px;
+}
+.card-actions {
+  display: flex;
+  gap: 4px;
+}
+.card-detail {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  display: none;
+}
+.card-detail.show { display: block; }
+.detail-grid {
+  display: grid;
+  grid-template-columns: 60px 1fr;
+  gap: 4px 8px;
+  font-size: 10px;
+}
+.detail-label { color: rgba(255,255,255,0.4); }
+.detail-value { color: rgba(255,255,255,0.8); }
+
+.app-footer {
+  padding: 12px 20px;
+  border-top: 1px solid rgba(255,255,255,0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.footer-left, .footer-right {
+  display: flex;
+  gap: 6px;
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+.modal-overlay.show {
+  opacity: 1;
+  pointer-events: all;
+}
+.modal {
+  width: 460px;
+  max-height: 85vh;
+  overflow: hidden;
+  transform: translateY(20px);
+  transition: transform 0.3s;
+}
+.modal-overlay.show .modal {
+  transform: translateY(0);
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.modal-title {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+}
+.modal-body {
+  padding: 16px 20px;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+.modal-body::-webkit-scrollbar { width: 4px; }
+.modal-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
+.modal-footer {
+  padding: 12px 20px;
+  border-top: 1px solid rgba(255,255,255,0.1);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.form-group {
+  margin-bottom: 14px;
+}
+.form-label {
+  display: block;
+  color: rgba(255,255,255,0.6);
+  font-size: 10px;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.form-row {
+  display: flex;
+  gap: 10px;
+}
+.form-row .form-group { flex: 1; }
+
+.key-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.key-tag {
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.key-tag .remove {
+  cursor: pointer;
+  opacity: 0.5;
+  font-size: 12px;
+}
+.key-tag .remove:hover { opacity: 1; }
+
+.sub-group {
+  background: rgba(0,0,0,0.15);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+.sub-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.sub-group-title {
+  color: rgba(255,255,255,0.7);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(10px);
+  color: #fff;
+  padding: 10px 24px;
+  border-radius: 24px;
+  font-size: 12px;
+  z-index: 200;
+  transition: transform 0.3s;
+  pointer-events: none;
+}
+.toast.show {
+  transform: translateX(-50%) translateY(0);
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: rgba(255,255,255,0.4);
+}
+.empty-state .icon { font-size: 36px; margin-bottom: 12px; }
+.empty-state .text { font-size: 13px; margin-bottom: 16px; }
+
+.settings-panel {
+  display: none;
+}
+.settings-panel.show { display: block; }
+
+.toggle-switch {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  background: rgba(255,255,255,0.15);
+  border-radius: 11px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+.toggle-switch.on {
+  background: rgba(76,175,80,0.6);
+}
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.3s;
+}
+.toggle-switch.on::after {
+  transform: translateX(18px);
+}
+</style>
+</head>
+<body>
+
+<div class="app glass" id="mainApp">
+  <div class="app-header">
+    <div class="app-title">
+      技能管理器 <span class="version">v3.0</span>
+    </div>
+    <div class="header-actions">
+      <button class="btn-icon" onclick="showSettings()" title="设置">⚙</button>
+      <button class="btn btn-primary" onclick="openEditor('')">+ 新建分组</button>
+    </div>
+  </div>
+
+  <div class="app-body" id="groupList">
+  </div>
+
+  <div class="app-footer">
+    <div class="footer-left">
+      <button class="btn btn-ghost" onclick="importConfig()">📥 导入</button>
+      <button class="btn btn-ghost" onclick="exportConfig()">📤 导出</button>
+    </div>
+    <div class="footer-right">
+      <button class="btn btn-ghost" onclick="hotReload()">🔄 热重载</button>
+      <button class="btn btn-ghost" onclick="showToast('备份已创建')">💾 备份</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="editorOverlay">
+  <div class="modal glass">
+    <div class="modal-header">
+      <span class="modal-title" id="editorTitle">新建分组</span>
+      <button class="btn-icon" onclick="closeEditor()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">分组 ID</label>
+          <input class="glass-input" id="editId" placeholder="自动生成" readonly>
+        </div>
+        <div class="form-group">
+          <label class="form-label">热键</label>
+          <input class="glass-input" id="editHotkey" placeholder="点击输入热键..." value="F1">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">执行模式</label>
+        <select class="glass-input" id="editMode" onchange="onModeChange()">
+          <option value="periodic">周期性按键</option>
+          <option value="sequence">序列按键</option>
+          <option value="enhanced_periodic">增强周期性</option>
+          <option value="enhanced_sequence">增强序列</option>
+          <option value="hybrid" selected>混合模式</option>
+          <option value="enhanced_hybrid">增强混合</option>
+          <option value="hold">纯长按</option>
+        </select>
+      </div>
+
+      <div id="modeFields">
+        <div class="sub-group">
+          <div class="sub-group-header">
+            <span class="sub-group-title">子组 1 — 周期性</span>
+            <button class="btn btn-ghost" style="padding:2px 8px;font-size:9px;" onclick="removeSubGroup(this)">删除</button>
+          </div>
+          <div class="form-group">
+            <label class="form-label">按键</label>
+            <input class="glass-input" id="keys1" value="m, a" placeholder="用逗号分隔">
+            <div class="key-tags">
+              <span class="key-tag">m <span class="remove" onclick="this.parentElement.remove()">×</span></span>
+              <span class="key-tag">a <span class="remove" onclick="this.parentElement.remove()">×</span></span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">间隔 (ms)</label>
+            <input class="glass-input" id="intervals1" value="50, 50" placeholder="用逗号分隔">
+          </div>
+        </div>
+
+        <div class="sub-group">
+          <div class="sub-group-header">
+            <span class="sub-group-title">子组 2 — 序列</span>
+            <button class="btn btn-ghost" style="padding:2px 8px;font-size:9px;" onclick="removeSubGroup(this)">删除</button>
+          </div>
+          <div class="form-group">
+            <label class="form-label">按键</label>
+            <input class="glass-input" id="keys2" value="1, 2, 3, 4" placeholder="用逗号分隔">
+            <div class="key-tags">
+              <span class="key-tag">1 <span class="remove" onclick="this.parentElement.remove()">×</span></span>
+              <span class="key-tag">2 <span class="remove" onclick="this.parentElement.remove()">×</span></span>
+              <span class="key-tag">3 <span class="remove" onclick="this.parentElement.remove()">×</span></span>
+              <span class="key-tag">4 <span class="remove" onclick="this.parentElement.remove()">×</span></span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">延迟 (ms)</label>
+            <input class="glass-input" id="delays2" value="200, 220, 240, 2500" placeholder="用逗号分隔">
+          </div>
+          <div class="form-group">
+            <label class="form-label">序列间隔 (ms)</label>
+            <input class="glass-input" id="seqInterval2" value="100" placeholder="序列循环间隔">
+          </div>
+        </div>
+
+        <button class="btn btn-ghost" onclick="addSubGroup()" style="width:100%;margin-top:4px;">+ 添加子组</button>
+      </div>
+
+      <div id="holdFields" style="display:none;">
+        <div class="form-group">
+          <label class="form-label">长按按键</label>
+          <input class="glass-input" id="editHoldKeys" value="Shift" placeholder="用逗号分隔">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">长按时长 (ms)</label>
+            <input class="glass-input" id="editHoldDuration" value="1000" type="number">
+          </div>
+          <div class="form-group">
+            <label class="form-label">长按模式</label>
+            <select class="glass-input" id="editHoldMode">
+              <option value="continuous">持续按住</option>
+              <option value="periodic">周期性按压</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeEditor()">取消</button>
+      <button class="btn btn-success" onclick="saveGroup()">💾 保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="settingsOverlay">
+  <div class="modal glass" style="width:380px;">
+    <div class="modal-header">
+      <span class="modal-title">全局设置</span>
+      <button class="btn-icon" onclick="closeSettings()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group" style="display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <div style="color:#fff;font-size:12px;">调试日志</div>
+          <div style="color:rgba(255,255,255,0.4);font-size:9px;">记录详细执行追踪</div>
+        </div>
+        <div class="toggle-switch on" onclick="this.classList.toggle('on')"></div>
+      </div>
+      <div class="form-group" style="display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <div style="color:#fff;font-size:12px;">自动备份</div>
+          <div style="color:rgba(255,255,255,0.4);font-size:9px;">配置变更时自动备份</div>
+        </div>
+        <div class="toggle-switch on" onclick="this.classList.toggle('on')"></div>
+      </div>
+      <div class="form-group" style="display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <div style="color:#fff;font-size:12px;">最小化到托盘</div>
+          <div style="color:rgba(255,255,255,0.4);font-size:9px;">关闭窗口时最小化到系统托盘</div>
+        </div>
+        <div class="toggle-switch on" onclick="this.classList.toggle('on')"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">备份保留数量</label>
+        <input class="glass-input" type="number" value="10" min="1" max="50">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeSettings()">取消</button>
+      <button class="btn btn-success" onclick="closeSettings();showToast('设置已保存')">💾 保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const MODE_NAMES = {
+  periodic: '周期性按键',
+  sequence: '序列按键',
+  enhanced_periodic: '增强周期性',
+  enhanced_sequence: '增强序列',
+  hybrid: '混合模式',
+  enhanced_hybrid: '增强混合',
+  hold: '纯长按'
+};
+
+let groups = [
+  { id: '1', hotkey: 'F1', mode: 'hybrid', running: true, keys: 'm, a | 1, 2, 3, 4', intervals: '50ms | 200-2500ms', subGroups: 2 },
+  { id: '2', hotkey: 'F2', mode: 'sequence', running: false, keys: '1, 2, 3', intervals: '100, 150, 200ms' },
+  { id: '3', hotkey: 'F3', mode: 'enhanced_periodic', running: false, keys: 'Space, q, e', intervals: '50, 100, 100ms' },
+  { id: '4', hotkey: 'F4', mode: 'hold', running: false, keys: 'Shift', intervals: '1000ms' },
+];
+let nextId = 5;
+let expandedCard = null;
+
+function renderGroups() {
+  const list = document.getElementById('groupList');
+  if (groups.length === 0) {
+    list.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">🎮</div>
+        <div class="text">还没有分组，点击"新建分组"开始</div>
+        <button class="btn btn-primary" onclick="openEditor('')">+ 新建分组</button>
+      </div>`;
+    return;
+  }
+  list.innerHTML = groups.map(g => `
+    <div class="group-card ${g.running ? 'running' : 'stopped'}" id="card-${g.id}">
+      <div class="card-header">
+        <div class="card-info">
+          <div class="status-dot ${g.running ? 'running' : 'stopped'}"></div>
+          <span class="group-name">分组 ${g.id}</span>
+          <span class="hotkey-badge">${g.hotkey}</span>
+          <span class="mode-label">${MODE_NAMES[g.mode]}</span>
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-ghost" style="padding:3px 8px;font-size:9px;" onclick="toggleDetail('${g.id}')">详情</button>
+          <button class="btn btn-primary" style="padding:3px 8px;font-size:9px;" onclick="openEditor('${g.id}')">编辑</button>
+          <button class="btn ${g.running ? 'btn-danger' : 'btn-success'}" style="padding:3px 8px;font-size:9px;" onclick="toggleGroup('${g.id}')">${g.running ? '停止' : '启动'}</button>
+          <button class="btn btn-ghost" style="padding:3px 6px;font-size:9px;" onclick="deleteGroup('${g.id}')">🗑</button>
+        </div>
+      </div>
+      <div class="card-detail ${expandedCard === g.id ? 'show' : ''}" id="detail-${g.id}">
+        <div class="detail-grid">
+          <span class="detail-label">按键</span><span class="detail-value">${g.keys}</span>
+          <span class="detail-label">间隔</span><span class="detail-value">${g.intervals}</span>
+          ${g.subGroups ? `<span class="detail-label">子组数</span><span class="detail-value">${g.subGroups} 个</span>` : ''}
+          <span class="detail-label">状态</span><span class="detail-value" style="color:${g.running ? '#4caf50' : '#888'}">${g.running ? '● 运行中' : '○ 已停止'}</span>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function toggleDetail(id) {
+  expandedCard = expandedCard === id ? null : id;
+  renderGroups();
+}
+
+function toggleGroup(id) {
+  const g = groups.find(x => x.id === id);
+  if (g) {
+    g.running = !g.running;
+    renderGroups();
+    showToast(g.running ? `分组 ${id} 已启动` : `分组 ${id} 已停止`);
+  }
+}
+
+function deleteGroup(id) {
+  if (confirm(`确定删除分组 ${id} 吗？`)) {
+    groups = groups.filter(x => x.id !== id);
+    renderGroups();
+    showToast(`分组 ${id} 已删除`);
+  }
+}
+
+function openEditor(id) {
+  const overlay = document.getElementById('editorOverlay');
+  const isNew = !id;
+  document.getElementById('editorTitle').textContent = isNew ? '新建分组' : `编辑分组 ${id}`;
+  document.getElementById('editId').value = isNew ? `自动 (ID: ${nextId})` : id;
+  
+  if (!isNew) {
+    const g = groups.find(x => x.id === id);
+    if (g) {
+      document.getElementById('editHotkey').value = g.hotkey;
+      document.getElementById('editMode').value = g.mode;
+    }
+  } else {
+    document.getElementById('editHotkey').value = 'F' + nextId;
+    document.getElementById('editMode').value = 'hybrid';
+  }
+  onModeChange();
+  overlay.classList.add('show');
+}
+
+function closeEditor() {
+  document.getElementById('editorOverlay').classList.remove('show');
+}
+
+function onModeChange() {
+  const mode = document.getElementById('editMode').value;
+  const modeFields = document.getElementById('modeFields');
+  const holdFields = document.getElementById('holdFields');
+  
+  if (mode === 'hold') {
+    modeFields.style.display = 'none';
+    holdFields.style.display = 'block';
+  } else {
+    modeFields.style.display = 'block';
+    holdFields.style.display = 'none';
+    
+    const isHybrid = mode === 'hybrid' || mode === 'enhanced_hybrid';
+    const isPeriodic = mode === 'periodic' || mode === 'enhanced_periodic';
+    const isSequence = mode === 'sequence' || mode === 'enhanced_sequence';
+  }
+}
+
+function saveGroup() {
+  const id = document.getElementById('editId').value;
+  const hotkey = document.getElementById('editHotkey').value;
+  const mode = document.getElementById('editMode').value;
+  const isNew = id.includes('自动');
+  
+  if (isNew) {
+    const newGroup = {
+      id: String(nextId++),
+      hotkey: hotkey,
+      mode: mode,
+      running: false,
+      keys: mode === 'hold' ? document.getElementById('editHoldKeys').value : 'm, a',
+      intervals: mode === 'hold' ? document.getElementById('editHoldDuration').value + 'ms' : '50ms',
+    };
+    if (mode === 'hybrid' || mode === 'enhanced_hybrid') {
+      newGroup.subGroups = 2;
+      newGroup.keys = 'm, a | 1, 2, 3, 4';
+      newGroup.intervals = '50ms | 200-2500ms';
+    }
+    groups.push(newGroup);
+  } else {
+    const g = groups.find(x => x.id === id.replace('自动 ', ''));
+    if (g) {
+      g.hotkey = hotkey;
+      g.mode = mode;
+    }
+  }
+  
+  closeEditor();
+  renderGroups();
+  showToast(isNew ? '分组已创建' : '分组已更新');
+}
+
+function addSubGroup() {
+  showToast('子组已添加（Demo）');
+}
+
+function removeSubGroup(btn) {
+  btn.closest('.sub-group').remove();
+}
+
+function showSettings() {
+  document.getElementById('settingsOverlay').classList.add('show');
+}
+
+function closeSettings() {
+  document.getElementById('settingsOverlay').classList.remove('show');
+}
+
+function importConfig() { showToast('配置已导入（Demo）'); }
+function exportConfig() { showToast('配置已导出（Demo）'); }
+function hotReload() { showToast('配置已热重载（Demo）'); }
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) {
+      overlay.classList.remove('show');
+    }
+  });
+});
+
+renderGroups();
+</script>
+</body>
+</html>

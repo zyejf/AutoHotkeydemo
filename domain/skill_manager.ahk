@@ -116,8 +116,15 @@ class SkillManager {
         for hook in this._eventHooks {
             try
                 hook.OnEvent(event, data)
-            catch as e
-                ErrorSystem.LogError("EventHook.OnEvent error: " e.Message, "WARNING", A_ThisFunc, A_LineNumber)
+            catch as e {
+                isCritical := (event = "onConfigChange" || event = "onDeactivate" || event = "onActivate")
+                level := isCritical ? "ERROR" : "WARNING"
+                ErrorSystem.LogError("EventHook.OnEvent error: " e.Message " event=" event, level, A_ThisFunc, A_LineNumber)
+                if isCritical {
+                    try
+                        hook.OnEvent(event, Map("retry", true, "original", data))
+                }
+            }
         }
     }
 

@@ -1,0 +1,157 @@
+<h2>全部 9 个方案总览</h2>
+<p class="subtitle">请浏览后告诉我你最倾向哪几个，可以多选</p>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 1.5rem;">
+  <div style="background: #1a1a2e; border-radius: 8px; padding: 12px; border: 2px solid transparent; cursor: pointer;" onclick="toggleSelect(this)" data-choice="a1">
+    <div style="color: #4fc3f7; font-size: 11px; font-weight: 600; margin-bottom: 6px;">A1 深色紧凑行</div>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <div style="background: #16213e; border-radius: 4px; padding: 4px 8px; border-left: 2px solid #4caf50; display: flex; align-items: center; gap: 6px;">
+        <span style="background: #4caf50; width: 5px; height: 5px; border-radius: 50%;"></span>
+        <span style="color: #fff; font-size: 8px;">分组1 F1 混合</span>
+        <span style="color: #4fc3f7; font-size: 7px; margin-left: auto;">编辑 停止</span>
+      </div>
+      <div style="background: #16213e; border-radius: 4px; padding: 4px 8px; border-left: 2px solid #555; display: flex; align-items: center; gap: 6px;">
+        <span style="background: #555; width: 5px; height: 5px; border-radius: 50%;"></span>
+        <span style="color: #ccc; font-size: 8px;">分组2 F2 序列</span>
+        <span style="color: #4fc3f7; font-size: 7px; margin-left: auto;">编辑 启动</span>
+      </div>
+    </div>
+    <div style="color: #888; font-size: 8px; margin-top: 6px;">✓ 信息密度高 ✗ 详情需展开</div>
+  </div>
+
+  <div style="background: #1a1a2e; border-radius: 8px; padding: 12px; border: 2px solid transparent; cursor: pointer;" onclick="toggleSelect(this)" data-choice="a2">
+    <div style="color: #4fc3f7; font-size: 11px; font-weight: 600; margin-bottom: 6px;">A2 深色展开详情</div>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <div style="background: #16213e; border-radius: 4px; padding: 6px 8px; border-left: 2px solid #4caf50;">
+        <div style="display: flex; align-items: center; gap: 4px;">
+          <span style="background: #4caf50; width: 5px; height: 5px; border-radius: 50%;"></span>
+          <span style="color: #fff; font-size: 8px;">分组1 F1 混合</span>
+        </div>
+        <div style="background: #0d1117; border-radius: 3px; padding: 3px 6px; margin-top: 3px; font-size: 7px; color: #888;">按键: m,a | 1,2,3,4</div>
+        <div style="display: flex; gap: 3px; margin-top: 3px;">
+          <span style="background: #1b5e20; color: #a5d6a7; padding: 1px 6px; border-radius: 3px; font-size: 7px;">停止</span>
+          <span style="background: #16213e; color: #4fc3f7; border: 1px solid #4fc3f7; padding: 1px 6px; border-radius: 3px; font-size: 7px;">编辑</span>
+        </div>
+      </div>
+    </div>
+    <div style="color: #888; font-size: 8px; margin-top: 6px;">✓ 无需打开编辑器 ✗ 占空间</div>
+  </div>
+
+  <div style="background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 8px; padding: 12px; border: 2px solid transparent; cursor: pointer;" onclick="toggleSelect(this)" data-choice="a3">
+    <div style="color: #fff; font-size: 11px; font-weight: 600; margin-bottom: 6px;">A3 浅色毛玻璃</div>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <div style="background: rgba(255,255,255,0.15); border-radius: 6px; padding: 6px 8px; border: 1px solid rgba(255,255,255,0.2);">
+        <div style="display: flex; align-items: center; gap: 4px;">
+          <span style="background: #4caf50; width: 5px; height: 5px; border-radius: 50%; box-shadow: 0 0 4px #4caf50;"></span>
+          <span style="color: #fff; font-size: 8px;">分组1 F1</span>
+          <span style="color: rgba(255,255,255,0.5); font-size: 7px;">混合</span>
+        </div>
+      </div>
+    </div>
+    <div style="color: rgba(255,255,255,0.6); font-size: 8px; margin-top: 6px;">✓ 视觉惊艳 ✗ AHK不支持毛玻璃</div>
+  </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 1.5rem;">
+  <div style="background: #fafafa; border-radius: 8px; padding: 12px; border: 2px solid transparent; cursor: pointer;" onclick="toggleSelect(this)" data-choice="b1">
+    <div style="color: #1976d2; font-size: 11px; font-weight: 600; margin-bottom: 6px;">B1 浅色圆角工具栏</div>
+    <div style="background: #fff; border: 1px solid #e0e0e0; border-radius: 4px; overflow: hidden; font-size: 7px;">
+      <div style="background: #f5f5f5; padding: 3px 6px; color: #888;">ID · 热键 · 模式 · 状态</div>
+      <div style="padding: 3px 6px; border-top: 1px solid #f0f0f0;">1 · <span style="background: #e3f2fd; color: #1565c0; padding: 0 4px; border-radius: 2px;">F1</span> · 混合 · <span style="color: #4caf50;">●</span></div>
+      <div style="padding: 3px 6px; border-top: 1px solid #f0f0f0;">2 · <span style="background: #e3f2fd; color: #1565c0; padding: 0 4px; border-radius: 2px;">F2</span> · 序列 · <span style="color: #999;">○</span></div>
+    </div>
+    <div style="color: #888; font-size: 8px; margin-top: 6px;">✓ 改动最小 ✓ Material风</div>
+  </div>
+
+  <div style="background: #1e1e1e; border-radius: 8px; padding: 12px; border: 2px solid transparent; cursor: pointer;" onclick="toggleSelect(this)" data-choice="b2">
+    <div style="color: #90caf9; font-size: 11px; font-weight: 600; margin-bottom: 6px;">B2 深色状态高亮</div>
+    <div style="background: #252526; border: 1px solid #333; border-radius: 4px; overflow: hidden; font-size: 7px;">
+      <div style="background: #2d2d2d; padding: 3px 6px; color: #888;">ID · 热键 · 模式 · 状态</div>
+      <div style="padding: 3px 6px; border-top: 1px solid #333; background: rgba(76,175,80,0.05);">1 · <span style="color: #82b1ff;">F1</span> · 混合 · <span style="color: #4caf50;">●</span></div>
+      <div style="padding: 3px 6px; border-top: 1px solid #333;">2 · <span style="color: #82b1ff;">F2</span> · 序列 · <span style="color: #666;">○</span></div>
+    </div>
+    <div style="color: #888; font-size: 8px; margin-top: 6px;">✓ VS Code风 ✓ 游戏场景</div>
+  </div>
+
+  <div style="background: #f0f2f5; border-radius: 8px; padding: 12px; border: 2px solid transparent; cursor: pointer;" onclick="toggleSelect(this)" data-choice="b3">
+    <div style="color: #1976d2; font-size: 11px; font-weight: 600; margin-bottom: 6px;">B3 浅色标签页过滤</div>
+    <div style="background: #fff; border-radius: 4px; overflow: hidden; font-size: 7px; box-shadow: 0 1px 2px rgba(0,0,0,0.06);">
+      <div style="display: flex; border-bottom: 1px solid #eee; padding: 2px 6px;">
+        <span style="color: #1976d2; border-bottom: 1px solid #1976d2; padding: 2px 4px;">全部(6)</span>
+        <span style="color: #999; padding: 2px 4px;">运行(1)</span>
+        <span style="color: #999; padding: 2px 4px;">停止(5)</span>
+      </div>
+      <div style="padding: 3px 6px;">1 · F1 · 混合 · <span style="color: #4caf50;">●</span> · 编辑·复制·删除</div>
+    </div>
+    <div style="color: #888; font-size: 8px; margin-top: 6px;">✓ 过滤功能 ✓ 最实用</div>
+  </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 1.5rem;">
+  <div style="background: #1e1e1e; border-radius: 8px; padding: 12px; border: 2px solid transparent; cursor: pointer;" onclick="toggleSelect(this)" data-choice="c1">
+    <div style="color: #90caf9; font-size: 11px; font-weight: 600; margin-bottom: 6px;">C1 深色双栏只读</div>
+    <div style="display: flex; gap: 4px; height: 60px;">
+      <div style="width: 50px; background: #252526; border-radius: 3px; padding: 3px; font-size: 6px;">
+        <div style="background: #094771; border-radius: 2px; padding: 2px; color: #fff; margin-bottom: 2px;">● 分组1</div>
+        <div style="padding: 2px; color: #ccc;">○ 分组2</div>
+      </div>
+      <div style="flex: 1; background: #2d2d2d; border-radius: 3px; padding: 4px; font-size: 6px; color: #aaa;">
+        分组1 F1<br>混合模式<br><span style="color: #4caf50;">● 运行中</span>
+      </div>
+    </div>
+    <div style="color: #888; font-size: 8px; margin-top: 6px;">✓ 信息密度高 ✗ 编辑需弹窗</div>
+  </div>
+
+  <div style="background: #f0f2f5; border-radius: 8px; padding: 12px; border: 2px solid transparent; cursor: pointer;" onclick="toggleSelect(this)" data-choice="c2">
+    <div style="color: #1976d2; font-size: 11px; font-weight: 600; margin-bottom: 6px;">C2 浅色双栏只读</div>
+    <div style="display: flex; gap: 4px; height: 60px;">
+      <div style="width: 50px; background: #fff; border-radius: 3px; padding: 3px; font-size: 6px; border: 1px solid #eee;">
+        <div style="background: #e3f2fd; border-radius: 2px; padding: 2px; color: #1565c0; margin-bottom: 2px;">● 分组1</div>
+        <div style="padding: 2px; color: #555;">○ 分组2</div>
+      </div>
+      <div style="flex: 1; background: #fff; border-radius: 3px; padding: 4px; font-size: 6px; color: #555; border: 1px solid #eee;">
+        分组1 F1<br>混合模式<br><span style="color: #4caf50;">● 运行中</span>
+      </div>
+    </div>
+    <div style="color: #888; font-size: 8px; margin-top: 6px;">✓ Material风 ✗ 编辑需弹窗</div>
+  </div>
+
+  <div style="background: #1e1e1e; border-radius: 8px; padding: 12px; border: 2px solid transparent; cursor: pointer;" onclick="toggleSelect(this)" data-choice="c3">
+    <div style="color: #90caf9; font-size: 11px; font-weight: 600; margin-bottom: 6px;">C3 深色双栏内联编辑</div>
+    <div style="display: flex; gap: 4px; height: 60px;">
+      <div style="width: 50px; background: #252526; border-radius: 3px; padding: 3px; font-size: 6px;">
+        <div style="background: #094771; border-radius: 2px; padding: 2px; color: #fff;">● 分组1</div>
+      </div>
+      <div style="flex: 1; background: #2d2d2d; border-radius: 3px; padding: 4px; font-size: 6px;">
+        <div style="color: #e0e0e0; margin-bottom: 2px;">编辑: 分组1</div>
+        <div style="background: #1e1e1e; border: 1px solid #444; border-radius: 2px; padding: 1px 3px; color: #82b1ff; margin-bottom: 2px;">F1</div>
+        <div style="background: #1e1e1e; border: 1px solid #444; border-radius: 2px; padding: 1px 3px; color: #e0e0e0;">混合 ▾</div>
+      </div>
+    </div>
+    <div style="color: #888; font-size: 8px; margin-top: 6px;">✓ 无需弹窗 ✗ 实现最复杂</div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>关键约束提醒</h3>
+  <p style="font-size: 13px; color: #666; line-height: 1.6;">
+    AutoHotkey v2 原生 GUI 的限制：<br>
+    • 不支持 CSS backdrop-filter（毛玻璃效果需用纯色模拟）<br>
+    • ListView 不支持行内按钮/链接（操作列只能用外部按钮）<br>
+    • 动态显示/隐藏控件需要手动管理位置<br>
+    • 卡片式布局需用 GroupBox + 多个控件模拟<br>
+    • 侧栏布局需两个区域分别管理控件
+  </p>
+</div>
+
+<div class="options" data-multiselect>
+  <div class="option" data-choice="a1" onclick="toggleSelect(this)"><div class="letter">A1</div><div class="content"><h3>深色紧凑行</h3></div></div>
+  <div class="option" data-choice="a2" onclick="toggleSelect(this)"><div class="letter">A2</div><div class="content"><h3>深色展开详情</h3></div></div>
+  <div class="option" data-choice="a3" onclick="toggleSelect(this)"><div class="letter">A3</div><div class="content"><h3>浅色毛玻璃</h3></div></div>
+  <div class="option" data-choice="b1" onclick="toggleSelect(this)"><div class="letter">B1</div><div class="content"><h3>浅色圆角工具栏</h3></div></div>
+  <div class="option" data-choice="b2" onclick="toggleSelect(this)"><div class="letter">B2</div><div class="content"><h3>深色状态高亮</h3></div></div>
+  <div class="option" data-choice="b3" onclick="toggleSelect(this)"><div class="letter">B3</div><div class="content"><h3>浅色标签页过滤</h3></div></div>
+  <div class="option" data-choice="c1" onclick="toggleSelect(this)"><div class="letter">C1</div><div class="content"><h3>深色双栏只读</h3></div></div>
+  <div class="option" data-choice="c2" onclick="toggleSelect(this)"><div class="letter">C2</div><div class="content"><h3>浅色双栏只读</h3></div></div>
+  <div class="option" data-choice="c3" onclick="toggleSelect(this)"><div class="letter">C3</div><div class="content"><h3>深色双栏内联编辑</h3></div></div>
+</div>

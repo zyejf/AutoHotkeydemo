@@ -1,0 +1,75 @@
+<h2>技能管理器 v3.0 — 界面现代化设计</h2>
+<p class="subtitle">当前界面 vs 3种现代化方案，请选择你喜欢的方向</p>
+
+<div class="split" style="margin-bottom: 2rem;">
+  <div class="mockup">
+    <div class="mockup-header">当前界面（问题诊断）</div>
+    <div class="mockup-body" style="background: #f5f5f5; padding: 12px;">
+      <div style="font-family: Segoe UI; font-size: 11px; color: #333;">
+        <div style="border-bottom: 1px solid #ddd; padding-bottom: 8px; margin-bottom: 8px;">
+          <strong>技能管理器 v3.0</strong>
+        </div>
+        <div style="margin-bottom: 6px; color: #666;">分组列表:</div>
+        <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
+          <tr style="background: #e0e0e0;"><th style="padding: 3px; text-align: left;">ID</th><th style="padding: 3px;">热键</th><th style="padding: 3px;">模式</th><th style="padding: 3px;">状态</th></tr>
+          <tr style="border-bottom: 1px solid #eee;"><td style="padding: 3px;">1</td><td style="padding: 3px;">F1</td><td style="padding: 3px;">hybrid</td><td style="padding: 3px;">停止</td></tr>
+          <tr style="border-bottom: 1px solid #eee;"><td style="padding: 3px;">2</td><td style="padding: 3px;">F2</td><td style="padding: 3px;">sequence</td><td style="padding: 3px;">停止</td></tr>
+          <tr><td style="padding: 3px;">3</td><td style="padding: 3px;">F3</td><td style="padding: 3px;">enhanced_periodic</td><td style="padding: 3px;">停止</td></tr>
+        </table>
+        <div style="margin-top: 10px; display: flex; gap: 4px; flex-wrap: wrap;">
+          <button style="padding: 3px 8px; font-size: 10px; border: 1px solid #999; background: #f0f0f0;">添加分组</button>
+          <button style="padding: 3px 8px; font-size: 10px; border: 1px solid #999; background: #f0f0f0;">编辑</button>
+          <button style="padding: 3px 8px; font-size: 10px; border: 1px solid #999; background: #f0f0f0;">删除</button>
+          <button style="padding: 3px 8px; font-size: 10px; border: 1px solid #999; background: #f0f0f0;">开关</button>
+        </div>
+        <div style="margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap;">
+          <button style="padding: 3px 8px; font-size: 10px; border: 1px solid #999; background: #f0f0f0;">导出配置</button>
+          <button style="padding: 3px 8px; font-size: 10px; border: 1px solid #999; background: #f0f0f0;">导入配置</button>
+          <button style="padding: 3px 8px; font-size: 10px; border: 1px solid #999; background: #f0f0f0;">热重载</button>
+          <button style="padding: 3px 8px; font-size: 10px; border: 1px solid #999; background: #f0f0f0;">全局设置</button>
+        </div>
+      </div>
+      <div style="margin-top: 10px; padding: 8px; background: #fff3cd; border-radius: 4px; font-size: 10px;">
+        <strong>问题：</strong>按钮太多太密、无视觉层次、模式名显示英文代码、状态无颜色区分、编辑器表单拥挤
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>卡片式布局</h3>
+      <p>每个分组一张卡片，正面显示核心信息（热键、模式、状态指示灯），点击展开详情。按钮分组为"操作区"和"工具区"。深色主题，状态用彩色圆点标识。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优点</h4><ul><li>信息一目了然</li><li>操作直观</li><li>状态视觉反馈强</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>分组多时需滚动</li><li>实现较复杂</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>优化列表式布局</h3>
+      <p>保留 ListView 但优化视觉：状态列用彩色标签（绿色运行/灰色停止），模式名中文化，按钮分组+图标化，工具按钮收到工具栏。浅色主题+圆角。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优点</h4><ul><li>改动最小</li><li>兼容性好</li><li>分组多时效率高</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>仍偏传统</li><li>视觉突破有限</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>侧栏详情式布局</h3>
+      <p>左侧分组列表（紧凑行），右侧详情面板（选中分组的完整信息和快捷操作）。工具按钮在顶部工具栏。支持深/浅色切换。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优点</h4><ul><li>信息密度高</li><li>编辑无需弹窗</li><li>专业感强</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>窗口需要更宽</li><li>实现最复杂</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>

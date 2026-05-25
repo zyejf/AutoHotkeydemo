@@ -1,0 +1,37 @@
+﻿{
+  "details": [
+    {
+      "actual": "periodic",
+      "expected": "periodic",
+      "scenario": "periodic",
+      "status": "PASS",
+      "test": "periodic OK",
+      "timestamp": "20260515064236"
+    },
+    {
+      "actual": "continuous",
+      "expected": "continuous",
+      "scenario": "enhanced_sequence with holdMode",
+      "status": "PASS",
+      "test": "holdMode OK",
+      "timestamp": "20260515064236"
+    },
+    {
+      "actual": "true",
+      "expected": "true",
+      "scenario": "ConfigValidator",
+      "status": "PASS",
+      "test": "validation errors found",
+      "timestamp": "20260515064236"
+    }
+  ],
+  "elapsedMs": false,
+  "generatedAt": "20260515064236",
+  "summary": {
+    "failed": false,
+    "passed": 3,
+    "scenarios": 3,
+    "skipped": false,
+    "total": 3
+  }
+}
