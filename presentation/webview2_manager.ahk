@@ -72,10 +72,9 @@ class WebView2Manager extends IEventHook {
                 return
             }
             fileUrl := "file:///" StrReplace(htmlPath, "\", "/")
+            WebView2Manager.wv.add_NavigationCompleted((sender, args) => WebView2Manager._OnNavigationCompleted(sender, args))
             WebView2Manager.wv.Navigate(fileUrl)
-            _DebugLog("WebView2Manager._InitWebView2: HTML loaded via Navigate, scheduling WebMessage handler")
-
-            SetTimer(() => WebView2Manager._SetupWebMessageHandler(), -1500)
+            _DebugLog("WebView2Manager._InitWebView2: HTML loaded via Navigate, message handler will be set after navigation completes")
 
             WebView2Manager.visible := true
             WebView2Manager._StartAutoUpdate()
@@ -171,6 +170,15 @@ class WebView2Manager extends IEventHook {
     ; =================================================================
     ; Bridge 诊断
     ; =================================================================
+
+    static _OnNavigationCompleted(sender, args) {
+        if (args.IsSuccess) {
+            _DebugLog("_OnNavigationCompleted: navigation succeeded, setting up message handler")
+            WebView2Manager._SetupWebMessageHandler()
+        } else {
+            _DebugLog("_OnNavigationCompleted: navigation failed, status=" args.WebErrorStatus)
+        }
+    }
 
     static _SetupWebMessageHandler() {
         try {
