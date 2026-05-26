@@ -231,6 +231,9 @@ class ConfigService {
             if !(config is Map)
                 return config
 
+            if config.Has("version") && config["version"] = "3.0"
+                return config
+
             gs := config.Has("GroupSettings") ? config["GroupSettings"] : Map()
             if !(gs is Map)
                 return config

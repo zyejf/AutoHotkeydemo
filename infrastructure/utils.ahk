@@ -28,6 +28,34 @@ _GetProp(obj, key, default := "") {
     return default
 }
 
+_GetField(obj, key, defaultVal := "") {
+    try {
+        if obj is Map {
+            return obj.Has(key) ? obj[key] : defaultVal
+        }
+        if IsObject(obj) && HasProp(obj, key) {
+            return obj.%key%
+        }
+        if IsString(obj) {
+            trimmed := LTrim(obj)
+            firstChar := SubStr(trimmed, 1, 1)
+            if (firstChar = "{" || firstChar = "[") {
+                try {
+                    parsed := JSONParser.Parse(obj)
+                    if parsed is Map
+                        return parsed.Has(key) ? parsed[key] : defaultVal
+                    if IsObject(parsed) && HasProp(parsed, key)
+                        return parsed.%key%
+                } catch {
+                }
+            }
+        }
+        return defaultVal
+    } catch {
+        return defaultVal
+    }
+}
+
 class LogRotator {
     static Rotate(logFile, keepCount := 5) {
         try {

@@ -674,6 +674,8 @@ class SkillGroup {
             this._holdRepeatPhase := ""
             this._executionCount := 0
             this._startTime := 0
+            if this.HasProp("_pendingReleases")
+                this._pendingReleases.Clear()
             if this.HasProp("_activeHolds") && this._activeHolds is Map
                 this._activeHolds.Clear()
             if this.HasProp("_subGroupMouse") && this._subGroupMouse is Map

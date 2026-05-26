@@ -597,6 +597,14 @@ class SkillManager {
             if this._executionIds.Has(id)
                 this._executionIds.Delete(id)
         }
+
+        try {
+            health := ErrorHandler.HealthCheck(SkillManager)
+            if !health["healthy"] {
+                for issue in health["issues"]
+                    ErrorSystem.LogError(issue["message"], issue["type"], A_ThisFunc, A_LineNumber)
+            }
+        }
     }
 
     static OnExit(*) {

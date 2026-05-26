@@ -197,12 +197,12 @@ class WebView2Manager extends IEventHook {
             msgJson := args.WebMessageAsJson
             _DebugLog("_OnWebMessageReceived: " SubStr(msgJson, 1, 200))
             msg := JSONParser.Parse(msgJson)
-            action := WebView2Manager._GetField(msg, "action")
+            action := _GetField(msg, "action")
             if action = "" {
                 _DebugLog("_OnWebMessageReceived: no action field, ignoring")
                 return
             }
-            requestId := WebView2Manager._GetField(msg, "requestId")
+            requestId := _GetField(msg, "requestId")
             _DebugLog("_OnWebMessageReceived: action=" action " requestId=" requestId)
             switch action {
                 case "GetGroupList":
@@ -224,19 +224,19 @@ class WebView2Manager extends IEventHook {
                     result := WebView2Manager._BridgeHotReload()
                     WebView2Manager._SendResponse(requestId, result)
                 case "ToggleGroup":
-                    result := WebView2Manager._BridgeToggleGroup(WebView2Manager._GetField(msg, "groupId"))
+                    result := WebView2Manager._BridgeToggleGroup(_GetField(msg, "groupId"))
                     WebView2Manager._SendResponse(requestId, result)
                 case "DeleteGroup":
-                    result := WebView2Manager._BridgeDeleteGroup(WebView2Manager._GetField(msg, "groupId"))
+                    result := WebView2Manager._BridgeDeleteGroup(_GetField(msg, "groupId"))
                     WebView2Manager._SendResponse(requestId, result)
                 case "SaveConfig":
-                    result := WebView2Manager._BridgeSaveConfig(WebView2Manager._GetField(msg, "data"))
+                    result := WebView2Manager._BridgeSaveConfig(_GetField(msg, "data"))
                     WebView2Manager._SendResponse(requestId, result)
                 case "SaveSettings":
-                    result := WebView2Manager._BridgeSaveSettings(WebView2Manager._GetField(msg, "data"))
+                    result := WebView2Manager._BridgeSaveSettings(_GetField(msg, "data"))
                     WebView2Manager._SendResponse(requestId, result)
                 case "LoadGroupConfig":
-                    result := WebView2Manager._BridgeLoadGroupConfig(WebView2Manager._GetField(msg, "groupId"))
+                    result := WebView2Manager._BridgeLoadGroupConfig(_GetField(msg, "groupId"))
                     WebView2Manager._SendResponse(requestId, result)
                 case "ListBackups":
                     result := WebView2Manager._BridgeListBackups()
@@ -245,10 +245,10 @@ class WebView2Manager extends IEventHook {
                     result := WebView2Manager._BridgeCreateBackup()
                     WebView2Manager._SendResponse(requestId, result)
                 case "RestoreBackup":
-                    result := WebView2Manager._BridgeRestoreBackup(WebView2Manager._GetField(msg, "backupName"))
+                    result := WebView2Manager._BridgeRestoreBackup(_GetField(msg, "backupName"))
                     WebView2Manager._SendResponse(requestId, result)
                 case "DeleteBackup":
-                    result := WebView2Manager._BridgeDeleteBackup(WebView2Manager._GetField(msg, "backupName"))
+                    result := WebView2Manager._BridgeDeleteBackup(_GetField(msg, "backupName"))
                     WebView2Manager._SendResponse(requestId, result)
                 case "GetDebugInfo":
                     result := WebView2Manager._BridgeGetDebugInfo()
@@ -266,51 +266,51 @@ class WebView2Manager extends IEventHook {
                     result := WebView2Manager._BridgeResumeRecording()
                     WebView2Manager._SendResponse(requestId, result)
                 case "StartValidation":
-                    data := WebView2Manager._GetField(msg, "data")
-                    result := WebView2Manager._BridgeStartValidation(WebView2Manager._GetField(data, "groupId"))
+                    data := _GetField(msg, "data")
+                    result := WebView2Manager._BridgeStartValidation(_GetField(data, "groupId"))
                     WebView2Manager._SendResponse(requestId, result)
                 case "StopValidation":
-                    data := WebView2Manager._GetField(msg, "data")
-                    result := WebView2Manager._BridgeStopValidation(WebView2Manager._GetField(data, "groupId"))
+                    data := _GetField(msg, "data")
+                    result := WebView2Manager._BridgeStopValidation(_GetField(data, "groupId"))
                     WebView2Manager._SendResponse(requestId, result)
                 case "ExportRecording":
-                    data := WebView2Manager._GetField(msg, "data")
-                    result := WebView2Manager._BridgeExportRecording(WebView2Manager._GetField(data, "mode"), WebView2Manager._GetField(data, "keyPressDuration"))
+                    data := _GetField(msg, "data")
+                    result := WebView2Manager._BridgeExportRecording(_GetField(data, "mode"), _GetField(data, "keyPressDuration"))
                     WebView2Manager._SendResponse(requestId, result)
                 case "GetGroupListForValidation":
                     result := WebView2Manager._BridgeGetGroupListForValidation()
                     WebView2Manager._SendResponse(requestId, result)
                 case "GetGroupDetail":
-                    data := WebView2Manager._GetField(msg, "data")
-                    result := WebView2Manager._BridgeGetGroupDetail(WebView2Manager._GetField(data, "groupId"))
+                    data := _GetField(msg, "data")
+                    result := WebView2Manager._BridgeGetGroupDetail(_GetField(data, "groupId"))
                     WebView2Manager._SendResponse(requestId, result)
                 case "ReorderGroups":
-                    data := WebView2Manager._GetField(msg, "data")
+                    data := _GetField(msg, "data")
                     result := WebView2Manager._BridgeReorderGroups(data)
                     WebView2Manager._SendResponse(requestId, result)
                 case "ImportRecording":
-                    data := WebView2Manager._GetField(msg, "data")
-                    result := WebView2Manager._BridgeImportRecording(WebView2Manager._GetField(data, "groupId"), WebView2Manager._GetField(data, "name"), WebView2Manager._GetField(data, "mode"), WebView2Manager._GetField(data, "config"))
+                    data := _GetField(msg, "data")
+                    result := WebView2Manager._BridgeImportRecording(_GetField(data, "groupId"), _GetField(data, "name"), _GetField(data, "mode"), _GetField(data, "config"))
                     WebView2Manager._SendResponse(requestId, result)
                 case "ExportConfig":
                     result := WebView2Manager._BridgeExportConfig()
                     WebView2Manager._SendResponse(requestId, result)
                 case "ImportConfig":
-                    result := WebView2Manager._BridgeImportConfig(WebView2Manager._GetField(msg, "data"))
+                    result := WebView2Manager._BridgeImportConfig(_GetField(msg, "data"))
                     WebView2Manager._SendResponse(requestId, result)
                 case "BatchToggleGroups":
-                    data := WebView2Manager._GetField(msg, "data")
+                    data := _GetField(msg, "data")
                     result := WebView2Manager._BridgeBatchToggleGroups(data)
                     WebView2Manager._SendResponse(requestId, result)
                 case "BatchDeleteGroups":
-                    data := WebView2Manager._GetField(msg, "data")
+                    data := _GetField(msg, "data")
                     result := WebView2Manager._BridgeBatchDeleteGroups(data)
                     WebView2Manager._SendResponse(requestId, result)
                 case "GetBackupList":
                     result := WebView2Manager._BridgeGetBackupList()
                     WebView2Manager._SendResponse(requestId, result)
                 case "CompareConfigs":
-                    data := WebView2Manager._GetField(msg, "data")
+                    data := _GetField(msg, "data")
                     result := WebView2Manager._BridgeCompareConfigs(data)
                     WebView2Manager._SendResponse(requestId, result)
                 default:
@@ -322,34 +322,6 @@ class WebView2Manager extends IEventHook {
             _DebugLog("_OnWebMessageReceived error: " e.Message)
             if requestId != ""
                 WebView2Manager._SendResponse(requestId, String(JSONSerializer.Stringify(Map("error", true, "message", e.Message))))
-        }
-    }
-
-    static _GetField(obj, key, defaultVal := "") {
-        try {
-            if obj is Map {
-                return obj.Has(key) ? obj[key] : defaultVal
-            }
-            if IsObject(obj) && HasProp(obj, key) {
-                return obj.%key%
-            }
-            if IsString(obj) {
-                trimmed := LTrim(obj)
-                firstChar := SubStr(trimmed, 1, 1)
-                if (firstChar = "{" || firstChar = "[") {
-                    try {
-                        parsed := JSONParser.Parse(obj)
-                        if parsed is Map
-                            return parsed.Has(key) ? parsed[key] : defaultVal
-                        if IsObject(parsed) && HasProp(parsed, key)
-                            return parsed.%key%
-                    } catch {
-                    }
-                }
-            }
-            return defaultVal
-        } catch {
-            return defaultVal
         }
     }
 
@@ -409,7 +381,7 @@ class WebView2Manager extends IEventHook {
                 groupConfig := jsonStr
             else
                 groupConfig := JSONParser.Parse(jsonStr)
-            groupId := WebView2Manager._GetField(groupConfig, "id")
+            groupId := _GetField(groupConfig, "id")
 
             if groupId = "" {
                 groupId := GroupService._GenerateGroupId()
@@ -512,6 +484,17 @@ class WebView2Manager extends IEventHook {
         }
     }
 
+    static _SerializeGroupProperties(group, target) {
+        props := ["pressKeys", "keys", "holdKeys", "intervals", "delays", "pressDelays",
+                  "holdMode", "holdDuration", "autoRepeat", "repeatInterval", "seqInterval"]
+        for prop in props
+            _CopyProp(group, target, prop)
+        if group.HasProp("holdPattern")
+            target["holdPattern"] := deepclone(group.holdPattern)
+        if group.HasProp("holdTriggers")
+            target["holdTriggers"] := deepclone(group.holdTriggers)
+    }
+
     static _BridgeGetGroupList() {
         try {
             _DebugLog("_BridgeGetGroupList called")
@@ -525,55 +508,26 @@ class WebView2Manager extends IEventHook {
                 groupObj["active"] := group.active
                 groupObj["keyPressDuration"] := group.keyPressDuration
 
-                _CopyProp(group, groupObj, "pressKeys")
-                _CopyProp(group, groupObj, "keys")
-                _CopyProp(group, groupObj, "holdKeys")
-                _CopyProp(group, groupObj, "intervals")
-                _CopyProp(group, groupObj, "delays")
-                _CopyProp(group, groupObj, "pressDelays")
-                _CopyProp(group, groupObj, "holdMode")
-                _CopyProp(group, groupObj, "holdDuration")
-                _CopyProp(group, groupObj, "holdPattern")
-                _CopyProp(group, groupObj, "holdTriggers")
-                _CopyProp(group, groupObj, "seqInterval")
-                _CopyProp(group, groupObj, "autoRepeat")
-                _CopyProp(group, groupObj, "repeatInterval")
+                WebView2Manager._SerializeGroupProperties(group, groupObj)
 
                 if HasProp(group, "groups") && group.groups.Length > 0 {
                     subGroups := []
                     for sg in group.groups {
                         sgObj := Map()
-                        if sg is Map {
-                            sgObj["type"] := sg.Has("type") ? sg["type"] : ""
-                            _CopyMapProp(sg, sgObj, "pressKeys")
-                            _CopyMapProp(sg, sgObj, "keys")
-                            _CopyMapProp(sg, sgObj, "holdKeys")
-                            _CopyMapProp(sg, sgObj, "intervals")
-                            _CopyMapProp(sg, sgObj, "delays")
-                            _CopyMapProp(sg, sgObj, "pressDelays")
-                            _CopyMapProp(sg, sgObj, "seqInterval")
-                            _CopyMapProp(sg, sgObj, "holdMode")
-                            _CopyMapProp(sg, sgObj, "holdDuration")
-                            _CopyMapProp(sg, sgObj, "holdPattern")
-                            _CopyMapProp(sg, sgObj, "holdTriggers")
-                            _CopyMapProp(sg, sgObj, "autoRepeat")
-                            _CopyMapProp(sg, sgObj, "repeatInterval")
-                        } else {
-                            sgObj["type"] := HasProp(sg, "type") ? sg.type : ""
-                            _CopyObjProp(sg, sgObj, "pressKeys")
-                            _CopyObjProp(sg, sgObj, "keys")
-                            _CopyObjProp(sg, sgObj, "holdKeys")
-                            _CopyObjProp(sg, sgObj, "intervals")
-                            _CopyObjProp(sg, sgObj, "delays")
-                            _CopyObjProp(sg, sgObj, "pressDelays")
-                            _CopyObjProp(sg, sgObj, "seqInterval")
-                            _CopyObjProp(sg, sgObj, "holdMode")
-                            _CopyObjProp(sg, sgObj, "holdDuration")
-                            _CopyObjProp(sg, sgObj, "holdPattern")
-                            _CopyObjProp(sg, sgObj, "holdTriggers")
-                            _CopyObjProp(sg, sgObj, "autoRepeat")
-                            _CopyObjProp(sg, sgObj, "repeatInterval")
-                        }
+                        sgObj["type"] := sg is Map ? (sg.Has("type") ? sg["type"] : "") : (HasProp(sg, "type") ? sg.type : "")
+                            _CopyProp(sg, sgObj, "pressKeys")
+                            _CopyProp(sg, sgObj, "keys")
+                            _CopyProp(sg, sgObj, "holdKeys")
+                            _CopyProp(sg, sgObj, "intervals")
+                            _CopyProp(sg, sgObj, "delays")
+                            _CopyProp(sg, sgObj, "pressDelays")
+                            _CopyProp(sg, sgObj, "seqInterval")
+                            _CopyProp(sg, sgObj, "holdMode")
+                            _CopyProp(sg, sgObj, "holdDuration")
+                            _CopyProp(sg, sgObj, "holdPattern")
+                            _CopyProp(sg, sgObj, "holdTriggers")
+                            _CopyProp(sg, sgObj, "autoRepeat")
+                            _CopyProp(sg, sgObj, "repeatInterval")
                         subGroups.Push(sgObj)
                     }
                     groupObj["groups"] := subGroups
@@ -676,6 +630,7 @@ class WebView2Manager extends IEventHook {
             SkillManager.Emergency()
             return "ok"
         } catch as e {
+            ErrorSystem.LogError("EmergencyStop 失败: " e.Message, "ERROR", A_ThisFunc, A_LineNumber)
             return "error"
         }
     }
@@ -685,6 +640,7 @@ class WebView2Manager extends IEventHook {
             SkillManager.ToggleAll()
             return "ok"
         } catch as e {
+            ErrorSystem.LogError("ToggleAll 失败: " e.Message, "ERROR", A_ThisFunc, A_LineNumber)
             return "error"
         }
     }
@@ -694,6 +650,7 @@ class WebView2Manager extends IEventHook {
             ConfigService.HotReload()
             return "ok"
         } catch as e {
+            ErrorSystem.LogError("HotReload 失败: " e.Message, "ERROR", A_ThisFunc, A_LineNumber)
             return "error"
         }
     }
@@ -706,6 +663,7 @@ class WebView2Manager extends IEventHook {
             SkillManager.ToggleGroup(groupId)
             return "ok"
         } catch as e {
+            ErrorSystem.LogError("ToggleGroup 失败: " e.Message, "ERROR", A_ThisFunc, A_LineNumber)
             return "error"
         }
     }
@@ -1010,34 +968,12 @@ class WebView2Manager extends IEventHook {
                 allKeys := group.holdKeys.Clone()
             detail := Map("keys", allKeys, "mode", group.mode)
             detail["name"] := group.name
-            if group.HasProp("pressKeys")
-                detail["pressKeys"] := group.pressKeys.Clone()
-            if group.HasProp("keys")
-                detail["keys"] := group.keys.Clone()
-            if group.HasProp("holdKeys")
-                detail["holdKeys"] := group.holdKeys.Clone()
-            if group.HasProp("intervals")
-                detail["intervals"] := group.intervals.Clone()
-            if group.HasProp("delays")
-                detail["delays"] := group.delays.Clone()
-            if group.HasProp("pressDelays")
-                detail["pressDelays"] := group.pressDelays.Clone()
-            if group.HasProp("keyPressDuration")
-                detail["keyPressDuration"] := group.keyPressDuration
             if group.HasProp("holdKeys") && group.holdKeys.Length > 0
                 detail["holdKeys"] := group.holdKeys.Clone()
-            if group.HasProp("holdMode")
-                detail["holdMode"] := group.holdMode
-            if group.HasProp("holdPattern")
-                detail["holdPattern"] := deepclone(group.holdPattern)
-            if group.HasProp("holdTriggers")
-                detail["holdTriggers"] := deepclone(group.holdTriggers)
-            if group.HasProp("holdDuration")
-                detail["holdDuration"] := group.holdDuration
-            if group.HasProp("autoRepeat")
-                detail["autoRepeat"] := group.autoRepeat
-            if group.HasProp("repeatInterval")
-                detail["repeatInterval"] := group.repeatInterval
+            if group.HasProp("keyPressDuration")
+                detail["keyPressDuration"] := group.keyPressDuration
+
+            WebView2Manager._SerializeGroupProperties(group, detail)
             if group.HasProp("groups") && group.groups.Length > 0 {
                 groupsCopy := []
                 for sg in group.groups {
@@ -1289,33 +1225,19 @@ class WebView2Manager extends IEventHook {
 
 _CopyProp(src, dst, key) {
     try {
-        if HasProp(src, key) {
-            val := src.%key%
-            if !(val is String && val = "")
-                dst[key] := IsObject(val) ? deepclone(val) : val
-        }
-    } catch {
-    }
-}
-
-_CopyMapProp(src, dst, key) {
-    try {
+        val := ""
         if src is Map {
-            if src.Has(key) {
+            if src.Has(key)
                 val := src[key]
-                dst[key] := IsObject(val) ? deepclone(val) : val
-            }
-        }
-    } catch {
-    }
-}
-
-_CopyObjProp(src, dst, key) {
-    try {
-        if HasProp(src, key) {
+            else
+                return
+        } else if IsObject(src) && HasProp(src, key) {
             val := src.%key%
-            dst[key] := IsObject(val) ? deepclone(val) : val
+        } else {
+            return
         }
+        if !(val is String && val = "")
+            dst[key] := IsObject(val) ? deepclone(val) : val
     } catch {
     }
 }

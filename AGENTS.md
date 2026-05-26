@@ -29,6 +29,25 @@ AutoHotkey v2 技能管理器 - 支持多种执行模式的按键连招管理系
 | 表现层 (presentation) | `presentation/`    | `webview2_manager`, `ui_manager`, `gui_manager`, `group_editor`, `backup_ui`, `debug_panel` |
 | 测试层 (tests)       | `tests/`           | `test_domain`, `test_infrastructure`, `test_application`, `test_presentation`, `test_webview2_bridge`, `test_boundary`, `test_error_captor`, `test_error_system`, `test_integration_error_system`, `test_result_reporter`, `run_all_tests`, `run_tests`, `AutoHotUnit`, `run_tests.ps1` |
 
+### 已知架构妥协（Known Architecture Compromises）
+
+以下妥协是在 AHK v2 无原生依赖注入（DI）容器的环境下，经过审慎评估后接受的务实决策。每个妥协都记录了原因和约束边界，以防止退化。
+
+| # | 妥协 | 影响文件 | 说明 | 约束边界 |
+|---|------|---------|------|---------|
+| 1 | **DDD 层依赖违规** | `domain/mode_registry.ahk` → `infrastructure/error_system.ahk` | 领域层直接依赖基础设施层的 `ErrorSystem`。在严格 DDD 中领域层应通过接口使用日志服务，但 AHK v2 无 DI 容器，通过接口注入会导致过度复杂化。 | 仅允许 `domain/` 引用 `infrastructure/error_system.ahk` 的 `LogError` 方法。禁止领域层引用 `infrastructure/` 中的其他模块。 |
+| 2 | **`_Notify` 签名差异** | `domain/interfaces.ahk` vs `presentation/webview2_manager.ahk` | 接口定义的 `_Notify` 签名为 `(event, data)`，但表现层实现使用 `(event, data, meta*)` 可变参数。这是因为 Bridge 通信需要额外元数据（`requestId`、`timestamp` 等）。 | 调用方始终使用双参数形式；额外参数由表现层实现的可选参数处理，不破坏接口契约。 |
+| 3 | **`BackupCore` 隐式依赖** | `application/config_service.ahk` → `infrastructure/backup_core.ahk` | 应用层通过全局 `BackupCore` 类名隐式引用基础设施层模块。应通过显式 `#Include` 或接口抽象化。 | `ConfigService` 内部仅通过 `BackupCore.CreateBackup()` 静态方法调用，不直接访问其内部状态。未来若引入 DI 机制应重构为接口注入。 |
+
+### 内部工具函数迁移
+
+以下函数已从各模块迁移至 `infrastructure/utils.ahk`（v3.1+），作为跨层共享的统一入口：
+
+| 函数 | 原位置 | 迁移至 | 说明 |
+|------|--------|--------|------|
+| `_GetProp(obj, key, default)` | — | `infrastructure/utils.ahk` | Map/Object 统一属性访问 |
+| `_GetField(obj, key, default)` | `webview2_manager.ahk` | `infrastructure/utils.ahk` | 含 JSON 字符串解析的属性访问 |
+
 ## Subdirectories
 
 | Directory        | Purpose                                |

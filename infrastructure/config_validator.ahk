@@ -27,17 +27,17 @@ class ConfigValidator {
             return errors
         }
 
-        groupSettings := ConfigValidator._GetField(config, "GroupSettings")
+        groupSettings := _GetProp(config, "GroupSettings")
         if groupSettings is Map {
             for id, groupConfig in groupSettings
                 errors.Push(ConfigValidator._ValidateGroup(id, groupConfig)*)
         }
 
         if ConfigValidator._HasField(config, "CONTROL_HOTKEYS")
-            errors.Push(ConfigValidator._ValidateHotkeys(ConfigValidator._GetField(config, "CONTROL_HOTKEYS"))*)
+            errors.Push(ConfigValidator._ValidateHotkeys(_GetProp(config, "CONTROL_HOTKEYS"))*)
 
         if ConfigValidator._HasField(config, "HoldSettings")
-            errors.Push(ConfigValidator._ValidateHoldSettings(ConfigValidator._GetField(config, "HoldSettings"))*)
+            errors.Push(ConfigValidator._ValidateHoldSettings(_GetProp(config, "HoldSettings"))*)
 
         return errors
     }
@@ -47,7 +47,7 @@ class ConfigValidator {
         groupHotkeys := Map()
 
         if ConfigValidator._HasField(config, "GroupSettings") {
-            gs := ConfigValidator._GetField(config, "GroupSettings")
+            gs := _GetProp(config, "GroupSettings")
             if gs is Map {
                 for idStr, groupConfig in gs {
                     hotkey := ""
@@ -83,7 +83,7 @@ class ConfigValidator {
         if !ConfigValidator._HasField(config, "mode") {
             errors.Push(Map("type", "ERROR", "message", "分组" id "缺少模式(mode)"))
         } else {
-            mode := ConfigValidator._GetField(config, "mode")
+            mode := _GetProp(config, "mode")
             if !ConfigValidator._validModesMap.Has(mode)
                 errors.Push(Map("type", "ERROR", "message", "分组" id "有无效的模式: " mode))
             else
@@ -105,7 +105,7 @@ class ConfigValidator {
         if !ConfigValidator._HasField(config, "mode") {
             errors.Push(Map("type", "ERROR", "message", "分组" id "缺少模式(mode)"))
         } else {
-            mode := ConfigValidator._GetField(config, "mode")
+            mode := _GetProp(config, "mode")
             if !ConfigValidator._validModesMap.Has(mode)
                 errors.Push(Map("type", "ERROR", "message", "分组" id "有无效的模式: " mode))
             else {
@@ -156,7 +156,7 @@ class ConfigValidator {
                 else if ConfigValidator._IsFieldEmpty(config, "holdKeys")
                     errors.Push(Map("type", "ERROR", "message", "分组" id "长按模式按键(holdKeys)不能为空数组"))
                 if ConfigValidator._HasField(config, "repeatInterval") {
-                    ri := ConfigValidator._GetField(config, "repeatInterval")
+                    ri := _GetProp(config, "repeatInterval")
                     if IsNumber(ri) && Number(ri) < 10
                         errors.Push(Map("type", "ERROR", "message", "分组" id " repeatInterval=" ri " 过小，最小 10ms"))
                 }
@@ -187,14 +187,14 @@ class ConfigValidator {
                 else
                     errors.Push(ConfigValidator._ValidateSubGroups(id, config)*)
                 if ConfigValidator._HasField(config, "seqInterval") {
-                    si := ConfigValidator._GetField(config, "seqInterval")
+                    si := _GetProp(config, "seqInterval")
                     if IsNumber(si) && Number(si) < 10
                         errors.Push(Map("type", "ERROR", "message", "分组" id " seqInterval=" si " 过小，最小 10ms"))
                 }
         }
 
         if ConfigValidator._HasField(config, "holdPattern") {
-            hp := ConfigValidator._GetField(config, "holdPattern")
+            hp := _GetProp(config, "holdPattern")
             if hp is Array {
                 if hp.Length > 0 && hp.Length < 2
                     errors.Push(Map("type", "ERROR", "message", "分组" id " holdPattern 至少需要2个元素(按下时长,释放时长)"))
@@ -206,7 +206,7 @@ class ConfigValidator {
         }
 
         if ConfigValidator._HasField(config, "holdTriggers") {
-            ht := ConfigValidator._GetField(config, "holdTriggers")
+            ht := _GetProp(config, "holdTriggers")
             if ht is Array {
                 for vi, vv in ht {
                     if vv != 0 && vv != 1
@@ -225,7 +225,7 @@ class ConfigValidator {
             if !ConfigValidator._HasField(hotkeys, action)
                 errors.Push(Map("type", "ERROR", "message", "缺少热键配置: " action))
             else {
-                val := ConfigValidator._GetField(hotkeys, action)
+                val := _GetProp(hotkeys, action)
                 if val = "" || !IsObject(val) && StrLen(String(val)) = 0
                     errors.Push(Map("type", "WARNING", "message", "热键配置 " action " 值为空"))
             }
@@ -237,7 +237,7 @@ class ConfigValidator {
         errors := []
 
         if ConfigValidator._HasField(settings, "pressSpeed") {
-            speed := ConfigValidator._GetField(settings, "pressSpeed")
+            speed := _GetProp(settings, "pressSpeed")
             try {
                 speedNum := speed is Integer ? speed : Integer(speed)
                 if speedNum < 1 || speedNum > 100
@@ -248,7 +248,7 @@ class ConfigValidator {
         }
 
         if ConfigValidator._HasField(settings, "debounceDelay") {
-            delay := ConfigValidator._GetField(settings, "debounceDelay")
+            delay := _GetProp(settings, "debounceDelay")
             try {
                 delayNum := delay is Integer ? delay : Integer(delay)
                 if delayNum < 0 || delayNum > 1000
@@ -259,7 +259,7 @@ class ConfigValidator {
         }
 
         if ConfigValidator._HasField(settings, "checkInterval") {
-            interval := ConfigValidator._GetField(settings, "checkInterval")
+            interval := _GetProp(settings, "checkInterval")
             try {
                 intervalNum := interval is Integer ? interval : Integer(interval)
                 if intervalNum < 10 || intervalNum > 1000
@@ -270,13 +270,13 @@ class ConfigValidator {
         }
 
         if ConfigValidator._HasField(settings, "allowOverlap") {
-            val := ConfigValidator._GetField(settings, "allowOverlap")
+            val := _GetProp(settings, "allowOverlap")
             if val != true && val != false && val != 0 && val != 1
                 errors.Push(Map("type", "WARNING", "message", "allowOverlap 应为布尔值"))
         }
 
         if ConfigValidator._HasField(settings, "releaseOnEmergency") {
-            val := ConfigValidator._GetField(settings, "releaseOnEmergency")
+            val := _GetProp(settings, "releaseOnEmergency")
             if val != true && val != false && val != 0 && val != 1
                 errors.Push(Map("type", "WARNING", "message", "releaseOnEmergency 应为布尔值"))
         }
@@ -303,7 +303,7 @@ class ConfigValidator {
 
     static _ValidateSubGroups(id, config) {
         errors := []
-        groups := ConfigValidator._GetField(config, "groups")
+        groups := _GetProp(config, "groups")
         if !(groups is Array) || groups.Length = 0 {
             errors.Push(Map("type", "ERROR", "message", "分组" id "子组(groups)不能为空数组"))
             return errors
@@ -385,18 +385,10 @@ class ConfigValidator {
         return false
     }
 
-    static _GetField(obj, field) {
-        if obj is Map
-            return obj.Has(field) ? obj[field] : ""
-        else if IsObject(obj)
-            return HasProp(obj, field) ? obj.%field% : ""
-        return ""
-    }
-
     static _ValidateArrayLength(id, config, keysField, valuesField, modeName) {
         errors := []
-        keysArr := ConfigValidator._GetField(config, keysField)
-        valuesArr := ConfigValidator._GetField(config, valuesField)
+        keysArr := _GetProp(config, keysField)
+        valuesArr := _GetProp(config, valuesField)
         if keysArr is Array && valuesArr is Array && keysArr.Length > 0 && valuesArr.Length > 0 {
             if valuesArr.Length < keysArr.Length
                 errors.Push(Map("type", "WARNING", "message", "分组" id modeName " " valuesField "(" valuesArr.Length ") 少于 " keysField "(" keysArr.Length ")，不足部分将使用默认值"))
