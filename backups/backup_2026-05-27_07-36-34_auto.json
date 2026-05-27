@@ -1,6 +1,6 @@
 ﻿{
   "CONTROL_HOTKEYS": {
-    "emergency": "f12",
+    "emergency": "F12",
     "releaseAllHolds": "^r",
     "showStatus": "^0",
     "toggleAll": "^1",
@@ -30,8 +30,8 @@
           ],
           "pressKeys": [
             "A",
-            "B",
-            "C"
+            "S",
+            "D"
           ],
           "type": "sequence"
         }
@@ -39,70 +39,58 @@
       "hotkey": "F1",
       "keyPressDuration": 10,
       "mode": "hybrid",
-      "name": "1",
+      "name": "示例混合",
       "seqInterval": 100
     },
-    "hybrid4_1779593662854": {
-      "active": false,
+    "1_copy_mpn9xyh4": {
       "groups": [
         {
           "intervals": [
-            100,
-            200
+            50,
+            50,
+            50
           ],
           "pressKeys": [
             "1",
-            "2"
+            "2",
+            "3"
           ],
           "type": "periodic"
         },
         {
           "delays": [
-            150,
-            250
+            200,
+            500,
+            2000
           ],
           "pressKeys": [
-            "a",
-            "b"
+            "A",
+            "S",
+            "D"
           ],
           "type": "sequence"
         }
       ],
-      "hotkey": "F7",
-      "keyPressDuration": 15,
+      "holdKeys": [],
+      "holdMode": "continuous",
+      "hotkey": "",
+      "keyPressDuration": 10,
+      "keys": [],
       "mode": "hybrid",
-      "name": "Hybrid4"
+      "name": "示例混合 副本",
+      "seqInterval": 100
     },
-    "hybrid9_1779594950713": {
-      "active": false,
-      "groups": [
-        {
-          "intervals": [
-            100,
-            200
-          ],
-          "pressKeys": [
-            "1",
-            "2"
-          ],
-          "type": "periodic"
-        },
-        {
-          "delays": [
-            150,
-            250
-          ],
-          "pressKeys": [
-            "a",
-            "b"
-          ],
-          "type": "sequence"
-        }
+    "test_cycle": {
+      "hotkey": "F2",
+      "intervals": [
+        100
       ],
-      "hotkey": "F9",
-      "keyPressDuration": 15,
-      "mode": "hybrid",
-      "name": "Hybrid9"
+      "keyPressDuration": 20,
+      "keys": [
+        "a"
+      ],
+      "mode": "periodic",
+      "name": "测试周期按键"
     }
   },
   "HoldSettings": {
@@ -112,6 +100,6 @@
     "pressSpeed": 80,
     "releaseOnEmergency": true
   },
-  "lastModified": "20260524114345",
+  "lastModified": "20260526080000",
   "version": "3.0"
 }

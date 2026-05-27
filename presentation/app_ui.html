@@ -1162,6 +1162,7 @@ function batchToggleSelected(activate) {
     } catch(ex) { showToast("批量操作完成", "success"); }
     _selectedGroups = {};
     updateBatchUI();
+    loadGroupsFromAhk();
   });
 }
 
@@ -1454,6 +1455,7 @@ var editorConfig = {
 var _undoStack = [];
 var _redoStack = [];
 var _undoMaxSize = 50;
+var _captureTimer = null;
 
 function pushUndoState() {
   _undoStack.push(JSON.stringify({config: editorConfig, mode: currentMode}));
@@ -1810,7 +1812,7 @@ function switchPage(page) {
   navEl.classList.add('active');
   var titles = {dashboard:'📊 仪表盘',editor:'✏️ 分组编辑',settings:'⚙️ 全局设置',debug:'🐛 调试监控',backup:'💾 备份管理',keytest:'🧪 按键测试'};
   document.getElementById('pageTitle').textContent = titles[page] || page;
-  if (page === 'settings') loadBackupList();
+  if (page === 'settings') { loadBackupList(); loadSettingsFromAhk(); }
   if (page === 'keytest') refreshGroupList();
 }
 
@@ -1947,9 +1949,11 @@ function editGroup(id) {
 function resetEditor() {
   editingGroupId = "";
   _undoStack = []; _redoStack = [];
+  if (_captureTimer) { clearTimeout(_captureTimer); _captureTimer = null; }
   document.getElementById('idInput').value = "";
   document.getElementById('groupName').value = "";
-  document.getElementById('hotkeyDisp').textContent = "点击设置";
+  var d = document.getElementById('hotkeyDisp');
+  d.textContent = "点击设置"; d.classList.remove("capturing");
   document.getElementById('keyPressDuration').value = "15";
   editorConfig = {
     keys:["?"],intervals:[50],delays:[100],
@@ -2164,15 +2168,18 @@ function pickKey(key) {
 }
 
 function captureHotkey() {
+  if (_captureTimer) { clearTimeout(_captureTimer); _captureTimer = null; }
   var d = document.getElementById("hotkeyDisp");
   d.textContent = "请按键..."; d.classList.add("capturing");
-  var cancelTimer = setTimeout(function() {
+  _captureTimer = setTimeout(function() {
+    _captureTimer = null;
     d.textContent = "点击设置"; d.classList.remove("capturing");
     document.removeEventListener("keydown", handler);
   }, 10000);
   document.addEventListener("keydown", function handler(e) {
     e.preventDefault(); e.stopPropagation();
-    clearTimeout(cancelTimer);
+    clearTimeout(_captureTimer);
+    _captureTimer = null;
     if (e.key === "Escape") {
       d.textContent = "点击设置"; d.classList.remove("capturing");
       document.removeEventListener("keydown", handler);
@@ -2490,6 +2497,7 @@ function saveSettings() {
       }
     } catch(ex) {}
     showToast("全局设置已保存","success");
+    loadSettingsFromAhk();
   }).catch(function(e) { showToast("保存失败: "+e,"error"); });
 }
 

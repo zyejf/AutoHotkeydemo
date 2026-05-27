@@ -1,6 +1,6 @@
 ﻿{
   "CONTROL_HOTKEYS": {
-    "emergency": "f12",
+    "emergency": "F12",
     "releaseAllHolds": "^r",
     "showStatus": "^0",
     "toggleAll": "^1",
@@ -30,8 +30,8 @@
           ],
           "pressKeys": [
             "A",
-            "B",
-            "C"
+            "S",
+            "D"
           ],
           "type": "sequence"
         }
@@ -39,8 +39,20 @@
       "hotkey": "F1",
       "keyPressDuration": 10,
       "mode": "hybrid",
-      "name": "1",
+      "name": "示例混合",
       "seqInterval": 100
+    },
+    "test_cycle": {
+      "hotkey": "F2",
+      "intervals": [
+        100
+      ],
+      "keyPressDuration": 20,
+      "keys": [
+        "a"
+      ],
+      "mode": "periodic",
+      "name": "测试周期按键"
     }
   },
   "HoldSettings": {
@@ -50,6 +62,6 @@
     "pressSpeed": 80,
     "releaseOnEmergency": true
   },
-  "lastModified": "20260524112738",
+  "lastModified": "20260526080000",
   "version": "3.0"
 }
