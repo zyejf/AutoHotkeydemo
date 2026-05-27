@@ -13,6 +13,7 @@
 #Warn LocalSameAsGlobal, Off
 
 #Include "interfaces.ahk"
+#Include "joystick_executor.ahk"
 #Include "mode_registry.ahk"
 #Include "key_validator.ahk"
 #Include "../infrastructure/error_system.ahk"
@@ -629,6 +630,8 @@ class SkillGroup {
                     this._ReleaseKey(k, i <= this._periodicMouse.Length ? this._periodicMouse[i] : false)
                 for i, k in this.seqPressKeys
                     this._ReleaseKey(k, i <= this._seqMouse.Length ? this._seqMouse[i] : false)
+            case "joystick_periodic", "joystick_sequence", "joystick_hold":
+                JoystickExecutor._ReleaseJoyKeys(this)
         }
         this._ReleaseHoldKeys()
     }
