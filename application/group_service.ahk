@@ -140,7 +140,8 @@ class GroupService {
             oldConfig := deepclone(oldConfigRef)
 
             if !IsObject(oldConfig) {
-                ErrorSystem.LogError("UpdateGroup: 无法获取分组 " id " 的旧配置，回滚不可用", "WARNING", A_ThisFunc, A_LineNumber)
+                ErrorSystem.LogError("UpdateGroup: 无法获取分组 " id " 的旧配置，拒绝更新以防数据丢失", "CRITICAL", A_ThisFunc, A_LineNumber)
+                throw Error("无法获取分组 " id " 的旧配置，请检查数据完整性后重试")
             }
 
             tempId := id . "_update_temp"
@@ -152,12 +153,13 @@ class GroupService {
                 throw Error("无法验证新配置: " addErr.Message)
             }
 
+            GroupService.SkillManager.DeleteGroup(tempId)
+
             if wasActive {
                 GroupService.SkillManager._StopGroupExecution(id)
                 GroupService.SkillManager.Groups[id].active := false
             }
 
-            GroupService.SkillManager.DeleteGroup(tempId)
             GroupService.SkillManager.DeleteGroup(id)
 
             try {
@@ -165,16 +167,16 @@ class GroupService {
                 if !addResult
                     throw Error("添加分组失败: " id " (可能是热键冲突)")
             } catch as addErr {
-                if IsObject(oldConfig) {
-                    try {
-                        GroupService.SkillManager.AddGroup(id, oldConfig)
-                        GroupService.ConfigStore.SetGroupConfig(id, oldConfig)
-                        if wasActive
-                            GroupService.SkillManager.ToggleGroup(id)
-                    } catch as rollbackErr {
-                        ErrorSystem.LogError("回滚失败! 分组 " id " 可能丢失: " rollbackErr.Message, "CRITICAL", A_ThisFunc, A_LineNumber)
-                        GroupService.ConfigStore.SetGroupConfig(id, oldConfig)
-                    }
+                ErrorSystem.LogError("UpdateGroup 添加新配置失败，尝试回滚: " addErr.Message, "ERROR", A_ThisFunc, A_LineNumber)
+                try {
+                    GroupService.SkillManager.AddGroup(id, oldConfig)
+                    GroupService.ConfigStore.SetGroupConfig(id, oldConfig)
+                    if wasActive
+                        GroupService.SkillManager.ToggleGroup(id)
+                    ErrorSystem.LogError("UpdateGroup 回滚成功: " id, "WARNING", A_ThisFunc, A_LineNumber)
+                } catch as rollbackErr {
+                    ErrorSystem.LogError("回滚失败! 分组 " id " 已丢失: " rollbackErr.Message, "CRITICAL", A_ThisFunc, A_LineNumber)
+                    GroupService.ConfigStore.SetGroupConfig(id, oldConfig)
                 }
                 throw addErr
             }

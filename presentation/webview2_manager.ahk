@@ -124,10 +124,10 @@ class WebView2Manager extends IEventHook {
         try {
             debugInfo := WebView2Manager._BridgeGetDebugInfo()
             groupList := WebView2Manager._BridgeGetGroupList()
-            currentHash := StrLen(debugInfo) + StrLen(groupList)
-            if currentHash = WebView2Manager._lastPushHash
+            currentKey := debugInfo . groupList
+            if currentKey = WebView2Manager._lastPushHash
                 return
-            WebView2Manager._lastPushHash := currentHash
+            WebView2Manager._lastPushHash := currentKey
             combined := '{"debug":' debugInfo ',"groups":' groupList '}'
             safeCombined := StrReplace(combined, "\", "\\")
             safeCombined := StrReplace(safeCombined, "'", "\'")

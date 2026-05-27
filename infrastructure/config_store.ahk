@@ -206,6 +206,12 @@ class ConfigStore {
                         if defaults is Map && defaults.Has("holdKeys")
                             config["holdKeys"] := defaults["holdKeys"]
                     }
+                case "joystick_periodic", "joystick_sequence", "joystick_hold":
+                    if config.Has("joyKeys") && config["joyKeys"] is Array && config["joyKeys"].Length = 0 {
+                        defaults := this._GetDefaultGroup(id)
+                        if defaults is Map && defaults.Has("joyKeys")
+                            config["joyKeys"] := defaults["joyKeys"]
+                    }
             }
         }
     }
