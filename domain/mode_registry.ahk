@@ -13,6 +13,7 @@
 
 #Include "interfaces.ahk"
 #Include "../infrastructure/error_system.ahk"
+#Include "joystick_executor.ahk"
 
 class ModeRegistry {
     static _executors := Map()
@@ -215,6 +216,27 @@ class ModeRegistry {
                 "description", "按住指定按键不放",
                 "requires", ["holdKeys"],
                 "requiresNonEmpty", ["holdKeys"]
+            ))
+
+            ModeRegistry.Register("joystick_periodic", JoystickPeriodicExecutor(), Map(
+                "name", "手柄周期",
+                "description", "周期性发送手柄按键",
+                "requires", ["joyKeys", "joyIntervals"],
+                "requiresNonEmpty", ["joyKeys"]
+            ))
+
+            ModeRegistry.Register("joystick_sequence", JoystickSequenceExecutor(), Map(
+                "name", "手柄序列",
+                "description", "按顺序发送手柄按键序列",
+                "requires", ["joyKeys", "joyDelays"],
+                "requiresNonEmpty", ["joyKeys"]
+            ))
+
+            ModeRegistry.Register("joystick_hold", JoystickHoldExecutor(), Map(
+                "name", "手柄长按",
+                "description", "持续按住手柄按键",
+                "requires", ["joyKeys"],
+                "requiresNonEmpty", ["joyKeys"]
             ))
 
             return true

@@ -389,6 +389,7 @@ select.input { appearance: none; cursor: pointer; }
         <div class="mode-group"><div class="mode-group-label">基础模式</div><div class="mode-pills"><span class="mode-pill" data-mode="periodic" data-action="pickMode">🔄 周期性</span><span class="mode-pill" data-mode="sequence" data-action="pickMode">📋 序列</span><span class="mode-pill" data-mode="hybrid" data-action="pickMode">🔀 混合</span></div></div>
         <div class="mode-group"><div class="mode-group-label">增强模式 <span class="enhance-badge">+ 长按键</span></div><div class="mode-pills"><span class="mode-pill" data-mode="enhanced_periodic" data-action="pickMode">🔄 增强周期</span><span class="mode-pill" data-mode="enhanced_sequence" data-action="pickMode">📋 增强序列</span><span class="mode-pill" data-mode="enhanced_hybrid" data-action="pickMode">🔀 增强混合</span></div></div>
         <div class="mode-group"><div class="mode-group-label">特殊模式</div><div class="mode-pills"><span class="mode-pill" data-mode="hold" data-action="pickMode">⏳ 长按</span></div></div>
+        <div class="mode-group"><div class="mode-group-label">🎮 手柄模式 <span class="enhance-badge">NEW</span></div><div class="mode-pills"><span class="mode-pill" data-mode="joystick_periodic" data-action="pickMode">🎮 手柄周期</span><span class="mode-pill" data-mode="joystick_sequence" data-action="pickMode">🎮 手柄序列</span><span class="mode-pill" data-mode="joystick_hold" data-action="pickMode">🎮 手柄长按</span></div></div>
         <div class="mode-desc" id="modeDesc">选择执行模式</div>
 
         <div id="configSection" style="margin-top:12px;"></div>
@@ -623,6 +624,12 @@ select.input { appearance: none; cursor: pointer; }
     <div class="picker-header"><span class="picker-title">选择按键</span><button class="picker-close" data-action="closeKeyPicker">×</button></div>
     <div style="margin-bottom:10px;"><input class="input" id="keySearch" placeholder="搜索按键..." oninput="filterKeys()"></div>
     <div class="picker-grid" id="keyGrid"></div>
+  </div>
+</div>
+<div class="overlay" id="joyKeyPickerOverlay">
+  <div class="picker-panel glass">
+    <div class="picker-header"><span class="picker-title">🎮 选择手柄按键</span><button class="picker-close" data-action="closeJoyKeyPicker">×</button></div>
+    <div class="picker-grid" id="joyKeyGrid"></div>
   </div>
 </div>
 <div class="toast-container" id="toastContainer"></div>
@@ -1090,16 +1097,20 @@ var MODE_INFO = {
   enhanced_periodic: {name:"增强周期",desc:"周期性按键 + 长按键。长按键持续按住(continuous)或按按压节律循环(periodic+holdPattern[按下ms,释放ms])。",fields:["pressKeys","intervals"],fieldKey:"pressKeys",enhanced:true},
   enhanced_sequence: {name:"增强序列",desc:"序列按键 + 长按键。支持holdMode=sequence：每步可独立控制长按键的按下/释放(holdTriggers[1=按,0=放])。",fields:["pressKeys","pressDelays"],fieldKey:"pressKeys",enhanced:true},
   enhanced_hybrid: {name:"增强混合",desc:"混合模式 + 长按键。子组同时运行的同时，长按键持续按住(continuous)或按节律循环(periodic)。",fields:["groups"],fieldKey:"groups",enhanced:true},
-  hold: {name:"长按",desc:"持续按住指定按键。支持定时释放(holdDuration>0)和自动重复(autoRepeat)。",fields:["holdKeys","holdDuration"],fieldKey:"holdKeys"}
+  hold: {name:"长按",desc:"持续按住指定按键。支持定时释放(holdDuration>0)和自动重复(autoRepeat)。",fields:["holdKeys","holdDuration"],fieldKey:"holdKeys"},
+  joystick_periodic: {name:"手柄周期",desc:"周期性发送手柄按键。每个手柄按键按独立间隔循环，支持vJoy或直接Send。",fields:["joyKeys","joyIntervals"],fieldKey:"joyKeys",joystick:true},
+  joystick_sequence: {name:"手柄序列",desc:"手柄按键按顺序依次发送，每步之间有延迟，循环往复。",fields:["joyKeys","joyDelays"],fieldKey:"joyKeys",joystick:true},
+  joystick_hold: {name:"手柄长按",desc:"持续按住手柄按键不放。分组激活期间保持按下状态。",fields:["joyKeys"],fieldKey:"joyKeys",joystick:true}
 };
 
-var MODE_NAMES = {periodic:"周期性",sequence:"序列",hybrid:"混合",hold:"长按",enhanced_periodic:"增强周期",enhanced_sequence:"增强序列",enhanced_hybrid:"增强混合"};
+var MODE_NAMES = {periodic:"周期性",sequence:"序列",hybrid:"混合",hold:"长按",enhanced_periodic:"增强周期",enhanced_sequence:"增强序列",enhanced_hybrid:"增强混合",joystick_periodic:"手柄周期",joystick_sequence:"手柄序列",joystick_hold:"手柄长按"};
 
 function escHtml(s) { if (typeof s !== 'string') s = String(s); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function escAttr(s) { return escHtml(s); }
 
 var currentMode = "enhanced_periodic";
 var keyPickerTarget = null;
+var joyKeyPickerTarget = null;
 var editingGroupId = "";
 
 var sampleGroups = [];
@@ -1584,6 +1595,9 @@ function onAhkReady() {
     else if (action === 'deleteSubKey') deleteSubKey(parseInt(el.getAttribute('data-group')), parseInt(el.getAttribute('data-idx')));
     else if (action === 'deleteHoldKey') { pushUndoState(); editorConfig.holdKeys.splice(parseInt(el.getAttribute('data-idx')),1); renderConfigSection(); updatePreview(); }
     else if (action === 'addHoldKey') { pushUndoState(); editorConfig.holdKeys.push('?'); renderConfigSection(); updatePreview(); }
+    else if (action === 'pickJoyKey') openJoyKeyPicker(el);
+    else if (action === 'deleteJoyKey') deleteJoyKeyField(parseInt(el.getAttribute('data-idx')));
+    else if (action === 'addJoyKey') addJoyKeyField();
   };
 
   document.getElementById('configSection').addEventListener('change', function(e) {
@@ -1598,6 +1612,8 @@ function onAhkReady() {
     else if (action === 'setHoldDuration') { pushUndoState(); editorConfig.holdDuration=parseInt(el.value)||0; updatePreview(); }
     else if (action === 'toggleAutoRepeat') { pushUndoState(); editorConfig.autoRepeat=el.checked; updatePreview(); }
     else if (action === 'setRepeatInterval') { pushUndoState(); var rv=parseInt(el.value); editorConfig.repeatInterval=(rv>0?rv:1000); updatePreview(); }
+    else if (action === 'setJoyInterval') { pushUndoState(); var v=parseInt(el.value); editorConfig.joyIntervals[parseInt(el.getAttribute('data-idx'))]=(v>=10?v:50); updatePreview(); }
+    else if (action === 'setJoyDelay') { pushUndoState(); var v=parseInt(el.value); editorConfig.joyDelays[parseInt(el.getAttribute('data-idx'))]=(v>=10?v:100); updatePreview(); }
   });
 
   document.getElementById('holdKeysContainer').onclick = function(e) {
@@ -1642,6 +1658,11 @@ function onAhkReady() {
     else if (action === 'toggleAutoScroll') toggleAutoScroll();
     else if (action === 'createBackup') createBackup();
     else if (action === 'closeKeyPicker') closeKeyPicker();
+    else if (action === 'closeJoyKeyPicker') closeJoyKeyPicker();
+    else if (action === 'selectJoyKey') { pickJoyKey(el.getAttribute('data-key')); }
+    else if (action === 'templateJoystickPeriodic') applyTemplate('joystick_periodic');
+    else if (action === 'templateJoystickSequence') applyTemplate('joystick_sequence');
+    else if (action === 'templateJoystickHold') applyTemplate('joystick_hold');
     else if (action === 'pickMode') pickMode(el);
     else if (action === 'startRecording') startRecording();
     else if (action === 'pauseRecording') pauseRecording();
@@ -1932,6 +1953,11 @@ function editGroup(id) {
       editorConfig.holdDuration = cfg.holdDuration !== undefined ? cfg.holdDuration : 0;
       editorConfig.autoRepeat = cfg.autoRepeat !== undefined ? cfg.autoRepeat : false;
       editorConfig.repeatInterval = cfg.repeatInterval || 1000;
+      editorConfig.joyKeys = cfg.joyKeys ? cfg.joyKeys.slice() : ["?"];
+      editorConfig.joyIntervals = cfg.joyIntervals ? cfg.joyIntervals.slice() : [50];
+      editorConfig.joyDelays = cfg.joyDelays ? cfg.joyDelays.slice() : [100];
+      editorConfig.joySendMethod = cfg.joySendMethod || "auto";
+      editorConfig.joyKeyDuration = cfg.joyKeyDuration || 15;
       pickModeByValue(cfg.mode);
       renderConfigSection();
       renderHoldSection();
@@ -1964,7 +1990,9 @@ function resetEditor() {
     groups:[{type:"periodic",pressKeys:["?"],intervals:[50]}],
     seqInterval:100,holdKeys:[],holdMode:"continuous",
     holdPattern:[500,200],holdTriggers:[],
-    holdDuration:0,autoRepeat:false,repeatInterval:1000
+    holdDuration:0,autoRepeat:false,repeatInterval:1000,
+    joyKeys:["?"],joyIntervals:[50],joyDelays:[100],
+    joySendMethod:"auto",joyKeyDuration:15
   };
   pickModeByValue("enhanced_periodic");
 }
@@ -2017,6 +2045,11 @@ function cloneGroup(id) {
       if (detail.holdDuration !== undefined) cfg.holdDuration = detail.holdDuration;
       if (detail.autoRepeat !== undefined) cfg.autoRepeat = detail.autoRepeat;
       if (detail.repeatInterval) cfg.repeatInterval = detail.repeatInterval;
+      if (detail.joyKeys) cfg.joyKeys = detail.joyKeys.slice();
+      if (detail.joyIntervals) cfg.joyIntervals = detail.joyIntervals.slice();
+      if (detail.joyDelays) cfg.joyDelays = detail.joyDelays.slice();
+      if (detail.joySendMethod) cfg.joySendMethod = detail.joySendMethod;
+      if (detail.joyKeyDuration !== undefined) cfg.joyKeyDuration = detail.joyKeyDuration;
       return ahkCall("SaveConfig", JSON.stringify(cfg));
     } catch(ex) { showToast("克隆失败: " + ex.message, "error"); }
   }).then(function(r) {
@@ -2170,6 +2203,16 @@ function pickKey(key) {
   closeKeyPicker();
 }
 
+function pickJoyKey(key) {
+  if (joyKeyPickerTarget) {
+    pushUndoState();
+    var idx = parseInt(joyKeyPickerTarget.getAttribute("data-idx"));
+    editorConfig.joyKeys[idx] = key;
+    updatePreview();
+  }
+  closeJoyKeyPicker();
+}
+
 function captureHotkey() {
   if (_captureTimer) { clearTimeout(_captureTimer); _captureTimer = null; }
   var d = document.getElementById("hotkeyDisp");
@@ -2218,6 +2261,9 @@ function renderConfigSection() {
   else if (currentMode==="enhanced_sequence") h += renderKeyDelayTable(editorConfig.pressKeys,editorConfig.pressDelays,"pressKeys","pressDelays");
   else if (currentMode==="hybrid"||currentMode==="enhanced_hybrid") h += renderSubGroups();
   else if (currentMode==="hold") h += renderHoldConfig();
+  else if (currentMode==="joystick_periodic") h += renderJoyKeyIntervalTable();
+  else if (currentMode==="joystick_sequence") h += renderJoyKeyDelayTable();
+  else if (currentMode==="joystick_hold") h += renderJoyHoldConfig();
   s.innerHTML = h;
 }
 
@@ -2334,6 +2380,106 @@ function renderHoldDetail() {
   s.innerHTML = h;
 }
 
+function renderJoyKeyIntervalTable() {
+  var h = '<div style="margin-bottom:4px;font-size:10px;color:var(--text-muted);">🎮 手柄按键 → 间隔（每个按键独立循环发送）</div>';
+  for (var i=0;i<editorConfig.joyKeys.length;i++) {
+    h += '<div class="key-row"><input class="input key-cell" value="'+escHtml(editorConfig.joyKeys[i])+'" data-action="pickJoyKey" data-idx="'+i+'" readonly>';
+    h += '<input class="input interval-cell" value="'+(editorConfig.joyIntervals[i]||50)+'" type="number" min="10" max="60000" data-action="setJoyInterval" data-idx="'+i+'">';
+    h += '<span class="unit-label">ms</span><button class="del-btn" data-action="deleteJoyKey" data-idx="'+i+'">×</button></div>';
+  }
+  h += '<button class="btn-add" data-action="addJoyKey" style="margin-top:4px;">+ 添加手柄按键</button>';
+  h += renderJoySendOptions();
+  return h;
+}
+
+function renderJoyKeyDelayTable() {
+  var h = '<div style="margin-bottom:4px;font-size:10px;color:var(--text-muted);">🎮 手柄按键 → 延迟（按顺序发送，每步之间等待）</div>';
+  for (var i=0;i<editorConfig.joyKeys.length;i++) {
+    h += '<div class="key-row"><input class="input key-cell" value="'+escHtml(editorConfig.joyKeys[i])+'" data-action="pickJoyKey" data-idx="'+i+'" readonly>';
+    h += '<input class="input interval-cell" value="'+(editorConfig.joyDelays[i]||100)+'" type="number" min="10" max="60000" data-action="setJoyDelay" data-idx="'+i+'">';
+    h += '<span class="unit-label">ms</span><button class="del-btn" data-action="deleteJoyKey" data-idx="'+i+'">×</button></div>';
+  }
+  h += '<button class="btn-add" data-action="addJoyKey" style="margin-top:4px;">+ 添加手柄按键</button>';
+  h += renderJoySendOptions();
+  return h;
+}
+
+function renderJoyHoldConfig() {
+  var h = '<div style="margin-bottom:4px;font-size:10px;color:var(--text-muted);">🎮 长按手柄按键</div>';
+  for (var i=0;i<editorConfig.joyKeys.length;i++) {
+    h += '<div class="key-row"><input class="input key-cell" value="'+escHtml(editorConfig.joyKeys[i])+'" data-action="pickJoyKey" data-idx="'+i+'" readonly>';
+    h += '<button class="del-btn" data-action="deleteJoyKey" data-idx="'+i+'">×</button></div>';
+  }
+  h += '<button class="btn-add" data-action="addJoyKey" style="margin-top:4px;">+ 添加手柄按键</button>';
+  h += renderJoySendOptions();
+  return h;
+}
+
+function renderJoySendOptions() {
+  var h = '<div class="form-row" style="margin-top:10px;"><span class="form-label">发送方式</span><div class="form-field"><select class="input" id="joySendMethod" style="width:140px;" onchange="pushUndoState();editorConfig.joySendMethod=this.value;updatePreview()">';
+  h += '<option value="auto"'+(editorConfig.joySendMethod==="auto"?" selected":"")+'>自动（优先vJoy）</option>';
+  h += '<option value="vjoy"'+(editorConfig.joySendMethod==="vjoy"?" selected":"")+'>vJoy API</option>';
+  h += '<option value="direct"'+(editorConfig.joySendMethod==="direct"?" selected":"")+'>直接发送(Send)</option>';
+  h += '</select></div></div>';
+  h += '<div class="form-row"><span class="form-label">按键时长</span><div class="form-field"><div style="display:flex;align-items:center;gap:4px;">';
+  h += '<input class="input" id="joyKeyDuration" value="'+(editorConfig.joyKeyDuration||15)+'" type="number" min="5" max="100" style="width:60px;text-align:center;" onchange="pushUndoState();var v=parseInt(this.value);editorConfig.joyKeyDuration=(v>0?v:15);updatePreview()">';
+  h += '<span class="unit-label">ms</span><span style="color:var(--text-muted);font-size:9px;margin-left:4px;">(5-100)</span></div></div></div>';
+  return h;
+}
+
+var JOY_KEY_GROUPS = [
+  {section:"按钮",keys:["Joy1","Joy2","Joy3","Joy4","Joy5","Joy6","Joy7","Joy8","Joy9","Joy10","Joy11","Joy12","Joy13","Joy14","Joy15","Joy16"]},
+  {section:"POV方向",keys:["JoyPOV_UP","JoyPOV_DOWN","JoyPOV_LEFT","JoyPOV_RIGHT"]},
+  {section:"左摇杆",keys:["JoyX_LEFT","JoyX_RIGHT","JoyY_UP","JoyY_DOWN"]},
+  {section:"右摇杆",keys:["JoyR_LEFT","JoyR_RIGHT","JoyU_UP","JoyU_DOWN"]},
+  {section:"扳机",keys:["JoyZ_DOWN","JoyV_DOWN"]}
+];
+
+function openJoyKeyPicker(target) { 
+  joyKeyPickerTarget = target; 
+  document.getElementById("joyKeyPickerOverlay").classList.add("show"); 
+  renderJoyKeyGrid(); 
+}
+
+function closeJoyKeyPicker() { 
+  document.getElementById("joyKeyPickerOverlay").classList.remove("show"); 
+  joyKeyPickerTarget = null; 
+}
+
+function renderJoyKeyGrid() {
+  var grid = document.getElementById("joyKeyGrid");
+  if (!grid) return;
+  var h = '';
+  for (var g=0; g<JOY_KEY_GROUPS.length; g++) {
+    var group = JOY_KEY_GROUPS[g];
+    h += '<div class="key-group"><div class="key-group-label">'+escHtml(group.section)+'</div><div class="key-group-items">';
+    for (var k=0; k<group.keys.length; k++) {
+      h += '<button class="key-chip" data-action="selectJoyKey" data-key="'+escAttr(group.keys[k])+'">🎮 '+escHtml(group.keys[k])+'</button>';
+    }
+    h += '</div></div>';
+  }
+  grid.innerHTML = h;
+}
+
+function addJoyKeyField() { 
+  pushUndoState(); 
+  editorConfig.joyKeys.push("?"); 
+  if (currentMode==="joystick_periodic") editorConfig.joyIntervals.push(50);
+  else if (currentMode==="joystick_sequence") editorConfig.joyDelays.push(100);
+  renderConfigSection(); 
+  updatePreview(); 
+}
+
+function deleteJoyKeyField(i) { 
+  if (editorConfig.joyKeys.length <= 1) { showToast("至少保留一个手柄按键","error"); return; }
+  pushUndoState(); 
+  editorConfig.joyKeys.splice(i,1); 
+  if (currentMode==="joystick_periodic") editorConfig.joyIntervals.splice(i,1);
+  else if (currentMode==="joystick_sequence") editorConfig.joyDelays.splice(i,1);
+  renderConfigSection(); 
+  updatePreview(); 
+}
+
 function addKeyTo(keysField, valsField) { pushUndoState(); editorConfig[keysField].push("?"); editorConfig[valsField].push(valsField==="delays"||valsField==="pressDelays"?100:50); renderConfigSection(); updatePreview(); }
 function deleteKeyFrom(keysField, valsField, i) { if(editorConfig[keysField].length<=1){showToast("至少保留一个按键","error");return;} pushUndoState(); editorConfig[keysField].splice(i,1); editorConfig[valsField].splice(i,1); renderConfigSection(); updatePreview(); }
 function addSubGroup() { pushUndoState(); editorConfig.groups.push({type:"periodic",pressKeys:["?"],intervals:[50]}); renderConfigSection(); updatePreview(); }
@@ -2349,6 +2495,20 @@ function updatePreview() {
   if (currentMode==="hold") {
     for(var i=0;i<editorConfig.holdKeys.length;i++){if(i>0)h+='<span class="timeline-arrow">+</span>';h+='<span class="timeline-hold">'+escHtml(editorConfig.holdKeys[i])+' ⏳</span>';}
     if(editorConfig.holdDuration>0){h+='<span class="timeline-arrow">→</span><span class="timeline-time">'+editorConfig.holdDuration+'ms</span>';if(editorConfig.autoRepeat)h+='<span class="timeline-loop">↻ 重复('+editorConfig.repeatInterval+'ms)</span>';}else h+='<span class="timeline-loop">持续</span>';
+    tl.innerHTML=h; return;
+  }
+  if (currentMode==="joystick_periodic") {
+    for(var i=0;i<editorConfig.joyKeys.length;i++){if(i>0)h+='<span class="timeline-arrow">·</span>';h+='<span class="timeline-key">🎮'+escHtml(editorConfig.joyKeys[i])+'</span><span class="timeline-time">'+(editorConfig.joyIntervals[i]||50)+'ms</span><span class="timeline-loop">↻</span>';}
+    tl.innerHTML=h; return;
+  }
+  if (currentMode==="joystick_sequence") {
+    for(var i=0;i<editorConfig.joyKeys.length;i++){if(i>0)h+='<span class="timeline-time">'+(editorConfig.joyDelays[i-1]||100)+'ms</span><span class="timeline-arrow">→</span>';h+='<span class="timeline-key">🎮'+escHtml(editorConfig.joyKeys[i])+'</span>';}
+    h+='<span class="timeline-time">'+(editorConfig.joyDelays[editorConfig.joyKeys.length-1]||100)+'ms</span><span class="timeline-loop">↻ 循环</span>';
+    tl.innerHTML=h; return;
+  }
+  if (currentMode==="joystick_hold") {
+    for(var i=0;i<editorConfig.joyKeys.length;i++){if(i>0)h+='<span class="timeline-arrow">+</span>';h+='<span class="timeline-hold">🎮'+escHtml(editorConfig.joyKeys[i])+' ⏳</span>';}
+    h+='<span class="timeline-loop">持续</span>';
     tl.innerHTML=h; return;
   }
   var isH=currentMode==="hybrid"||currentMode==="enhanced_hybrid";
@@ -2443,6 +2603,18 @@ function saveConfig() {
   } else if(currentMode==="hold"){
     if(editorConfig.holdKeys.length===0||hasUnsetKey(editorConfig.holdKeys)){showToast("请设置所有长按键","error");return;}
     cfg.holdKeys=editorConfig.holdKeys.slice();cfg.holdDuration=Math.max(0,editorConfig.holdDuration);cfg.autoRepeat=editorConfig.autoRepeat;cfg.repeatInterval=editorConfig.repeatInterval;
+  } else if(currentMode==="joystick_periodic"){
+    if(editorConfig.joyKeys.length===0||hasUnsetKey(editorConfig.joyKeys)){showToast("请设置所有手柄按键","error");return;}
+    cfg.joyKeys=editorConfig.joyKeys.slice();cfg.joyIntervals=editorConfig.joyIntervals.slice();
+    cfg.joySendMethod=editorConfig.joySendMethod||"auto";cfg.joyKeyDuration=editorConfig.joyKeyDuration||15;
+  } else if(currentMode==="joystick_sequence"){
+    if(editorConfig.joyKeys.length===0||hasUnsetKey(editorConfig.joyKeys)){showToast("请设置所有手柄按键","error");return;}
+    cfg.joyKeys=editorConfig.joyKeys.slice();cfg.joyDelays=editorConfig.joyDelays.slice();
+    cfg.joySendMethod=editorConfig.joySendMethod||"auto";cfg.joyKeyDuration=editorConfig.joyKeyDuration||15;
+  } else if(currentMode==="joystick_hold"){
+    if(editorConfig.joyKeys.length===0||hasUnsetKey(editorConfig.joyKeys)){showToast("请设置所有手柄按键","error");return;}
+    cfg.joyKeys=editorConfig.joyKeys.slice();
+    cfg.joySendMethod=editorConfig.joySendMethod||"auto";cfg.joyKeyDuration=editorConfig.joyKeyDuration||15;
   }
 
   ahkCall("SaveConfig", JSON.stringify(cfg)).then(function(result) {

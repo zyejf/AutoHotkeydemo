@@ -29,12 +29,16 @@ InstallMouseHook()
 #Include "infrastructure\error_system.ahk"
 #Include "infrastructure\backup_core.ahk"
 #Include "infrastructure\migration_logger.ahk"
+#Include "infrastructure\joy_sender.ahk"
+#Include "infrastructure\joy_hotkey_manager.ahk"
 
 ; =================================================================
 ; 第 2 步: 加载领域层
 ; =================================================================
 #Include "domain\interfaces.ahk"
 #Include "domain\mode_registry.ahk"
+#Include "domain\joystick_executor.ahk"
+#Include "domain\joystick_input.ahk"
 #Include "domain\skill_group.ahk"
 #Include "domain\skill_manager.ahk"
 #Include "domain\key_recorder.ahk"
@@ -82,6 +86,8 @@ InitDependencies() {
     SkillManager.ConfigStore := ConfigStore
     SkillManager.OnExitCallback := () => WebView2Manager._StopAutoUpdate()
     SkillManager.RegisterEventHook(WebView2Manager)
+
+    JoyHotkeyManager.Init(1)
 }
 
 ; =================================================================
