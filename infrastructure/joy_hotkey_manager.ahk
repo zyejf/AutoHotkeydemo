@@ -21,6 +21,9 @@ class JoyHotkeyManager {
     static _connPollActive := false
     static _wasConnected := false
     static _joystickId := 1
+    static AXIS_HIGH := 70
+    static AXIS_LOW := 30
+    static TRIGGER_THRESHOLD := 60
 
     static Init(joystickId := 1) {
         JoyHotkeyManager._joystickId := joystickId
@@ -31,13 +34,15 @@ class JoyHotkeyManager {
         try {
             if JoystickInput.IsButton(joyKey) {
                 key := JoyHotkeyManager._joystickId joyKey
-                JoyHotkeyManager._registered[key] := Map("groupId", groupId, "callback", callback)
+                JoyHotkeyManager._registered[key] := Map("groupId", groupId, "callback", callback, "joyKey", joyKey)
                 Hotkey(key, (*) => JoyHotkeyManager._OnButtonPress(key), "On")
                 return true
             } else if JoystickInput.IsAxis(joyKey) || JoystickInput.IsTrigger(joyKey) {
+                JoyHotkeyManager._registered[joyKey] := Map("groupId", groupId, "callback", callback, "joyKey", joyKey)
                 JoyHotkeyManager._StartPolling()
                 return true
             } else if JoystickInput.IsPov(joyKey) {
+                JoyHotkeyManager._registered[joyKey] := Map("groupId", groupId, "callback", callback, "joyKey", joyKey)
                 JoyHotkeyManager._StartPolling()
                 return true
             }
@@ -55,10 +60,14 @@ class JoyHotkeyManager {
                 JoyHotkeyManager._registered.Delete(key)
                 try
                     Hotkey(key, "Off")
+            } else {
+                JoyHotkeyManager._registered.Delete(joyKey)
             }
         } catch as e {
             ErrorSystem.LogError("JoyHotkeyManager.UnregisterHotkey 失败: " e.Message, "ERROR", A_ThisFunc, A_LineNumber)
         }
+        if JoyHotkeyManager._registered.Count = 0
+            JoyHotkeyManager._StopPolling()
     }
 
     static UnregisterAll(groupId) {
@@ -106,6 +115,8 @@ class JoyHotkeyManager {
             return
         try {
             JoyHotkeyManager._PollPov()
+            JoyHotkeyManager._PollAxes()
+            JoyHotkeyManager._PollTriggers()
         } catch as e {
         }
     }
@@ -116,9 +127,77 @@ class JoyHotkeyManager {
             if val = ""
                 return
             if val != JoyHotkeyManager._povLastState {
+                prevDir := JoystickInput.PovToDirection(JoyHotkeyManager._povLastState)
+                newDir := JoystickInput.PovToDirection(val)
                 JoyHotkeyManager._povLastState := val
+                if prevDir != "" && prevDir != newDir
+                    JoyHotkeyManager._TriggerPovCallback(prevDir, false)
+                if newDir != ""
+                    JoyHotkeyManager._TriggerPovCallback(newDir, true)
             }
         } catch as e {
+        }
+    }
+
+    static _TriggerPovCallback(direction, isActive) {
+        if !isActive
+            return
+        povKey := "JoyPOV_" direction
+        for key, info in JoyHotkeyManager._registered {
+            if info.Has("joyKey") && info["joyKey"] = povKey {
+                try
+                    info["callback"].Call(info["groupId"])
+            }
+        }
+    }
+
+    static _PollAxes() {
+        axisKeys := ["JoyX", "JoyY", "JoyR", "JoyU"]
+        for _, axis in axisKeys {
+            try {
+                val := GetKeyState(JoyHotkeyManager._joystickId axis)
+                if val = ""
+                    continue
+                pos := Integer(val)
+                JoyHotkeyManager._CheckAxisState(axis, pos, "RIGHT", JoyHotkeyManager.AXIS_HIGH, "LEFT", JoyHotkeyManager.AXIS_LOW)
+            } catch as e {
+            }
+        }
+    }
+
+    static _CheckAxisState(axis, pos, dirHigh, thresholdHigh, dirLow, thresholdLow) {
+        highKey := axis "_" dirHigh
+        lowKey := axis "_" dirLow
+        if pos > thresholdHigh {
+            JoyHotkeyManager._TriggerJoyCallback(highKey)
+        } else if pos < thresholdLow {
+            JoyHotkeyManager._TriggerJoyCallback(lowKey)
+        }
+    }
+
+    static _PollTriggers() {
+        triggerAxes := ["JoyZ", "JoyV"]
+        for _, axis in triggerAxes {
+            try {
+                val := GetKeyState(JoyHotkeyManager._joystickId axis)
+                if val = ""
+                    continue
+                pos := Integer(val)
+                if pos > JoyHotkeyManager.TRIGGER_THRESHOLD {
+                    triggerKey := axis "_DOWN"
+                    JoyHotkeyManager._TriggerJoyCallback(triggerKey)
+                }
+            } catch as e {
+            }
+        }
+    }
+
+    static _TriggerJoyCallback(joyKey) {
+        for key, info in JoyHotkeyManager._registered {
+            if info.Has("joyKey") && info["joyKey"] = joyKey {
+                try
+                    info["callback"].Call(info["groupId"])
+            }
         }
     }
 
