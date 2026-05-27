@@ -308,8 +308,8 @@ select.input { appearance: none; cursor: pointer; }
       <div class="topbar-title" id="pageTitle">📊 仪表盘</div>
       <div class="topbar-actions">
         <button class="chip" data-action="emergencyStop" aria-label="紧急停止所有分组">🛑 紧急停止</button>
-        <button class="chip" data-action="toggleAll">🔄 全局开关</button>
-        <button class="chip" data-action="hotReload">🔁 热重载</button>
+        <button class="chip" data-action="toggleAll" aria-label="切换所有分组的启用状态">🔄 全局开关</button>
+        <button class="chip" data-action="hotReload" aria-label="重新加载配置文件">🔁 热重载</button>
       </div>
     </div>
 
@@ -339,19 +339,19 @@ select.input { appearance: none; cursor: pointer; }
           <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
             <input type="checkbox" id="selectAllGroups"> 全选
           </label>
-          <button class="btn btn-primary btn-sm" data-action="batchActivate" disabled>▶ 批量启动</button>
-          <button class="btn btn-ghost btn-sm" data-action="batchDeactivate" disabled>⏹ 批量停止</button>
-          <button class="btn btn-danger btn-sm" data-action="batchDelete" disabled>🗑 批量删除</button>
+          <button class="btn btn-primary btn-sm" data-action="batchActivate" disabled aria-label="批量启动选中的分组">▶ 批量启动</button>
+          <button class="btn btn-ghost btn-sm" data-action="batchDeactivate" disabled aria-label="批量停止选中的分组">⏹ 批量停止</button>
+          <button class="btn btn-danger btn-sm" data-action="batchDelete" disabled aria-label="批量删除选中的分组">🗑 批量删除</button>
           <span id="batchCount" style="font-size:11px;color:var(--text-muted);"></span>
-          <button class="btn btn-ghost btn-sm" data-action="exitBatchMode" style="margin-left:auto;">✕ 退出多选</button>
+          <button class="btn btn-ghost btn-sm" data-action="exitBatchMode" style="margin-left:auto;" aria-label="退出多选模式">✕ 退出多选</button>
         </div>
         <div class="section-label">分组列表</div>
         <div id="groupCards"></div>
         <div style="margin-top:12px;text-align:center;">
-          <button class="btn btn-primary" data-action="addNewGroup">+ 添加新分组</button>
-          <button class="btn btn-ghost" data-action="toggleBatchMode">☑ 多选模式</button>
-          <button class="btn btn-ghost" data-action="exportAllGroups">📤 导出全部</button>
-          <button class="btn btn-ghost" data-action="importGroups">📥 导入</button>
+          <button class="btn btn-primary" data-action="addNewGroup" aria-label="创建新技能分组">+ 添加新分组</button>
+          <button class="btn btn-ghost" data-action="toggleBatchMode" aria-label="切换到多选模式">☑ 多选模式</button>
+          <button class="btn btn-ghost" data-action="exportAllGroups" aria-label="导出所有分组配置">📤 导出全部</button>
+          <button class="btn btn-ghost" data-action="importGroups" aria-label="从文件导入分组配置">📥 导入</button>
           <input type="file" id="importFileInput" accept=".json" style="display:none;">
         </div>
       </div>
@@ -360,11 +360,11 @@ select.input { appearance: none; cursor: pointer; }
         <div class="section-label">快速模板</div>
         <div class="card" style="padding:8px;">
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <button class="btn btn-ghost btn-sm" data-action="templatePeriodic">🔄 周期按键</button>
-            <button class="btn btn-ghost btn-sm" data-action="templateSequence">📋 序列按键</button>
-            <button class="btn btn-ghost btn-sm" data-action="templateHold">✊ 长按保持</button>
-            <button class="btn btn-ghost btn-sm" data-action="templateEnhancedPeriodic">⚡ 增强周期</button>
-            <button class="btn btn-ghost btn-sm" data-action="templateEnhancedSequence">🔗 增强序列</button>
+            <button class="btn btn-ghost btn-sm" data-action="templatePeriodic" aria-label="使用周期按键模板">🔄 周期按键</button>
+            <button class="btn btn-ghost btn-sm" data-action="templateSequence" aria-label="使用序列按键模板">📋 序列按键</button>
+            <button class="btn btn-ghost btn-sm" data-action="templateHold" aria-label="使用长按保持模板">✊ 长按保持</button>
+            <button class="btn btn-ghost btn-sm" data-action="templateEnhancedPeriodic" aria-label="使用增强周期模板">⚡ 增强周期</button>
+            <button class="btn btn-ghost btn-sm" data-action="templateEnhancedSequence" aria-label="使用增强序列模板">🔗 增强序列</button>
           </div>
         </div>
         <div class="section-label">基本信息</div>
@@ -417,10 +417,10 @@ select.input { appearance: none; cursor: pointer; }
         </div>
 
         <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end;">
-          <button class="btn btn-ghost" data-action="undoEditor" title="Ctrl+Z">↩ 撤销</button>
-          <button class="btn btn-ghost" data-action="redoEditor" title="Ctrl+Y">↪ 重做</button>
-          <button class="btn btn-ghost" data-action="cancelEditor">取消</button>
-          <button class="btn btn-primary" data-action="saveConfig">保存分组</button>
+          <button class="btn btn-ghost" data-action="undoEditor" title="Ctrl+Z" aria-label="撤销编辑操作">↩ 撤销</button>
+          <button class="btn btn-ghost" data-action="redoEditor" title="Ctrl+Y" aria-label="重做编辑操作">↪ 重做</button>
+          <button class="btn btn-ghost" data-action="cancelEditor" aria-label="取消编辑返回仪表盘">取消</button>
+          <button class="btn btn-primary" data-action="saveConfig" aria-label="保存当前分组配置">保存分组</button>
         </div>
       </div>
 
