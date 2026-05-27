@@ -48,6 +48,9 @@ class KeyRecorder {
             this._InstallMouseHooks()
             this._paused := false
         } catch as e {
+            try this._hook.Stop()
+            this._hook := 0
+            this._RemoveMouseHooks()
             this._paused := true
             ErrorSystem.LogError("KeyRecorder Resume failed: " e.Message, "ERROR", A_ThisFunc, A_LineNumber)
         }

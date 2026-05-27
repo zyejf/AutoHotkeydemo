@@ -34,6 +34,8 @@ class ConfigService {
     static LoadConfig() {
         try {
             config := ImportConfigFromFile(ConfigService.configPath)
+            if IsObject(config) && ConfigService._HasErrorSignal(config)
+                ErrorSystem.LogError(ConfigService._GetErrorSignal(config), "CRITICAL", A_ThisFunc, A_LineNumber)
         } catch as e {
             JSONLogger.Log("WARNING", "加载配置失败，使用默认配置: " e.Message,
                           Map("module", "ConfigService"))
@@ -121,6 +123,9 @@ class ConfigService {
                           Map("module", "ConfigService"))
 
             config := ImportConfigFromFile(ConfigService.configPath)
+
+            if IsObject(config) && ConfigService._HasErrorSignal(config)
+                ErrorSystem.LogError(ConfigService._GetErrorSignal(config), "CRITICAL", A_ThisFunc, A_LineNumber)
 
             errors := ConfigValidator.Validate(config)
             if errors.Length > 0 {
@@ -377,6 +382,22 @@ class ConfigService {
         } catch as e {
             ErrorSystem.LogError(e.Message, "ERROR", A_ThisFunc, A_LineNumber)
         }
+    }
+
+    static _HasErrorSignal(config) {
+        if config is Map
+            return config.Has("_ERROR_SIGNAL")
+        if IsObject(config) && HasProp(config, "_ERROR_SIGNAL")
+            return true
+        return false
+    }
+
+    static _GetErrorSignal(config) {
+        if config is Map && config.Has("_ERROR_SIGNAL")
+            return config["_ERROR_SIGNAL"]
+        if IsObject(config) && HasProp(config, "_ERROR_SIGNAL")
+            return config._ERROR_SIGNAL
+        return ""
     }
 }
 

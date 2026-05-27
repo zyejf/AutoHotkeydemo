@@ -16,7 +16,8 @@
 class ConfigValidator {
     static _validModesMap := Map(
         "periodic", true, "sequence", true, "hybrid", true,
-        "enhanced_periodic", true, "enhanced_sequence", true, "enhanced_hybrid", true, "hold", true
+        "enhanced_periodic", true, "enhanced_sequence", true, "enhanced_hybrid", true, "hold", true,
+        "joystick_periodic", true, "joystick_sequence", true, "joystick_hold", true
     )
 
     static Validate(config) {
@@ -191,6 +192,40 @@ class ConfigValidator {
                     if IsNumber(si) && Number(si) < 10
                         errors.Push(Map("type", "ERROR", "message", "分组" id " seqInterval=" si " 过小，最小 10ms"))
                 }
+
+            case "joystick_periodic":
+                if !ConfigValidator._HasField(config, "joyKeys")
+                    errors.Push(Map("type", "ERROR", "message", "分组" id "手柄周期模式缺少按键(joyKeys)"))
+                else if ConfigValidator._IsFieldEmpty(config, "joyKeys")
+                    errors.Push(Map("type", "ERROR", "message", "分组" id "手柄周期模式按键(joyKeys)不能为空数组"))
+                if !ConfigValidator._HasField(config, "intervals")
+                    errors.Push(Map("type", "ERROR", "message", "分组" id "手柄周期模式缺少间隔(intervals)"))
+                else
+                    errors.Push(ConfigValidator._ValidateArrayLength(id, config, "joyKeys", "intervals", "手柄周期模式")*)
+
+            case "joystick_sequence":
+                if !ConfigValidator._HasField(config, "joyKeys")
+                    errors.Push(Map("type", "ERROR", "message", "分组" id "手柄序列模式缺少按键(joyKeys)"))
+                else if ConfigValidator._IsFieldEmpty(config, "joyKeys")
+                    errors.Push(Map("type", "ERROR", "message", "分组" id "手柄序列模式按键(joyKeys)不能为空数组"))
+                if !ConfigValidator._HasField(config, "delays")
+                    errors.Push(Map("type", "ERROR", "message", "分组" id "手柄序列模式缺少延迟(delays)"))
+                else
+                    errors.Push(ConfigValidator._ValidateArrayLength(id, config, "joyKeys", "delays", "手柄序列模式")*)
+
+            case "joystick_hold":
+                if !ConfigValidator._HasField(config, "joyKeys")
+                    errors.Push(Map("type", "ERROR", "message", "分组" id "手柄长按模式缺少按键(joyKeys)"))
+                else if ConfigValidator._IsFieldEmpty(config, "joyKeys")
+                    errors.Push(Map("type", "ERROR", "message", "分组" id "手柄长按模式按键(joyKeys)不能为空数组"))
+                if ConfigValidator._HasField(config, "holdDuration") {
+                    hd := _GetProp(config, "holdDuration")
+                    if IsNumber(hd) && Number(hd) < 50
+                        errors.Push(Map("type", "ERROR", "message", "分组" id " holdDuration=" hd " 过小，最小 50ms"))
+                }
+
+            default:
+                errors.Push(Map("type", "WARNING", "message", "分组" id " (" mode "): 未知模式类型，跳过字段级验证"))
         }
 
         if ConfigValidator._HasField(config, "holdPattern") {

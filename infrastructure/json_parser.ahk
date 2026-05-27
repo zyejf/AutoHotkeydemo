@@ -41,7 +41,9 @@ class JSONParser {
         try {
             return JSONParser.Parse(content, filePath)
         } catch as parseErr {
-            return JSONParser._GetFallbackConfig()
+            fallback := JSONParser._GetFallbackConfig()
+            fallback["_ERROR_SIGNAL"] := "[JSONParser] 配置解析失败: " . parseErr.Message . " — 已使用默认配置"
+            return fallback
         }
     }
 
