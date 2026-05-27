@@ -21,6 +21,8 @@ class JoyHotkeyManager {
     static _connPollActive := false
     static _wasConnected := false
     static _joystickId := 1
+    static _lastAxisState := Map()
+    static _lastTriggerState := Map()
     static AXIS_HIGH := 70
     static AXIS_LOW := 30
     static TRIGGER_THRESHOLD := 60
@@ -34,8 +36,15 @@ class JoyHotkeyManager {
         try {
             if JoystickInput.IsButton(joyKey) {
                 key := JoyHotkeyManager._joystickId joyKey
-                JoyHotkeyManager._registered[key] := Map("groupId", groupId, "callback", callback, "joyKey", joyKey)
-                Hotkey(key, (*) => JoyHotkeyManager._OnButtonPress(key), "On")
+                if !JoyHotkeyManager._registered.Has(key) {
+                    JoyHotkeyManager._registered[key] := []
+                    Hotkey(key, (*) => JoyHotkeyManager._OnButtonPress(key), "On")
+                }
+                for entry in JoyHotkeyManager._registered[key] {
+                    if entry["groupId"] = groupId
+                        return true
+                }
+                JoyHotkeyManager._registered[key].Push(Map("groupId", groupId, "callback", callback, "joyKey", joyKey))
                 return true
             } else if JoystickInput.IsAxis(joyKey) || JoystickInput.IsTrigger(joyKey) {
                 JoyHotkeyManager._registered[joyKey] := Map("groupId", groupId, "callback", callback, "joyKey", joyKey)
@@ -57,9 +66,27 @@ class JoyHotkeyManager {
         try {
             if JoystickInput.IsButton(joyKey) {
                 key := JoyHotkeyManager._joystickId joyKey
-                JoyHotkeyManager._registered.Delete(key)
-                try
-                    Hotkey(key, "Off")
+                if JoyHotkeyManager._registered.Has(key) {
+                    entries := JoyHotkeyManager._registered[key]
+                    if entries is Array {
+                        newEntries := []
+                        for _, info in entries {
+                            if info["groupId"] != groupId
+                                newEntries.Push(info)
+                        }
+                        if newEntries.Length = 0 {
+                            JoyHotkeyManager._registered.Delete(key)
+                            try
+                                Hotkey(key, "Off")
+                        } else {
+                            JoyHotkeyManager._registered[key] := newEntries
+                        }
+                    } else {
+                        JoyHotkeyManager._registered.Delete(key)
+                        try
+                            Hotkey(key, "Off")
+                    }
+                }
             } else {
                 JoyHotkeyManager._registered.Delete(joyKey)
             }
@@ -73,13 +100,37 @@ class JoyHotkeyManager {
     static UnregisterAll(groupId) {
         keysToRemove := []
         for key, info in JoyHotkeyManager._registered {
-            if info["groupId"] = groupId
+            if info is Array {
+                for _, entry in info {
+                    if entry["groupId"] = groupId {
+                        keysToRemove.Push(key)
+                        break
+                    }
+                }
+            } else if info["groupId"] = groupId {
                 keysToRemove.Push(key)
+            }
         }
         for key in keysToRemove {
-            JoyHotkeyManager._registered.Delete(key)
-            try
-                Hotkey(key, "Off")
+            entries := JoyHotkeyManager._registered[key]
+            if entries is Array {
+                newEntries := []
+                for _, info in entries {
+                    if info["groupId"] != groupId
+                        newEntries.Push(info)
+                }
+                if newEntries.Length = 0 {
+                    JoyHotkeyManager._registered.Delete(key)
+                    try
+                        Hotkey(key, "Off")
+                } else {
+                    JoyHotkeyManager._registered[key] := newEntries
+                }
+            } else {
+                JoyHotkeyManager._registered.Delete(key)
+                try
+                    Hotkey(key, "Off")
+            }
         }
         if JoyHotkeyManager._registered.Count = 0 {
             JoyHotkeyManager._StopPolling()
@@ -89,9 +140,17 @@ class JoyHotkeyManager {
     static _OnButtonPress(key) {
         try {
             if JoyHotkeyManager._registered.Has(key) {
-                info := JoyHotkeyManager._registered[key]
-                callback := info["callback"]
-                callback.Call(info["groupId"])
+                entries := JoyHotkeyManager._registered[key]
+                if entries is Array {
+                    for _, info in entries {
+                        try
+                            info["callback"].Call(info["groupId"])
+                    }
+                } else {
+                    info := JoyHotkeyManager._registered[key]
+                    callback := info["callback"]
+                    callback.Call(info["groupId"])
+                }
             }
         } catch as e {
             ErrorSystem.LogError("_OnButtonPress 失败: " e.Message, "ERROR", A_ThisFunc, A_LineNumber)
@@ -144,7 +203,7 @@ class JoyHotkeyManager {
             return
         povKey := "JoyPOV_" direction
         for key, info in JoyHotkeyManager._registered {
-            if info.Has("joyKey") && info["joyKey"] = povKey {
+            if info is Map && info.Has("joyKey") && info["joyKey"] = povKey {
                 try
                     info["callback"].Call(info["groupId"])
             }
@@ -168,10 +227,20 @@ class JoyHotkeyManager {
     static _CheckAxisState(axis, pos, dirHigh, thresholdHigh, dirLow, thresholdLow) {
         highKey := axis "_" dirHigh
         lowKey := axis "_" dirLow
-        if pos > thresholdHigh {
-            JoyHotkeyManager._TriggerJoyCallback(highKey)
-        } else if pos < thresholdLow {
-            JoyHotkeyManager._TriggerJoyCallback(lowKey)
+
+        lastState := JoyHotkeyManager._lastAxisState.Has(axis) ? JoyHotkeyManager._lastAxisState[axis] : 0
+        newState := 0
+        if pos > thresholdHigh
+            newState := 1
+        else if pos < thresholdLow
+            newState := -1
+
+        if newState != lastState {
+            if newState = 1
+                JoyHotkeyManager._TriggerJoyCallback(highKey)
+            else if newState = -1
+                JoyHotkeyManager._TriggerJoyCallback(lowKey)
+            JoyHotkeyManager._lastAxisState[axis] := newState
         }
     }
 
@@ -183,9 +252,16 @@ class JoyHotkeyManager {
                 if val = ""
                     continue
                 pos := Integer(val)
-                if pos > JoyHotkeyManager.TRIGGER_THRESHOLD {
-                    triggerKey := axis "_DOWN"
-                    JoyHotkeyManager._TriggerJoyCallback(triggerKey)
+
+                lastState := JoyHotkeyManager._lastTriggerState.Has(axis) ? JoyHotkeyManager._lastTriggerState[axis] : 0
+                newState := pos > JoyHotkeyManager.TRIGGER_THRESHOLD ? 1 : 0
+
+                if newState != lastState {
+                    if newState = 1 {
+                        triggerKey := axis "_DOWN"
+                        JoyHotkeyManager._TriggerJoyCallback(triggerKey)
+                    }
+                    JoyHotkeyManager._lastTriggerState[axis] := newState
                 }
             } catch as e {
             }
@@ -194,7 +270,7 @@ class JoyHotkeyManager {
 
     static _TriggerJoyCallback(joyKey) {
         for key, info in JoyHotkeyManager._registered {
-            if info.Has("joyKey") && info["joyKey"] = joyKey {
+            if info is Map && info.Has("joyKey") && info["joyKey"] = joyKey {
                 try
                     info["callback"].Call(info["groupId"])
             }
@@ -220,6 +296,7 @@ class JoyHotkeyManager {
                     ErrorSystem.LogError("手柄已断开连接", "WARNING", A_ThisFunc, A_LineNumber)
             }
         } catch as e {
+            ErrorSystem.LogError("_PollConnection 轮询异常: " e.Message, "ERROR", A_ThisFunc, A_LineNumber)
         }
     }
 

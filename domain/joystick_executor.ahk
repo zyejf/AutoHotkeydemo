@@ -27,8 +27,12 @@ class JoystickPeriodicExecutor extends IExecutor {
             joyKeys := group.joyKeys
             joyIntervals := group.joyIntervals
             sendMethod := group.joySendMethod
-            keyDuration := group.joyKeyDuration
-            minRemaining := 0x7FFFFFFF
+        keyDuration := group.joyKeyDuration
+
+        if joyKeys.Length = 0
+            return 100
+
+        minRemaining := 0x7FFFFFFF
 
             if !group.HasProp("_joyLastTriggerTimes")
                 group._joyLastTriggerTimes := Map()

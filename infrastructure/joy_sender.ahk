@@ -28,20 +28,22 @@ class JoySender {
 
     static _DetectVJoy() {
         try {
-            DllCall("LoadLibrary", "Str", "vJoyInterface.dll", "Ptr")
-            DllCall("FreeLibrary", "Ptr", DllCall("GetModuleHandle", "Str", "vJoyInterface.dll", "Ptr"))
-            JoySender._vJoyDll := "vJoyInterface.dll"
-            return true
+            hModule := DllCall("LoadLibrary", "Str", "vJoyInterface.dll", "Ptr")
+            if hModule {
+                JoySender._vJoyDll := "vJoyInterface.dll"
+                return true
+            }
         } catch {
-            try {
-                DllCall("LoadLibrary", "Str", A_WinDir "\System32\vJoyInterface.dll", "Ptr")
-                DllCall("FreeLibrary", "Ptr", DllCall("GetModuleHandle", "Str", A_WinDir "\System32\vJoyInterface.dll", "Ptr"))
+        }
+        try {
+            hModule := DllCall("LoadLibrary", "Str", A_WinDir "\System32\vJoyInterface.dll", "Ptr")
+            if hModule {
                 JoySender._vJoyDll := A_WinDir "\System32\vJoyInterface.dll"
                 return true
-            } catch {
-                return false
             }
+        } catch {
         }
+        return false
     }
 
     static ResolveMethod(method) {
