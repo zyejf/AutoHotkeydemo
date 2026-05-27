@@ -11,6 +11,8 @@
 #Warn Unreachable, OutputDebug
 #Warn LocalSameAsGlobal, Off
 
+#Include "error_system.ahk"
+
 class JoySender {
     static _vJoyAvailable := -1
     static _vJoyDeviceId := 1
@@ -58,8 +60,11 @@ class JoySender {
             else
                 JoySender._DirectSendBtn(btnNum, state)
         } catch as e {
-            if method = "auto" && resolved = "vjoy"
+            ErrorSystem.LogError("JoySender.SendBtn vJoy发送失败，回退direct: " e.Message, "WARNING", A_ThisFunc, A_LineNumber)
+            try {
                 JoySender._DirectSendBtn(btnNum, state)
+            } catch as e2 {
+            }
         }
     }
 
