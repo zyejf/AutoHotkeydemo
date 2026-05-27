@@ -102,12 +102,12 @@ class JoyHotkeyManager {
         if JoyHotkeyManager._pollActive
             return
         JoyHotkeyManager._pollActive := true
-        SetTimer(JoyHotkeyManager._Poll, 50)
+        SetTimer(() => JoyHotkeyManager._Poll(), 50)
     }
 
     static _StopPolling() {
         JoyHotkeyManager._pollActive := false
-        SetTimer(JoyHotkeyManager._Poll, 0)
+        SetTimer(() => JoyHotkeyManager._Poll(), 0)
     }
 
     static _Poll() {
@@ -206,7 +206,7 @@ class JoyHotkeyManager {
             return
         JoyHotkeyManager._connPollActive := true
         JoyHotkeyManager._wasConnected := JoystickInput.IsJoystickConnected()
-        SetTimer(JoyHotkeyManager._PollConnection, 30000)
+        SetTimer(() => JoyHotkeyManager._PollConnection(), 30000)
     }
 
     static _PollConnection() {
