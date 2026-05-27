@@ -75,6 +75,7 @@ class JoySender {
             if resolved = "vjoy"
                 JoySender._VJoySetPov(povVal)
         } catch as e {
+            ErrorSystem.LogError("JoySender.SendPov 失败: " e.Message, "WARNING", A_ThisFunc, A_LineNumber)
         }
     }
 
@@ -84,6 +85,7 @@ class JoySender {
             if resolved = "vjoy"
                 JoySender._VJoySetAxis(axis, value)
         } catch as e {
+            ErrorSystem.LogError("JoySender.SendAxis 失败: " e.Message, "WARNING", A_ThisFunc, A_LineNumber)
         }
     }
 
