@@ -38,6 +38,9 @@ class ConfigService {
             JSONLogger.Log("WARNING", "加载配置失败，使用默认配置: " e.Message,
                           Map("module", "ConfigService"))
             ErrorSystem.LogError(e.Message, "WARNING", A_ThisFunc, A_LineNumber)
+
+            try FileCopy(ConfigService.configPath, ConfigService.configPath ".bak", 1)
+
             config := ConfigService._GetDefaultConfig()
             ConfigService._SaveToFile(config)
         }
@@ -127,39 +130,41 @@ class ConfigService {
 
             ConfigService.SkillManager.Emergency()
 
-            waitStart := A_TickCount
-            loop {
-                try {
-                    if ConfigService.SkillManager.GetTimerCount() <= 0
+            try {
+                waitStart := A_TickCount
+                loop {
+                    try {
+                        if ConfigService.SkillManager.GetTimerCount() <= 0
+                            break
+                    } catch {
                         break
-                } catch {
-                    break
+                    }
+                    if (A_TickCount - waitStart) >= 500
+                        break
+                    Sleep(10)
                 }
-                if (A_TickCount - waitStart) >= 500
-                    break
-                Sleep(10)
-            }
 
-            ConfigService.SkillManager.ResetEmergency()
+                ConfigService.ConfigStore.Save(config)
 
-            ConfigService.ConfigStore.Save(config)
-
-            groupSettings := ConfigService.ConfigStore.Get("GroupSettings")
-            if groupSettings && (groupSettings is Map) && groupSettings.Count > 0 {
-                ConfigService.SkillManager.Init(groupSettings)
-                ConfigService._Notify("热重载成功: " groupSettings.Count " 个分组", "success", 3000)
-            } else {
-                ids := []
-                for id in ConfigService.SkillManager.Groups
-                    ids.Push(id)
-                for id in ids {
-                    try
-                        ConfigService.SkillManager.DeleteGroup(id)
+                groupSettings := ConfigService.ConfigStore.Get("GroupSettings")
+                if groupSettings && (groupSettings is Map) && groupSettings.Count > 0 {
+                    ConfigService.SkillManager.Init(groupSettings)
+                    ConfigService._Notify("热重载成功: " groupSettings.Count " 个分组", "success", 3000)
+                } else {
+                    ids := []
+                    for id in ConfigService.SkillManager.Groups
+                        ids.Push(id)
+                    for id in ids {
+                        try
+                            ConfigService.SkillManager.DeleteGroup(id)
+                    }
+                    ConfigService._Notify("热重载完成，但未找到有效分组", "warning", 3000)
                 }
-                ConfigService._Notify("热重载完成，但未找到有效分组", "warning", 3000)
-            }
 
-            ConfigService.SkillManager.InvalidateHoldSettingsCache()
+                ConfigService.SkillManager.InvalidateHoldSettingsCache()
+            } finally {
+                ConfigService.SkillManager.ResetEmergency()
+            }
 
             JSONLogger.Log("DEBUG", "热重载成功",
                           Map("module", "ConfigService"))
@@ -183,37 +188,39 @@ class ConfigService {
         try {
             ConfigService.SkillManager.Emergency()
 
-            waitStart := A_TickCount
-            loop {
-                try {
-                    if ConfigService.SkillManager.GetTimerCount() <= 0
+            try {
+                waitStart := A_TickCount
+                loop {
+                    try {
+                        if ConfigService.SkillManager.GetTimerCount() <= 0
+                            break
+                    } catch {
                         break
-                } catch {
-                    break
+                    }
+                    if (A_TickCount - waitStart) >= 500
+                        break
+                    Sleep(10)
                 }
-                if (A_TickCount - waitStart) >= 500
-                    break
-                Sleep(10)
-            }
 
-            ConfigService.SkillManager.ResetEmergency()
+                ConfigService.ConfigStore.Save(config)
 
-            ConfigService.ConfigStore.Save(config)
-
-            groupSettings := ConfigService.ConfigStore.Get("GroupSettings")
-            if groupSettings && (groupSettings is Map) && groupSettings.Count > 0 {
-                ConfigService.SkillManager.Init(groupSettings)
-            } else {
-                ids := []
-                for id in ConfigService.SkillManager.Groups
-                    ids.Push(id)
-                for id in ids {
-                    try
-                        ConfigService.SkillManager.DeleteGroup(id)
+                groupSettings := ConfigService.ConfigStore.Get("GroupSettings")
+                if groupSettings && (groupSettings is Map) && groupSettings.Count > 0 {
+                    ConfigService.SkillManager.Init(groupSettings)
+                } else {
+                    ids := []
+                    for id in ConfigService.SkillManager.Groups
+                        ids.Push(id)
+                    for id in ids {
+                        try
+                            ConfigService.SkillManager.DeleteGroup(id)
+                    }
                 }
-            }
 
-            ConfigService.SkillManager.InvalidateHoldSettingsCache()
+                ConfigService.SkillManager.InvalidateHoldSettingsCache()
+            } finally {
+                ConfigService.SkillManager.ResetEmergency()
+            }
 
             JSONLogger.Log("DEBUG", "配置已回滚",
                           Map("module", "ConfigService"))

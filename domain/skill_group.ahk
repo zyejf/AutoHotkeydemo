@@ -303,6 +303,8 @@ class SkillGroup {
                 return this.periodicKeys.Length = 0 && this.seqKeys.Length = 0
             case "hold":
                 return this.holdKeys.Length = 0
+            case "joystick_periodic", "joystick_sequence", "joystick_hold":
+                return this.joyKeys.Length = 0
             default:
                 SkillGroup._Log("WARN", "_HasEmptyKeyArrays: unhandled mode=" this.mode)
                 return false

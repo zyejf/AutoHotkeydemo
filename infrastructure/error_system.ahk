@@ -198,6 +198,9 @@ class ErrorSystem {
 
             jsonLine := this._ToJsonLine(record)
 
+            if StrLen(jsonLine) > 65536
+                jsonLine := SubStr(jsonLine, 1, 65536) . ',"_truncated":true}'
+
             try {
                 FileAppend(jsonLine "`n", this.logFile, "UTF-8")
             } catch {

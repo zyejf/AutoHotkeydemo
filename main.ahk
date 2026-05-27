@@ -128,6 +128,9 @@ try {
 
         try {
             UIManager.Init()
+            TrayManager.Init()
+            ConfigService.SaveConfig()
+            WebView2Manager.Show()
             UIManager.Notify("启动异常，已加载默认配置", "warning", 5000)
         } catch {
             TrayTip("技能管理器", "启动异常，已加载默认配置", 0x10)
