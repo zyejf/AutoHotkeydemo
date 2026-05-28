@@ -11,6 +11,8 @@
 #Warn Unreachable, OutputDebug
 #Warn LocalSameAsGlobal, Off
 
+#Include "..\lib\ahk2_lib\deepclone.ahk"
+
 class ConfigStore {
     static _groupSettings := Map()
     static _controlHotkeys := Map()
@@ -25,9 +27,9 @@ class ConfigStore {
         config := Map()
         for mk, mv in this._metadata
             config[mk] := mv
-        config["GroupSettings"] := this._groupSettings
-        config["CONTROL_HOTKEYS"] := this._controlHotkeys
-        config["HoldSettings"] := this._holdSettings
+        config["GroupSettings"] := deepclone(this._groupSettings)
+        config["CONTROL_HOTKEYS"] := deepclone(this._controlHotkeys)
+        config["HoldSettings"] := deepclone(this._holdSettings)
         return config
     }
 
@@ -64,11 +66,11 @@ class ConfigStore {
     static Get(key, default := "") {
         switch key {
             case "GroupSettings":
-                return this._groupSettings
+                return deepclone(this._groupSettings)
             case "CONTROL_HOTKEYS":
-                return this._controlHotkeys
+                return deepclone(this._controlHotkeys)
             case "HoldSettings":
-                return this._holdSettings
+                return deepclone(this._holdSettings)
             default:
                 if this._metadata.Has(key)
                     return this._metadata[key]
@@ -96,7 +98,9 @@ class ConfigStore {
     }
 
     static Has(key) {
-        return key = "GroupSettings" || key = "CONTROL_HOTKEYS" || key = "HoldSettings"
+        if key = "GroupSettings" || key = "CONTROL_HOTKEYS" || key = "HoldSettings"
+            return true
+        return this._metadata.Has(key)
     }
 
     ; =================================================================
@@ -104,7 +108,7 @@ class ConfigStore {
     ; =================================================================
     static GetGroupConfig(groupId, default := "") {
         if this._groupSettings.Has(groupId)
-            return this._groupSettings[groupId]
+            return deepclone(this._groupSettings[groupId])
         return default
     }
 
@@ -272,6 +276,14 @@ class ConfigStore {
                 "holdDuration", 700,
                 "autoRepeat", false,
                 "repeatInterval", 1000
+            ),
+            "7", Map(
+                "hotkey", "Joy1",
+                "mode", "joystick_periodic",
+                "joyKeys", ["Joy1", "Joy2"],
+                "joyIntervals", [100, 100],
+                "joySendMethod", "auto",
+                "joyKeyDuration", 50
             )
         )
     }

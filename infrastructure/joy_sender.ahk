@@ -66,6 +66,7 @@ class JoySender {
             try {
                 JoySender._DirectSendBtn(btnNum, state)
             } catch as e2 {
+                ErrorSystem.LogError("JoySender.SendBtn direct回退也失败 btn=" btnNum " state=" state " err=" e2.Message, "WARNING", A_ThisFunc, A_LineNumber)
             }
         }
     }
@@ -76,6 +77,8 @@ class JoySender {
             povVal := JoySender._PovDirectionToValue(direction)
             if resolved = "vjoy"
                 JoySender._VJoySetPov(povVal)
+            else
+                ErrorSystem.LogError("JoySender.SendPov: direct模式不支持POV发送 direction=" direction, "WARNING", A_ThisFunc, A_LineNumber)
         } catch as e {
             ErrorSystem.LogError("JoySender.SendPov 失败: " e.Message, "WARNING", A_ThisFunc, A_LineNumber)
         }
@@ -86,6 +89,8 @@ class JoySender {
         try {
             if resolved = "vjoy"
                 JoySender._VJoySetAxis(axis, value)
+            else
+                ErrorSystem.LogError("JoySender.SendAxis: direct模式不支持轴发送 axis=" axis, "WARNING", A_ThisFunc, A_LineNumber)
         } catch as e {
             ErrorSystem.LogError("JoySender.SendAxis 失败: " e.Message, "WARNING", A_ThisFunc, A_LineNumber)
         }

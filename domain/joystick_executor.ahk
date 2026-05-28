@@ -27,7 +27,7 @@ class JoystickPeriodicExecutor extends IExecutor {
             joyKeys := group.joyKeys
             joyIntervals := group.joyIntervals
             sendMethod := group.joySendMethod
-        keyDuration := group.joyKeyDuration
+            keyDuration := group.joyKeyDuration
 
         if joyKeys.Length = 0
             return 100
@@ -49,8 +49,10 @@ class JoystickPeriodicExecutor extends IExecutor {
                 elapsed := now - group._joyLastTriggerTimes[i]
                 threshold := interval - Max(1, Round(interval * 0.05))
                 if elapsed >= threshold {
-                    JoystickExecutor._SendJoyKey(k, "down", sendMethod)
-                    SetTimer(() => JoystickExecutor._SendJoyKey(k, "up", sendMethod), -keyDuration)
+                    capturedKey := k
+                    capturedMethod := sendMethod
+                    JoystickExecutor._SendJoyKey(capturedKey, "down", capturedMethod)
+                    SetTimer(((ck, cm) => () => JoystickExecutor._SendJoyKey(ck, "up", cm))(capturedKey, capturedMethod), -keyDuration)
                     group._joyLastTriggerTimes[i] := group._joyLastTriggerTimes[i] + interval
                     if group._joyLastTriggerTimes[i] < A_TickCount - interval
                         group._joyLastTriggerTimes[i] := A_TickCount
@@ -99,8 +101,10 @@ class JoystickSequenceExecutor extends IExecutor {
             }
 
             k := joyKeys[step]
-            JoystickExecutor._SendJoyKey(k, "down", sendMethod)
-            SetTimer(() => JoystickExecutor._SendJoyKey(k, "up", sendMethod), -keyDuration)
+            capturedKey := k
+            capturedMethod := sendMethod
+            JoystickExecutor._SendJoyKey(capturedKey, "down", capturedMethod)
+            SetTimer(((ck, cm) => () => JoystickExecutor._SendJoyKey(ck, "up", cm))(capturedKey, capturedMethod), -keyDuration)
             group._joyCurrentStep := Mod(step, joyKeys.Length) + 1
 
             nextDelay := (group._joyCurrentStep <= joyDelays.Length) ? joyDelays[group._joyCurrentStep] : 100
@@ -181,7 +185,10 @@ class JoystickExecutor {
                     JoySender.SendBtn(JoystickInput.GetButtonNum(k), false, sendMethod)
                 } else if JoystickInput.IsPov(k) {
                     JoySender.SendPov("CENTER", sendMethod)
-                } else if JoystickInput.IsAxis(k) || JoystickInput.IsTrigger(k) {
+                } else if JoystickInput.IsTrigger(k) {
+                    info := JoystickInput.GetAxisInfo(k)
+                    JoySender.SendAxis(info["axis"], 0, sendMethod)
+                } else if JoystickInput.IsAxis(k) {
                     info := JoystickInput.GetAxisInfo(k)
                     JoySender.SendAxis(info["axis"], 50, sendMethod)
                 }
