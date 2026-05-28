@@ -25,15 +25,16 @@ class JSONSerializer {
             if visited.Has(ptr)
                 return '"<circular>"'
             visited[ptr] := true
-
-            if value is Map
-                result := this._StringifyObject(value, indent, currentIndent, visited)
-            else if value is Array
-                result := this._StringifyArray(value, indent, currentIndent, visited)
-            else
-                result := this._StringifyObject(value, indent, currentIndent, visited)
-
-            visited.Delete(ptr)
+            try {
+                if value is Map
+                    result := this._StringifyObject(value, indent, currentIndent, visited)
+                else if value is Array
+                    result := this._StringifyArray(value, indent, currentIndent, visited)
+                else
+                    result := this._StringifyObject(value, indent, currentIndent, visited)
+            } finally {
+                visited.Delete(ptr)
+            }
             return result
         } else if value is String {
             return '"' this._EscapeString(value) '"'
@@ -97,24 +98,30 @@ class JSONSerializer {
     }
 
     static _EscapeString(str) {
-        str := StrReplace(str, '\', '\\')
-        str := StrReplace(str, '"', '\"')
-        str := StrReplace(str, "`n", "\n")
-        str := StrReplace(str, "`r", "\r")
-        str := StrReplace(str, "`t", "\t")
-        str := StrReplace(str, "`b", "\b")
-        str := StrReplace(str, "`f", "\f")
         result := ""
         pos := 1
         len := StrLen(str)
         while pos <= len {
             c := SubStr(str, pos, 1)
             code := Ord(c)
-            if code < 32 && code != 10 && code != 13 && code != 9 && code != 8 && code != 12 {
+            if code = 8
+                result .= "\b"
+            else if code = 9
+                result .= "\t"
+            else if code = 10
+                result .= "\n"
+            else if code = 12
+                result .= "\f"
+            else if code = 13
+                result .= "\r"
+            else if code = 34
+                result .= "\`""
+            else if code = 92
+                result .= "\\"
+            else if code < 32
                 result .= "\u" Format("{:04X}", code)
-            } else {
+            else
                 result .= c
-            }
             pos++
         }
         return result
