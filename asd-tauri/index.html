@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>技能管理器 v3.0</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <nav class="nav" role="navigation" aria-label="主导航">
+        <div class="nav-header">
+          <div class="nav-logo">
+            <div class="nav-logo-icon">⚡</div>
+            <div><div class="nav-logo-text">技能管理器</div><div class="nav-logo-ver">v3.0 Tauri</div></div>
+          </div>
+        </div>
+        <div class="nav-items">
+          <div class="nav-item active" data-page="dashboard">
+            <span class="icon">📊</span> 仪表盘
+          </div>
+          <div class="nav-item" data-page="editor">
+            <span class="icon">✏️</span> 分组编辑
+          </div>
+          <div class="nav-divider"></div>
+          <div class="nav-item" data-page="settings">
+            <span class="icon">⚙️</span> 全局设置
+          </div>
+          <div class="nav-item" data-page="debug">
+            <span class="icon">🐛</span> 调试监控
+          </div>
+          <div class="nav-item" data-page="backup">
+            <span class="icon">💾</span> 备份管理
+          </div>
+          <div class="nav-item" data-page="keytest">
+            <span class="icon">🧪</span> 按键测试
+          </div>
+        </div>
+        <div class="nav-footer">
+          <div class="nav-status">
+            <div class="nav-status-dot" id="statusDot"></div>
+            <span id="statusText">就绪</span>
+          </div>
+        </div>
+      </nav>
+
+      <div class="main">
+        <div class="topbar">
+          <div class="topbar-title" id="pageTitle">📊 仪表盘</div>
+          <div class="topbar-actions">
+            <button class="chip" data-action="emergencyStop" aria-label="紧急停止所有分组">🛑 紧急停止</button>
+            <button class="chip" data-action="toggleAll" aria-label="切换所有分组的启用状态">🔄 全局开关</button>
+            <button class="chip" data-action="hotReload" aria-label="重新加载配置文件">🔁 热重载</button>
+          </div>
+        </div>
+
+        <div class="content">
+
+          <div class="page active" id="page-dashboard">
+            <div class="stat-grid">
+              <div class="stat-card"><div class="stat-value" id="statTotal">0</div><div class="stat-label">总分组</div></div>
+              <div class="stat-card"><div class="stat-value" style="color:var(--success)" id="statRunning">0</div><div class="stat-label">运行中</div></div>
+              <div class="stat-card"><div class="stat-value" style="color:var(--warning)" id="statTimers">0</div><div class="stat-label">活跃定时器</div></div>
+              <div class="stat-card"><div class="stat-value" style="color:var(--info)" id="statUptime">0s</div><div class="stat-label">运行时间</div></div>
+            </div>
+            <div style="margin:12px 0;display:flex;gap:8px;align-items:center;">
+              <input class="input" id="groupSearch" placeholder="搜索分组名称、热键、模式..." style="flex:1;max-width:320px;">
+              <select class="input" id="groupFilter" style="width:120px;padding:4px 8px;">
+                <option value="all">全部</option>
+                <option value="active">运行中</option>
+                <option value="stopped">已停止</option>
+                <option value="periodic">周期性</option>
+                <option value="sequence">序列</option>
+                <option value="hold">长按</option>
+                <option value="enhanced_periodic">增强周期</option>
+                <option value="enhanced_sequence">增强序列</option>
+              </select>
+            </div>
+            <div id="batchToolbar" style="display:none;margin-bottom:8px;display:flex;gap:8px;align-items:center;">
+              <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
+                <input type="checkbox" id="selectAllGroups"> 全选
+              </label>
+              <button class="btn btn-primary btn-sm" data-action="batchActivate" disabled aria-label="批量启动选中的分组">▶ 批量启动</button>
+              <button class="btn btn-ghost btn-sm" data-action="batchDeactivate" disabled aria-label="批量停止选中的分组">⏹ 批量停止</button>
+              <button class="btn btn-danger btn-sm" data-action="batchDelete" disabled aria-label="批量删除选中的分组">🗑 批量删除</button>
+              <span id="batchCount" style="font-size:11px;color:var(--text-muted);"></span>
+              <button class="btn btn-ghost btn-sm" data-action="exitBatchMode" style="margin-left:auto;" aria-label="退出多选模式">✕ 退出多选</button>
+            </div>
+            <div class="section-label">分组列表</div>
+            <div id="groupCards"></div>
+            <div style="margin-top:12px;text-align:center;">
+              <button class="btn btn-primary" data-action="addNewGroup" aria-label="创建新技能分组">+ 添加新分组</button>
+              <button class="btn btn-ghost" data-action="toggleBatchMode" aria-label="切换到多选模式">☑ 多选模式</button>
+              <button class="btn btn-ghost" data-action="exportAllGroups" aria-label="导出所有分组配置">📤 导出全部</button>
+              <button class="btn btn-ghost" data-action="importGroups" aria-label="从文件导入分组配置">📥 导入</button>
+              <input type="file" id="importFileInput" accept=".json" style="display:none;">
+            </div>
+          </div>
+
+          <div class="page" id="page-editor">
+            <div class="section-label">快速模板</div>
+            <div class="card" style="padding:8px;">
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <button class="btn btn-ghost btn-sm" data-action="templatePeriodic" aria-label="使用周期按键模板">🔄 周期按键</button>
+                <button class="btn btn-ghost btn-sm" data-action="templateSequence" aria-label="使用序列按键模板">📋 序列按键</button>
+                <button class="btn btn-ghost btn-sm" data-action="templateHold" aria-label="使用长按保持模板">✊ 长按保持</button>
+                <button class="btn btn-ghost btn-sm" data-action="templateEnhancedPeriodic" aria-label="使用增强周期模板">⚡ 增强周期</button>
+                <button class="btn btn-ghost btn-sm" data-action="templateEnhancedSequence" aria-label="使用增强序列模板">🔗 增强序列</button>
+              </div>
+            </div>
+            <div class="section-label">基本信息</div>
+            <div class="form-row">
+              <span class="form-label">ID</span>
+              <div class="form-field"><input class="input" id="idInput" placeholder="分组标识" style="width:100px;"><div class="validation-msg" id="idError"></div></div>
+            </div>
+            <div class="form-row">
+              <span class="form-label">名称</span>
+              <div class="form-field"><input class="input" id="groupName" placeholder="显示名称（默认=ID）" style="width:100%;"></div>
+            </div>
+            <div class="form-row">
+              <span class="form-label">热键</span>
+              <div class="form-field"><div style="display:flex;align-items:center;gap:8px;"><div class="hotkey-badge" id="hotkeyDisp" data-action="captureHotkey">点击设置</div><span style="color:var(--text-muted);font-size:10px;">点击后按键绑定</span></div></div>
+            </div>
+            <div class="form-row">
+              <span class="form-label">按键时长</span>
+              <div class="form-field"><div style="display:flex;align-items:center;gap:4px;"><input class="input" id="keyPressDuration" value="15" type="number" min="5" max="100" style="width:60px;text-align:center;"><span class="unit-label">ms</span><span style="color:var(--text-muted);font-size:9px;margin-left:4px;">(5-100)</span></div></div>
+            </div>
+
+            <div class="section-label" style="margin-top:16px;">执行模式</div>
+            <div class="mode-group"><div class="mode-group-label">基础模式</div><div class="mode-pills"><span class="mode-pill" data-mode="periodic" data-action="pickMode">🔄 周期性</span><span class="mode-pill" data-mode="sequence" data-action="pickMode">📋 序列</span><span class="mode-pill" data-mode="hybrid" data-action="pickMode">🔀 混合</span></div></div>
+            <div class="mode-group"><div class="mode-group-label">增强模式 <span class="enhance-badge">+ 长按键</span></div><div class="mode-pills"><span class="mode-pill" data-mode="enhanced_periodic" data-action="pickMode">🔄 增强周期</span><span class="mode-pill" data-mode="enhanced_sequence" data-action="pickMode">📋 增强序列</span><span class="mode-pill" data-mode="enhanced_hybrid" data-action="pickMode">🔀 增强混合</span></div></div>
+            <div class="mode-group"><div class="mode-group-label">特殊模式</div><div class="mode-pills"><span class="mode-pill" data-mode="hold" data-action="pickMode">⏳ 长按</span></div></div>
+            <div class="mode-group"><div class="mode-group-label">🎮 手柄模式 <span class="enhance-badge">NEW</span></div><div class="mode-pills"><span class="mode-pill" data-mode="joystick_periodic" data-action="pickMode">🎮 手柄周期</span><span class="mode-pill" data-mode="joystick_sequence" data-action="pickMode">🎮 手柄序列</span><span class="mode-pill" data-mode="joystick_hold" data-action="pickMode">🎮 手柄长按</span></div></div>
+            <div class="mode-desc" id="modeDesc">选择执行模式</div>
+
+            <div id="configSection" style="margin-top:12px;"></div>
+            <div id="holdSection" style="display:none;margin-top:12px;">
+              <div class="section-label">长按键 <span class="enhance-badge">增强模式专属</span></div>
+              <div class="form-row"><span class="form-label">长按键</span><div class="form-field" id="holdKeysContainer"></div></div>
+              <div class="form-row"><span class="form-label">长按模式</span><div class="form-field"><select class="input" id="holdModeSelect" style="width:160px;" onchange="pushUndoState();editorConfig.holdMode=this.value;renderHoldDetail();updatePreview();">
+                <option value="continuous">持续按住</option>
+                <option value="periodic">周期按压</option>
+                <option value="sequence">序列触发</option>
+              </select></div></div>
+              <div id="holdDetailSection"></div>
+            </div>
+
+            <div style="margin-top:12px;">
+              <div class="section-label">执行预览</div>
+              <div class="preview-card"><div class="preview-label">按热键启动后</div><div class="timeline" id="previewTimeline"></div></div>
+            </div>
+
+            <div class="section-label" style="margin-top:16px;">关于</div>
+            <div class="card" style="text-align:center;padding:16px;">
+              <div style="font-size:18px;font-weight:bold;margin-bottom:4px;">技能管理器</div>
+              <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">版本 3.0 | Tauri + AHK v2</div>
+              <div style="font-size:11px;color:var(--text-muted);">多模式按键自动化工具 — 周期/序列/混合/长按/增强模式</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">快捷键: Ctrl+Z 撤销 | Ctrl+Y 重做 | Ctrl+S 保存 | Esc 关闭弹窗</div>
+            </div>
+
+            <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end;">
+              <button class="btn btn-ghost" data-action="undoEditor" title="Ctrl+Z" aria-label="撤销编辑操作">↩ 撤销</button>
+              <button class="btn btn-ghost" data-action="redoEditor" title="Ctrl+Y" aria-label="重做编辑操作">↪ 重做</button>
+              <button class="btn btn-ghost" data-action="cancelEditor" aria-label="取消编辑返回仪表盘">取消</button>
+              <button class="btn btn-primary" data-action="saveConfig" aria-label="保存当前分组配置">保存分组</button>
+            </div>
+          </div>
+
+          <div class="page" id="page-settings">
+            <div class="section-label">外观</div>
+            <div class="card">
+              <div class="form-row"><span class="form-label">主题</span><div class="form-field" style="display:flex;gap:8px;align-items:center;">
+                <button class="btn btn-primary btn-sm" data-action="toggleTheme" id="themeBtn">🌙 暗色</button>
+                 <span style="font-size:10px;color:var(--text-muted);">切换暗色/亮色主题</span>
+               </div></div>
+               <div class="form-row"><span class="form-label">语言</span><div class="form-field" style="display:flex;gap:8px;align-items:center;">
+                 <select class="input" id="langSelect" style="width:120px;padding:4px 8px;">
+                   <option value="zh">中文</option>
+                   <option value="en">English</option>
+                 </select>
+               </div></div>
+            </div>
+            <div class="section-label">控制热键</div>
+            <div class="card">
+              <div class="form-row"><span class="form-label">紧急停止</span><div class="form-field"><div style="display:flex;gap:4px;align-items:center;"><input class="input hotkey-input" id="hkEmergency" value="F12" style="width:120px;"><button class="btn btn-ghost btn-sm capture-btn" data-capture="hkEmergency">⌨</button></div><div class="validation-msg" id="hkEmergencyError"></div></div></div>
+              <div class="form-row"><span class="form-label">全局开关</span><div class="form-field"><div style="display:flex;gap:4px;align-items:center;"><input class="input hotkey-input" id="hkToggleAll" value="^1" style="width:120px;"><button class="btn btn-ghost btn-sm capture-btn" data-capture="hkToggleAll">⌨</button></div><div class="validation-msg" id="hkToggleAllError"></div></div></div>
+              <div class="form-row"><span class="form-label">显示状态</span><div class="form-field"><div style="display:flex;gap:4px;align-items:center;"><input class="input hotkey-input" id="hkShowStatus" value="^0" style="width:120px;"><button class="btn btn-ghost btn-sm capture-btn" data-capture="hkShowStatus">⌨</button></div><div class="validation-msg" id="hkShowStatusError"></div></div></div>
+              <div class="form-row"><span class="form-label">长按开关</span><div class="form-field"><div style="display:flex;gap:4px;align-items:center;"><input class="input hotkey-input" id="hkToggleHold" value="^h" style="width:120px;"><button class="btn btn-ghost btn-sm capture-btn" data-capture="hkToggleHold">⌨</button></div><div class="validation-msg" id="hkToggleHoldError"></div></div></div>
+              <div class="form-row"><span class="form-label">释放长按</span><div class="form-field"><div style="display:flex;gap:4px;align-items:center;"><input class="input hotkey-input" id="hkReleaseHolds" value="^r" style="width:120px;"><button class="btn btn-ghost btn-sm capture-btn" data-capture="hkReleaseHolds">⌨</button></div><div class="validation-msg" id="hkReleaseHoldsError"></div></div></div>
+            </div>
+
+            <div class="section-label" style="margin-top:16px;">长按设置</div>
+            <div class="card">
+              <div class="form-row"><span class="form-label">防抖延迟</span><div class="form-field"><div style="display:flex;align-items:center;gap:4px;"><input class="input" id="hsDebounce" value="20" type="number" style="width:80px;text-align:center;"><span class="unit-label">ms</span></div></div></div>
+              <div class="form-row"><span class="form-label">检查间隔</span><div class="form-field"><div style="display:flex;align-items:center;gap:4px;"><input class="input" id="hsCheckInterval" value="50" type="number" style="width:80px;text-align:center;"><span class="unit-label">ms</span></div></div></div>
+              <div class="form-row"><span class="form-label">按键速率</span><div class="form-field"><div style="display:flex;align-items:center;gap:4px;"><input class="input" id="hsPressSpeed" value="80" type="number" style="width:80px;text-align:center;"><span class="unit-label">ms</span></div></div></div>
+              <div class="form-row"><span class="form-label">共享长按键</span><div class="form-field"><div style="display:flex;align-items:center;gap:8px;"><div class="toggle" id="hsAllowOverlap" data-action="toggleOverlap"></div><span style="font-size:10px;color:var(--text-muted);">允许多组共享同一长按键</span></div></div></div>
+              <div class="form-row"><span class="form-label">紧急释放</span><div class="form-field"><div style="display:flex;align-items:center;gap:8px;"><div class="toggle on" id="hsReleaseOnEmergency" data-action="toggleRelease"></div><span style="font-size:10px;color:var(--text-muted);">紧急停止时释放所有长按键</span></div></div></div>
+            </div>
+
+            <div class="section-label" style="margin-top:16px;">配置导入/导出</div>
+            <div class="card">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-primary btn-sm" data-action="exportConfig">📤 导出配置</button>
+                <button class="btn btn-ghost btn-sm" data-action="importConfig">📥 导入配置</button>
+                <input type="file" id="importFileInput" accept=".json" style="display:none;">
+              </div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:6px;">导入前将自动创建备份</div>
+            </div>
+
+            <div class="section-label" style="margin-top:16px;">配置差异比较</div>
+            <div class="card">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <select class="input" id="diffBase" style="width:160px;padding:4px 8px;font-size:11px;">
+                  <option value="">选择基准配置</option>
+                </select>
+                <span style="color:var(--text-muted);font-size:11px;">vs</span>
+                <select class="input" id="diffTarget" style="width:160px;padding:4px 8px;font-size:11px;">
+                  <option value="">选择目标配置</option>
+                </select>
+                <button class="btn btn-primary btn-sm" data-action="compareConfig">比较</button>
+              </div>
+              <div id="diffResult" style="margin-top:8px;font-size:11px;max-height:200px;overflow-y:auto;"></div>
+            </div>
+
+            <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end;">
+              <button class="btn btn-ghost" data-action="cancelSettings">取消</button>
+              <button class="btn btn-primary" data-action="saveSettings">保存设置</button>
+            </div>
+          </div>
+
+          <div class="page" id="page-debug">
+            <div class="stat-grid" style="grid-template-columns:repeat(3,1fr);">
+              <div class="stat-card"><div class="stat-value" style="color:var(--success)" id="dbgActive">0</div><div class="stat-label">活跃分组</div></div>
+              <div class="stat-card"><div class="stat-value" style="color:var(--warning)" id="dbgTimers">0</div><div class="stat-label">定时器数</div></div>
+              <div class="stat-card"><div class="stat-value" style="color:var(--info)" id="dbgErrors">0</div><div class="stat-label">错误数</div></div>
+            </div>
+            <div class="section-label">实时日志</div>
+            <div class="card" style="max-height:400px;overflow-y:auto;font-family:'Cascadia Code','Consolas',monospace;" id="logContainer">
+              <div class="log-line debug"><span class="log-time">00:00:00</span>系统启动</div>
+            </div>
+            <div style="margin-top:8px;display:flex;gap:6px;">
+              <button class="btn btn-ghost btn-sm" data-action="clearLogs">清空日志</button>
+              <button class="btn btn-ghost btn-sm" data-action="toggleAutoScroll">自动滚动: 开</button>
+            </div>
+
+            <div class="section-label" style="margin-top:16px;">性能监控</div>
+            <div class="card" style="padding:12px;">
+              <canvas id="perfChart" style="width:100%;height:120px;"></canvas>
+              <div style="display:flex;gap:16px;margin-top:8px;font-size:11px;color:var(--text-secondary);">
+                <span>运行时间: <span id="perfUptime">0s</span></span>
+                <span>定时器: <span id="perfTimers">0</span></span>
+                <span>活动分组: <span id="perfActive">0</span></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="page" id="page-backup">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+              <div class="section-label" style="margin-bottom:0;">备份列表</div>
+              <button class="btn btn-primary btn-sm" data-action="createBackup">+ 创建备份</button>
+            </div>
+            <div id="backupList"></div>
+          </div>
+
+          <div class="page" id="page-keytest">
+            <div class="keytest-tabs" style="display:flex;gap:8px;margin-bottom:16px;">
+              <button class="btn btn-primary btn-sm keytest-tab active" data-tab="record">🎹 录制</button>
+              <button class="btn btn-ghost btn-sm keytest-tab" data-tab="validate">✅ 验证</button>
+            </div>
+
+            <div class="keytest-panel" id="panel-record">
+              <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
+                <label style="font-size:13px;color:var(--text-secondary);">录制分组:</label>
+                <select class="input" id="recGroupId" style="width:200px;padding:4px 8px;"></select>
+                <button class="btn btn-ghost btn-sm" data-action="refreshGroupList">🔄</button>
+              </div>
+              <div style="display:flex;gap:8px;margin-bottom:12px;">
+                <button class="btn btn-primary btn-sm" data-action="startRecording">⏺ 开始录制</button>
+                <button class="btn btn-ghost btn-sm" data-action="pauseRecording" disabled>⏸ 暂停</button>
+                <button class="btn btn-ghost btn-sm" data-action="stopRecording" disabled>⏹ 停止录制</button>
+                <button class="btn btn-ghost btn-sm" data-action="exportRecording" disabled>📤 导出配置</button>
+                <button class="btn btn-ghost btn-sm" data-action="clearRecording" disabled>🗑 清除</button>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
+                <label style="font-size:13px;color:var(--text-secondary);">导出模式:</label>
+                <select class="input" id="exportMode" style="width:120px;padding:4px 8px;">
+                  <option value="periodic">周期性</option>
+                  <option value="sequence">序列</option>
+                  <option value="hold">长按</option>
+                  <option value="enhanced_periodic">增强周期</option>
+                  <option value="enhanced_sequence">增强序列</option>
+                </select>
+                <label style="font-size:13px;color:var(--text-secondary);">按键时长(ms):</label>
+                <input class="input" id="exportKeyPressDuration" type="number" value="15" min="5" max="100" style="width:80px;padding:4px 8px;">
+              </div>
+              <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">
+                录制事件: <span id="recEventCount">0</span> | 状态: <span id="recStatus">就绪</span>
+              </div>
+              <div style="background:var(--bg-secondary);border-radius:8px;padding:8px;margin-bottom:12px;">
+                <canvas id="recTimeline" style="width:100%;height:200px;"></canvas>
+              </div>
+              <div id="recStats" style="display:flex;gap:12px;margin-bottom:12px;font-size:12px;">
+                <div class="glass" style="padding:6px 12px;border-radius:6px;">按键: <span id="statKeyCount">0</span></div>
+                <div class="glass" style="padding:6px 12px;border-radius:6px;">平均间隔: <span id="statAvgInterval">-</span>ms</div>
+                <div class="glass" style="padding:6px 12px;border-radius:6px;">总时长: <span id="statDuration">0</span>ms</div>
+                <div class="glass" style="padding:6px 12px;border-radius:6px;">键盘/鼠标: <span id="statDeviceRatio">0/0</span></div>
+              </div>
+              <div id="recEventList" style="max-height:200px;overflow-y:auto;font-size:12px;font-family:monospace;"></div>
+            </div>
+
+            <div class="keytest-panel" id="panel-validate" style="display:none;">
+              <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
+                <label style="font-size:13px;color:var(--text-secondary);">选择分组:</label>
+                <select class="input" id="validateGroupId" style="width:200px;padding:4px 8px;"></select>
+                <button class="btn btn-ghost btn-sm" data-action="refreshGroupList">🔄</button>
+              </div>
+              <div style="display:flex;gap:8px;margin-bottom:12px;">
+                <button class="btn btn-primary btn-sm" data-action="startValidation">▶ 开始验证</button>
+                <button class="btn btn-ghost btn-sm" data-action="stopValidation" disabled>⏹ 停止验证</button>
+              </div>
+              <div id="valLiveStats" style="display:none;background:var(--bg-secondary);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12px;">
+                <span>事件: <b id="valLiveCount">0</b></span> |
+                <span>发送率: <b id="valLiveRate">-</b></span> |
+                <span>平均偏差: <b id="valLiveAvgDev">-</b></span> |
+                <span>最差偏差: <b id="valLiveMaxDev">-</b></span> |
+                <span>时长: <b id="valLiveDuration">0</b>s</span>
+              </div>
+              <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">
+                验证事件: <span id="valEventCount">0</span> | 状态: <span id="valStatus">就绪</span>
+              </div>
+              <div style="background:var(--bg-secondary);border-radius:8px;padding:8px;margin-bottom:12px;">
+                <canvas id="valTimeline" style="width:100%;height:200px;"></canvas>
+              </div>
+              <div id="valEventList" style="max-height:150px;overflow-y:auto;font-size:12px;font-family:monospace;margin-bottom:12px;"></div>
+              <div id="valReport" style="display:none;">
+                <div class="section-label" style="margin-bottom:8px;">验证报告</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                  <div style="background:var(--bg-secondary);border-radius:8px;padding:8px;">
+                    <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;">综合评分</div>
+                    <canvas id="radarCanvas" style="width:100%;height:220px;"></canvas>
+                  </div>
+                  <div style="background:var(--bg-secondary);border-radius:8px;padding:8px;">
+                    <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;">偏差分布</div>
+                    <canvas id="deviationCanvas" style="width:100%;height:220px;"></canvas>
+                  </div>
+                </div>
+                <div style="background:var(--bg-secondary);border-radius:8px;padding:8px;margin-bottom:12px;">
+                  <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;">间隔对比</div>
+                  <canvas id="intervalCanvas" style="width:100%;height:200px;"></canvas>
+                </div>
+                <div style="background:var(--bg-secondary);border-radius:8px;padding:8px;">
+                  <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;">长按时序</div>
+                  <canvas id="holdCanvas" style="width:100%;height:160px;"></canvas>
+                </div>
+              </div>
+              <div style="margin-top:12px;">
+                <div class="section-label" style="margin-bottom:8px;">验证历史</div>
+                <div id="valHistoryList" style="max-height:150px;overflow-y:auto;font-size:12px;"></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="overlay" id="keyPickerOverlay">
+      <div class="picker-panel glass">
+        <div class="picker-header"><span class="picker-title">选择按键</span><button class="picker-close" data-action="closeKeyPicker">×</button></div>
+        <div style="margin-bottom:10px;"><input class="input" id="keySearch" placeholder="搜索按键..." oninput="filterKeys()"></div>
+        <div class="picker-grid" id="keyGrid"></div>
+      </div>
+    </div>
+    <div class="overlay" id="joyKeyPickerOverlay">
+      <div class="picker-panel glass">
+        <div class="picker-header"><span class="picker-title">🎮 选择手柄按键</span><button class="picker-close" data-action="closeJoyKeyPicker">×</button></div>
+        <div class="picker-grid" id="joyKeyGrid"></div>
+      </div>
+    </div>
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

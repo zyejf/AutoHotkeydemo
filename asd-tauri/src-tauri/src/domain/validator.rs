@@ -1,0 +1,1391 @@
+use crate::domain::config::{GroupConfig, ModeData};
+use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationError {
+    pub group_id: String,
+    pub field: String,
+    pub message: String,
+}
+
+impl std::fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}] {}: {}", self.group_id, self.field, self.message)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationResult {
+    pub valid: bool,
+    pub errors: Vec<ValidationError>,
+    pub warnings: Vec<String>,
+}
+
+impl ValidationResult {
+    pub fn new() -> Self {
+        Self {
+            valid: true,
+            errors: Vec::new(),
+            warnings: Vec::new(),
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.errors.is_empty()
+    }
+
+    pub fn add_error(&mut self, group_id: &str, field: &str, message: &str) {
+        self.valid = false;
+        self.errors.push(ValidationError {
+            group_id: group_id.to_string(),
+            field: field.to_string(),
+            message: message.to_string(),
+        });
+    }
+
+    pub fn add_warning(&mut self, message: &str) {
+        self.warnings.push(message.to_string());
+    }
+}
+
+impl Default for ValidationResult {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct ConfigValidator;
+
+impl ConfigValidator {
+    pub fn validate(groups: &IndexMap<String, GroupConfig>) -> ValidationResult {
+        let mut result = ValidationResult::new();
+
+        if groups.is_empty() {
+            result.add_warning("配置中没有分组");
+        }
+
+        Self::validate_duplicate_hotkeys(groups, &mut result);
+
+        for (id, group) in groups {
+            Self::validate_hotkey_format(id, &group.hotkey, &mut result);
+
+            if group.hotkey.is_empty() {
+                result.add_error(id, "hotkey", "热键不能为空");
+            }
+
+            if group.mode.is_empty() {
+                result.add_error(id, "mode", "模式不能为空");
+                continue;
+            }
+
+            Self::validate_mode_data(id, &group.mode, &group.mode_data, &mut result);
+            Self::validate_cross_fields(id, group, &mut result);
+        }
+
+        result
+    }
+
+    fn validate_hotkey_format(group_id: &str, hotkey: &str, result: &mut ValidationResult) {
+        if hotkey.is_empty() {
+            return;
+        }
+
+        let valid_prefixes = ["^", "!", "+", "#", "~", "*"];
+        let has_modifier = valid_prefixes.iter().any(|p| hotkey.starts_with(p));
+        let rest = if has_modifier {
+            &hotkey[1..]
+        } else {
+            hotkey
+        };
+
+        let valid_keys = [
+            "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+            "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+            "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
+            "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
+            "Space", "Enter", "Esc", "Tab", "Backspace", "Delete", "Insert",
+            "Up", "Down", "Left", "Right",
+            "Home", "End", "PgUp", "PgDn",
+            "LButton", "RButton", "MButton",
+        ];
+
+        if !valid_keys.contains(&rest) {
+            result.add_warning(&format!(
+                "[{}] 热键 '{}' 格式可能不正确，请确认是否为有效的 AHK 热键",
+                group_id, hotkey
+            ));
+        }
+    }
+
+    fn validate_duplicate_hotkeys(
+        groups: &IndexMap<String, GroupConfig>,
+        result: &mut ValidationResult,
+    ) {
+        let mut seen: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+        for (id, group) in groups {
+            if group.hotkey.is_empty() {
+                continue;
+            }
+            if let Some(prev_id) = seen.get(group.hotkey.as_str()) {
+                result.add_error(
+                    id,
+                    "hotkey",
+                    &format!("热键 '{}' 与分组 '{}' 重复", group.hotkey, prev_id),
+                );
+            } else {
+                seen.insert(&group.hotkey, id);
+            }
+        }
+    }
+
+    fn validate_cross_fields(
+        group_id: &str,
+        group: &GroupConfig,
+        result: &mut ValidationResult,
+    ) {
+        if group.mode == "hold"
+            && (group.hold_keys.is_none() || group.hold_keys.as_ref().is_none_or(|k| k.is_empty())) {
+                result.add_warning(&format!(
+                    "[{}] hold 模式建议设置 holdKeys", group_id
+                ));
+            }
+
+        if group.hold_keys.is_some() && group.hold_mode.is_none() {
+            result.add_warning(&format!(
+                "[{}] 设置了 holdKeys 但未指定 holdMode", group_id
+            ));
+        }
+
+        if let Some(ref hold_keys) = group.hold_keys {
+            if hold_keys.len() > 4 {
+                result.add_warning(&format!(
+                    "[{}] holdKeys 数量 ({}) 较多，可能影响操作精度",
+                    group_id, hold_keys.len()
+                ));
+            }
+        }
+
+        if let Some(duration) = group.key_press_duration {
+            if duration > 1000 {
+                result.add_warning(&format!(
+                    "[{}] keyPressDuration ({}ms) 过大，通常应小于 1000ms",
+                    group_id, duration
+                ));
+            }
+        }
+    }
+
+    fn validate_mode_data(
+        group_id: &str,
+        mode: &str,
+        mode_data: &ModeData,
+        result: &mut ValidationResult,
+    ) {
+        match mode {
+            "periodic" => {
+                if let ModeData::Periodic(data) = mode_data {
+                    if data.keys.is_empty() {
+                        result.add_error(group_id, "keys", "periodic 模式需要至少一个按键");
+                    }
+                    if data.intervals.is_empty() {
+                        result.add_error(group_id, "intervals", "periodic 模式需要至少一个间隔");
+                    }
+                    if data.intervals.contains(&0) {
+                        result.add_error(group_id, "intervals", "间隔不能为 0");
+                    }
+                } else {
+                    result.add_error(group_id, "mode_data", "periodic 模式数据类型不匹配");
+                }
+            }
+            "sequence" => {
+                if let ModeData::Sequence(data) = mode_data {
+                    if data.keys.is_empty() {
+                        result.add_error(group_id, "keys", "sequence 模式需要至少一个按键");
+                    }
+                    if data.delays.is_empty() {
+                        result.add_error(group_id, "delays", "sequence 模式需要至少一个延迟");
+                    }
+                } else {
+                    result.add_error(group_id, "mode_data", "sequence 模式数据类型不匹配");
+                }
+            }
+            "hybrid" => {
+                if let ModeData::Hybrid(data) = mode_data {
+                    if data.groups.is_empty() {
+                        result.add_error(group_id, "groups", "hybrid 模式需要至少一个子组");
+                    }
+                } else {
+                    result.add_error(group_id, "mode_data", "hybrid 模式数据类型不匹配");
+                }
+            }
+            "hold" => {
+                if let ModeData::Hold(data) = mode_data {
+                    if data.hold_duration == 0 {
+                        result.add_error(group_id, "holdDuration", "hold 模式持续时间不能为 0");
+                    }
+                } else {
+                    result.add_error(group_id, "mode_data", "hold 模式数据类型不匹配");
+                }
+            }
+            "enhanced_periodic" => {
+                if let ModeData::EnhancedPeriodic(data) = mode_data {
+                    if data.press_keys.is_empty() {
+                        result.add_error(group_id, "pressKeys", "enhanced_periodic 模式需要至少一个按键");
+                    }
+                    if data.intervals.is_empty() {
+                        result.add_error(group_id, "intervals", "enhanced_periodic 模式需要至少一个间隔");
+                    }
+                } else {
+                    result.add_error(group_id, "mode_data", "enhanced_periodic 模式数据类型不匹配");
+                }
+            }
+            "enhanced_sequence" => {
+                if let ModeData::EnhancedSequence(data) = mode_data {
+                    if data.press_keys.is_empty() {
+                        result.add_error(group_id, "pressKeys", "enhanced_sequence 模式需要至少一个按键");
+                    }
+                    if data.press_delays.is_empty() {
+                        result.add_error(group_id, "pressDelays", "enhanced_sequence 模式需要至少一个延迟");
+                    }
+                } else {
+                    result.add_error(group_id, "mode_data", "enhanced_sequence 模式数据类型不匹配");
+                }
+            }
+            "enhanced_hybrid" => {
+                if let ModeData::EnhancedHybrid(data) = mode_data {
+                    if data.groups.is_empty() {
+                        result.add_error(group_id, "groups", "enhanced_hybrid 模式需要至少一个子组");
+                    }
+                } else {
+                    result.add_error(group_id, "mode_data", "enhanced_hybrid 模式数据类型不匹配");
+                }
+            }
+            "joystick_periodic" => {
+                if let ModeData::JoystickPeriodic(data) = mode_data {
+                    if data.press_keys.is_empty() {
+                        result.add_error(group_id, "pressKeys", "joystick_periodic 模式需要至少一个按键");
+                    }
+                } else {
+                    result.add_error(group_id, "mode_data", "joystick_periodic 模式数据类型不匹配");
+                }
+            }
+            "joystick_sequence" => {
+                if let ModeData::JoystickSequence(data) = mode_data {
+                    if data.press_keys.is_empty() {
+                        result.add_error(group_id, "pressKeys", "joystick_sequence 模式需要至少一个按键");
+                    }
+                } else {
+                    result.add_error(group_id, "mode_data", "joystick_sequence 模式数据类型不匹配");
+                }
+            }
+            "joystick_hold" => {
+                if let ModeData::JoystickHold(data) = mode_data {
+                    if data.hold_duration.unwrap_or(0) == 0 {
+                        result.add_warning(&format!("[{}] joystick_hold 模式未设置 holdDuration", group_id));
+                    }
+                } else {
+                    result.add_error(group_id, "mode_data", "joystick_hold 模式数据类型不匹配");
+                }
+            }
+            _ => {
+                result.add_error(group_id, "mode", &format!("未知模式: {mode}"));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::config::*;
+    use indexmap::IndexMap;
+
+    fn make_periodic_group() -> GroupConfig {
+        GroupConfig {
+            hotkey: "F1".to_string(),
+            key_press_duration: None,
+            name: Some("test".to_string()),
+            mode: "periodic".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        }
+    }
+
+    fn make_empty_periodic_group() -> GroupConfig {
+        GroupConfig {
+            hotkey: "F1".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "periodic".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec![],
+                intervals: vec![],
+            }),
+        }
+    }
+
+    fn make_hybrid_group() -> GroupConfig {
+        GroupConfig {
+            hotkey: "F2".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "hybrid".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Hybrid(HybridData {
+                groups: vec![],
+                seq_interval: None,
+            }),
+        }
+    }
+
+    fn make_hold_group() -> GroupConfig {
+        GroupConfig {
+            hotkey: "F3".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "hold".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Hold(HoldData {
+                hold_duration: 0,
+                auto_repeat: None,
+                repeat_interval: None,
+            }),
+        }
+    }
+
+    fn make_enhanced_periodic_group() -> GroupConfig {
+        GroupConfig {
+            hotkey: "F4".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "enhanced_periodic".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::EnhancedPeriodic(EnhancedPeriodicData {
+                press_keys: vec!["Space".to_string()],
+                intervals: vec![50],
+            }),
+        }
+    }
+
+    fn make_enhanced_sequence_group() -> GroupConfig {
+        GroupConfig {
+            hotkey: "F5".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "enhanced_sequence".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::EnhancedSequence(EnhancedSequenceData {
+                press_keys: vec!["1".to_string()],
+                press_delays: vec![100],
+            }),
+        }
+    }
+
+    fn make_enhanced_hybrid_group() -> GroupConfig {
+        GroupConfig {
+            hotkey: "F6".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "enhanced_hybrid".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::EnhancedHybrid(EnhancedHybridData {
+                groups: vec![GroupItem::Periodic {
+                    press_keys: vec!["1".to_string()],
+                    intervals: vec![50],
+                }],
+                seq_interval: None,
+            }),
+        }
+    }
+
+    fn make_unknown_mode_group() -> GroupConfig {
+        GroupConfig {
+            hotkey: "F7".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "unknown_mode".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        }
+    }
+
+    #[test]
+    fn test_valid_periodic_config() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), make_periodic_group());
+        let result = ConfigValidator::validate(&groups);
+        assert!(result.is_valid(), "有效配置不应有错误: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_empty_keys_periodic() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), make_empty_periodic_group());
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "keys"));
+        assert!(result.errors.iter().any(|e| e.field == "intervals"));
+    }
+
+    #[test]
+    fn test_empty_hybrid_groups() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), make_hybrid_group());
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "groups"));
+    }
+
+    #[test]
+    fn test_hold_zero_duration() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), make_hold_group());
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "holdDuration"));
+    }
+
+    #[test]
+    fn test_unknown_mode() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), make_unknown_mode_group());
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "mode"));
+    }
+
+    #[test]
+    fn test_empty_config_warning() {
+        let groups = IndexMap::new();
+        let result = ConfigValidator::validate(&groups);
+        assert!(result.is_valid());
+        assert!(!result.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_valid_enhanced_modes() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), make_enhanced_periodic_group());
+        groups.insert("2".to_string(), make_enhanced_sequence_group());
+        groups.insert("3".to_string(), make_enhanced_hybrid_group());
+        let result = ConfigValidator::validate(&groups);
+        assert!(result.is_valid(), "增强模式配置不应有错误: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_validation_error_display() {
+        let err = ValidationError {
+            group_id: "1".to_string(),
+            field: "keys".to_string(),
+            message: "不能为空".to_string(),
+        };
+        assert_eq!(format!("{err}"), "[1] keys: 不能为空");
+    }
+
+    #[test]
+    fn test_validation_result_serialization() {
+        let mut result = ValidationResult::new();
+        result.add_error("1", "hotkey", "不能为空");
+        result.add_warning("测试警告");
+        let json = serde_json::to_string(&result).unwrap();
+        let decoded: ValidationResult = serde_json::from_str(&json).unwrap();
+        assert!(!decoded.valid);
+        assert_eq!(decoded.errors.len(), 1);
+        assert_eq!(decoded.warnings.len(), 1);
+    }
+
+    #[test]
+    fn test_validation_result_default() {
+        let result = ValidationResult::default();
+        assert!(result.is_valid());
+        assert!(result.valid);
+    }
+
+    #[test]
+    fn test_duplicate_hotkey_detection() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), make_periodic_group());
+        groups.insert("2".to_string(), GroupConfig {
+            hotkey: "F1".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "periodic".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["2".to_string()],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "hotkey" && e.message.contains("重复")));
+    }
+
+    #[test]
+    fn test_hold_mode_without_hold_keys_warning() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F3".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "hold".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Hold(HoldData {
+                hold_duration: 500,
+                auto_repeat: None,
+                repeat_interval: None,
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(result.warnings.iter().any(|w| w.contains("holdKeys")));
+    }
+
+    #[test]
+    fn test_hold_keys_without_hold_mode_warning() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F1".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "periodic".to_string(),
+            hold_keys: Some(vec!["Shift".to_string()]),
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(result.warnings.iter().any(|w| w.contains("holdMode")));
+    }
+
+    #[test]
+    fn test_large_key_press_duration_warning() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F1".to_string(),
+            key_press_duration: Some(2000),
+            name: None,
+            mode: "periodic".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(result.warnings.iter().any(|w| w.contains("keyPressDuration")));
+    }
+
+    #[test]
+    fn test_invalid_hotkey_format_warning() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "INVALID_KEY".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "periodic".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(result.warnings.iter().any(|w| w.contains("格式可能不正确")));
+    }
+
+    #[test]
+    fn test_valid_hotkey_format_no_warning() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), make_periodic_group());
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.warnings.iter().any(|w| w.contains("格式可能不正确")));
+    }
+
+    // ---- 新增：sequence 模式校验 ----
+
+    fn make_sequence_group() -> GroupConfig {
+        GroupConfig {
+            hotkey: "F2".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "sequence".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Sequence(SequenceData {
+                keys: vec!["1".to_string(), "2".to_string()],
+                delays: vec![100, 200],
+            }),
+        }
+    }
+
+    #[test]
+    fn test_valid_sequence_config() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), make_sequence_group());
+        let result = ConfigValidator::validate(&groups);
+        assert!(result.is_valid(), "有效 sequence 配置不应有错误: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_sequence_empty_keys() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F2".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "sequence".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Sequence(SequenceData {
+                keys: vec![],
+                delays: vec![100],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "keys" && e.message.contains("sequence")));
+    }
+
+    #[test]
+    fn test_sequence_empty_delays() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F2".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "sequence".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Sequence(SequenceData {
+                keys: vec!["1".to_string()],
+                delays: vec![],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "delays"));
+    }
+
+    // ---- 新增：enhanced_periodic 空字段校验 ----
+
+    #[test]
+    fn test_enhanced_periodic_empty_keys() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F4".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "enhanced_periodic".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::EnhancedPeriodic(EnhancedPeriodicData {
+                press_keys: vec![],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "pressKeys"));
+    }
+
+    #[test]
+    fn test_enhanced_periodic_empty_intervals() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F4".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "enhanced_periodic".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::EnhancedPeriodic(EnhancedPeriodicData {
+                press_keys: vec!["Space".to_string()],
+                intervals: vec![],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "intervals"));
+    }
+
+    // ---- 新增：enhanced_sequence 空字段校验 ----
+
+    #[test]
+    fn test_enhanced_sequence_empty_keys() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F5".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "enhanced_sequence".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::EnhancedSequence(EnhancedSequenceData {
+                press_keys: vec![],
+                press_delays: vec![100],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "pressKeys"));
+    }
+
+    #[test]
+    fn test_enhanced_sequence_empty_delays() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F5".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "enhanced_sequence".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::EnhancedSequence(EnhancedSequenceData {
+                press_keys: vec!["1".to_string()],
+                press_delays: vec![],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "pressDelays"));
+    }
+
+    // ---- 新增：enhanced_hybrid 空子组校验 ----
+
+    #[test]
+    fn test_enhanced_hybrid_empty_groups() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F6".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "enhanced_hybrid".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::EnhancedHybrid(EnhancedHybridData {
+                groups: vec![],
+                seq_interval: None,
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "groups"));
+    }
+
+    // ---- 新增：joystick_periodic 模式校验 ----
+
+    #[test]
+    fn test_valid_joystick_periodic() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F8".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "joystick_periodic".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::JoystickPeriodic(JoystickPeriodicData {
+                press_keys: vec!["1".to_string()],
+                intervals: vec![50],
+                joystick_id: Some(0),
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(result.is_valid(), "有效 joystick_periodic 配置不应有错误: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_joystick_periodic_empty_keys() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F8".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "joystick_periodic".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::JoystickPeriodic(JoystickPeriodicData {
+                press_keys: vec![],
+                intervals: vec![50],
+                joystick_id: None,
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "pressKeys"));
+    }
+
+    // ---- 新增：joystick_sequence 模式校验 ----
+
+    #[test]
+    fn test_valid_joystick_sequence() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F9".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "joystick_sequence".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::JoystickSequence(JoystickSequenceData {
+                press_keys: vec!["1".to_string()],
+                delays: vec![100],
+                joystick_id: Some(0),
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(result.is_valid(), "有效 joystick_sequence 配置不应有错误: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_joystick_sequence_empty_keys() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F9".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "joystick_sequence".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::JoystickSequence(JoystickSequenceData {
+                press_keys: vec![],
+                delays: vec![100],
+                joystick_id: None,
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "pressKeys"));
+    }
+
+    // ---- 新增：joystick_hold 模式校验 ----
+
+    #[test]
+    fn test_valid_joystick_hold() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F10".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "joystick_hold".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::JoystickHold(JoystickHoldData {
+                hold_duration: Some(500),
+                auto_repeat: None,
+                repeat_interval: None,
+                joystick_id: None,
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(result.is_valid(), "有效 joystick_hold 配置不应有错误: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_joystick_hold_zero_duration_warning() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F10".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "joystick_hold".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::JoystickHold(JoystickHoldData {
+                hold_duration: Some(0),
+                auto_repeat: None,
+                repeat_interval: None,
+                joystick_id: None,
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(result.warnings.iter().any(|w| w.contains("holdDuration")));
+    }
+
+    #[test]
+    fn test_joystick_hold_none_duration_warning() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F10".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "joystick_hold".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::JoystickHold(JoystickHoldData {
+                hold_duration: None,
+                auto_repeat: None,
+                repeat_interval: None,
+                joystick_id: None,
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(result.warnings.iter().any(|w| w.contains("holdDuration")));
+    }
+
+    // ---- 新增：mode_data 类型不匹配校验 ----
+
+    #[test]
+    fn test_periodic_mode_data_mismatch() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F1".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "periodic".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Sequence(SequenceData {
+                keys: vec!["1".to_string()],
+                delays: vec![100],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "mode_data" && e.message.contains("periodic")));
+    }
+
+    #[test]
+    fn test_sequence_mode_data_mismatch() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F2".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "sequence".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "mode_data" && e.message.contains("sequence")));
+    }
+
+    #[test]
+    fn test_hold_mode_data_mismatch() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F3".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "hold".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "mode_data" && e.message.contains("hold")));
+    }
+
+    #[test]
+    fn test_enhanced_periodic_mode_data_mismatch() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F4".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "enhanced_periodic".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "mode_data" && e.message.contains("enhanced_periodic")));
+    }
+
+    #[test]
+    fn test_enhanced_sequence_mode_data_mismatch() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F5".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "enhanced_sequence".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "mode_data" && e.message.contains("enhanced_sequence")));
+    }
+
+    #[test]
+    fn test_enhanced_hybrid_mode_data_mismatch() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F6".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "enhanced_hybrid".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "mode_data" && e.message.contains("enhanced_hybrid")));
+    }
+
+    #[test]
+    fn test_joystick_periodic_mode_data_mismatch() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F8".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "joystick_periodic".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "mode_data" && e.message.contains("joystick_periodic")));
+    }
+
+    #[test]
+    fn test_joystick_sequence_mode_data_mismatch() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F9".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "joystick_sequence".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "mode_data" && e.message.contains("joystick_sequence")));
+    }
+
+    #[test]
+    fn test_joystick_hold_mode_data_mismatch() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F10".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "joystick_hold".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "mode_data" && e.message.contains("joystick_hold")));
+    }
+
+    // ---- 新增：intervals 含 0 校验 ----
+
+    #[test]
+    fn test_periodic_zero_interval() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F1".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "periodic".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50, 0, 100],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "intervals" && e.message.contains("0")));
+    }
+
+    // ---- 新增：空 hotkey / 空 mode 校验 ----
+
+    #[test]
+    fn test_empty_hotkey_error() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "periodic".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "hotkey"));
+    }
+
+    #[test]
+    fn test_empty_mode_error() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F1".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "mode"));
+    }
+
+    // ---- 新增：hold 模式有效配置 ----
+
+    #[test]
+    fn test_valid_hold_config() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F3".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "hold".to_string(),
+            hold_keys: Some(vec!["Shift".to_string()]),
+            hold_mode: Some("continuous".to_string()),
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Hold(HoldData {
+                hold_duration: 500,
+                auto_repeat: None,
+                repeat_interval: None,
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(result.is_valid(), "有效 hold 配置不应有错误: {:?}", result.errors);
+    }
+
+    // ---- 新增：hybrid mode_data 类型不匹配 ----
+
+    #[test]
+    fn test_hybrid_mode_data_mismatch() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F2".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "hybrid".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.is_valid());
+        assert!(result.errors.iter().any(|e| e.field == "mode_data" && e.message.contains("hybrid")));
+    }
+
+    // ---- 新增：hold_keys 数量过多警告 ----
+
+    #[test]
+    fn test_too_many_hold_keys_warning() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "F1".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "periodic".to_string(),
+            hold_keys: Some(vec![
+                "Shift".to_string(), "Ctrl".to_string(), "Alt".to_string(),
+                "Win".to_string(), "F1".to_string(),
+            ]),
+            hold_mode: Some("continuous".to_string()),
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(result.warnings.iter().any(|w| w.contains("holdKeys") && w.contains("较多")));
+    }
+
+    // ---- 新增：修饰键热键格式校验 ----
+
+    #[test]
+    fn test_modifier_hotkey_format_valid() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "^a".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "periodic".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(!result.warnings.iter().any(|w| w.contains("格式可能不正确")));
+    }
+
+    #[test]
+    fn test_modifier_hotkey_invalid_key_warning() {
+        let mut groups = IndexMap::new();
+        groups.insert("1".to_string(), GroupConfig {
+            hotkey: "^INVALID".to_string(),
+            key_press_duration: None,
+            name: None,
+            mode: "periodic".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+        let result = ConfigValidator::validate(&groups);
+        assert!(result.warnings.iter().any(|w| w.contains("格式可能不正确")));
+    }
+}

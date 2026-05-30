@@ -1,0 +1,67 @@
+﻿﻿{
+  "CONTROL_HOTKEYS": {
+    "emergency": "F10",
+    "releaseAllHolds": "^r",
+    "showStatus": "^0",
+    "toggleAll": "^1",
+    "toggleHoldMode": "^h"
+  },
+  "GroupSettings": {
+    "1": {
+      "groups": [
+        {
+          "intervals": [
+            50,
+            50,
+            50
+          ],
+          "pressKeys": [
+            "1",
+            "2",
+            "3"
+          ],
+          "type": "periodic"
+        },
+        {
+          "delays": [
+            200,
+            500,
+            2000
+          ],
+          "pressKeys": [
+            "A",
+            "S",
+            "D"
+          ],
+          "type": "sequence"
+        }
+      ],
+      "hotkey": "F1",
+      "keyPressDuration": 10,
+      "mode": "hybrid",
+      "name": "示例混合",
+      "seqInterval": 100
+    },
+    "test_cycle": {
+      "hotkey": "F2",
+      "intervals": [
+        100
+      ],
+      "keyPressDuration": 20,
+      "keys": [
+        "a"
+      ],
+      "mode": "periodic",
+      "name": "测试周期按键"
+    }
+  },
+  "HoldSettings": {
+    "allowOverlap": false,
+    "checkInterval": 50,
+    "debounceDelay": 25,
+    "pressSpeed": 80,
+    "releaseOnEmergency": true
+  },
+  "lastModified": "20260527124046",
+  "version": "3.0"
+}
