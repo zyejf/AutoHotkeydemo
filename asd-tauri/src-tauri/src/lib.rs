@@ -12,10 +12,10 @@ use domain::models::{IpcCommand, IpcMessage, SkillGroup};
 use infrastructure::ipc::{IpcManager, IpcOutboundReceiver};
 use infrastructure::watchdog::{ProcessWatchdog, WatchdogRunner, WatchdogStateEnum};
 use std::sync::Arc;
+use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Emitter;
 use tauri::Manager;
-use tauri::menu::{MenuBuilder, MenuItemBuilder};
-use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 /// 执行优雅关机：通过三阶段方式关闭 AHK 子进程
@@ -34,7 +34,11 @@ async fn perform_graceful_shutdown(app_state: &Arc<AppState>) {
     }
 }
 
-fn spawn_ipc_listener(mut rx: IpcOutboundReceiver, _app_state: Arc<AppState>, app_handle: tauri::AppHandle) {
+fn spawn_ipc_listener(
+    mut rx: IpcOutboundReceiver,
+    _app_state: Arc<AppState>,
+    app_handle: tauri::AppHandle,
+) {
     tauri::async_runtime::spawn(async move {
         while let Some(msg) = rx.recv().await {
             match msg.r#type.as_str() {
@@ -42,10 +46,13 @@ fn spawn_ipc_listener(mut rx: IpcOutboundReceiver, _app_state: Arc<AppState>, ap
                     if let Some(keys) = &msg.keys {
                         if let Some(hotkey) = keys.first() {
                             tracing::info!("收到热键事件: {hotkey}");
-                            let _ = app_handle.emit("hotkey_event", serde_json::json!({
-                                "hotkey": hotkey,
-                                "keys": keys,
-                            }));
+                            let _ = app_handle.emit(
+                                "hotkey_event",
+                                serde_json::json!({
+                                    "hotkey": hotkey,
+                                    "keys": keys,
+                                }),
+                            );
                         }
                     }
                 }
@@ -165,12 +172,14 @@ fn setup_ipc_callbacks(app_state: &Arc<AppState>, ipc_manager: &IpcManager) {
             // 注意：必须先收集数据再跨 await，因为 RwLockReadGuard 不是 Send
             let active_groups_data: Vec<(String, SkillGroup)> = {
                 let groups = state.read_groups().ok();
-                groups.map(|g| {
-                    g.iter()
-                        .filter(|(_, group)| group.active)
-                        .map(|(id, group)| (id.clone(), group.clone()))
-                        .collect()
-                }).unwrap_or_default()
+                groups
+                    .map(|g| {
+                        g.iter()
+                            .filter(|(_, group)| group.active)
+                            .map(|(id, group)| (id.clone(), group.clone()))
+                            .collect()
+                    })
+                    .unwrap_or_default()
             };
             for (id, group) in active_groups_data {
                 // C-1 修复: 恢复时也发送完整模式配置
@@ -181,7 +190,11 @@ fn setup_ipc_callbacks(app_state: &Arc<AppState>, ipc_manager: &IpcManager) {
                     group_id: id,
                     active: true,
                     mode: Some(group.mode.clone()),
-                    key_press_duration: if group.key_press_duration > 0 { Some(group.key_press_duration) } else { None },
+                    key_press_duration: if group.key_press_duration > 0 {
+                        Some(group.key_press_duration)
+                    } else {
+                        None
+                    },
                     hold_keys: group.hold_keys.clone(),
                     hold_mode: group.hold_mode.clone(),
                     mode_data: mode_data_json,
@@ -190,9 +203,13 @@ fn setup_ipc_callbacks(app_state: &Arc<AppState>, ipc_manager: &IpcManager) {
             }
             let active_hotkey_list: Vec<(String, String)> = {
                 let hotkeys = state.active_hotkeys.read().ok();
-                hotkeys.map(|h| {
-                    h.iter().map(|(id, hotkey)| (id.clone(), hotkey.clone())).collect()
-                }).unwrap_or_default()
+                hotkeys
+                    .map(|h| {
+                        h.iter()
+                            .map(|(id, hotkey)| (id.clone(), hotkey.clone()))
+                            .collect()
+                    })
+                    .unwrap_or_default()
             };
             for (id, hotkey) in active_hotkey_list {
                 let cmd = IpcCommand::RegisterHotkey {
@@ -259,7 +276,9 @@ pub fn run() {
         .setup(|app| {
             infrastructure::logging::init(app).map_err(|e| tauri::Error::Setup(e.into()))?;
 
-            let config_path = app.path().app_data_dir()
+            let config_path = app
+                .path()
+                .app_data_dir()
                 .expect("无法获取 app_data_dir")
                 .join("config.json");
             let config = Config::load_from_path(&config_path).unwrap_or_else(|e| {
@@ -269,11 +288,16 @@ pub fn run() {
             let (ipc_manager, outbound_rx) = IpcManager::new("asd_ipc");
 
             let watchdog = Arc::new(tokio::sync::Mutex::new(ProcessWatchdog::new()));
-            let mut app_state = Arc::new(AppState::new(config, ipc_manager.outbound_sender(), watchdog));
+            let mut app_state = Arc::new(AppState::new(
+                config,
+                ipc_manager.outbound_sender(),
+                watchdog,
+            ));
 
             // 设置 AppHandle 和 config_path（必须在 app.manage() 之前，因为 Arc::get_mut 要求独占引用）
             {
-                let state_ref = Arc::get_mut(&mut app_state).expect("AppState should be uniquely held during setup");
+                let state_ref = Arc::get_mut(&mut app_state)
+                    .expect("AppState should be uniquely held during setup");
                 state_ref.set_app_handle(app.handle().clone());
                 state_ref.set_config_path(config_path);
             }
@@ -282,7 +306,8 @@ pub fn run() {
 
             {
                 // 使用 block_in_place 避免 blocking_lock 在 tokio 异步上下文中导致死锁
-                let mut ipc_mgr = tokio::task::block_in_place(|| app_state.ipc_manager.blocking_lock());
+                let mut ipc_mgr =
+                    tokio::task::block_in_place(|| app_state.ipc_manager.blocking_lock());
                 *ipc_mgr = Some(ipc_manager);
             }
 
@@ -294,18 +319,29 @@ pub fn run() {
             // 尝试连接 Named Pipe，而 Rust 侧必须先开始监听
             {
                 // 优先使用编译后的 asd_executor.exe，若不存在则降级到便携模式
-                let exe_path = if let Ok(p) = app.path().resolve("ahk_executor/asd_executor.exe", tauri::path::BaseDirectory::Resource) {
+                let exe_path = if let Ok(p) = app.path().resolve(
+                    "ahk_executor/asd_executor.exe",
+                    tauri::path::BaseDirectory::Resource,
+                ) {
                     if p.exists() {
                         tracing::info!("使用编译模式 AHK 子进程: {:?}", p);
                         p
                     } else {
                         tracing::warn!("asd_executor.exe 不存在，尝试便携模式");
-                        app.path().resolve("ahk_executor/AutoHotkey64.exe", tauri::path::BaseDirectory::Resource)
+                        app.path()
+                            .resolve(
+                                "ahk_executor/AutoHotkey64.exe",
+                                tauri::path::BaseDirectory::Resource,
+                            )
                             .expect("无法解析 AutoHotkey64.exe 路径")
                     }
                 } else {
                     tracing::warn!("无法解析 asd_executor.exe 路径，尝试便携模式");
-                    app.path().resolve("ahk_executor/AutoHotkey64.exe", tauri::path::BaseDirectory::Resource)
+                    app.path()
+                        .resolve(
+                            "ahk_executor/AutoHotkey64.exe",
+                            tauri::path::BaseDirectory::Resource,
+                        )
                         .expect("无法解析 AutoHotkey64.exe 路径")
                 };
                 let exe_str = exe_path.to_string_lossy().to_string();
@@ -337,10 +373,11 @@ pub fn run() {
                 .icon(app.default_window_icon().unwrap().clone())
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
-                            button: MouseButton::Left,
-                            button_state: MouseButtonState::Up,
-                            ..
-                        } = event {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
                         if let Some(window) = tray.app_handle().get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();

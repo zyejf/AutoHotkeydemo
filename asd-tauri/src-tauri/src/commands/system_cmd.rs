@@ -1,5 +1,5 @@
-use crate::application::state::{AppError, AppState};
 use crate::application::scheduler::SkillManager;
+use crate::application::state::{AppError, AppState};
 use crate::infrastructure::watchdog::WatchdogStateEnum;
 use std::sync::Arc;
 

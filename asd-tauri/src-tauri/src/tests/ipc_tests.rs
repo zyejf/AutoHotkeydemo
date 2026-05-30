@@ -47,10 +47,7 @@ async fn test_ping_pong() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     let (client, _rx) = IpcManager::new(&name_clone);
-    client
-        .connect_to_ahk()
-        .await
-        .expect("Client 连接失败");
+    client.connect_to_ahk().await.expect("Client 连接失败");
 
     let seq = client.next_seq();
     let ping = IpcMessage::ping(seq);
@@ -105,10 +102,7 @@ async fn test_execute_result() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     let (client, _rx) = IpcManager::new(&name_clone);
-    client
-        .connect_to_ahk()
-        .await
-        .expect("Client 连接失败");
+    client.connect_to_ahk().await.expect("Client 连接失败");
 
     let seq = client.next_seq();
     let exec_msg = IpcMessage::execute(seq, vec!["1".to_string(), "2".to_string()], 50);
@@ -169,10 +163,7 @@ async fn test_roundtrip_latency() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     let (client, _rx) = IpcManager::new(&name_clone);
-    client
-        .connect_to_ahk()
-        .await
-        .expect("Client 连接失败");
+    client.connect_to_ahk().await.expect("Client 连接失败");
 
     let warmup = 10;
     let rounds = 100;
@@ -193,14 +184,8 @@ async fn test_roundtrip_latency() {
     }
 
     let avg = latencies.iter().sum::<f64>() / latencies.len() as f64;
-    let min = latencies
-        .iter()
-        .cloned()
-        .fold(f64::INFINITY, f64::min);
-    let max = latencies
-        .iter()
-        .cloned()
-        .fold(f64::NEG_INFINITY, f64::max);
+    let min = latencies.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max = latencies.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     let p50 = {
         let mut sorted = latencies.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -216,11 +201,7 @@ async fn test_roundtrip_latency() {
     eprintln!("目标: < 1200 μs (1.2ms)");
     eprintln!("========================\n");
 
-    assert!(
-        avg < 1200.0,
-        "平均往返延迟 {:.2} μs 超过 1200 μs 目标",
-        avg
-    );
+    assert!(avg < 1200.0, "平均往返延迟 {:.2} μs 超过 1200 μs 目标", avg);
 
     drop(client);
     let _ = tokio::time::timeout(Duration::from_secs(2), server_task).await;
@@ -235,10 +216,7 @@ fn test_message_serialization_roundtrip() {
     assert_eq!(decoded.r#type, "execute");
     assert_eq!(decoded.seq, 42);
     assert_eq!(decoded.action.as_deref(), Some("keypress"));
-    assert_eq!(
-        decoded.keys.as_deref(),
-        Some(&["Space".to_string()][..])
-    );
+    assert_eq!(decoded.keys.as_deref(), Some(&["Space".to_string()][..]));
     assert_eq!(decoded.delay, Some(100));
 }
 
@@ -329,7 +307,9 @@ fn test_ipc_command_serialization() {
     let json = serde_json::to_string(&cmd).unwrap();
     let decoded: IpcCommand = serde_json::from_str(&json).unwrap();
     match decoded {
-        IpcCommand::ToggleGroup { group_id, active, .. } => {
+        IpcCommand::ToggleGroup {
+            group_id, active, ..
+        } => {
             assert_eq!(group_id, "1");
             assert!(active);
         }
@@ -413,9 +393,7 @@ async fn test_wait_response_timeout() {
     client.connect_to_ahk().await.expect("连接失败");
 
     let seq = client.next_seq();
-    let result = client
-        .wait_response(seq, Duration::from_millis(200))
-        .await;
+    let result = client.wait_response(seq, Duration::from_millis(200)).await;
     assert!(matches!(result, Err(IpcError::Timeout)));
 
     drop(client);
@@ -477,9 +455,7 @@ async fn test_accept_from_ahk_valid_auth() {
     let listener = create_listener(&pipe_name).expect("创建 Listener 失败");
 
     let (server, _server_rx) = IpcManager::new(&name_clone);
-    let server_handle = tokio::spawn(async move {
-        server.accept_from_ahk(&listener).await
-    });
+    let server_handle = tokio::spawn(async move { server.accept_from_ahk(&listener).await });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -505,9 +481,7 @@ async fn test_accept_from_ahk_invalid_auth_token() {
     let listener = create_listener(&pipe_name).expect("创建 Listener 失败");
 
     let (server, _server_rx) = IpcManager::new(&name_clone);
-    let server_handle = tokio::spawn(async move {
-        server.accept_from_ahk(&listener).await
-    });
+    let server_handle = tokio::spawn(async move { server.accept_from_ahk(&listener).await });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -536,9 +510,7 @@ async fn test_accept_from_ahk_no_auth_message() {
     let listener = create_listener(&pipe_name).expect("创建 Listener 失败");
 
     let (server, _server_rx) = IpcManager::new(&name_clone);
-    let server_handle = tokio::spawn(async move {
-        server.accept_from_ahk(&listener).await
-    });
+    let server_handle = tokio::spawn(async move { server.accept_from_ahk(&listener).await });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 

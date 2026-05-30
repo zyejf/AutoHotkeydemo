@@ -128,7 +128,11 @@ pub async fn toggle_group(
         group_id: group_id.clone(),
         active: new_active,
         mode: Some(group.mode.clone()),
-        key_press_duration: if group.key_press_duration > 0 { Some(group.key_press_duration) } else { None },
+        key_press_duration: if group.key_press_duration > 0 {
+            Some(group.key_press_duration)
+        } else {
+            None
+        },
         hold_keys: group.hold_keys.clone(),
         hold_mode: group.hold_mode.clone(),
         mode_data: mode_data_json,
@@ -185,7 +189,10 @@ pub async fn delete_group(
 
     // 3. 如果分组是活跃的，从 active_hotkeys 中移除
     if is_active {
-        let mut registry = state.active_hotkeys.write().map_err(|e| AppError::Internal(e.to_string()))?;
+        let mut registry = state
+            .active_hotkeys
+            .write()
+            .map_err(|e| AppError::Internal(e.to_string()))?;
         registry.remove(&group_id);
     }
 
@@ -201,7 +208,8 @@ pub async fn toggle_all(
     // 收集需要切换的分组数据，避免跨 await 持有锁
     let toggle_data: Vec<(String, SkillGroup)> = {
         let groups = state.read_groups()?;
-        groups.iter()
+        groups
+            .iter()
             .filter(|(_, group)| group.active != active)
             .map(|(id, group)| (id.clone(), group.clone()))
             .collect()
@@ -216,7 +224,11 @@ pub async fn toggle_all(
             group_id: id.clone(),
             active,
             mode: Some(group.mode.clone()),
-            key_press_duration: if group.key_press_duration > 0 { Some(group.key_press_duration) } else { None },
+            key_press_duration: if group.key_press_duration > 0 {
+                Some(group.key_press_duration)
+            } else {
+                None
+            },
             hold_keys: group.hold_keys.clone(),
             hold_mode: group.hold_mode.clone(),
             mode_data,
@@ -251,7 +263,11 @@ pub async fn batch_toggle_groups(
                 group_id: id.clone(),
                 active,
                 mode: Some(group.mode.clone()),
-                key_press_duration: if group.key_press_duration > 0 { Some(group.key_press_duration) } else { None },
+                key_press_duration: if group.key_press_duration > 0 {
+                    Some(group.key_press_duration)
+                } else {
+                    None
+                },
                 hold_keys: group.hold_keys.clone(),
                 hold_mode: group.hold_mode.clone(),
                 mode_data,
@@ -294,7 +310,8 @@ pub async fn batch_delete_groups(
     // 2. 收集哪些分组是活跃的（用于后续清理 active_hotkeys）
     let active_ids: Vec<String> = {
         let groups = state.read_groups()?;
-        group_ids.iter()
+        group_ids
+            .iter()
             .filter(|id| groups.get(*id).map(|g| g.active).unwrap_or(false))
             .cloned()
             .collect()
@@ -312,7 +329,10 @@ pub async fn batch_delete_groups(
 
     // 4. 从 active_hotkeys 中移除已删除的活跃分组
     if !active_ids.is_empty() {
-        let mut registry = state.active_hotkeys.write().map_err(|e| AppError::Internal(e.to_string()))?;
+        let mut registry = state
+            .active_hotkeys
+            .write()
+            .map_err(|e| AppError::Internal(e.to_string()))?;
         for id in &active_ids {
             registry.remove(id);
         }

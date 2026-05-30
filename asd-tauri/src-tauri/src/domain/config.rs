@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
@@ -9,9 +9,17 @@ pub struct Config {
     pub control_hotkeys: ControlHotkeys,
     #[serde(rename = "GroupSettings")]
     pub group_settings: IndexMap<String, GroupConfig>,
-    #[serde(rename = "HoldSettings", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "HoldSettings",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub hold_settings: Option<HoldSettings>,
-    #[serde(rename = "lastModified", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "lastModified",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub last_modified: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
@@ -24,7 +32,10 @@ impl Default for Config {
 }
 
 impl Config {
-    #[deprecated(since = "0.2.0", note = "使用 load_from_path() 替代，支持 app_data_dir")]
+    #[deprecated(
+        since = "0.2.0",
+        note = "使用 load_from_path() 替代，支持 app_data_dir"
+    )]
     pub fn load_default() -> Self {
         Self::load_from_file("config.json")
     }
@@ -56,10 +67,9 @@ impl Config {
 
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
         let path = path.as_ref();
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("序列化配置失败: {e}"))?;
-        fs::write(path, json)
-            .map_err(|e| format!("写入配置文件失败: {e}"))?;
+        let json =
+            serde_json::to_string_pretty(self).map_err(|e| format!("序列化配置失败: {e}"))?;
+        fs::write(path, json).map_err(|e| format!("写入配置文件失败: {e}"))?;
         Ok(())
     }
 
@@ -67,11 +77,9 @@ impl Config {
     /// 与 load_from_file 不同，此方法在文件不存在或解析失败时返回 Err
     pub fn load_from_path<P: AsRef<Path>>(path: P) -> Result<Self, String> {
         let path = path.as_ref();
-        let content = fs::read_to_string(path)
-            .map_err(|e| format!("读取配置文件失败: {e}"))?;
+        let content = fs::read_to_string(path).map_err(|e| format!("读取配置文件失败: {e}"))?;
         let cleaned = content.trim_start_matches('\u{feff}');
-        serde_json::from_str(cleaned)
-            .map_err(|e| format!("解析配置文件失败: {e}"))
+        serde_json::from_str(cleaned).map_err(|e| format!("解析配置文件失败: {e}"))
     }
 
     /// 原子写入配置到指定路径
@@ -81,11 +89,12 @@ impl Config {
     /// 3. 如果 rename 失败，删除临时文件
     pub fn save_to_path<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
         let path = path.as_ref();
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("序列化配置失败: {e}"))?;
+        let json =
+            serde_json::to_string_pretty(self).map_err(|e| format!("序列化配置失败: {e}"))?;
 
         // 构造临时文件路径：同目录下 .tmp_ 前缀
-        let file_name = path.file_name()
+        let file_name = path
+            .file_name()
             .ok_or_else(|| "无效的文件路径".to_string())?
             .to_string_lossy()
             .to_string();
@@ -93,8 +102,7 @@ impl Config {
         let tmp_path = path.with_file_name(&tmp_file_name);
 
         // 步骤1: 写入临时文件
-        fs::write(&tmp_path, &json)
-            .map_err(|e| format!("写入临时配置文件失败: {e}"))?;
+        fs::write(&tmp_path, &json).map_err(|e| format!("写入临时配置文件失败: {e}"))?;
 
         // 步骤2: rename 到目标路径（原子操作）
         if let Err(e) = fs::rename(&tmp_path, path) {
@@ -215,7 +223,11 @@ pub struct SequenceData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HybridData {
     pub groups: Vec<GroupItem>,
-    #[serde(rename = "seqInterval", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "seqInterval",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub seq_interval: Option<u64>,
 }
 
@@ -223,9 +235,17 @@ pub struct HybridData {
 pub struct HoldData {
     #[serde(rename = "holdDuration")]
     pub hold_duration: u64,
-    #[serde(rename = "autoRepeat", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "autoRepeat",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub auto_repeat: Option<bool>,
-    #[serde(rename = "repeatInterval", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "repeatInterval",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub repeat_interval: Option<u64>,
 }
 
@@ -247,7 +267,11 @@ pub struct EnhancedSequenceData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnhancedHybridData {
     pub groups: Vec<GroupItem>,
-    #[serde(rename = "seqInterval", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "seqInterval",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub seq_interval: Option<u64>,
 }
 
@@ -257,7 +281,11 @@ pub struct JoystickPeriodicData {
     pub press_keys: Vec<String>,
     #[serde(default)]
     pub intervals: Vec<u64>,
-    #[serde(rename = "joystickId", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "joystickId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub joystick_id: Option<u64>,
 }
 
@@ -267,19 +295,39 @@ pub struct JoystickSequenceData {
     pub press_keys: Vec<String>,
     #[serde(default)]
     pub delays: Vec<u64>,
-    #[serde(rename = "joystickId", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "joystickId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub joystick_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JoystickHoldData {
-    #[serde(rename = "holdDuration", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "holdDuration",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub hold_duration: Option<u64>,
-    #[serde(rename = "autoRepeat", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "autoRepeat",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub auto_repeat: Option<bool>,
-    #[serde(rename = "repeatInterval", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "repeatInterval",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub repeat_interval: Option<u64>,
-    #[serde(rename = "joystickId", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "joystickId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub joystick_id: Option<u64>,
 }
 
@@ -299,7 +347,11 @@ pub enum GroupItem {
         press_keys: Vec<String>,
         #[serde(default)]
         delays: Vec<u64>,
-        #[serde(rename = "seqInterval", default, skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "seqInterval",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
         seq_interval: Option<u64>,
     },
 }
@@ -344,8 +396,7 @@ impl<'de> Deserialize<'de> for GroupConfig {
         let hold_triggers = value
             .get("holdTriggers")
             .map(|v| {
-                serde_json::from_value::<Vec<serde_json::Value>>(v.clone())
-                    .unwrap_or_default()
+                serde_json::from_value::<Vec<serde_json::Value>>(v.clone()).unwrap_or_default()
             })
             .filter(|v| !v.is_empty());
 
@@ -390,11 +441,7 @@ impl<'de> Deserialize<'de> for GroupConfig {
                 serde_json::from_value(value.clone())
                     .map_err(|e| serde::de::Error::custom(format!("joystick_hold: {e}")))?,
             ),
-            _ => {
-                return Err(serde::de::Error::custom(format!(
-                    "unknown mode: {mode}"
-                )))
-            }
+            _ => return Err(serde::de::Error::custom(format!("unknown mode: {mode}"))),
         };
 
         Ok(GroupConfig {
@@ -415,8 +462,14 @@ impl Serialize for GroupConfig {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serde_json::Map::new();
 
-        map.insert("hotkey".to_string(), serde_json::Value::String(self.hotkey.clone()));
-        map.insert("mode".to_string(), serde_json::Value::String(self.mode.clone()));
+        map.insert(
+            "hotkey".to_string(),
+            serde_json::Value::String(self.hotkey.clone()),
+        );
+        map.insert(
+            "mode".to_string(),
+            serde_json::Value::String(self.mode.clone()),
+        );
 
         if let Some(ref v) = self.key_press_duration {
             map.insert(
@@ -437,13 +490,15 @@ impl Serialize for GroupConfig {
             map.insert("holdMode".to_string(), serde_json::Value::String(v.clone()));
         }
         if let Some(ref v) = self.hold_pattern {
-            map.insert("holdPattern".to_string(), serde_json::Value::String(v.clone()));
+            map.insert(
+                "holdPattern".to_string(),
+                serde_json::Value::String(v.clone()),
+            );
         }
         if let Some(ref v) = self.hold_triggers {
             map.insert(
                 "holdTriggers".to_string(),
-                serde_json::to_value(v)
-                    .map_err(|e| serde::ser::Error::custom(e.to_string()))?,
+                serde_json::to_value(v).map_err(|e| serde::ser::Error::custom(e.to_string()))?,
             );
         }
 
@@ -468,7 +523,10 @@ mod unit_tests {
         let json = r#"{"type":"periodic","pressKeys":["1","2"],"intervals":[50,60]}"#;
         let item: GroupItem = serde_json::from_str(json).unwrap();
         match item {
-            GroupItem::Periodic { press_keys, intervals } => {
+            GroupItem::Periodic {
+                press_keys,
+                intervals,
+            } => {
                 assert_eq!(press_keys, vec!["1", "2"]);
                 assert_eq!(intervals, vec![50, 60]);
             }
@@ -478,10 +536,15 @@ mod unit_tests {
 
     #[test]
     fn test_group_item_sequence_deserialize() {
-        let json = r#"{"type":"sequence","pressKeys":["A","S"],"delays":[100,200],"seqInterval":50}"#;
+        let json =
+            r#"{"type":"sequence","pressKeys":["A","S"],"delays":[100,200],"seqInterval":50}"#;
         let item: GroupItem = serde_json::from_str(json).unwrap();
         match item {
-            GroupItem::Sequence { press_keys, delays, seq_interval } => {
+            GroupItem::Sequence {
+                press_keys,
+                delays,
+                seq_interval,
+            } => {
                 assert_eq!(press_keys, vec!["A", "S"]);
                 assert_eq!(delays, vec![100, 200]);
                 assert_eq!(seq_interval, Some(50));
@@ -671,7 +734,10 @@ mod unit_tests {
         let result = serde_json::from_str::<GroupConfig>(json);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("hotkey"), "错误信息应提及 hotkey: {err_msg}");
+        assert!(
+            err_msg.contains("hotkey"),
+            "错误信息应提及 hotkey: {err_msg}"
+        );
     }
 
     #[test]
@@ -689,7 +755,10 @@ mod unit_tests {
         let result = serde_json::from_str::<GroupConfig>(json);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("unknown mode"), "错误信息应提及 unknown mode: {err_msg}");
+        assert!(
+            err_msg.contains("unknown mode"),
+            "错误信息应提及 unknown mode: {err_msg}"
+        );
     }
 
     // ---- 新增：GroupConfig 序列化 roundtrip 测试（10 种模式） ----
@@ -818,12 +887,10 @@ mod unit_tests {
             hold_pattern: None,
             hold_triggers: None,
             mode_data: ModeData::EnhancedHybrid(EnhancedHybridData {
-                groups: vec![
-                    GroupItem::Periodic {
-                        press_keys: vec!["Space".to_string()],
-                        intervals: vec![100],
-                    },
-                ],
+                groups: vec![GroupItem::Periodic {
+                    press_keys: vec!["Space".to_string()],
+                    intervals: vec![100],
+                }],
                 seq_interval: Some(50),
             }),
         }
@@ -890,12 +957,27 @@ mod unit_tests {
 
         assert_eq!(decoded.hotkey, original.hotkey, "hotkey roundtrip 失败");
         assert_eq!(decoded.mode, original.mode, "mode roundtrip 失败");
-        assert_eq!(decoded.key_press_duration, original.key_press_duration, "key_press_duration roundtrip 失败");
+        assert_eq!(
+            decoded.key_press_duration, original.key_press_duration,
+            "key_press_duration roundtrip 失败"
+        );
         assert_eq!(decoded.name, original.name, "name roundtrip 失败");
-        assert_eq!(decoded.hold_keys, original.hold_keys, "hold_keys roundtrip 失败");
-        assert_eq!(decoded.hold_mode, original.hold_mode, "hold_mode roundtrip 失败");
-        assert_eq!(decoded.hold_pattern, original.hold_pattern, "hold_pattern roundtrip 失败");
-        assert_eq!(decoded.hold_triggers, original.hold_triggers, "hold_triggers roundtrip 失败");
+        assert_eq!(
+            decoded.hold_keys, original.hold_keys,
+            "hold_keys roundtrip 失败"
+        );
+        assert_eq!(
+            decoded.hold_mode, original.hold_mode,
+            "hold_mode roundtrip 失败"
+        );
+        assert_eq!(
+            decoded.hold_pattern, original.hold_pattern,
+            "hold_pattern roundtrip 失败"
+        );
+        assert_eq!(
+            decoded.hold_triggers, original.hold_triggers,
+            "hold_triggers roundtrip 失败"
+        );
 
         // 验证 mode_data 序列化后再反序列化类型一致
         let original_json = serde_json::to_string(&original.mode_data).unwrap();
@@ -1133,7 +1215,10 @@ mod unit_tests {
         // 验证是最新内容
         let content = std::fs::read_to_string(&path).unwrap();
         let loaded: Config = serde_json::from_str(&content).unwrap();
-        assert_eq!(loaded.control_hotkeys.emergency, "F12", "覆盖后应为最新内容");
+        assert_eq!(
+            loaded.control_hotkeys.emergency, "F12",
+            "覆盖后应为最新内容"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

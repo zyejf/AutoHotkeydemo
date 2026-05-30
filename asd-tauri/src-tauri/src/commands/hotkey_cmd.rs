@@ -25,10 +25,7 @@ pub async fn register_hotkey(
         tracing::info!("热键 '{}' 已注册到分组 '{}'", hotkey, group_id);
     }
 
-    let cmd = IpcCommand::RegisterHotkey {
-        hotkey,
-        group_id,
-    };
+    let cmd = IpcCommand::RegisterHotkey { hotkey, group_id };
     state.try_send_ipc_command(&cmd).await;
 
     Ok(())
@@ -49,15 +46,10 @@ pub async fn unregister_hotkey(
 
     if removed {
         tracing::info!("热键 '{}' 已注销", hotkey);
-        let cmd = IpcCommand::UnregisterHotkey {
-            hotkey,
-        };
+        let cmd = IpcCommand::UnregisterHotkey { hotkey };
         state.try_send_ipc_command(&cmd).await;
         Ok(())
     } else {
-        Err(AppError::Validation(format!(
-            "热键 '{}' 未注册",
-            hotkey
-        )))
+        Err(AppError::Validation(format!("热键 '{}' 未注册", hotkey)))
     }
 }

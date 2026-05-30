@@ -2,8 +2,8 @@ use crate::domain::config::Config;
 use crate::domain::models::{IpcCommand, IpcMessage, SkillGroup};
 use crate::infrastructure::ipc::{IpcManager, IpcOutboundSender};
 use crate::infrastructure::watchdog::{ProcessWatchdog, WatchdogStateEnum};
-use serde::Serialize;
 use indexmap::IndexMap;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -99,7 +99,11 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(config: Config, ipc_outbound: IpcOutboundSender, watchdog: Arc<tokio::sync::Mutex<ProcessWatchdog>>) -> Self {
+    pub fn new(
+        config: Config,
+        ipc_outbound: IpcOutboundSender,
+        watchdog: Arc<tokio::sync::Mutex<ProcessWatchdog>>,
+    ) -> Self {
         let groups = Self::build_groups_from_config(&config);
         Self {
             config_state: RwLock::new(ConfigState { config, groups }),
@@ -125,34 +129,47 @@ impl AppState {
 
     /// 读取当前配置的快照（克隆）
     pub fn read_config(&self) -> Result<Config, AppError> {
-        let guard = self.config_state.read().map_err(|e| AppError::Internal(e.to_string()))?;
+        let guard = self
+            .config_state
+            .read()
+            .map_err(|e| AppError::Internal(e.to_string()))?;
         Ok(guard.config.clone())
     }
 
     /// 读取当前分组的快照（克隆）
     pub fn read_groups(&self) -> Result<IndexMap<String, SkillGroup>, AppError> {
-        let guard = self.config_state.read().map_err(|e| AppError::Internal(e.to_string()))?;
+        let guard = self
+            .config_state
+            .read()
+            .map_err(|e| AppError::Internal(e.to_string()))?;
         Ok(guard.groups.clone())
     }
 
     pub fn is_emergency_mode(&self) -> bool {
-        self.emergency_mode.load(std::sync::atomic::Ordering::Relaxed)
+        self.emergency_mode
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn set_emergency_mode(&self, enabled: bool) {
-        self.emergency_mode.store(enabled, std::sync::atomic::Ordering::Relaxed);
+        self.emergency_mode
+            .store(enabled, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn is_hold_mode_enabled(&self) -> bool {
-        self.hold_mode_enabled.load(std::sync::atomic::Ordering::Relaxed)
+        self.hold_mode_enabled
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn set_hold_mode_enabled(&self, enabled: bool) {
-        self.hold_mode_enabled.store(enabled, std::sync::atomic::Ordering::Relaxed);
+        self.hold_mode_enabled
+            .store(enabled, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn get_group(&self, id: &str) -> Option<SkillGroup> {
-        self.config_state.read().ok().and_then(|g| g.groups.get(id).cloned())
+        self.config_state
+            .read()
+            .ok()
+            .and_then(|g| g.groups.get(id).cloned())
     }
 
     pub fn set_group_active(&self, id: &str, active: bool) -> Result<(), AppError> {
@@ -160,12 +177,18 @@ impl AppState {
         // 必须在写锁释放后才能调用 emit_event，否则在 emit_event 中再次获取 config_state 读锁会导致死锁
         // 必须在写锁释放后再更新 active_hotkeys，避免嵌套锁死锁风险
         let (all_groups_data, hotkey_update): (Vec<serde_json::Value>, Option<(bool, String)>) = {
-            let mut cs = self.config_state.write().map_err(|e| AppError::Internal(e.to_string()))?;
+            let mut cs = self
+                .config_state
+                .write()
+                .map_err(|e| AppError::Internal(e.to_string()))?;
             if let Some(group) = cs.groups.get_mut(id) {
                 group.active = active;
                 let hotkey = group.hotkey.clone();
                 // 在写锁仍持有时收集所有 groups 的克隆数据
-                let groups_data: Vec<serde_json::Value> = cs.groups.values().cloned()
+                let groups_data: Vec<serde_json::Value> = cs
+                    .groups
+                    .values()
+                    .cloned()
                     .map(|g| serde_json::to_value(g).unwrap_or_default())
                     .collect();
                 (groups_data, Some((active, hotkey)))
@@ -177,20 +200,27 @@ impl AppState {
         // 安全更新 active_hotkeys（无嵌套锁）
         if let Some((is_active, hotkey)) = hotkey_update {
             if is_active {
-                self.active_hotkeys.write().map_err(|e| AppError::Internal(e.to_string()))?
+                self.active_hotkeys
+                    .write()
+                    .map_err(|e| AppError::Internal(e.to_string()))?
                     .insert(id.to_string(), hotkey);
             } else {
-                self.active_hotkeys.write().map_err(|e| AppError::Internal(e.to_string()))?
+                self.active_hotkeys
+                    .write()
+                    .map_err(|e| AppError::Internal(e.to_string()))?
                     .remove(id);
             }
         }
 
         // 写锁已释放，安全调用 emit_event
-        self.emit_event("status_update", serde_json::json!({
-            "groupId": id,
-            "active": active,
-            "groups": all_groups_data,
-        }));
+        self.emit_event(
+            "status_update",
+            serde_json::json!({
+                "groupId": id,
+                "active": active,
+                "groups": all_groups_data,
+            }),
+        );
         Ok(())
     }
 
@@ -254,10 +284,13 @@ impl AppState {
             ws.status = status.clone();
             ws.restart_count = restart_count;
         }
-        self.emit_event("executor_status", serde_json::json!({
-            "status": status,
-            "restartCount": restart_count,
-        }));
+        self.emit_event(
+            "executor_status",
+            serde_json::json!({
+                "status": status,
+                "restartCount": restart_count,
+            }),
+        );
     }
 
     /// 设置 Tauri AppHandle，用于向前端 emit 事件
@@ -317,7 +350,10 @@ impl AppState {
     pub fn save_config_atomic(&self, new_config: Config) -> Result<(), AppError> {
         // 步骤1: 备份当前内存中的配置和 groups（单次读锁，保证快照一致性）
         let old_state = {
-            let guard = self.config_state.read().map_err(|e| AppError::Internal(e.to_string()))?;
+            let guard = self
+                .config_state
+                .read()
+                .map_err(|e| AppError::Internal(e.to_string()))?;
             ConfigState {
                 config: guard.config.clone(),
                 groups: guard.groups.clone(),
@@ -337,7 +373,10 @@ impl AppState {
 
         // 步骤2: 原子更新内存（单次写锁，消除双锁一致性窗口）
         {
-            let mut guard = self.config_state.write().map_err(|e| AppError::Internal(e.to_string()))?;
+            let mut guard = self
+                .config_state
+                .write()
+                .map_err(|e| AppError::Internal(e.to_string()))?;
             guard.config = new_config.clone();
             guard.groups = new_groups;
         }
@@ -348,7 +387,10 @@ impl AppState {
                 // 步骤4: 文件写入失败，回滚内存（单次写锁，保证回滚一致性）
                 tracing::error!("原子保存失败，回滚内存: {save_err}");
                 {
-                    let mut guard = self.config_state.write().map_err(|e| AppError::Internal(e.to_string()))?;
+                    let mut guard = self
+                        .config_state
+                        .write()
+                        .map_err(|e| AppError::Internal(e.to_string()))?;
                     guard.config = old_state.config;
                     guard.groups = old_state.groups;
                 }
@@ -530,7 +572,10 @@ mod tests {
     #[test]
     fn test_config_path_default_is_none() {
         let state = make_test_state();
-        assert!(state.get_config_path().is_none(), "新建 AppState 的 config_path 应为 None");
+        assert!(
+            state.get_config_path().is_none(),
+            "新建 AppState 的 config_path 应为 None"
+        );
     }
 
     /// C-5: 可以设置和获取 config_path
@@ -564,12 +609,18 @@ mod tests {
 
         // 验证内存已更新
         let mem_config = state.read_config().unwrap();
-        assert_eq!(mem_config.control_hotkeys.emergency, "F12", "内存中的配置应已更新");
+        assert_eq!(
+            mem_config.control_hotkeys.emergency, "F12",
+            "内存中的配置应已更新"
+        );
 
         // 验证文件已写入
         let file_content = std::fs::read_to_string(&path).unwrap();
         let file_config: Config = serde_json::from_str(&file_content).unwrap();
-        assert_eq!(file_config.control_hotkeys.emergency, "F12", "文件中的配置应已更新");
+        assert_eq!(
+            file_config.control_hotkeys.emergency, "F12",
+            "文件中的配置应已更新"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -583,7 +634,12 @@ mod tests {
         state.set_config_path(bad_path);
 
         // 记录原始内存中的值
-        let original_emergency = state.read_config().unwrap().control_hotkeys.emergency.clone();
+        let original_emergency = state
+            .read_config()
+            .unwrap()
+            .control_hotkeys
+            .emergency
+            .clone();
 
         // 构造新配置
         let mut new_config = make_test_config();

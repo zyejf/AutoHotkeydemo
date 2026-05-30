@@ -14,7 +14,8 @@ pub struct SkillGroup {
     pub hold_keys: Option<Vec<String>>,
     #[serde(rename = "holdMode", skip_serializing_if = "Option::is_none", default)]
     pub hold_mode: Option<String>,
-    #[serde(rename = "modeData",
+    #[serde(
+        rename = "modeData",
         serialize_with = "serialize_mode_data",
         deserialize_with = "deserialize_mode_data",
         default = "default_mode_data"
@@ -22,7 +23,10 @@ pub struct SkillGroup {
     pub mode_data: ModeData,
 }
 
-fn serialize_mode_data<S: serde::Serializer>(data: &ModeData, serializer: S) -> Result<S::Ok, S::Error> {
+fn serialize_mode_data<S: serde::Serializer>(
+    data: &ModeData,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
     let mode_str = match data {
         ModeData::Periodic(_) => "periodic",
         ModeData::Sequence(_) => "sequence",
@@ -36,17 +40,22 @@ fn serialize_mode_data<S: serde::Serializer>(data: &ModeData, serializer: S) -> 
         ModeData::JoystickHold(_) => "joystick_hold",
     };
 
-    let mut value = serde_json::to_value(data)
-        .map_err(|e| serde::ser::Error::custom(e.to_string()))?;
+    let mut value =
+        serde_json::to_value(data).map_err(|e| serde::ser::Error::custom(e.to_string()))?;
 
     if let serde_json::Value::Object(ref mut map) = value {
-        map.insert("mode".to_string(), serde_json::Value::String(mode_str.to_string()));
+        map.insert(
+            "mode".to_string(),
+            serde_json::Value::String(mode_str.to_string()),
+        );
     }
 
     value.serialize(serializer)
 }
 
-fn deserialize_mode_data<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<ModeData, D::Error> {
+fn deserialize_mode_data<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<ModeData, D::Error> {
     let value = serde_json::Value::deserialize(deserializer)?;
     let mode = value
         .get("mode")
@@ -123,7 +132,11 @@ pub enum IpcCommand {
         #[serde(skip_serializing_if = "Option::is_none", default)]
         mode: Option<String>,
         /// 按键按下持续时间（毫秒）
-        #[serde(rename = "keyPressDuration", skip_serializing_if = "Option::is_none", default)]
+        #[serde(
+            rename = "keyPressDuration",
+            skip_serializing_if = "Option::is_none",
+            default
+        )]
         key_press_duration: Option<u64>,
         /// Hold 模式按住的键
         #[serde(rename = "holdKeys", skip_serializing_if = "Option::is_none", default)]
@@ -142,9 +155,7 @@ pub enum IpcCommand {
         group_id: String,
     },
     #[serde(rename = "unregister_hotkey")]
-    UnregisterHotkey {
-        hotkey: String,
-    },
+    UnregisterHotkey { hotkey: String },
     #[serde(rename = "start_recording")]
     StartRecording {
         #[serde(rename = "groupId")]
@@ -164,9 +175,7 @@ pub enum IpcCommand {
     #[serde(rename = "shutdown")]
     Shutdown,
     #[serde(rename = "hold_mode_toggle")]
-    HoldModeToggle {
-        enabled: bool,
-    },
+    HoldModeToggle { enabled: bool },
     #[serde(rename = "start_validation")]
     StartValidation {
         #[serde(rename = "groupId")]
@@ -216,7 +225,15 @@ impl IpcMessage {
         };
 
         let data = match cmd {
-            IpcCommand::ToggleGroup { group_id, active, mode, key_press_duration, hold_keys, hold_mode, mode_data } => {
+            IpcCommand::ToggleGroup {
+                group_id,
+                active,
+                mode,
+                key_press_duration,
+                hold_keys,
+                hold_mode,
+                mode_data,
+            } => {
                 let mut data = serde_json::json!({
                     "groupId": group_id,
                     "active": active
@@ -486,7 +503,9 @@ mod tests {
 
         let decoded: IpcCommand = serde_json::from_str(&json).unwrap();
         match decoded {
-            IpcCommand::ToggleGroup { group_id, active, .. } => {
+            IpcCommand::ToggleGroup {
+                group_id, active, ..
+            } => {
                 assert_eq!(group_id, "1");
                 assert!(active);
             }
@@ -514,10 +533,26 @@ mod tests {
     #[test]
     fn test_ipc_command_all_variants() {
         let cmds = vec![
-            IpcCommand::ToggleGroup { group_id: "1".to_string(), active: false, mode: None, key_press_duration: None, hold_keys: None, hold_mode: None, mode_data: None },
-            IpcCommand::RegisterHotkey { hotkey: "F2".to_string(), group_id: "2".to_string() },
-            IpcCommand::UnregisterHotkey { hotkey: "F3".to_string() },
-            IpcCommand::StartRecording { group_id: "3".to_string(), mode: "periodic".to_string() },
+            IpcCommand::ToggleGroup {
+                group_id: "1".to_string(),
+                active: false,
+                mode: None,
+                key_press_duration: None,
+                hold_keys: None,
+                hold_mode: None,
+                mode_data: None,
+            },
+            IpcCommand::RegisterHotkey {
+                hotkey: "F2".to_string(),
+                group_id: "2".to_string(),
+            },
+            IpcCommand::UnregisterHotkey {
+                hotkey: "F3".to_string(),
+            },
+            IpcCommand::StartRecording {
+                group_id: "3".to_string(),
+                mode: "periodic".to_string(),
+            },
             IpcCommand::StopRecording,
             IpcCommand::PauseRecording,
             IpcCommand::ResumeRecording,
@@ -628,10 +663,22 @@ mod tests {
         // 验证 IpcMessage::ping() 序列化后生成 AHK 期望的 {"type":"ping","seq":N} 格式
         let msg = IpcMessage::ping(42);
         let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains(r#""type":"ping""#), "ping 消息应包含 type=ping，实际: {json}");
-        assert!(json.contains(r#""seq":42"#), "ping 消息应包含 seq，实际: {json}");
-        assert!(!json.contains("action"), "ping 消息不应包含 action 字段，实际: {json}");
-        assert!(!json.contains("ack_seq"), "ping 消息不应包含 ack_seq 字段，实际: {json}");
+        assert!(
+            json.contains(r#""type":"ping""#),
+            "ping 消息应包含 type=ping，实际: {json}"
+        );
+        assert!(
+            json.contains(r#""seq":42"#),
+            "ping 消息应包含 seq，实际: {json}"
+        );
+        assert!(
+            !json.contains("action"),
+            "ping 消息不应包含 action 字段，实际: {json}"
+        );
+        assert!(
+            !json.contains("ack_seq"),
+            "ping 消息不应包含 ack_seq 字段，实际: {json}"
+        );
     }
 
     #[test]
@@ -640,7 +687,10 @@ mod tests {
         // 这就是心跳协议不匹配的根本原因
         let cmd = IpcCommand::Ping;
         let msg = IpcMessage::command(1, &cmd);
-        assert_eq!(msg.r#type, "command", "IpcCommand::Ping 通过 command() 构造后 type 应为 command");
+        assert_eq!(
+            msg.r#type, "command",
+            "IpcCommand::Ping 通过 command() 构造后 type 应为 command"
+        );
         assert_eq!(msg.action.as_deref(), Some("ping"), "action 应为 ping");
         // AHK 按 type 字段路由，收到 type="command" 不会触发 _HandlePing
     }
@@ -650,8 +700,14 @@ mod tests {
         // 验证 IpcMessage::shutdown() 序列化后生成 AHK 期望的 {"type":"shutdown",...} 格式
         let msg = IpcMessage::shutdown(99);
         let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains(r#""type":"shutdown""#), "shutdown 消息应包含 type=shutdown，实际: {json}");
-        assert!(json.contains(r#""seq":99"#), "shutdown 消息应包含 seq，实际: {json}");
+        assert!(
+            json.contains(r#""type":"shutdown""#),
+            "shutdown 消息应包含 type=shutdown，实际: {json}"
+        );
+        assert!(
+            json.contains(r#""seq":99"#),
+            "shutdown 消息应包含 seq，实际: {json}"
+        );
     }
 
     #[test]
@@ -659,8 +715,15 @@ mod tests {
         // 验证 IpcCommand::Shutdown 通过 command() 构造后 type="command"（不是 "shutdown"）
         let cmd = IpcCommand::Shutdown;
         let msg = IpcMessage::command(1, &cmd);
-        assert_eq!(msg.r#type, "command", "IpcCommand::Shutdown 通过 command() 构造后 type 应为 command");
-        assert_eq!(msg.action.as_deref(), Some("shutdown"), "action 应为 shutdown");
+        assert_eq!(
+            msg.r#type, "command",
+            "IpcCommand::Shutdown 通过 command() 构造后 type 应为 command"
+        );
+        assert_eq!(
+            msg.action.as_deref(),
+            Some("shutdown"),
+            "action 应为 shutdown"
+        );
     }
 
     // ---- C-14: auth 消息测试 ----

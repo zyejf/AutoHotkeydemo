@@ -3,9 +3,12 @@ name = "asd-tauri"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+test-manifest = []
+
 [lib]
 name = "asd_tauri_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["rlib", "cdylib", "staticlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -37,6 +40,10 @@ indexmap = { version = "2", features = ["serde"] }
 
 [dev-dependencies]
 criterion = "0.5"
+
+[[test]]
+name = "manifest_helper"
+path = "tests/manifest_helper.rs"
 
 [[bench]]
 name = "benchmarks"

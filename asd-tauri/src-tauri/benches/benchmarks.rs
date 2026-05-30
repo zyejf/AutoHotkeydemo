@@ -4,7 +4,7 @@
 // =================================================================
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 use asd_tauri_lib::domain::config::{
     Config, ControlHotkeys, EnhancedHybridData, EnhancedPeriodicData, EnhancedSequenceData,
@@ -20,7 +20,7 @@ use asd_tauri_lib::domain::validator::ConfigValidator;
 
 /// 生成一个包含指定数量分组的配置（模拟 ~13KB JSON）
 fn generate_large_config(group_count: usize) -> Config {
-    let mut group_settings = HashMap::new();
+    let mut group_settings = IndexMap::new();
 
     for i in 0..group_count {
         let mode = match i % 7 {
@@ -131,8 +131,8 @@ fn generate_large_config(group_count: usize) -> Config {
 }
 
 /// 生成包含 100 个按键的分组配置（用于按键校验基准）
-fn generate_100_keys_config() -> HashMap<String, GroupConfig> {
-    let mut groups = HashMap::new();
+fn generate_100_keys_config() -> IndexMap<String, GroupConfig> {
+    let mut groups = IndexMap::new();
 
     // 10 个分组，每个 10 个按键 = 100 个按键
     for i in 0..10 {
@@ -159,8 +159,8 @@ fn generate_100_keys_config() -> HashMap<String, GroupConfig> {
 }
 
 /// 生成 10 个分组用于 toggle 操作基准
-fn generate_10_groups_for_toggle() -> HashMap<String, GroupConfig> {
-    let mut groups = HashMap::new();
+fn generate_10_groups_for_toggle() -> IndexMap<String, GroupConfig> {
+    let mut groups = IndexMap::new();
     for i in 0..10 {
         groups.insert(
             format!("{i}"),
@@ -235,7 +235,8 @@ fn bench_group_scheduling(c: &mut Criterion) {
         b.iter(|| {
             // 模拟 10 个分组的 toggle 操作
             for (id, group_config) in &groups_config {
-                let _skill_group = asd_tauri_lib::domain::models::SkillGroup::from((id, group_config));
+                let _skill_group =
+                    asd_tauri_lib::domain::models::SkillGroup::from((id, group_config));
             }
         });
     });
@@ -270,6 +271,11 @@ fn bench_ipc_message_roundtrip(c: &mut Criterion) {
         &IpcCommand::ToggleGroup {
             group_id: "1".to_string(),
             active: true,
+            mode: None,
+            key_press_duration: None,
+            hold_keys: None,
+            hold_mode: None,
+            mode_data: None,
         },
     );
 
@@ -323,6 +329,11 @@ fn bench_ipc_command_serialization(c: &mut Criterion) {
             IpcCommand::ToggleGroup {
                 group_id: "1".to_string(),
                 active: true,
+                mode: None,
+                key_press_duration: None,
+                hold_keys: None,
+                hold_mode: None,
+                mode_data: None,
             },
         ),
         (
@@ -374,6 +385,11 @@ fn bench_ipc_send_path(c: &mut Criterion) {
                 &IpcCommand::ToggleGroup {
                     group_id: "1".to_string(),
                     active: true,
+                    mode: None,
+                    key_press_duration: None,
+                    hold_keys: None,
+                    hold_mode: None,
+                    mode_data: None,
                 },
             );
             let _ = serde_json::to_string(&msg).unwrap();

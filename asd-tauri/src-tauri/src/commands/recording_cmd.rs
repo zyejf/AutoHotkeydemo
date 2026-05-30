@@ -146,9 +146,7 @@ pub async fn stop_recording(
 }
 
 #[tauri::command]
-pub async fn pause_recording(
-    state: tauri::State<'_, Arc<AppState>>,
-) -> Result<u64, AppError> {
+pub async fn pause_recording(state: tauri::State<'_, Arc<AppState>>) -> Result<u64, AppError> {
     let cmd = IpcCommand::PauseRecording;
     let seq = state.send_ipc_command(&cmd).await?;
     tracing::info!("暂停录制: seq={}", seq);
@@ -156,9 +154,7 @@ pub async fn pause_recording(
 }
 
 #[tauri::command]
-pub async fn resume_recording(
-    state: tauri::State<'_, Arc<AppState>>,
-) -> Result<u64, AppError> {
+pub async fn resume_recording(state: tauri::State<'_, Arc<AppState>>) -> Result<u64, AppError> {
     let cmd = IpcCommand::ResumeRecording;
     let seq = state.send_ipc_command(&cmd).await?;
     tracing::info!("恢复录制: seq={}", seq);
@@ -182,37 +178,41 @@ pub async fn export_recording(
     let json = serde_json::to_string_pretty(&recording_data)
         .map_err(|e| AppError::Config(format!("序列化录制数据失败: {e}")))?;
 
-    std::fs::write(&path, json)
-        .map_err(|e| AppError::Config(format!("写入文件失败: {e}")))?;
+    std::fs::write(&path, json).map_err(|e| AppError::Config(format!("写入文件失败: {e}")))?;
 
     tracing::info!("录制结果已导出: {}", path);
     Ok(())
 }
 
 #[tauri::command]
-pub async fn import_recording(
-    path: String,
-) -> Result<ImportedRecording, AppError> {
+pub async fn import_recording(path: String) -> Result<ImportedRecording, AppError> {
     let content = std::fs::read_to_string(&path)
         .map_err(|e| AppError::Config(format!("读取文件失败: {e}")))?;
 
     let data: serde_json::Value = serde_json::from_str(&content)
         .map_err(|e| AppError::Config(format!("解析录制数据失败: {e}")))?;
 
-    let keys = data.get("keys")
+    let keys = data
+        .get("keys")
         .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
         .unwrap_or_default();
 
-    let intervals = data.get("intervals")
+    let intervals = data
+        .get("intervals")
         .and_then(|v| serde_json::from_value::<Vec<u64>>(v.clone()).ok())
         .unwrap_or_default();
 
-    let mode = data.get("mode")
+    let mode = data
+        .get("mode")
         .and_then(|v| v.as_str())
         .unwrap_or("periodic")
         .to_string();
 
-    Ok(ImportedRecording { keys, intervals, mode })
+    Ok(ImportedRecording {
+        keys,
+        intervals,
+        mode,
+    })
 }
 
 #[tauri::command]
@@ -229,9 +229,7 @@ pub async fn start_validation(
 }
 
 #[tauri::command]
-pub async fn stop_validation(
-    state: tauri::State<'_, Arc<AppState>>,
-) -> Result<u64, AppError> {
+pub async fn stop_validation(state: tauri::State<'_, Arc<AppState>>) -> Result<u64, AppError> {
     let cmd = IpcCommand::StopValidation;
     let seq = state.send_ipc_command(&cmd).await?;
     tracing::info!("停止验证: seq={}", seq);

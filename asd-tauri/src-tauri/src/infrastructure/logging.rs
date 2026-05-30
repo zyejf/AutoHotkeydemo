@@ -7,7 +7,9 @@ pub fn init(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let app_data_dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| -> Box<dyn std::error::Error> { format!("获取应用数据目录失败: {e}").into() })?;
+        .map_err(|e| -> Box<dyn std::error::Error> {
+            format!("获取应用数据目录失败: {e}").into()
+        })?;
 
     fs::create_dir_all(&app_data_dir)?;
 
@@ -20,8 +22,7 @@ pub fn init(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or(std::ffi::OsStr::new("asd.log")),
     );
 
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     let fmt_layer = fmt::layer()
         .with_target(true)

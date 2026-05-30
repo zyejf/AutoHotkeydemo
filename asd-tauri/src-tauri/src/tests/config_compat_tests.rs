@@ -40,24 +40,23 @@ fn test_roundtrip_serialization() {
         let original_value: serde_json::Value =
             serde_json::from_str(cleaned).expect("{label} 原始 JSON 解析失败");
 
-        let config: Config =
-            serde_json::from_str(cleaned).expect("{label} 反序列化失败");
+        let config: Config = serde_json::from_str(cleaned).expect("{label} 反序列化失败");
 
         let roundtrip_str = serde_json::to_string(&config).expect("{label} 序列化失败");
         let roundtrip_value: serde_json::Value =
             serde_json::from_str(&roundtrip_str).expect("{label} 往返 JSON 解析失败");
 
-        assert_eq!(
-            original_value, roundtrip_value,
-            "{label} 往返序列化不一致"
-        );
+        assert_eq!(original_value, roundtrip_value, "{label} 往返序列化不一致");
     }
 }
 
 #[test]
 fn test_periodic_mode_flat() {
     let cfg = parse_main_config();
-    let group = cfg.group_settings.get("test_cycle").expect("缺少 test_cycle 组");
+    let group = cfg
+        .group_settings
+        .get("test_cycle")
+        .expect("缺少 test_cycle 组");
 
     assert_eq!(group.mode, "periodic");
     assert_eq!(group.hotkey, "F2");
@@ -89,7 +88,10 @@ fn test_hybrid_mode_groups() {
             assert_eq!(data.seq_interval, Some(100));
 
             match &data.groups[0] {
-                GroupItem::Periodic { press_keys, intervals } => {
+                GroupItem::Periodic {
+                    press_keys,
+                    intervals,
+                } => {
                     assert_eq!(*press_keys, vec!["1", "2", "3"]);
                     assert_eq!(*intervals, vec![50, 50, 50]);
                 }
@@ -97,7 +99,11 @@ fn test_hybrid_mode_groups() {
             }
 
             match &data.groups[1] {
-                GroupItem::Sequence { press_keys, delays, seq_interval } => {
+                GroupItem::Sequence {
+                    press_keys,
+                    delays,
+                    seq_interval,
+                } => {
                     assert_eq!(*press_keys, vec!["A", "S", "D"]);
                     assert_eq!(*delays, vec![200, 500, 2000]);
                     assert_eq!(*seq_interval, None);
@@ -150,12 +156,18 @@ fn test_enhanced_periodic_mode() {
 
     assert_eq!(group.mode, "enhanced_periodic");
     assert_eq!(group.hotkey, "F3");
-    assert_eq!(group.hold_keys.as_deref(), Some(vec!["Shift".to_string()].as_slice()));
+    assert_eq!(
+        group.hold_keys.as_deref(),
+        Some(vec!["Shift".to_string()].as_slice())
+    );
     assert_eq!(group.hold_mode.as_deref(), Some("continuous"));
 
     match &group.mode_data {
         ModeData::EnhancedPeriodic(data) => {
-            assert_eq!(data.press_keys, vec!["space", "1", "2", "3", "RButton", "space"]);
+            assert_eq!(
+                data.press_keys,
+                vec!["space", "1", "2", "3", "RButton", "space"]
+            );
             assert_eq!(data.intervals, vec![50, 50, 50, 50, 50, 50]);
         }
         other => panic!("组 3 应为 EnhancedPeriodic，实际: {other:?}"),
@@ -170,7 +182,10 @@ fn test_enhanced_hybrid_mode() {
     assert_eq!(group.mode, "enhanced_hybrid");
     assert_eq!(group.hotkey, "F4");
     assert_eq!(group.key_press_duration, Some(15));
-    assert_eq!(group.hold_keys.as_deref(), Some(vec!["Shift".to_string(), "Ctrl".to_string()].as_slice()));
+    assert_eq!(
+        group.hold_keys.as_deref(),
+        Some(vec!["Shift".to_string(), "Ctrl".to_string()].as_slice())
+    );
     assert_eq!(group.hold_mode.as_deref(), Some("continuous"));
 
     match &group.mode_data {
@@ -179,7 +194,10 @@ fn test_enhanced_hybrid_mode() {
             assert_eq!(data.seq_interval, Some(100));
 
             match &data.groups[0] {
-                GroupItem::Periodic { press_keys, intervals } => {
+                GroupItem::Periodic {
+                    press_keys,
+                    intervals,
+                } => {
                     assert_eq!(*press_keys, vec!["Space"]);
                     assert_eq!(*intervals, vec![100]);
                 }
@@ -187,7 +205,11 @@ fn test_enhanced_hybrid_mode() {
             }
 
             match &data.groups[1] {
-                GroupItem::Sequence { press_keys, delays, seq_interval } => {
+                GroupItem::Sequence {
+                    press_keys,
+                    delays,
+                    seq_interval,
+                } => {
                     assert_eq!(*press_keys, vec!["1", "2", "3", "4", "q"]);
                     assert_eq!(*delays, vec![100, 100, 100, 100, 100]);
                     assert_eq!(*seq_interval, Some(100));
@@ -206,7 +228,10 @@ fn test_hold_mode() {
 
     assert_eq!(group.mode, "hold");
     assert_eq!(group.hotkey, "F6");
-    assert_eq!(group.hold_keys.as_deref(), Some(vec!["RButton".to_string()].as_slice()));
+    assert_eq!(
+        group.hold_keys.as_deref(),
+        Some(vec!["RButton".to_string()].as_slice())
+    );
 
     match &group.mode_data {
         ModeData::Hold(data) => {

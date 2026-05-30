@@ -26,10 +26,7 @@ pub fn get_config(state: tauri::State<'_, Arc<AppState>>) -> Result<Config, AppE
 }
 
 #[tauri::command]
-pub fn save_config(
-    state: tauri::State<'_, Arc<AppState>>,
-    config: Config,
-) -> Result<(), AppError> {
+pub fn save_config(state: tauri::State<'_, Arc<AppState>>, config: Config) -> Result<(), AppError> {
     let validation = ConfigValidator::validate(&config.group_settings);
     if !validation.is_valid() {
         return Err(AppError::Validation(
@@ -42,7 +39,8 @@ pub fn save_config(
         ));
     }
 
-    state.save_config_atomic(config)
+    state
+        .save_config_atomic(config)
         .map_err(|e| AppError::Config(e.to_string()))?;
 
     Ok(())
@@ -80,7 +78,9 @@ pub async fn list_backups(
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) == Some("json") {
-            let metadata = entry.metadata().map_err(|e| AppError::Config(format!("读取备份元数据失败: {e}")))?;
+            let metadata = entry
+                .metadata()
+                .map_err(|e| AppError::Config(format!("读取备份元数据失败: {e}")))?;
             let filename = path
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -104,9 +104,7 @@ pub async fn list_backups(
 }
 
 #[tauri::command]
-pub async fn create_backup(
-    state: tauri::State<'_, Arc<AppState>>,
-) -> Result<String, AppError> {
+pub async fn create_backup(state: tauri::State<'_, Arc<AppState>>) -> Result<String, AppError> {
     let config_path = state
         .get_config_path()
         .ok_or_else(|| AppError::Config("配置路径未设置".to_string()))?;
@@ -163,7 +161,9 @@ pub async fn restore_backup(
         .canonicalize()
         .map_err(|e| AppError::Config(format!("目录解析失败: {e}")))?;
     if !canonical_backup.starts_with(&canonical_dir) {
-        return Err(AppError::Config("非法路径：备份文件不在备份目录内".to_string()));
+        return Err(AppError::Config(
+            "非法路径：备份文件不在备份目录内".to_string(),
+        ));
     }
 
     let restored_config = Config::load_from_path(&backup_path).map_err(AppError::Config)?;
@@ -174,15 +174,12 @@ pub async fn restore_backup(
 }
 
 #[tauri::command]
-pub fn hot_reload(
-    state: tauri::State<'_, Arc<AppState>>,
-) -> Result<Config, AppError> {
+pub fn hot_reload(state: tauri::State<'_, Arc<AppState>>) -> Result<Config, AppError> {
     let config_path = state
         .get_config_path()
         .ok_or_else(|| AppError::Config("配置路径未设置".to_string()))?;
 
-    let reloaded_config = Config::load_from_path(&config_path)
-        .map_err(AppError::Config)?;
+    let reloaded_config = Config::load_from_path(&config_path).map_err(AppError::Config)?;
     state.save_config_atomic(reloaded_config.clone())?;
 
     tracing::info!("热重载配置成功");
@@ -216,7 +213,9 @@ pub async fn delete_backup(
         .canonicalize()
         .map_err(|e| AppError::Config(format!("目录解析失败: {e}")))?;
     if !canonical_backup.starts_with(&canonical_dir) {
-        return Err(AppError::Config("非法路径：备份文件不在备份目录内".to_string()));
+        return Err(AppError::Config(
+            "非法路径：备份文件不在备份目录内".to_string(),
+        ));
     }
 
     std::fs::remove_file(&backup_path)
@@ -236,8 +235,7 @@ pub async fn export_config(
     let json = serde_json::to_string_pretty(&config)
         .map_err(|e| AppError::Config(format!("序列化配置失败: {e}")))?;
 
-    std::fs::write(&path, json)
-        .map_err(|e| AppError::Config(format!("写入文件失败: {e}")))?;
+    std::fs::write(&path, json).map_err(|e| AppError::Config(format!("写入文件失败: {e}")))?;
 
     tracing::info!("配置已导出: {}", path);
     Ok(())
@@ -278,7 +276,9 @@ pub async fn compare_configs(
 
     let backup_path = backup_dir.join(&backup_filename);
     if !backup_path.exists() {
-        return Err(AppError::Config(format!("备份文件不存在: {backup_filename}")));
+        return Err(AppError::Config(format!(
+            "备份文件不存在: {backup_filename}"
+        )));
     }
 
     // 安全检查：确保文件在备份目录内，防止路径遍历攻击
@@ -289,7 +289,9 @@ pub async fn compare_configs(
         .canonicalize()
         .map_err(|e| AppError::Config(format!("目录解析失败: {e}")))?;
     if !canonical_backup.starts_with(&canonical_dir) {
-        return Err(AppError::Config("非法路径：备份文件不在备份目录内".to_string()));
+        return Err(AppError::Config(
+            "非法路径：备份文件不在备份目录内".to_string(),
+        ));
     }
 
     let backup_config = Config::load_from_path(&backup_path).map_err(AppError::Config)?;
@@ -409,7 +411,10 @@ mod tests {
         );
         let result = ConfigValidator::validate(&config.group_settings);
         assert!(!result.is_valid());
-        assert!(result.errors.iter().any(|e| e.field == "hotkey" && e.message.contains("重复")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.field == "hotkey" && e.message.contains("重复")));
     }
 
     #[test]

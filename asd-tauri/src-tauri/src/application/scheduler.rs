@@ -85,10 +85,7 @@ impl SkillManager {
 
     pub fn register_hotkey(&mut self, hotkey: &str, group_id: &str) -> Result<(), String> {
         if let Some(existing_id) = self.hotkey_registry.get(hotkey) {
-            return Err(format!(
-                "热键 '{}' 已被分组 '{}' 注册",
-                hotkey, existing_id
-            ));
+            return Err(format!("热键 '{}' 已被分组 '{}' 注册", hotkey, existing_id));
         }
         self.hotkey_registry
             .insert(hotkey.to_string(), group_id.to_string());
@@ -114,10 +111,16 @@ impl SkillManager {
             group_id: group.id.clone(),
             active: group.active,
             mode: Some(group.mode.clone()),
-            key_press_duration: if group.key_press_duration > 0 { Some(group.key_press_duration) } else { None },
+            key_press_duration: if group.key_press_duration > 0 {
+                Some(group.key_press_duration)
+            } else {
+                None
+            },
             hold_keys: group.hold_keys.clone(),
             hold_mode: group.hold_mode.clone(),
-            mode_data: serde_json::to_value(&group.mode_data).ok().filter(|v| !v.is_null()),
+            mode_data: serde_json::to_value(&group.mode_data)
+                .ok()
+                .filter(|v| !v.is_null()),
         }
     }
 
@@ -287,7 +290,9 @@ mod tests {
         let group = make_skill_group("1", "periodic");
         let cmd = SkillManager::build_toggle_command(&group);
         match cmd {
-            IpcCommand::ToggleGroup { group_id, active, .. } => {
+            IpcCommand::ToggleGroup {
+                group_id, active, ..
+            } => {
                 assert_eq!(group_id, "1");
                 assert!(!active);
             }
@@ -301,7 +306,9 @@ mod tests {
         group.active = true;
         let cmd = SkillManager::build_toggle_command(&group);
         match cmd {
-            IpcCommand::ToggleGroup { group_id, active, .. } => {
+            IpcCommand::ToggleGroup {
+                group_id, active, ..
+            } => {
                 assert_eq!(group_id, "1");
                 assert!(active);
             }

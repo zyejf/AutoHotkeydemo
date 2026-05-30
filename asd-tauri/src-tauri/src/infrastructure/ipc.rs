@@ -145,7 +145,9 @@ impl IpcManager {
     }
 
     pub async fn connect_to_ahk(&self) -> Result<(), IpcError> {
-        let name = (*self.pipe_name).clone().to_ns_name::<GenericNamespaced>()
+        let name = (*self.pipe_name)
+            .clone()
+            .to_ns_name::<GenericNamespaced>()
             .map_err(|e| IpcError::NameError(e.to_string()))?;
         let stream = Stream::connect(name).await?;
         let (recv, send) = stream.split();
@@ -186,10 +188,7 @@ impl IpcManager {
             }
             Ok(msg) => {
                 self.cleanup_connection().await;
-                tracing::warn!(
-                    "IPC AHK 认证失败: 首条消息类型为 {}，期望 auth",
-                    msg.r#type
-                );
+                tracing::warn!("IPC AHK 认证失败: 首条消息类型为 {}，期望 auth", msg.r#type);
                 return Err(IpcError::AuthFailed(format!(
                     "首条消息类型为 {}，期望 auth",
                     msg.r#type
@@ -244,9 +243,7 @@ impl IpcManager {
         }
 
         let mut writer_guard = self.send_half.lock().await;
-        let writer = writer_guard
-            .as_mut()
-            .ok_or(IpcError::ConnectionClosed)?;
+        let writer = writer_guard.as_mut().ok_or(IpcError::ConnectionClosed)?;
 
         match writer.write_all(bytes).await {
             Ok(()) => {
@@ -314,9 +311,7 @@ impl IpcManager {
 
     pub async fn recv(&self) -> Result<IpcMessage, IpcError> {
         let mut reader_guard = self.recv_half.lock().await;
-        let reader = reader_guard
-            .as_mut()
-            .ok_or(IpcError::ConnectionClosed)?;
+        let reader = reader_guard.as_mut().ok_or(IpcError::ConnectionClosed)?;
 
         let mut line = String::with_capacity(256);
         match reader.read_line(&mut line).await {
@@ -552,7 +547,11 @@ mod tests {
         assert!(merger.should_flush());
 
         let flushed = merger.flush();
-        assert_eq!(flushed.len(), 2, "F1 和 F2 各一条，F1 被覆盖后只有最新的一条");
+        assert_eq!(
+            flushed.len(),
+            2,
+            "F1 和 F2 各一条，F1 被覆盖后只有最新的一条"
+        );
 
         // flush 后 buffer 应为空
         let flushed_again = merger.flush();
@@ -728,7 +727,10 @@ mod tests {
         assert_eq!(msg.r#type, "execute");
         assert_eq!(msg.seq, 5);
         assert_eq!(msg.action.as_deref(), Some("keypress"));
-        assert_eq!(msg.keys.as_deref(), Some(&["1".to_string(), "2".to_string()][..]));
+        assert_eq!(
+            msg.keys.as_deref(),
+            Some(&["1".to_string(), "2".to_string()][..])
+        );
         assert_eq!(msg.delay, Some(100));
     }
 
@@ -813,8 +815,14 @@ mod tests {
     fn test_ipc_error_auth_failed() {
         let err = IpcError::AuthFailed("token 不匹配".to_string());
         let msg = format!("{err}");
-        assert!(msg.contains("认证失败"), "AuthFailed 显示消息应包含'认证失败': {msg}");
-        assert!(msg.contains("token 不匹配"), "AuthFailed 显示消息应包含具体原因: {msg}");
+        assert!(
+            msg.contains("认证失败"),
+            "AuthFailed 显示消息应包含'认证失败': {msg}"
+        );
+        assert!(
+            msg.contains("token 不匹配"),
+            "AuthFailed 显示消息应包含具体原因: {msg}"
+        );
     }
 
     // ---- IpcManager 基础测试 ----
@@ -853,7 +861,10 @@ mod tests {
     #[test]
     fn test_shutting_down_initially_false() {
         let (manager, _rx) = IpcManager::new("test_shutting_down_init");
-        assert!(!manager.is_shutting_down(), "shutting_down 初始值应为 false");
+        assert!(
+            !manager.is_shutting_down(),
+            "shutting_down 初始值应为 false"
+        );
     }
 
     #[test]
@@ -861,7 +872,10 @@ mod tests {
         let (manager, _rx) = IpcManager::new("test_mark_shutting_down");
         assert!(!manager.is_shutting_down());
         manager.mark_shutting_down();
-        assert!(manager.is_shutting_down(), "mark_shutting_down() 后应为 true");
+        assert!(
+            manager.is_shutting_down(),
+            "mark_shutting_down() 后应为 true"
+        );
     }
 
     #[test]
@@ -873,7 +887,10 @@ mod tests {
 
         manager.mark_shutting_down();
         assert!(manager.is_shutting_down(), "原实例标记后应为 true");
-        assert!(cloned.is_shutting_down(), "克隆实例应共享同一 Arc<AtomicBool>，也应为 true");
+        assert!(
+            cloned.is_shutting_down(),
+            "克隆实例应共享同一 Arc<AtomicBool>，也应为 true"
+        );
     }
 
     #[tokio::test]
@@ -893,7 +910,10 @@ mod tests {
         // 触发 notify_pipe_broken
         manager.notify_pipe_broken().await;
 
-        assert!(!called.load(Ordering::SeqCst), "关机期间 pipe_broken 回调不应被触发");
+        assert!(
+            !called.load(Ordering::SeqCst),
+            "关机期间 pipe_broken 回调不应被触发"
+        );
     }
 
     #[tokio::test]
@@ -909,6 +929,9 @@ mod tests {
         // 不标记关机，直接触发
         manager.notify_pipe_broken().await;
 
-        assert!(called.load(Ordering::SeqCst), "非关机期间 pipe_broken 回调应被触发");
+        assert!(
+            called.load(Ordering::SeqCst),
+            "非关机期间 pipe_broken 回调应被触发"
+        );
     }
 }

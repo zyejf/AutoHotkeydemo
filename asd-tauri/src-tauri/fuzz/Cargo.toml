@@ -1,0 +1,20 @@
+[package]
+name = "asd-tauri-fuzz"
+version = "0.0.0"
+publish = false
+
+[dependencies]
+libfuzzer-sys = "0.4"
+asd-tauri = { path = ".." }
+
+[[bin]]
+name = "fuzz_ipc_json"
+path = "fuzz_targets/fuzz_ipc_json.rs"
+
+[[bin]]
+name = "fuzz_config_deserialize"
+path = "fuzz_targets/fuzz_config_deserialize.rs"
+
+[[bin]]
+name = "fuzz_ipc_command"
+path = "fuzz_targets/fuzz_ipc_command.rs"

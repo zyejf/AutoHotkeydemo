@@ -7,12 +7,15 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM};
 use windows::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
-    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-    JOBOBJECTINFOCLASS,
+    AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject, JOBOBJECTINFOCLASS,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
-use windows::Win32::System::Threading::{CREATE_NO_WINDOW, OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
-use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId, PostMessageW, WNDENUMPROC, WM_CLOSE};
+use windows::Win32::System::Threading::{
+    OpenProcess, CREATE_NO_WINDOW, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumWindows, GetWindowThreadProcessId, PostMessageW, WM_CLOSE, WNDENUMPROC,
+};
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
 const HEARTBEAT_TIMEOUT_COUNT: u32 = 3;
@@ -145,7 +148,9 @@ impl ProcessWatchdog {
                 }
             }
             Err(e) => {
-                tracing::warn!("Watchdog: 创建 JobObject 失败: {e}，子进程仍将被跟踪但不会随主进程自动退出");
+                tracing::warn!(
+                    "Watchdog: 创建 JobObject 失败: {e}，子进程仍将被跟踪但不会随主进程自动退出"
+                );
                 // JobObject 创建失败，但仍然跟踪子进程
             }
         }
@@ -175,7 +180,10 @@ impl ProcessWatchdog {
             (exe_path.to_string(), Vec::new())
         } else if exe_path.ends_with("asd_executor.bat") {
             // Portable mode via batch launcher: cmd /C launcher.bat
-            ("cmd".to_string(), vec!["/C".to_string(), exe_path.to_string()])
+            (
+                "cmd".to_string(),
+                vec!["/C".to_string(), exe_path.to_string()],
+            )
         } else if exe_path.ends_with("AutoHotkey64.exe") {
             // Portable mode: AutoHotkey64.exe executor.ahk
             let script_path = exe_path.replace("AutoHotkey64.exe", "executor.ahk");
@@ -208,7 +216,10 @@ impl ProcessWatchdog {
         }
         // 子进程成功发送心跳，说明运行稳定，重置重启计数器
         if self.restart_count > 0 {
-            tracing::info!("Watchdog: 子进程运行稳定，重置重启计数器 (was={})", self.restart_count);
+            tracing::info!(
+                "Watchdog: 子进程运行稳定，重置重启计数器 (was={})",
+                self.restart_count
+            );
             self.reset_restart_count();
         }
     }
@@ -319,11 +330,16 @@ impl ProcessWatchdog {
         tracing::info!("Watchdog: 开始优雅关机 PID={pid}");
 
         // Phase 1: 通过 IPC 发送 shutdown 消息
-        tracing::info!("Watchdog: Phase 1 - 发送 IPC shutdown 消息 (超时 {:?})", SHUTDOWN_IPC_TIMEOUT);
+        tracing::info!(
+            "Watchdog: Phase 1 - 发送 IPC shutdown 消息 (超时 {:?})",
+            SHUTDOWN_IPC_TIMEOUT
+        );
         if let Some(ref send_shutdown) = self.send_shutdown {
             send_shutdown();
         } else {
-            tracing::warn!("Watchdog: Phase 1 - send_shutdown 回调未设置，跳过 IPC shutdown 消息发送");
+            tracing::warn!(
+                "Watchdog: Phase 1 - send_shutdown 回调未设置，跳过 IPC shutdown 消息发送"
+            );
         }
         if self.wait_for_exit(SHUTDOWN_IPC_TIMEOUT).await {
             tracing::info!("Watchdog: 进程在 IPC shutdown 后退出");
@@ -331,7 +347,10 @@ impl ProcessWatchdog {
             return Ok(());
         }
 
-        tracing::info!("Watchdog: Phase 2 - 发送 WM_CLOSE (超时 {:?})", SHUTDOWN_WM_CLOSE_TIMEOUT);
+        tracing::info!(
+            "Watchdog: Phase 2 - 发送 WM_CLOSE (超时 {:?})",
+            SHUTDOWN_WM_CLOSE_TIMEOUT
+        );
         if let Err(e) = send_wm_close(pid) {
             tracing::warn!("Watchdog: Phase 2 - WM_CLOSE 发送失败: {e}，继续尝试 Phase 3");
         } else if self.wait_for_exit(SHUTDOWN_WM_CLOSE_TIMEOUT).await {
@@ -394,10 +413,11 @@ impl JobObjectGuard {
         unsafe {
             let handle = CreateJobObjectW(None, None)?;
             let info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
-                BasicLimitInformation: windows::Win32::System::JobObjects::JOBOBJECT_BASIC_LIMIT_INFORMATION {
-                    LimitFlags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-                    ..Default::default()
-                },
+                BasicLimitInformation:
+                    windows::Win32::System::JobObjects::JOBOBJECT_BASIC_LIMIT_INFORMATION {
+                        LimitFlags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+                        ..Default::default()
+                    },
                 ..Default::default()
             };
             SetInformationJobObject(
@@ -451,7 +471,12 @@ unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> w
     GetWindowThreadProcessId(hwnd, Some(&mut window_pid));
 
     if window_pid == target_pid {
-        let _ = PostMessageW(Some(hwnd), WM_CLOSE, windows::Win32::Foundation::WPARAM(0), windows::Win32::Foundation::LPARAM(0));
+        let _ = PostMessageW(
+            Some(hwnd),
+            WM_CLOSE,
+            windows::Win32::Foundation::WPARAM(0),
+            windows::Win32::Foundation::LPARAM(0),
+        );
     }
 
     windows::core::BOOL(1)
@@ -481,9 +506,7 @@ impl WatchdogRunner {
     }
 
     pub fn from_arc(watchdog: Arc<Mutex<ProcessWatchdog>>) -> Self {
-        Self {
-            watchdog,
-        }
+        Self { watchdog }
     }
 
     pub async fn run(&self) {
@@ -511,7 +534,10 @@ impl WatchdogRunner {
                         // 子进程稳定运行一段时间后由外部逻辑重置。
                         match wd.spawn_child(&path_clone) {
                             Ok(()) => {
-                                tracing::info!("Watchdog: 子进程重启成功 (attempt={})", wd.restart_count());
+                                tracing::info!(
+                                    "Watchdog: 子进程重启成功 (attempt={})",
+                                    wd.restart_count()
+                                );
                             }
                             Err(e) => {
                                 tracing::error!("Watchdog: 子进程重启失败: {e}");
