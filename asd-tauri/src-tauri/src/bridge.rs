@@ -110,9 +110,10 @@ impl IpcSender for IpcBridge {
         };
         let mut msg_with_seq = msg.clone();
         msg_with_seq.seq = seq;
-        self.outbound
-            .try_send(msg_with_seq)
-            .map_err(|e| e.to_string())
+        self.outbound.try_send(msg_with_seq).map_err(|e| {
+            tracing::warn!("IPC outbound channel 已满，消息被丢弃: {e}");
+            e.to_string()
+        })
     }
 }
 
@@ -150,13 +151,8 @@ impl ProcessWatcher for WatchdogBridge {
         let watchdog = self.watchdog.clone();
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async move {
-                match watchdog.try_lock() {
-                    Ok(guard) => guard.state().clone(),
-                    Err(_) => {
-                        tracing::debug!("WatchdogBridge::state() 获取锁失败，返回默认值");
-                        WatchdogStateEnum::Idle
-                    }
-                }
+                let guard = watchdog.lock().await;
+                guard.state().clone()
             })
         })
     }
@@ -165,13 +161,8 @@ impl ProcessWatcher for WatchdogBridge {
         let watchdog = self.watchdog.clone();
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async move {
-                match watchdog.try_lock() {
-                    Ok(guard) => guard.restart_count(),
-                    Err(_) => {
-                        tracing::debug!("WatchdogBridge::restart_count() 获取锁失败，返回默认值");
-                        0
-                    }
-                }
+                let guard = watchdog.lock().await;
+                guard.restart_count()
             })
         })
     }

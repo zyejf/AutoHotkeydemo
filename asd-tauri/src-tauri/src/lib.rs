@@ -1,18 +1,16 @@
-pub mod application;
 pub mod bridge;
 pub mod commands;
-pub mod domain;
 pub mod infrastructure;
 
 #[cfg(test)]
 mod tests;
 
-use application::state::AppState;
+use asd_application::state::AppState;
 use asd_application::config_repository::ConfigRepository;
 use asd_domain::config::{Config, WatchdogStateEnum};
 use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use bridge::{IpcBridge, TauriEventBridge, WatchdogBridge};
-use domain::models::SkillGroup;
+use asd_domain::models::SkillGroup;
 use infrastructure::ipc::{IpcManager, IpcOutboundReceiver};
 use infrastructure::watchdog::{ProcessWatchdog, WatchdogRunner};
 use std::sync::Arc;
@@ -398,6 +396,30 @@ fn setup_window_close_handler(
     });
 }
 
+fn resolve_ahk_executor_path(app: &tauri::App) -> std::path::PathBuf {
+    if let Ok(p) = app.path().resolve(
+        "ahk_executor/asd_executor.exe",
+        tauri::path::BaseDirectory::Resource,
+    ) {
+        if p.exists() {
+            tracing::info!("使用编译模式 AHK 子进程: {:?}", p);
+            return p;
+        }
+        tracing::warn!("asd_executor.exe 不存在，尝试便携模式");
+    } else {
+        tracing::warn!("无法解析 asd_executor.exe 路径，尝试便携模式");
+    }
+    app.path()
+        .resolve(
+            "ahk_executor/AutoHotkey64.exe",
+            tauri::path::BaseDirectory::Resource,
+        )
+        .unwrap_or_else(|e| {
+            tracing::error!("无法解析 AutoHotkey64.exe 路径: {e}");
+            std::path::PathBuf::from("AutoHotkey64.exe")
+        })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -454,37 +476,7 @@ pub fn run() {
                 watchdog_bridge,
             );
 
-            let exe_path = if let Ok(p) = app.path().resolve(
-                "ahk_executor/asd_executor.exe",
-                tauri::path::BaseDirectory::Resource,
-            ) {
-                if p.exists() {
-                    tracing::info!("使用编译模式 AHK 子进程: {:?}", p);
-                    p
-                } else {
-                    tracing::warn!("asd_executor.exe 不存在，尝试便携模式");
-                    app.path()
-                        .resolve(
-                            "ahk_executor/AutoHotkey64.exe",
-                            tauri::path::BaseDirectory::Resource,
-                        )
-                        .unwrap_or_else(|e| {
-                            tracing::error!("无法解析 AutoHotkey64.exe 路径: {e}");
-                            std::path::PathBuf::from("AutoHotkey64.exe")
-                        })
-                }
-            } else {
-                tracing::warn!("无法解析 asd_executor.exe 路径，尝试便携模式");
-                app.path()
-                    .resolve(
-                        "ahk_executor/AutoHotkey64.exe",
-                        tauri::path::BaseDirectory::Resource,
-                    )
-                    .unwrap_or_else(|e| {
-                        tracing::error!("无法解析 AutoHotkey64.exe 路径: {e}");
-                        std::path::PathBuf::from("AutoHotkey64.exe")
-                    })
-            };
+            let exe_path = resolve_ahk_executor_path(app);
 
             setup_ipc_and_watchdog(
                 &app_state,

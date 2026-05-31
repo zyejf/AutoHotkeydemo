@@ -151,6 +151,7 @@ dependencies = [
  "criterion",
  "indexmap 2.14.0",
  "interprocess",
+ "parking_lot",
  "serde",
  "serde_json",
  "tauri",

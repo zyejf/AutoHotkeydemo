@@ -1,4 +1,4 @@
-use crate::domain::config::*;
+use asd_domain::config::*;
 
 static MAIN_CONFIG_JSON: &str = include_str!("../../config.json");
 static TESTS_CONFIG_JSON: &str = include_str!("../../tests_config.json");

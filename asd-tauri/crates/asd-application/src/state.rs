@@ -48,8 +48,14 @@ struct ConfigState {
 
 /// 应用全局状态，管理配置、分组、热键注册和 IPC 通信。
 ///
-/// `AppState` 是应用层的核心结构体，通过 `RwLock` 和 `AtomicBool` 提供线程安全的并发访问。
+/// `AppState` 是应用层的核心结构体，通过 `parking_lot::RwLock` 和 `AtomicBool` 提供线程安全的并发访问。
 /// 所有 Tauri 命令通过 `Arc<AppState>` 共享此状态。
+///
+/// # 约束
+///
+/// 不要在持有 `parking_lot::RwLock` 写锁时执行阻塞 I/O 操作（如文件写入），
+/// 因为 `parking_lot::RwLock` 是同步锁，会阻塞整个 tokio 运行时。
+/// 文件 I/O 应在释放锁之后执行。
 pub struct AppState {
     config_state: RwLock<ConfigState>,
     ipc_sender: Arc<dyn IpcSender>,
@@ -218,39 +224,23 @@ impl AppState {
     }
 
     pub fn save_config_atomic(&self, new_config: Config) -> Result<(), AppError> {
-        let old_state = {
-            let mut guard = self.config_state.write();
-
-            let old_config = guard.config.clone();
-            let old_groups = guard.groups.clone();
-
-            let mut new_groups = Self::build_groups_from_config(&new_config);
-            for (id, new_group) in new_groups.iter_mut() {
-                if let Some(old_group) = old_groups.get(id) {
-                    new_group.active = old_group.active;
-                }
-            }
-
-            guard.config = new_config.clone();
-            guard.groups = new_groups;
-
-            ConfigState {
-                config: old_config,
-                groups: old_groups,
-            }
-        };
-
         if let Some(path) = self.get_config_path() {
-            if let Err(save_err) = ConfigRepository::save_to_path(&new_config, &path) {
-                tracing::error!("原子保存失败，回滚内存: {save_err}");
-                {
-                    let mut guard = self.config_state.write();
-                    guard.config = old_state.config;
-                    guard.groups = old_state.groups;
-                }
-                return Err(AppError::Config(save_err));
+            ConfigRepository::save_to_path(&new_config, &path).map_err(|e| {
+                tracing::error!("保存配置到磁盘失败: {e}");
+                AppError::Config(e)
+            })?;
+        }
+
+        let mut guard = self.config_state.write();
+        let mut new_groups = Self::build_groups_from_config(&new_config);
+        let old_groups = guard.groups.clone();
+        for (id, new_group) in new_groups.iter_mut() {
+            if let Some(old_group) = old_groups.get(id) {
+                new_group.active = old_group.active;
             }
         }
+        guard.config = new_config;
+        guard.groups = new_groups;
 
         Ok(())
     }
@@ -611,7 +601,7 @@ mod tests {
         let mem_config = state.read_config().unwrap();
         assert_eq!(
             mem_config.control_hotkeys.emergency, original_emergency,
-            "写入失败时内存应回滚到原始值"
+            "磁盘写入失败时内存应保持原始值"
         );
     }
 

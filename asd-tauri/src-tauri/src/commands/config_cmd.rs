@@ -1,5 +1,5 @@
-use crate::domain::config::Config;
-use crate::domain::validator::{ConfigValidator, ValidationResult};
+use asd_domain::config::Config;
+use asd_domain::validator::{ConfigValidator, ValidationResult};
 use asd_application::backup_service;
 use asd_application::backup_service::{BackupInfo, ConfigDiff};
 use asd_application::error::AppError;
@@ -98,7 +98,7 @@ pub async fn compare_configs(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::config::*;
+    use asd_domain::config::*;
     use indexmap::IndexMap;
 
     fn make_valid_config() -> Config {

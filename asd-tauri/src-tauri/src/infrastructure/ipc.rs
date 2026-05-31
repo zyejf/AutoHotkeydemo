@@ -4,6 +4,7 @@ use interprocess::local_socket::{
     traits::tokio::Stream as StreamTrait,
     GenericNamespaced, ListenerOptions, ToNsName,
 };
+use parking_lot::Mutex as SyncMutex;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -14,7 +15,6 @@ pub use asd_ipc_protocol::{HotkeyMerger, IpcError};
 
 const MAX_MESSAGE_SIZE: usize = 64 * 1024;
 const IPC_CHANNEL_CAPACITY: usize = 256;
-const IPC_AUTH_TOKEN: &str = "ASD_IPC_AUTH_V1";
 
 type RecvHalf = <Stream as StreamTrait>::RecvHalf;
 type SendHalf = <Stream as StreamTrait>::SendHalf;
@@ -36,8 +36,8 @@ pub struct IpcManager {
     pending_responses: Arc<Mutex<HashMap<u64, PendingResponse>>>,
     outbound_tx: IpcOutboundSender,
     pipe_name: Arc<String>,
-    on_pipe_broken: Arc<std::sync::Mutex<Option<IpcCallback>>>,
-    on_heartbeat: Arc<std::sync::Mutex<Option<IpcCallback>>>,
+    on_pipe_broken: Arc<SyncMutex<Option<IpcCallback>>>,
+    on_heartbeat: Arc<SyncMutex<Option<IpcCallback>>>,
     shutting_down: Arc<AtomicBool>,
     hotkey_merger: Arc<Mutex<HotkeyMerger>>,
     auth_token: Arc<String>,
@@ -63,7 +63,14 @@ impl Clone for IpcManager {
 
 impl IpcManager {
     pub fn new(pipe_name: &str) -> (Self, IpcOutboundReceiver) {
-        Self::new_with_token(pipe_name, IPC_AUTH_TOKEN.to_string())
+        let auth_token = format!(
+            "ASD_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        );
+        Self::new_with_token(pipe_name, auth_token)
     }
 
     pub fn new_with_token(pipe_name: &str, auth_token: String) -> (Self, IpcOutboundReceiver) {
@@ -75,8 +82,8 @@ impl IpcManager {
             pending_responses: Arc::new(Mutex::new(HashMap::new())),
             outbound_tx,
             pipe_name: Arc::new(pipe_name.to_string()),
-            on_pipe_broken: Arc::new(std::sync::Mutex::new(None)),
-            on_heartbeat: Arc::new(std::sync::Mutex::new(None)),
+            on_pipe_broken: Arc::new(SyncMutex::new(None)),
+            on_heartbeat: Arc::new(SyncMutex::new(None)),
             shutting_down: Arc::new(AtomicBool::new(false)),
             hotkey_merger: Arc::new(Mutex::new(HotkeyMerger::default())),
             auth_token: Arc::new(auth_token),
@@ -93,11 +100,11 @@ impl IpcManager {
     }
 
     pub fn set_pipe_broken_callback(&self, cb: Arc<dyn Fn() + Send + Sync>) {
-        *self.on_pipe_broken.lock().unwrap_or_else(|e| e.into_inner()) = Some(cb);
+        *self.on_pipe_broken.lock() = Some(cb);
     }
 
     pub fn set_heartbeat_callback(&self, cb: Arc<dyn Fn() + Send + Sync>) {
-        *self.on_heartbeat.lock().unwrap_or_else(|e| e.into_inner()) = Some(cb);
+        *self.on_heartbeat.lock() = Some(cb);
     }
 
     /// 标记正在关机，抑制后续 pipe_broken 回调
@@ -328,7 +335,7 @@ impl IpcManager {
                     }
 
                     if msg.r#type == "pong" {
-                        let cb = self.on_heartbeat.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                        let cb = self.on_heartbeat.lock().clone();
                         if let Some(cb) = cb {
                             cb();
                         }
@@ -371,7 +378,7 @@ impl IpcManager {
             tracing::info!("IPC: 关机期间管道断裂，跳过 pipe_broken 回调");
             return;
         }
-        let cb = self.on_pipe_broken.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let cb = self.on_pipe_broken.lock().clone();
         if let Some(cb) = cb {
             cb();
         }

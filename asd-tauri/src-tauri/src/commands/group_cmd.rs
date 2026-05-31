@@ -1,4 +1,4 @@
-use crate::domain::models::SkillGroup;
+use asd_domain::models::SkillGroup;
 use asd_application::error::AppError;
 use asd_application::group_service::{GroupStatus, GroupSummary};
 use asd_application::state::AppState;
@@ -7,7 +7,7 @@ use std::sync::Arc;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::config::*;
+    use asd_domain::config::*;
 
     fn make_skill_group() -> SkillGroup {
         SkillGroup {
