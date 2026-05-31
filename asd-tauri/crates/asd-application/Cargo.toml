@@ -1,0 +1,13 @@
+[package]
+name = "asd-application"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+asd-domain = { path = "../asd-domain" }
+asd-ipc-protocol = { path = "../asd-ipc-protocol" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+indexmap = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

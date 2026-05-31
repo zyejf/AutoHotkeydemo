@@ -1,4 +1,4 @@
-use crate::domain::models::{IpcCommand, IpcMessage};
+use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use interprocess::local_socket::{
     tokio::{Listener, Stream},
     traits::tokio::Stream as StreamTrait,
@@ -10,57 +10,11 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
+pub use asd_ipc_protocol::{IpcError, HotkeyMerger};
+
 const MAX_MESSAGE_SIZE: usize = 64 * 1024;
 const IPC_CHANNEL_CAPACITY: usize = 256;
-const HOTKEY_MERGE_WINDOW_MS: u64 = 100;
-/// C-14: Named Pipe 认证令牌，AHK 客户端连接后必须发送此令牌
 const IPC_AUTH_TOKEN: &str = "ASD_IPC_AUTH_V1";
-
-#[derive(Debug, thiserror::Error)]
-pub enum IpcError {
-    #[error("连接已关闭")]
-    ConnectionClosed,
-    #[error("消息超过大小上限: {0} > {1}")]
-    MessageTooLarge(usize, usize),
-    #[error("收到空行")]
-    EmptyMessage,
-    #[error("JSON 解析错误: {0}")]
-    JsonError(String),
-    #[error("IO 错误: {0}")]
-    IoError(String),
-    #[error("等待响应超时")]
-    Timeout,
-    #[error("通道已关闭")]
-    ChannelClosed,
-    #[error("管道断裂: {0}")]
-    PipeBroken(String),
-    #[error("命名管道错误: {0}")]
-    NameError(String),
-    /// C-14: Named Pipe 认证失败
-    #[error("IPC 认证失败: {0}")]
-    AuthFailed(String),
-}
-
-impl From<std::io::Error> for IpcError {
-    fn from(e: std::io::Error) -> Self {
-        let msg = e.to_string();
-        if msg.contains("broken pipe")
-            || msg.contains("Broken pipe")
-            || msg.contains("远程端已关闭")
-            || msg.contains("No process")
-        {
-            IpcError::PipeBroken(msg)
-        } else {
-            IpcError::IoError(msg)
-        }
-    }
-}
-
-impl From<serde_json::Error> for IpcError {
-    fn from(e: serde_json::Error) -> Self {
-        IpcError::JsonError(e.to_string())
-    }
-}
 
 type RecvHalf = <Stream as StreamTrait>::RecvHalf;
 type SendHalf = <Stream as StreamTrait>::SendHalf;
@@ -467,55 +421,10 @@ pub fn create_listener(
     Ok(listener)
 }
 
-pub struct HotkeyMerger {
-    buffer: HashMap<String, IpcMessage>,
-    merge_window: std::time::Duration,
-    last_flush: std::time::Instant,
-}
-
-impl HotkeyMerger {
-    pub fn new(merge_window_ms: u64) -> Self {
-        Self {
-            buffer: HashMap::new(),
-            merge_window: std::time::Duration::from_millis(merge_window_ms),
-            last_flush: std::time::Instant::now(),
-        }
-    }
-
-    pub fn merge_window(&self) -> std::time::Duration {
-        self.merge_window
-    }
-
-    pub fn push(&mut self, msg: IpcMessage) {
-        let hotkey = msg
-            .keys
-            .as_ref()
-            .and_then(|k| k.first())
-            .cloned()
-            .unwrap_or_default();
-        self.buffer.insert(hotkey, msg);
-    }
-
-    pub fn should_flush(&self) -> bool {
-        self.last_flush.elapsed() >= self.merge_window && !self.buffer.is_empty()
-    }
-
-    pub fn flush(&mut self) -> Vec<IpcMessage> {
-        self.last_flush = std::time::Instant::now();
-        self.buffer.drain().map(|(_, v)| v).collect()
-    }
-}
-
-impl Default for HotkeyMerger {
-    fn default() -> Self {
-        Self::new(HOTKEY_MERGE_WINDOW_MS)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::models::IpcCommand;
+    use asd_ipc_protocol::IpcCommand;
     use std::time::Duration;
 
     // ---- HotkeyMerger 测试 ----

@@ -1,5 +1,6 @@
-use crate::application::state::{AppError, AppState};
-use crate::domain::models::IpcCommand;
+use asd_application::error::AppError;
+use asd_application::state::AppState;
+use asd_ipc_protocol::IpcCommand;
 use crate::domain::models::SkillGroup;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -137,7 +138,7 @@ pub async fn toggle_group(
         hold_mode: group.hold_mode.clone(),
         mode_data: mode_data_json,
     };
-    state.try_send_ipc_command(&cmd).await;
+    state.try_send_ipc_command(&cmd);
 
     Ok(GroupStatus {
         id: group_id,
@@ -176,7 +177,7 @@ pub async fn delete_group(
             hold_mode: None,
             mode_data: None,
         };
-        state.try_send_ipc_command(&cmd).await;
+        state.try_send_ipc_command(&cmd);
     }
 
     // 2. 读取当前配置，移除该分组，原子保存
@@ -233,7 +234,7 @@ pub async fn toggle_all(
             hold_mode: group.hold_mode.clone(),
             mode_data,
         };
-        state.try_send_ipc_command(&cmd).await;
+        state.try_send_ipc_command(&cmd);
         state.set_group_active(id, active)?;
     }
 
@@ -272,7 +273,7 @@ pub async fn batch_toggle_groups(
                 hold_mode: group.hold_mode.clone(),
                 mode_data,
             };
-            state.try_send_ipc_command(&cmd).await;
+            state.try_send_ipc_command(&cmd);
             state.set_group_active(id, active)?;
         }
     }
@@ -303,7 +304,7 @@ pub async fn batch_delete_groups(
                 hold_mode: None,
                 mode_data: None,
             };
-            state.try_send_ipc_command(&cmd).await;
+            state.try_send_ipc_command(&cmd);
         }
     }
 

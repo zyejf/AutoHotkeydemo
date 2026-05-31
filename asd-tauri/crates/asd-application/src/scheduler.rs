@@ -1,21 +1,22 @@
-use crate::domain::models::IpcCommand;
-use crate::domain::models::SkillGroup;
-use crate::infrastructure::ipc::{IpcManager, IpcOutboundSender};
+use asd_domain::models::SkillGroup;
+use asd_domain::traits::IpcSender;
+use asd_ipc_protocol::IpcCommand;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub struct SkillManager {
     groups: HashMap<String, SkillGroup>,
     hotkey_registry: HashMap<String, String>,
     #[allow(dead_code)]
-    ipc_outbound: IpcOutboundSender,
+    ipc_sender: Arc<dyn IpcSender>,
 }
 
 impl SkillManager {
-    pub fn new(groups: HashMap<String, SkillGroup>, ipc_outbound: IpcOutboundSender) -> Self {
+    pub fn new(groups: HashMap<String, SkillGroup>, ipc_sender: Arc<dyn IpcSender>) -> Self {
         Self {
             groups,
             hotkey_registry: HashMap::new(),
-            ipc_outbound,
+            ipc_sender,
         }
     }
 
@@ -124,34 +125,19 @@ impl SkillManager {
         }
     }
 
-    pub async fn send_ipc_command(
-        ipc_manager: &tokio::sync::Mutex<Option<IpcManager>>,
-        cmd: IpcCommand,
-    ) -> Result<u64, String> {
-        let mut guard = ipc_manager.lock().await;
-        let manager = guard
-            .as_mut()
-            .ok_or_else(|| "IPC 管理器未初始化".to_string())?;
-        manager
-            .send_command(cmd)
-            .await
-            .map_err(|e| format!("IPC 发送失败: {e}"))
+    pub fn send_ipc_command(ipc_sender: &dyn IpcSender, cmd: IpcCommand) -> Result<u64, String> {
+        ipc_sender.send_command(cmd)
     }
 
-    pub async fn emergency_release(
-        ipc_manager: &tokio::sync::Mutex<Option<IpcManager>>,
-    ) -> Result<(), String> {
+    pub fn emergency_release(ipc_sender: &dyn IpcSender) -> Result<(), String> {
         let cmd = IpcCommand::EmergencyRelease;
-        Self::send_ipc_command(ipc_manager, cmd).await?;
+        Self::send_ipc_command(ipc_sender, cmd)?;
         Ok(())
     }
 
-    pub async fn hold_mode_toggle(
-        ipc_manager: &tokio::sync::Mutex<Option<IpcManager>>,
-        enabled: bool,
-    ) -> Result<(), String> {
+    pub fn hold_mode_toggle(ipc_sender: &dyn IpcSender, enabled: bool) -> Result<(), String> {
         let cmd = IpcCommand::HoldModeToggle { enabled };
-        Self::send_ipc_command(ipc_manager, cmd).await?;
+        Self::send_ipc_command(ipc_sender, cmd)?;
         Ok(())
     }
 }
@@ -159,7 +145,14 @@ impl SkillManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::config::*;
+    use asd_domain::config::*;
+
+    struct MockIpcSender;
+    impl IpcSender for MockIpcSender {
+        fn send_command(&self, _cmd: IpcCommand) -> Result<u64, String> {
+            Ok(1)
+        }
+    }
 
     fn make_skill_group(id: &str, mode: &str) -> SkillGroup {
         let mode_data = match mode {
@@ -195,11 +188,11 @@ mod tests {
     }
 
     fn make_manager() -> SkillManager {
-        let (tx, _rx) = tokio::sync::mpsc::channel(256);
+        let ipc_sender = Arc::new(MockIpcSender);
         let mut groups = HashMap::new();
         groups.insert("1".to_string(), make_skill_group("1", "periodic"));
         groups.insert("2".to_string(), make_skill_group("2", "sequence"));
-        SkillManager::new(groups, tx)
+        SkillManager::new(groups, ipc_sender)
     }
 
     #[test]
@@ -343,5 +336,28 @@ mod tests {
         let group = mgr.get_group_mut("1").unwrap();
         group.active = true;
         assert!(mgr.get_group("1").unwrap().active);
+    }
+
+    #[test]
+    fn test_send_ipc_command_via_trait() {
+        let ipc_sender = MockIpcSender;
+        let cmd = IpcCommand::EmergencyRelease;
+        let result = SkillManager::send_ipc_command(&ipc_sender, cmd);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 1);
+    }
+
+    #[test]
+    fn test_emergency_release_via_trait() {
+        let ipc_sender = MockIpcSender;
+        let result = SkillManager::emergency_release(&ipc_sender);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_hold_mode_toggle_via_trait() {
+        let ipc_sender = MockIpcSender;
+        let result = SkillManager::hold_mode_toggle(&ipc_sender, true);
+        assert!(result.is_ok());
     }
 }

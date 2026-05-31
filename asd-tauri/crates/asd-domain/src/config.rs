@@ -1,7 +1,5 @@
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -32,88 +30,6 @@ impl Default for Config {
 }
 
 impl Config {
-    #[deprecated(
-        since = "0.2.0",
-        note = "使用 load_from_path() 替代，支持 app_data_dir"
-    )]
-    pub fn load_default() -> Self {
-        Self::load_from_file("config.json")
-    }
-
-    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Self {
-        let path = path.as_ref();
-        match fs::read_to_string(path) {
-            Ok(content) => {
-                let cleaned = content.trim_start_matches('\u{feff}');
-                match serde_json::from_str(cleaned) {
-                    Ok(config) => config,
-                    Err(e) => {
-                        tracing::error!("配置文件解析失败: {e}");
-                        Self::default_config()
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::warn!("配置文件读取失败: {e}，使用默认配置");
-                Self::default_config()
-            }
-        }
-    }
-
-    #[deprecated(since = "0.2.0", note = "使用 save_to_path() 替代，支持原子写入")]
-    pub fn save(&self) -> Result<(), String> {
-        self.save_to_file("config.json")
-    }
-
-    pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
-        let path = path.as_ref();
-        let json =
-            serde_json::to_string_pretty(self).map_err(|e| format!("序列化配置失败: {e}"))?;
-        fs::write(path, json).map_err(|e| format!("写入配置文件失败: {e}"))?;
-        Ok(())
-    }
-
-    /// 从指定路径加载配置，返回 Result（不吞错误）
-    /// 与 load_from_file 不同，此方法在文件不存在或解析失败时返回 Err
-    pub fn load_from_path<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let path = path.as_ref();
-        let content = fs::read_to_string(path).map_err(|e| format!("读取配置文件失败: {e}"))?;
-        let cleaned = content.trim_start_matches('\u{feff}');
-        serde_json::from_str(cleaned).map_err(|e| format!("解析配置文件失败: {e}"))
-    }
-
-    /// 原子写入配置到指定路径
-    /// 使用临时文件 + rename 确保写入的原子性：
-    /// 1. 先写入同目录下的临时文件 (.tmp_前缀)
-    /// 2. 成功后 rename 到目标路径
-    /// 3. 如果 rename 失败，删除临时文件
-    pub fn save_to_path<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
-        let path = path.as_ref();
-        let json =
-            serde_json::to_string_pretty(self).map_err(|e| format!("序列化配置失败: {e}"))?;
-
-        // 构造临时文件路径：同目录下 .tmp_ 前缀
-        let file_name = path
-            .file_name()
-            .ok_or_else(|| "无效的文件路径".to_string())?
-            .to_string_lossy()
-            .to_string();
-        let tmp_file_name = format!(".tmp_{file_name}");
-        let tmp_path = path.with_file_name(&tmp_file_name);
-
-        // 步骤1: 写入临时文件
-        fs::write(&tmp_path, &json).map_err(|e| format!("写入临时配置文件失败: {e}"))?;
-
-        // 步骤2: rename 到目标路径（原子操作）
-        if let Err(e) = fs::rename(&tmp_path, path) {
-            // rename 失败，清理临时文件
-            let _ = fs::remove_file(&tmp_path);
-            return Err(format!("重命名配置文件失败: {e}"));
-        }
-
-        Ok(())
-    }
-
     fn default_config() -> Self {
         Self {
             control_hotkeys: ControlHotkeys {
@@ -356,6 +272,17 @@ pub enum GroupItem {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum WatchdogStateEnum {
+    Idle,
+    Starting,
+    Running,
+    Hung,
+    Restarting,
+    Recovering,
+    Failed,
+}
+
 impl<'de> Deserialize<'de> for GroupConfig {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = serde_json::Value::deserialize(deserializer)?;
@@ -570,8 +497,6 @@ mod unit_tests {
         assert_eq!(hs.debounce_delay, 25);
     }
 
-    // ---- 新增：GroupConfig 10 种模式反序列化测试 ----
-
     #[test]
     fn test_group_config_periodic_deserialize() {
         let json = r#"{"hotkey":"F1","mode":"periodic","keys":["1","2"],"intervals":[50,60]}"#;
@@ -726,8 +651,6 @@ mod unit_tests {
         }
     }
 
-    // ---- 新增：GroupConfig 缺失必需字段测试 ----
-
     #[test]
     fn test_group_config_missing_hotkey() {
         let json = r#"{"mode":"periodic","keys":["1"],"intervals":[50]}"#;
@@ -760,8 +683,6 @@ mod unit_tests {
             "错误信息应提及 unknown mode: {err_msg}"
         );
     }
-
-    // ---- 新增：GroupConfig 序列化 roundtrip 测试（10 种模式） ----
 
     fn make_periodic_group_config() -> GroupConfig {
         GroupConfig {
@@ -979,7 +900,6 @@ mod unit_tests {
             "hold_triggers roundtrip 失败"
         );
 
-        // 验证 mode_data 序列化后再反序列化类型一致
         let original_json = serde_json::to_string(&original.mode_data).unwrap();
         let decoded_json = serde_json::to_string(&decoded.mode_data).unwrap();
         assert_eq!(original_json, decoded_json, "mode_data roundtrip 不一致");
@@ -1035,8 +955,6 @@ mod unit_tests {
         assert_roundtrip(&make_joystick_hold_group_config());
     }
 
-    // ---- 新增：Config 整体序列化 roundtrip 测试 ----
-
     #[test]
     fn test_config_roundtrip() {
         let mut group_settings = IndexMap::new();
@@ -1073,8 +991,6 @@ mod unit_tests {
         assert!(decoded.hold_settings.is_some());
         assert_eq!(decoded.version.as_deref(), Some("3.0"));
     }
-
-    // ---- 新增：GroupConfig 可选字段序列化跳过测试 ----
 
     #[test]
     fn test_group_config_optional_fields_skip_serialization() {
@@ -1126,109 +1042,21 @@ mod unit_tests {
         assert!(json.contains("测试组"));
     }
 
-    // ---- load_from_file / save_to_file 路径测试 ----
-
-    /// 测试 load_from_file 从指定路径加载配置
     #[test]
-    fn test_load_from_file_valid_file() {
-        let dir = std::env::temp_dir().join("asd_test_load_from_file");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-
-        let path = dir.join("test_config.json");
-        let config = Config::default_config();
-        let json = serde_json::to_string_pretty(&config).unwrap();
-        std::fs::write(&path, json).unwrap();
-
-        let loaded = Config::load_from_file(&path);
-        assert_eq!(loaded.control_hotkeys.emergency, "F10");
-        assert_eq!(loaded.version.as_deref(), Some("3.0"));
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// 测试 load_from_file 文件不存在时回退默认配置
-    #[test]
-    fn test_load_from_file_missing_file_falls_back() {
-        let path = std::path::PathBuf::from("/nonexistent/path/config.json");
-        let loaded = Config::load_from_file(&path);
-        // load_from_file 在文件不存在时回退到默认配置
-        assert_eq!(loaded.control_hotkeys.emergency, "F10");
-    }
-
-    /// 测试 load_from_file 解析失败时回退默认配置
-    #[test]
-    fn test_load_from_file_invalid_json_falls_back() {
-        let dir = std::env::temp_dir().join("asd_test_load_invalid_json");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-
-        let path = dir.join("bad_config.json");
-        std::fs::write(&path, "{invalid json!!!}").unwrap();
-
-        let loaded = Config::load_from_file(&path);
-        // load_from_file 在解析失败时回退到默认配置
-        assert_eq!(loaded.control_hotkeys.emergency, "F10");
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// 测试 save_to_file 写入配置
-    #[test]
-    fn test_save_to_file_atomic_write() {
-        let dir = std::env::temp_dir().join("asd_test_save_to_file");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-
-        let path = dir.join("atomic_config.json");
-        let config = Config::default_config();
-
-        // 保存应成功
-        config.save_to_file(&path).expect("save_to_file 应成功");
-
-        // 文件应存在且内容可解析
-        let content = std::fs::read_to_string(&path).unwrap();
-        let loaded: Config = serde_json::from_str(&content).expect("保存的文件应可解析");
-        assert_eq!(loaded.control_hotkeys.emergency, "F10");
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// 测试 save_to_file 覆盖时保持一致性
-    #[test]
-    fn test_save_to_file_overwrite_consistency() {
-        let dir = std::env::temp_dir().join("asd_test_save_overwrite");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-
-        let path = dir.join("overwrite_config.json");
-
-        // 第一次写入
-        let config1 = Config::default_config();
-        config1.save_to_file(&path).unwrap();
-
-        // 第二次写入（覆盖）
-        let mut config2 = Config::default_config();
-        config2.control_hotkeys.emergency = "F12".to_string();
-        config2.save_to_file(&path).unwrap();
-
-        // 验证是最新内容
-        let content = std::fs::read_to_string(&path).unwrap();
-        let loaded: Config = serde_json::from_str(&content).unwrap();
-        assert_eq!(
-            loaded.control_hotkeys.emergency, "F12",
-            "覆盖后应为最新内容"
-        );
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// 测试 save_to_file 在无效路径时返回错误
-    #[test]
-    fn test_save_to_file_invalid_directory_returns_error() {
-        let path = std::path::PathBuf::from("/nonexistent/directory/config.json");
-        let config = Config::default_config();
-        let result = config.save_to_file(&path);
-        assert!(result.is_err(), "无效路径应返回 Err");
+    fn test_watchdog_state_enum_serialization() {
+        let states = vec![
+            WatchdogStateEnum::Idle,
+            WatchdogStateEnum::Starting,
+            WatchdogStateEnum::Running,
+            WatchdogStateEnum::Hung,
+            WatchdogStateEnum::Restarting,
+            WatchdogStateEnum::Recovering,
+            WatchdogStateEnum::Failed,
+        ];
+        for state in &states {
+            let json = serde_json::to_string(state).unwrap();
+            let decoded: WatchdogStateEnum = serde_json::from_str(&json).unwrap();
+            assert_eq!(*state, decoded);
+        }
     }
 }

@@ -1,4 +1,6 @@
-use crate::application::state::{AppError, AppState};
+use asd_application::config_repository::ConfigRepository;
+use asd_application::error::AppError;
+use asd_application::state::AppState;
 use crate::domain::config::Config;
 use crate::domain::validator::{ConfigValidator, ValidationResult};
 use std::sync::Arc;
@@ -126,8 +128,7 @@ pub async fn create_backup(state: tauri::State<'_, Arc<AppState>>) -> Result<Str
 
     let current_config = state.read_config()?;
 
-    current_config
-        .save_to_path(&backup_path)
+    ConfigRepository::save_to_path(&current_config, &backup_path)
         .map_err(AppError::Config)?;
 
     tracing::info!("已创建备份: {backup_filename}");
@@ -166,7 +167,7 @@ pub async fn restore_backup(
         ));
     }
 
-    let restored_config = Config::load_from_path(&backup_path).map_err(AppError::Config)?;
+    let restored_config = ConfigRepository::load_from_path(&backup_path).map_err(AppError::Config)?;
     state.save_config_atomic(restored_config)?;
 
     tracing::info!("已恢复备份: {filename}");
@@ -179,7 +180,7 @@ pub fn hot_reload(state: tauri::State<'_, Arc<AppState>>) -> Result<Config, AppE
         .get_config_path()
         .ok_or_else(|| AppError::Config("配置路径未设置".to_string()))?;
 
-    let reloaded_config = Config::load_from_path(&config_path).map_err(AppError::Config)?;
+    let reloaded_config = ConfigRepository::load_from_path(&config_path).map_err(AppError::Config)?;
     state.save_config_atomic(reloaded_config.clone())?;
 
     tracing::info!("热重载配置成功");
@@ -294,7 +295,7 @@ pub async fn compare_configs(
         ));
     }
 
-    let backup_config = Config::load_from_path(&backup_path).map_err(AppError::Config)?;
+    let backup_config = ConfigRepository::load_from_path(&backup_path).map_err(AppError::Config)?;
 
     let current_ids: std::collections::HashSet<String> =
         current_config.group_settings.keys().cloned().collect();

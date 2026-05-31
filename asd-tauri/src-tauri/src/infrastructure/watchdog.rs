@@ -1,4 +1,4 @@
-use serde::Serialize;
+pub use asd_domain::config::WatchdogStateEnum;
 use std::os::windows::process::CommandExt;
 use std::process::Child;
 use std::process::Command;
@@ -37,17 +37,6 @@ const BACKOFF_DURATIONS: [Duration; 10] = [
 
 const SHUTDOWN_IPC_TIMEOUT: Duration = Duration::from_secs(2);
 const SHUTDOWN_WM_CLOSE_TIMEOUT: Duration = Duration::from_secs(3);
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub enum WatchdogStateEnum {
-    Idle,
-    Starting,
-    Running,
-    Hung,
-    Restarting,
-    Recovering,
-    Failed,
-}
 
 type StateChangeCallback = Arc<dyn Fn(&WatchdogStateEnum) + Send + Sync>;
 

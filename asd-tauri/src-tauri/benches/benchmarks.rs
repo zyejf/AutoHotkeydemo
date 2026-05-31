@@ -11,7 +11,7 @@ use asd_tauri_lib::domain::config::{
     GroupConfig, GroupItem, HoldData, HoldSettings, HybridData, ModeData, PeriodicData,
     SequenceData,
 };
-use asd_tauri_lib::domain::models::{IpcCommand, IpcMessage};
+use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use asd_tauri_lib::domain::validator::ConfigValidator;
 
 // =================================================================

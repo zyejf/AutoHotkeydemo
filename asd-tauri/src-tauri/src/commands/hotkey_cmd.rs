@@ -1,5 +1,6 @@
-use crate::application::state::{AppError, AppState};
-use crate::domain::models::IpcCommand;
+use asd_application::error::AppError;
+use asd_application::state::AppState;
+use asd_ipc_protocol::IpcCommand;
 use std::sync::Arc;
 
 #[tauri::command]
@@ -26,7 +27,7 @@ pub async fn register_hotkey(
     }
 
     let cmd = IpcCommand::RegisterHotkey { hotkey, group_id };
-    state.try_send_ipc_command(&cmd).await;
+    state.try_send_ipc_command(&cmd);
 
     Ok(())
 }
@@ -47,7 +48,7 @@ pub async fn unregister_hotkey(
     if removed {
         tracing::info!("热键 '{}' 已注销", hotkey);
         let cmd = IpcCommand::UnregisterHotkey { hotkey };
-        state.try_send_ipc_command(&cmd).await;
+        state.try_send_ipc_command(&cmd);
         Ok(())
     } else {
         Err(AppError::Validation(format!("热键 '{}' 未注册", hotkey)))

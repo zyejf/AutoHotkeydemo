@@ -1,6 +1,7 @@
-use crate::application::scheduler::SkillManager;
-use crate::application::state::{AppError, AppState};
-use crate::infrastructure::watchdog::WatchdogStateEnum;
+use asd_application::error::AppError;
+use asd_application::state::AppState;
+use asd_domain::config::WatchdogStateEnum;
+use asd_ipc_protocol::IpcCommand;
 use std::sync::Arc;
 
 #[tauri::command]
@@ -17,9 +18,7 @@ pub fn get_executor_status(
 #[tauri::command]
 pub async fn emergency_release(state: tauri::State<'_, Arc<AppState>>) -> Result<(), AppError> {
     state.set_emergency_mode(true);
-    SkillManager::emergency_release(&state.ipc_manager)
-        .await
-        .map_err(AppError::Executor)?;
+    state.send_ipc_command(&IpcCommand::EmergencyRelease)?;
     tracing::warn!("紧急释放已激活");
     Ok(())
 }
@@ -30,9 +29,7 @@ pub async fn toggle_hold_mode(state: tauri::State<'_, Arc<AppState>>) -> Result<
     let new_value = !current;
     state.set_hold_mode_enabled(new_value);
 
-    SkillManager::hold_mode_toggle(&state.ipc_manager, new_value)
-        .await
-        .map_err(AppError::Executor)?;
+    state.send_ipc_command(&IpcCommand::HoldModeToggle { enabled: new_value })?;
 
     tracing::info!("长按模式已{}", if new_value { "开启" } else { "关闭" });
     Ok(new_value)

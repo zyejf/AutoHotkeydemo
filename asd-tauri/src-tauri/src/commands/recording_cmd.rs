@@ -1,5 +1,6 @@
-use crate::application::state::{AppError, AppState};
-use crate::domain::models::IpcCommand;
+use asd_application::error::AppError;
+use asd_application::state::AppState;
+use asd_ipc_protocol::IpcCommand;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -90,7 +91,7 @@ pub async fn start_recording(
         group_id: group_id.clone(),
         mode: mode.clone(),
     };
-    state.send_ipc_command(&cmd).await?;
+    state.send_ipc_command(&cmd)?;
 
     tracing::info!("开始录制: group={}, mode={}", group_id, mode);
     Ok(())
@@ -102,8 +103,7 @@ pub async fn stop_recording(
 ) -> Result<RecordingResult, AppError> {
     let cmd = IpcCommand::StopRecording;
     let response = state
-        .send_ipc_and_wait(&cmd, std::time::Duration::from_secs(5))
-        .await?;
+        .send_ipc_and_wait(&cmd, std::time::Duration::from_secs(5))?;
 
     tracing::info!("停止录制: seq={}", response.seq);
 
@@ -148,7 +148,7 @@ pub async fn stop_recording(
 #[tauri::command]
 pub async fn pause_recording(state: tauri::State<'_, Arc<AppState>>) -> Result<u64, AppError> {
     let cmd = IpcCommand::PauseRecording;
-    let seq = state.send_ipc_command(&cmd).await?;
+    let seq = state.send_ipc_command(&cmd)?;
     tracing::info!("暂停录制: seq={}", seq);
     Ok(seq)
 }
@@ -156,7 +156,7 @@ pub async fn pause_recording(state: tauri::State<'_, Arc<AppState>>) -> Result<u
 #[tauri::command]
 pub async fn resume_recording(state: tauri::State<'_, Arc<AppState>>) -> Result<u64, AppError> {
     let cmd = IpcCommand::ResumeRecording;
-    let seq = state.send_ipc_command(&cmd).await?;
+    let seq = state.send_ipc_command(&cmd)?;
     tracing::info!("恢复录制: seq={}", seq);
     Ok(seq)
 }
@@ -223,7 +223,7 @@ pub async fn start_validation(
     let cmd = IpcCommand::StartValidation {
         group_id: group_id.clone(),
     };
-    let seq = state.send_ipc_command(&cmd).await?;
+    let seq = state.send_ipc_command(&cmd)?;
     tracing::info!("启动验证: groupId={}, seq={}", group_id, seq);
     Ok(seq)
 }
@@ -231,7 +231,7 @@ pub async fn start_validation(
 #[tauri::command]
 pub async fn stop_validation(state: tauri::State<'_, Arc<AppState>>) -> Result<u64, AppError> {
     let cmd = IpcCommand::StopValidation;
-    let seq = state.send_ipc_command(&cmd).await?;
+    let seq = state.send_ipc_command(&cmd)?;
     tracing::info!("停止验证: seq={}", seq);
     Ok(seq)
 }

@@ -1,4 +1,4 @@
-use crate::domain::config::{GroupConfig, ModeData};
+use crate::config::{GroupConfig, ModeData};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -393,7 +393,7 @@ impl ConfigValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::config::*;
+    use crate::config::*;
     use indexmap::IndexMap;
 
     fn make_periodic_group() -> GroupConfig {
@@ -769,8 +769,6 @@ mod tests {
         assert!(!result.warnings.iter().any(|w| w.contains("格式可能不正确")));
     }
 
-    // ---- 新增：sequence 模式校验 ----
-
     fn make_sequence_group() -> GroupConfig {
         GroupConfig {
             hotkey: "F2".to_string(),
@@ -853,8 +851,6 @@ mod tests {
         assert!(result.errors.iter().any(|e| e.field == "delays"));
     }
 
-    // ---- 新增：enhanced_periodic 空字段校验 ----
-
     #[test]
     fn test_enhanced_periodic_empty_keys() {
         let mut groups = IndexMap::new();
@@ -904,8 +900,6 @@ mod tests {
         assert!(!result.is_valid());
         assert!(result.errors.iter().any(|e| e.field == "intervals"));
     }
-
-    // ---- 新增：enhanced_sequence 空字段校验 ----
 
     #[test]
     fn test_enhanced_sequence_empty_keys() {
@@ -957,8 +951,6 @@ mod tests {
         assert!(result.errors.iter().any(|e| e.field == "pressDelays"));
     }
 
-    // ---- 新增：enhanced_hybrid 空子组校验 ----
-
     #[test]
     fn test_enhanced_hybrid_empty_groups() {
         let mut groups = IndexMap::new();
@@ -983,8 +975,6 @@ mod tests {
         assert!(!result.is_valid());
         assert!(result.errors.iter().any(|e| e.field == "groups"));
     }
-
-    // ---- 新增：joystick_periodic 模式校验 ----
 
     #[test]
     fn test_valid_joystick_periodic() {
@@ -1041,8 +1031,6 @@ mod tests {
         assert!(result.errors.iter().any(|e| e.field == "pressKeys"));
     }
 
-    // ---- 新增：joystick_sequence 模式校验 ----
-
     #[test]
     fn test_valid_joystick_sequence() {
         let mut groups = IndexMap::new();
@@ -1097,8 +1085,6 @@ mod tests {
         assert!(!result.is_valid());
         assert!(result.errors.iter().any(|e| e.field == "pressKeys"));
     }
-
-    // ---- 新增：joystick_hold 模式校验 ----
 
     #[test]
     fn test_valid_joystick_hold() {
@@ -1181,8 +1167,6 @@ mod tests {
         let result = ConfigValidator::validate(&groups);
         assert!(result.warnings.iter().any(|w| w.contains("holdDuration")));
     }
-
-    // ---- 新增：mode_data 类型不匹配校验 ----
 
     #[test]
     fn test_periodic_mode_data_mismatch() {
@@ -1436,8 +1420,6 @@ mod tests {
             .any(|e| e.field == "mode_data" && e.message.contains("joystick_hold")));
     }
 
-    // ---- 新增：intervals 含 0 校验 ----
-
     #[test]
     fn test_periodic_zero_interval() {
         let mut groups = IndexMap::new();
@@ -1465,8 +1447,6 @@ mod tests {
             .iter()
             .any(|e| e.field == "intervals" && e.message.contains("0")));
     }
-
-    // ---- 新增：空 hotkey / 空 mode 校验 ----
 
     #[test]
     fn test_empty_hotkey_error() {
@@ -1518,8 +1498,6 @@ mod tests {
         assert!(result.errors.iter().any(|e| e.field == "mode"));
     }
 
-    // ---- 新增：hold 模式有效配置 ----
-
     #[test]
     fn test_valid_hold_config() {
         let mut groups = IndexMap::new();
@@ -1549,8 +1527,6 @@ mod tests {
         );
     }
 
-    // ---- 新增：hybrid mode_data 类型不匹配 ----
-
     #[test]
     fn test_hybrid_mode_data_mismatch() {
         let mut groups = IndexMap::new();
@@ -1578,8 +1554,6 @@ mod tests {
             .iter()
             .any(|e| e.field == "mode_data" && e.message.contains("hybrid")));
     }
-
-    // ---- 新增：hold_keys 数量过多警告 ----
 
     #[test]
     fn test_too_many_hold_keys_warning() {
@@ -1613,8 +1587,6 @@ mod tests {
             .iter()
             .any(|w| w.contains("holdKeys") && w.contains("较多")));
     }
-
-    // ---- 新增：修饰键热键格式校验 ----
 
     #[test]
     fn test_modifier_hotkey_format_valid() {
