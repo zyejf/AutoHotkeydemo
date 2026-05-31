@@ -25,82 +25,30 @@ pub struct IpcMessage {
 impl IpcMessage {
     /// 从 IpcCommand 构建 IPC 命令消息。
     ///
-    /// # 维护约束
-    ///
-    /// 此方法手动构建 `data` 字段的 JSON 结构，与 `IpcCommand` 的 serde 派生宏序列化逻辑
-    /// 是两套独立实现。修改 `IpcCommand` 的字段时，必须同步更新此方法中的 JSON 构建逻辑。
+    /// 通过 `serde_json::to_value` 序列化 `IpcCommand`，然后提取 `action` 和 `data` 字段，
+    /// 确保序列化逻辑与 `IpcCommand` 的 serde 派生宏保持一致，无需手动维护两套实现。
     pub fn command(seq: u64, cmd: &IpcCommand) -> Self {
-        let action_str = match cmd {
-            IpcCommand::ToggleGroup { .. } => "toggle_group",
-            IpcCommand::RegisterHotkey { .. } => "register_hotkey",
-            IpcCommand::UnregisterHotkey { .. } => "unregister_hotkey",
-            IpcCommand::StartRecording { .. } => "start_recording",
-            IpcCommand::StopRecording => "stop_recording",
-            IpcCommand::PauseRecording => "pause_recording",
-            IpcCommand::ResumeRecording => "resume_recording",
-            IpcCommand::EmergencyRelease => "emergency_release",
-            IpcCommand::Ping => "ping",
-            IpcCommand::Shutdown => "shutdown",
-            IpcCommand::HoldModeToggle { .. } => "hold_mode_toggle",
-            IpcCommand::StartValidation { .. } => "start_validation",
-            IpcCommand::StopValidation => "stop_validation",
-        };
+        let serialized = serde_json::to_value(cmd)
+            .ok()
+            .filter(|v| !v.is_null())
+            .unwrap_or(serde_json::Value::Object(Default::default()));
 
-        let data = match cmd {
-            IpcCommand::ToggleGroup {
-                group_id,
-                active,
-                mode,
-                key_press_duration,
-                hold_keys,
-                hold_mode,
-                mode_data,
-            } => {
-                let mut data = serde_json::json!({
-                    "groupId": group_id,
-                    "active": active
-                });
-                if let Some(ref m) = mode {
-                    data["mode"] = serde_json::Value::String(m.clone());
+        let action = serialized
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let data = match serialized {
+            serde_json::Value::Object(mut map) => {
+                map.remove("action");
+                if map.is_empty() {
+                    None
+                } else {
+                    Some(serde_json::Value::Object(map))
                 }
-                if let Some(ref kpd) = key_press_duration {
-                    data["keyPressDuration"] = serde_json::Value::Number((*kpd).into());
-                }
-                if let Some(ref hk) = hold_keys {
-                    data["holdKeys"] = serde_json::to_value(hk).ok().filter(|v| !v.is_null()).unwrap_or(serde_json::Value::Null);
-                }
-                if let Some(ref hm) = hold_mode {
-                    data["holdMode"] = serde_json::Value::String(hm.clone());
-                }
-                if let Some(ref md) = mode_data {
-                    data["modeData"] = md.clone();
-                }
-                Some(data)
             }
-            IpcCommand::RegisterHotkey { hotkey, group_id } => Some(serde_json::json!({
-                "hotkey": hotkey,
-                "groupId": group_id
-            })),
-            IpcCommand::UnregisterHotkey { hotkey } => Some(serde_json::json!({
-                "hotkey": hotkey
-            })),
-            IpcCommand::StartRecording { group_id, mode } => Some(serde_json::json!({
-                "groupId": group_id,
-                "mode": mode
-            })),
-            IpcCommand::StopRecording => None,
-            IpcCommand::PauseRecording => None,
-            IpcCommand::ResumeRecording => None,
-            IpcCommand::EmergencyRelease => None,
-            IpcCommand::Ping => None,
-            IpcCommand::Shutdown => None,
-            IpcCommand::HoldModeToggle { enabled } => Some(serde_json::json!({
-                "enabled": enabled
-            })),
-            IpcCommand::StartValidation { group_id } => Some(serde_json::json!({
-                "groupId": group_id
-            })),
-            IpcCommand::StopValidation => None,
+            _ => None,
         };
 
         Self {
@@ -108,7 +56,7 @@ impl IpcMessage {
             r#type: "command".to_string(),
             seq,
             ack_seq: None,
-            action: Some(action_str.to_string()),
+            action: Some(action),
             keys: None,
             delay: None,
             status: None,

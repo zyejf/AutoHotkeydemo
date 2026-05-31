@@ -327,9 +327,51 @@ impl IpcManager {
 
     pub async fn listen_ahk(&self) {
         tracing::info!("IPC 开始监听 AHK 消息");
+
+        let (msg_tx, mut msg_rx) =
+            tokio::sync::mpsc::channel::<Result<IpcMessage, IpcError>>(64);
+
+        let recv_manager = self.clone();
+        let recv_handle = tokio::spawn(async move {
+            loop {
+                let result = recv_manager.recv().await;
+                let is_fatal = matches!(
+                    result,
+                    Err(IpcError::ConnectionClosed) | Err(IpcError::PipeBroken(_))
+                );
+                if msg_tx.send(result).await.is_err() {
+                    break;
+                }
+                if is_fatal {
+                    break;
+                }
+            }
+        });
+
+        let merge_window = self.hotkey_merger.lock().await.merge_window();
+        let mut flush_interval = tokio::time::interval(merge_window);
+
         loop {
-            match self.recv().await {
-                Ok(msg) => {
+            tokio::select! {
+                result = msg_rx.recv() => {
+                    let msg = match result {
+                        Some(Ok(msg)) => msg,
+                        Some(Err(IpcError::ConnectionClosed) | Err(IpcError::PipeBroken(_))) => {
+                            tracing::warn!("IPC 管道断裂，等待重连");
+                            self.cleanup_stale_pending(std::time::Duration::from_secs(5))
+                                .await;
+                            self.notify_pipe_broken().await;
+                            break;
+                        }
+                        Some(Err(e)) => {
+                            tracing::warn!("IPC 接收错误: {e}");
+                            continue;
+                        }
+                        None => {
+                            break;
+                        }
+                    };
+
                     if self.dispatch_response(msg.clone()).await {
                         continue;
                     }
@@ -343,33 +385,24 @@ impl IpcManager {
                     }
 
                     if msg.r#type == "hotkey" {
-                        if let Err(e) = self.handle_hotkey_with_merge(msg).await {
-                            tracing::warn!("热键消息处理失败: {e}");
-                        }
+                        let mut merger = self.hotkey_merger.lock().await;
+                        merger.push(msg);
                     } else {
                         let _ = self.outbound_tx.send(msg).await;
                     }
                 }
-                Err(IpcError::ConnectionClosed) | Err(IpcError::PipeBroken(_)) => {
-                    tracing::warn!("IPC 管道断裂，等待重连");
-                    self.cleanup_stale_pending(std::time::Duration::from_secs(5)).await;
-                    self.notify_pipe_broken().await;
-                    break;
-                }
-                Err(e) => {
-                    tracing::warn!("IPC 接收错误: {e}");
+                _ = flush_interval.tick() => {
+                    let mut merger = self.hotkey_merger.lock().await;
+                    if merger.should_flush() {
+                        for msg in merger.flush() {
+                            let _ = self.outbound_tx.send(msg).await;
+                        }
+                    }
                 }
             }
         }
-    }
 
-    async fn handle_hotkey_with_merge(&self, msg: IpcMessage) -> Result<(), IpcError> {
-        let mut merger = self.hotkey_merger.lock().await;
-        merger.push(msg);
-        for merged_msg in merger.flush() {
-            let _ = self.outbound_tx.send(merged_msg).await;
-        }
-        Ok(())
+        recv_handle.abort();
     }
 
     async fn notify_pipe_broken(&self) {
