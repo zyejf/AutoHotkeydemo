@@ -3,15 +3,13 @@ use asd_application::state::AppState;
 use asd_domain::config::WatchdogStateEnum;
 use asd_ipc_protocol::IpcCommand;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 #[tauri::command]
 pub fn get_executor_status(
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<WatchdogStateEnum, AppError> {
-    let ws = state
-        .watchdog_state
-        .read()
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let ws = state.watchdog_state.read();
     Ok(ws.status.clone())
 }
 
@@ -24,10 +22,23 @@ pub async fn emergency_release(state: tauri::State<'_, Arc<AppState>>) -> Result
 }
 
 #[tauri::command]
+pub async fn clear_emergency(state: tauri::State<'_, Arc<AppState>>) -> Result<(), AppError> {
+    state.set_emergency_mode(false);
+    tracing::info!("紧急释放模式已清除");
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn toggle_hold_mode(state: tauri::State<'_, Arc<AppState>>) -> Result<bool, AppError> {
-    let current = state.is_hold_mode_enabled();
-    let new_value = !current;
-    state.set_hold_mode_enabled(new_value);
+    let new_value = state
+        .hold_mode_enabled
+        .fetch_update(
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+            |current| Some(!current),
+        )
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let new_value = !new_value;
 
     state.send_ipc_command(&IpcCommand::HoldModeToggle { enabled: new_value })?;
 

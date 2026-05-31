@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 use std::time::Duration;
 
 /// 子进程监控状态，用于序列化到前端展示。
@@ -93,18 +93,12 @@ impl AppState {
     }
 
     pub fn read_config(&self) -> Result<Config, AppError> {
-        let guard = self
-            .config_state
-            .read()
-            .map_err(|e| AppError::Internal(e.to_string()))?;
+        let guard = self.config_state.read();
         Ok(guard.config.clone())
     }
 
     pub fn read_groups(&self) -> Result<IndexMap<String, SkillGroup>, AppError> {
-        let guard = self
-            .config_state
-            .read()
-            .map_err(|e| AppError::Internal(e.to_string()))?;
+        let guard = self.config_state.read();
         Ok(guard.groups.clone())
     }
 
@@ -129,30 +123,16 @@ impl AppState {
     }
 
     pub fn get_group(&self, id: &str) -> Option<SkillGroup> {
-        self.config_state
-            .read()
-            .ok()
-            .and_then(|g| g.groups.get(id).cloned())
+        self.config_state.read().groups.get(id).cloned()
     }
 
     pub fn set_group_active(&self, id: &str, active: bool) -> Result<(), AppError> {
-        let (all_groups_data, hotkey_update): (Vec<serde_json::Value>, Option<(bool, String)>) = {
-            let mut cs = self
-                .config_state
-                .write()
-                .map_err(|e| AppError::Internal(e.to_string()))?;
+        let hotkey_update: Option<(bool, String)> = {
+            let mut cs = self.config_state.write();
             if let Some(group) = cs.groups.get_mut(id) {
                 group.active = active;
                 let hotkey = group.hotkey.clone();
-                let groups_data: Vec<serde_json::Value> = cs
-                    .groups
-                    .values()
-                    .cloned()
-                    .filter_map(|g| {
-                        serde_json::to_value(&g).ok().filter(|v| !v.is_null())
-                    })
-                    .collect();
-                (groups_data, Some((active, hotkey)))
+                Some((active, hotkey))
             } else {
                 return Err(AppError::GroupNotFound(id.to_string()));
             }
@@ -160,15 +140,9 @@ impl AppState {
 
         if let Some((is_active, hotkey)) = hotkey_update {
             if is_active {
-                self.active_hotkeys
-                    .write()
-                    .map_err(|e| AppError::Internal(e.to_string()))?
-                    .insert(hotkey, id.to_string());
+                self.active_hotkeys.write().insert(hotkey, id.to_string());
             } else {
-                self.active_hotkeys
-                    .write()
-                    .map_err(|e| AppError::Internal(e.to_string()))?
-                    .remove(&hotkey);
+                self.active_hotkeys.write().remove(&hotkey);
             }
         }
 
@@ -177,7 +151,6 @@ impl AppState {
             serde_json::json!({
                 "groupId": id,
                 "active": active,
-                "groups": all_groups_data,
             }),
         );
         Ok(())
@@ -186,8 +159,9 @@ impl AppState {
     pub fn active_group_ids(&self) -> Vec<String> {
         self.active_hotkeys
             .read()
-            .map(|h| h.values().cloned().collect())
-            .unwrap_or_default()
+            .values()
+            .cloned()
+            .collect()
     }
 
     pub fn send_ipc_command(&self, cmd: &IpcCommand) -> Result<u64, AppError> {
@@ -219,10 +193,9 @@ impl AppState {
     }
 
     pub fn update_watchdog_state(&self, status: WatchdogStateEnum, restart_count: u32) {
-        if let Ok(mut ws) = self.watchdog_state.write() {
-            ws.status = status.clone();
-            ws.restart_count = restart_count;
-        }
+        let mut ws = self.watchdog_state.write();
+        ws.status = status.clone();
+        ws.restart_count = restart_count;
         self.emit_event(
             "executor_status",
             serde_json::json!({
@@ -237,21 +210,16 @@ impl AppState {
     }
 
     pub fn get_config_path(&self) -> Option<PathBuf> {
-        self.config_path.read().ok().and_then(|g| g.clone())
+        self.config_path.read().clone()
     }
 
     pub fn set_config_path(&self, path: PathBuf) {
-        if let Ok(mut guard) = self.config_path.write() {
-            *guard = Some(path);
-        }
+        *self.config_path.write() = Some(path);
     }
 
     pub fn save_config_atomic(&self, new_config: Config) -> Result<(), AppError> {
         let old_state = {
-            let mut guard = self
-                .config_state
-                .write()
-                .map_err(|e| AppError::Internal(e.to_string()))?;
+            let mut guard = self.config_state.write();
 
             let old_config = guard.config.clone();
             let old_groups = guard.groups.clone();
@@ -276,10 +244,7 @@ impl AppState {
             if let Err(save_err) = ConfigRepository::save_to_path(&new_config, &path) {
                 tracing::error!("原子保存失败，回滚内存: {save_err}");
                 {
-                    let mut guard = self
-                        .config_state
-                        .write()
-                        .map_err(|e| AppError::Internal(e.to_string()))?;
+                    let mut guard = self.config_state.write();
                     guard.config = old_state.config;
                     guard.groups = old_state.groups;
                 }
@@ -295,52 +260,34 @@ impl AppState {
         hotkey: &str,
         group_id: &str,
     ) -> Result<Option<String>, AppError> {
-        let mut registry = self
-            .active_hotkeys
-            .write()
-            .map_err(|e| AppError::Internal(e.to_string()))?;
+        let mut registry = self.active_hotkeys.write();
         let existing = registry.insert(hotkey.to_string(), group_id.to_string());
         Ok(existing)
     }
 
     pub fn unregister_hotkey(&self, hotkey: &str) -> Result<bool, AppError> {
-        let mut registry = self
-            .active_hotkeys
-            .write()
-            .map_err(|e| AppError::Internal(e.to_string()))?;
+        let mut registry = self.active_hotkeys.write();
         Ok(registry.remove(hotkey).is_some())
     }
 
     pub fn is_hotkey_registered(&self, hotkey: &str) -> Result<bool, AppError> {
-        let registry = self
-            .active_hotkeys
-            .read()
-            .map_err(|e| AppError::Internal(e.to_string()))?;
+        let registry = self.active_hotkeys.read();
         Ok(registry.contains_key(hotkey))
     }
 
     pub fn get_hotkey_group(&self, hotkey: &str) -> Result<Option<String>, AppError> {
-        let registry = self
-            .active_hotkeys
-            .read()
-            .map_err(|e| AppError::Internal(e.to_string()))?;
+        let registry = self.active_hotkeys.read();
         Ok(registry.get(hotkey).cloned())
     }
 
     pub fn remove_group_hotkeys(&self, group_id: &str) -> Result<(), AppError> {
-        let mut registry = self
-            .active_hotkeys
-            .write()
-            .map_err(|e| AppError::Internal(e.to_string()))?;
+        let mut registry = self.active_hotkeys.write();
         registry.retain(|_, gid| gid != group_id);
         Ok(())
     }
 
     pub fn get_all_registered_hotkeys(&self) -> Result<Vec<(String, String)>, AppError> {
-        let registry = self
-            .active_hotkeys
-            .read()
-            .map_err(|e| AppError::Internal(e.to_string()))?;
+        let registry = self.active_hotkeys.read();
         Ok(registry
             .iter()
             .map(|(hotkey, group_id)| (hotkey.clone(), group_id.clone()))
@@ -349,10 +296,7 @@ impl AppState {
 
     pub fn delete_group_atomic(&self, group_id: &str) -> Result<bool, AppError> {
         let (is_active, ipc_cmd) = {
-            let mut cs = self
-                .config_state
-                .write()
-                .map_err(|e| AppError::Internal(e.to_string()))?;
+            let mut cs = self.config_state.write();
 
             let is_active = cs.groups.get(group_id).map(|g| g.active).unwrap_or(false);
 
@@ -374,9 +318,7 @@ impl AppState {
             cs.groups.shift_remove(group_id);
 
             if is_active {
-                if let Ok(mut registry) = self.active_hotkeys.write() {
-                    registry.retain(|_, gid| gid != group_id);
-                }
+                self.active_hotkeys.write().retain(|_, gid| gid != group_id);
             }
 
             (is_active, ipc_cmd)
@@ -388,10 +330,7 @@ impl AppState {
 
         if let Some(path) = self.get_config_path() {
             let config = {
-                let guard = self
-                    .config_state
-                    .read()
-                    .map_err(|e| AppError::Internal(e.to_string()))?;
+                let guard = self.config_state.read();
                 guard.config.clone()
             };
             if let Err(e) = ConfigRepository::save_to_path(&config, &path) {
@@ -572,7 +511,7 @@ mod tests {
         let state = make_test_state();
 
         state.update_watchdog_state(WatchdogStateEnum::Running, 1);
-        let ws = state.watchdog_state.read().unwrap();
+        let ws = state.watchdog_state.read();
         assert_eq!(ws.status, WatchdogStateEnum::Running);
         assert_eq!(ws.restart_count, 1);
     }

@@ -546,6 +546,7 @@ pub fn run() {
             commands::recording_cmd::stop_validation,
             commands::system_cmd::get_executor_status,
             commands::system_cmd::emergency_release,
+            commands::system_cmd::clear_emergency,
             commands::system_cmd::toggle_hold_mode,
         ])
         .run(tauri::generate_context!())

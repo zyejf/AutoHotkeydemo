@@ -111,6 +111,7 @@ dependencies = [
  "asd-ipc-protocol",
  "chrono",
  "indexmap 2.14.0",
+ "parking_lot",
  "serde",
  "serde_json",
  "tempfile",

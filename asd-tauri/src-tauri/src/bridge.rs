@@ -150,8 +150,13 @@ impl ProcessWatcher for WatchdogBridge {
         let watchdog = self.watchdog.clone();
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async move {
-                let guard = watchdog.lock().await;
-                guard.state().clone()
+                match watchdog.try_lock() {
+                    Ok(guard) => guard.state().clone(),
+                    Err(_) => {
+                        tracing::debug!("WatchdogBridge::state() 获取锁失败，返回默认值");
+                        WatchdogStateEnum::Idle
+                    }
+                }
             })
         })
     }
@@ -160,8 +165,13 @@ impl ProcessWatcher for WatchdogBridge {
         let watchdog = self.watchdog.clone();
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async move {
-                let guard = watchdog.lock().await;
-                guard.restart_count()
+                match watchdog.try_lock() {
+                    Ok(guard) => guard.restart_count(),
+                    Err(_) => {
+                        tracing::debug!("WatchdogBridge::restart_count() 获取锁失败，返回默认值");
+                        0
+                    }
+                }
             })
         })
     }

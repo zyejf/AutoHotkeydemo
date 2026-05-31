@@ -38,8 +38,9 @@ pub struct IpcManager {
     pipe_name: Arc<String>,
     on_pipe_broken: Arc<std::sync::Mutex<Option<IpcCallback>>>,
     on_heartbeat: Arc<std::sync::Mutex<Option<IpcCallback>>>,
-    /// 关机标志：为 true 时抑制 pipe_broken 回调，避免关机期间误触发 Recovering 状态
     shutting_down: Arc<AtomicBool>,
+    hotkey_merger: Arc<Mutex<HotkeyMerger>>,
+    auth_token: Arc<String>,
 }
 
 impl Clone for IpcManager {
@@ -54,12 +55,18 @@ impl Clone for IpcManager {
             on_pipe_broken: self.on_pipe_broken.clone(),
             on_heartbeat: self.on_heartbeat.clone(),
             shutting_down: self.shutting_down.clone(),
+            hotkey_merger: self.hotkey_merger.clone(),
+            auth_token: self.auth_token.clone(),
         }
     }
 }
 
 impl IpcManager {
     pub fn new(pipe_name: &str) -> (Self, IpcOutboundReceiver) {
+        Self::new_with_token(pipe_name, IPC_AUTH_TOKEN.to_string())
+    }
+
+    pub fn new_with_token(pipe_name: &str, auth_token: String) -> (Self, IpcOutboundReceiver) {
         let (outbound_tx, outbound_rx) = mpsc::channel(IPC_CHANNEL_CAPACITY);
         let manager = Self {
             send_half: Arc::new(Mutex::new(None)),
@@ -71,8 +78,14 @@ impl IpcManager {
             on_pipe_broken: Arc::new(std::sync::Mutex::new(None)),
             on_heartbeat: Arc::new(std::sync::Mutex::new(None)),
             shutting_down: Arc::new(AtomicBool::new(false)),
+            hotkey_merger: Arc::new(Mutex::new(HotkeyMerger::default())),
+            auth_token: Arc::new(auth_token),
         };
         (manager, outbound_rx)
+    }
+
+    pub fn auth_token(&self) -> &str {
+        &self.auth_token
     }
 
     pub fn with_outbound_channel(pipe_name: &str) -> (Self, IpcOutboundReceiver) {
@@ -133,7 +146,7 @@ impl IpcManager {
                     .and_then(|d| d.get("token"))
                     .and_then(|t| t.as_str())
                     .unwrap_or("");
-                if token != IPC_AUTH_TOKEN {
+                if token != self.auth_token.as_str() {
                     self.cleanup_connection().await;
                     tracing::warn!("IPC AHK 认证失败: token 不匹配");
                     return Err(IpcError::AuthFailed("token 不匹配".to_string()));
@@ -332,6 +345,7 @@ impl IpcManager {
                 }
                 Err(IpcError::ConnectionClosed) | Err(IpcError::PipeBroken(_)) => {
                     tracing::warn!("IPC 管道断裂，等待重连");
+                    self.cleanup_stale_pending(std::time::Duration::from_secs(5)).await;
                     self.notify_pipe_broken().await;
                     break;
                 }
@@ -343,26 +357,11 @@ impl IpcManager {
     }
 
     async fn handle_hotkey_with_merge(&self, msg: IpcMessage) -> Result<(), IpcError> {
-        let hotkey = msg
-            .keys
-            .as_ref()
-            .and_then(|k| k.first())
-            .cloned()
-            .unwrap_or_default();
-
-        let merged_msg = IpcMessage {
-            id: None,
-            r#type: "hotkey".to_string(),
-            seq: msg.seq,
-            ack_seq: msg.ack_seq,
-            action: msg.action.clone(),
-            keys: Some(vec![hotkey]),
-            delay: None,
-            status: None,
-            data: msg.data.clone(),
-        };
-
-        let _ = self.outbound_tx.send(merged_msg).await;
+        let mut merger = self.hotkey_merger.lock().await;
+        merger.push(msg);
+        for merged_msg in merger.flush() {
+            let _ = self.outbound_tx.send(merged_msg).await;
+        }
         Ok(())
     }
 

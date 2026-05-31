@@ -409,14 +409,14 @@ fn test_app_state_watchdog() {
 
     state.update_watchdog_state(WatchdogStateEnum::Running, 1);
     {
-        let ws = state.watchdog_state.read().unwrap();
+        let ws = state.watchdog_state.read();
         assert_eq!(ws.status, WatchdogStateEnum::Running);
         assert_eq!(ws.restart_count, 1);
     }
 
     state.update_watchdog_state(WatchdogStateEnum::Hung, 2);
     {
-        let ws = state.watchdog_state.read().unwrap();
+        let ws = state.watchdog_state.read();
         assert_eq!(ws.status, WatchdogStateEnum::Hung);
         assert_eq!(ws.restart_count, 2);
     }

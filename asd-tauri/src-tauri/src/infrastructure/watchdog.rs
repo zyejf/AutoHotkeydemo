@@ -37,6 +37,7 @@ const BACKOFF_DURATIONS: [Duration; 10] = [
 
 const SHUTDOWN_IPC_TIMEOUT: Duration = Duration::from_secs(2);
 const SHUTDOWN_WM_CLOSE_TIMEOUT: Duration = Duration::from_secs(3);
+const STABLE_HEARTBEAT_THRESHOLD: u32 = 5;
 
 type StateChangeCallback = Arc<dyn Fn(&WatchdogStateEnum) + Send + Sync>;
 
@@ -53,6 +54,7 @@ pub struct ProcessWatchdog {
     on_state_change: Option<StateChangeCallback>,
     on_recover: Option<Arc<dyn Fn() + Send + Sync>>,
     send_shutdown: Option<Arc<dyn Fn() + Send + Sync>>,
+    stable_heartbeat_count: u32,
 }
 
 // SAFETY: ProcessWatchdog 的所有字段都是 Send 安全的：
@@ -88,6 +90,7 @@ impl ProcessWatchdog {
             on_state_change: None,
             on_recover: None,
             send_shutdown: None,
+            stable_heartbeat_count: 0,
         }
     }
 
@@ -203,13 +206,14 @@ impl ProcessWatchdog {
             self.set_state(WatchdogStateEnum::Running);
             tracing::info!("Watchdog: 进程从挂起状态恢复");
         }
-        // 子进程成功发送心跳，说明运行稳定，重置重启计数器
-        if self.restart_count > 0 {
+        self.stable_heartbeat_count += 1;
+        if self.restart_count > 0 && self.stable_heartbeat_count >= STABLE_HEARTBEAT_THRESHOLD {
             tracing::info!(
-                "Watchdog: 子进程运行稳定，重置重启计数器 (was={})",
-                self.restart_count
+                "Watchdog: 子进程稳定运行 {} 次心跳，重置重启计数器 (was={})",
+                self.stable_heartbeat_count, self.restart_count
             );
             self.reset_restart_count();
+            self.stable_heartbeat_count = 0;
         }
     }
 
@@ -281,6 +285,7 @@ impl ProcessWatchdog {
     pub fn begin_restart(&mut self) {
         self.restart_count += 1;
         self.last_restart = Some(std::time::Instant::now());
+        self.stable_heartbeat_count = 0;
         self.backoff_duration = BACKOFF_DURATIONS
             .get(self.restart_count as usize)
             .copied()
@@ -296,6 +301,7 @@ impl ProcessWatchdog {
     pub fn reset_restart_count(&mut self) {
         self.restart_count = 0;
         self.backoff_duration = BACKOFF_DURATIONS[0];
+        self.stable_heartbeat_count = 0;
     }
 
     fn is_child_exited(&mut self) -> bool {
@@ -582,6 +588,7 @@ mod tests {
         wd.notify_heartbeat();
         assert!(wd.last_heartbeat.is_some());
         assert_eq!(wd.missed_heartbeats, 0);
+        assert_eq!(wd.stable_heartbeat_count, 1);
     }
 
     #[test]
@@ -658,5 +665,36 @@ mod tests {
         let wd_arc = runner.watchdog();
         let guard = wd_arc.lock().await;
         assert_eq!(*guard.state(), WatchdogStateEnum::Idle);
+    }
+
+    #[test]
+    fn test_stable_heartbeat_resets_restart_count() {
+        let mut wd = ProcessWatchdog::new();
+        wd.restart_count = 3;
+        for _ in 0..STABLE_HEARTBEAT_THRESHOLD {
+            wd.notify_heartbeat();
+        }
+        assert_eq!(wd.restart_count, 0);
+        assert_eq!(wd.stable_heartbeat_count, 0);
+    }
+
+    #[test]
+    fn test_insufficient_stable_heartbeats_keeps_restart_count() {
+        let mut wd = ProcessWatchdog::new();
+        wd.restart_count = 3;
+        for _ in 0..STABLE_HEARTBEAT_THRESHOLD - 1 {
+            wd.notify_heartbeat();
+        }
+        assert_eq!(wd.restart_count, 3);
+    }
+
+    #[test]
+    fn test_begin_restart_resets_stable_heartbeat_count() {
+        let mut wd = ProcessWatchdog::new();
+        wd.notify_heartbeat();
+        wd.notify_heartbeat();
+        assert_eq!(wd.stable_heartbeat_count, 2);
+        wd.begin_restart();
+        assert_eq!(wd.stable_heartbeat_count, 0);
     }
 }
