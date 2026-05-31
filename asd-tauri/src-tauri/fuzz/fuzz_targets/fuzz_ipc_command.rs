@@ -1,6 +1,6 @@
 #![no_main]
 
-use asd_tauri_lib::domain::models::IpcCommand;
+use asd_ipc_protocol::IpcCommand;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {

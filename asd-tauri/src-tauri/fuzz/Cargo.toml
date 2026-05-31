@@ -3,9 +3,16 @@ name = "asd-tauri-fuzz"
 version = "0.0.0"
 publish = false
 
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
 [dependencies]
 libfuzzer-sys = "0.4"
-asd-tauri = { path = ".." }
+asd-domain = { path = "../../crates/asd-domain" }
+asd-ipc-protocol = { path = "../../crates/asd-ipc-protocol" }
+serde_json = "1.0"
 
 [[bin]]
 name = "fuzz_ipc_json"
