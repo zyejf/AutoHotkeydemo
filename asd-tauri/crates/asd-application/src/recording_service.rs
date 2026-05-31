@@ -1,7 +1,47 @@
+use crate::backup_service::validate_file_path;
 use crate::error::AppError;
 use crate::state::AppState;
 use asd_ipc_protocol::IpcCommand;
 use serde::{Deserialize, Serialize};
+
+fn format_datetime() -> String {
+    let dur = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = dur.as_secs();
+    let days = secs / 86400;
+    let time_of_day = secs % 86400;
+    let hours = time_of_day / 3600;
+    let minutes = (time_of_day % 3600) / 60;
+    let seconds = time_of_day % 60;
+    let year = 1970 + (days as f64 / 365.25) as u64;
+    let day_of_year = (days as f64 % 365.25) as u64;
+    let month_days = [
+        31,
+        if year.is_multiple_of(4) { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    let mut month = 1u64;
+    let mut remaining = day_of_year;
+    for &md in &month_days {
+        if remaining < md {
+            break;
+        }
+        remaining -= md;
+        month += 1;
+    }
+    let day = remaining + 1;
+    format!("{year:04}-{month:02}-{day:02} {hours:02}:{minutes:02}:{seconds:02}")
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecordingResult {
@@ -47,14 +87,14 @@ pub fn stop_recording(state: &AppState) -> Result<RecordingResult, AppError> {
         .as_ref()
         .and_then(|d| d.get("keys"))
         .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
-        .unwrap_or_default();
+        .ok_or_else(|| AppError::Ipc("录制响应缺少 keys 字段".to_string()))?;
 
     let mode = response
         .data
         .as_ref()
         .and_then(|d| d.get("mode"))
         .and_then(|v| v.as_str())
-        .unwrap_or("")
+        .ok_or_else(|| AppError::Ipc("录制响应缺少 mode 字段".to_string()))?
         .to_string();
 
     let intervals = response
@@ -100,11 +140,13 @@ pub fn export_recording(
     intervals: &[u64],
     mode: &str,
 ) -> Result<(), AppError> {
+    validate_file_path(path)?;
+
     let recording_data = serde_json::json!({
         "keys": keys,
         "intervals": intervals,
         "mode": mode,
-        "exportedAt": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        "exportedAt": format_datetime(),
     });
 
     let json = serde_json::to_string_pretty(&recording_data)
@@ -117,6 +159,8 @@ pub fn export_recording(
 }
 
 pub fn import_recording(path: &str) -> Result<ImportedRecording, AppError> {
+    validate_file_path(path)?;
+
     let content = std::fs::read_to_string(path)
         .map_err(|e| AppError::Config(format!("读取文件失败: {e}")))?;
 

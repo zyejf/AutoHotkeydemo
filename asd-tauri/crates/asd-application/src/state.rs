@@ -48,7 +48,7 @@ struct ConfigState {
 pub struct AppState {
     config_state: RwLock<ConfigState>,
     ipc_sender: Arc<dyn IpcSender>,
-    pub active_hotkeys: RwLock<HashMap<String, String>>,
+    pub(crate) active_hotkeys: RwLock<HashMap<String, String>>,
     pub emergency_mode: AtomicBool,
     pub hold_mode_enabled: AtomicBool,
     pub watchdog_state: RwLock<WatchdogState>,
@@ -156,12 +156,12 @@ impl AppState {
                 self.active_hotkeys
                     .write()
                     .map_err(|e| AppError::Internal(e.to_string()))?
-                    .insert(id.to_string(), hotkey);
+                    .insert(hotkey, id.to_string());
             } else {
                 self.active_hotkeys
                     .write()
                     .map_err(|e| AppError::Internal(e.to_string()))?
-                    .remove(id);
+                    .remove(&hotkey);
             }
         }
 
@@ -179,7 +179,7 @@ impl AppState {
     pub fn active_group_ids(&self) -> Vec<String> {
         self.active_hotkeys
             .read()
-            .map(|h| h.keys().cloned().collect())
+            .map(|h| h.values().cloned().collect())
             .unwrap_or_default()
     }
 
@@ -284,6 +284,102 @@ impl AppState {
         }
 
         Ok(())
+    }
+
+    pub fn register_hotkey(
+        &self,
+        hotkey: &str,
+        group_id: &str,
+    ) -> Result<Option<String>, AppError> {
+        let mut registry = self
+            .active_hotkeys
+            .write()
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+        let existing = registry.insert(hotkey.to_string(), group_id.to_string());
+        Ok(existing)
+    }
+
+    pub fn unregister_hotkey(&self, hotkey: &str) -> Result<bool, AppError> {
+        let mut registry = self
+            .active_hotkeys
+            .write()
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+        Ok(registry.remove(hotkey).is_some())
+    }
+
+    pub fn is_hotkey_registered(&self, hotkey: &str) -> Result<bool, AppError> {
+        let registry = self
+            .active_hotkeys
+            .read()
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+        Ok(registry.contains_key(hotkey))
+    }
+
+    pub fn get_hotkey_group(&self, hotkey: &str) -> Result<Option<String>, AppError> {
+        let registry = self
+            .active_hotkeys
+            .read()
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+        Ok(registry.get(hotkey).cloned())
+    }
+
+    pub fn remove_group_hotkeys(&self, group_id: &str) -> Result<(), AppError> {
+        let mut registry = self
+            .active_hotkeys
+            .write()
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+        registry.retain(|_, gid| gid != group_id);
+        Ok(())
+    }
+
+    pub fn get_all_registered_hotkeys(&self) -> Result<Vec<(String, String)>, AppError> {
+        let registry = self
+            .active_hotkeys
+            .read()
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+        Ok(registry
+            .iter()
+            .map(|(hotkey, group_id)| (hotkey.clone(), group_id.clone()))
+            .collect())
+    }
+
+    pub fn delete_group_atomic(&self, group_id: &str) -> Result<bool, AppError> {
+        let is_active = {
+            let guard = self
+                .config_state
+                .read()
+                .map_err(|e| AppError::Internal(e.to_string()))?;
+            guard
+                .groups
+                .get(group_id)
+                .map(|g| g.active)
+                .unwrap_or(false)
+        };
+
+        if is_active {
+            let cmd = IpcCommand::ToggleGroup {
+                group_id: group_id.to_string(),
+                active: false,
+                mode: None,
+                key_press_duration: None,
+                hold_keys: None,
+                hold_mode: None,
+                mode_data: None,
+            };
+            self.try_send_ipc_command(&cmd);
+        }
+
+        let current_config = self.read_config()?;
+        let mut new_config = current_config;
+        new_config.group_settings.shift_remove(group_id);
+        self.save_config_atomic(new_config)?;
+
+        if is_active {
+            self.remove_group_hotkeys(group_id)?;
+        }
+
+        tracing::info!("已删除分组: {}", group_id);
+        Ok(is_active)
     }
 }
 

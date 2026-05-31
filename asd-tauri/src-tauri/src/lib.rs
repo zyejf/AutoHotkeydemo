@@ -211,21 +211,10 @@ fn setup_ipc_callbacks(
                 };
                 state.try_send_ipc_command(&cmd);
             }
-            let active_hotkey_list: Vec<(String, String)> = {
-                let hotkeys = state.active_hotkeys.read().ok();
-                hotkeys
-                    .map(|h| {
-                        h.iter()
-                            .map(|(id, hotkey)| (id.clone(), hotkey.clone()))
-                            .collect()
-                    })
-                    .unwrap_or_default()
-            };
-            for (id, hotkey) in active_hotkey_list {
-                let cmd = IpcCommand::RegisterHotkey {
-                    hotkey,
-                    group_id: id,
-                };
+            let active_hotkey_list: Vec<(String, String)> =
+                state.get_all_registered_hotkeys().unwrap_or_default();
+            for (hotkey, group_id) in active_hotkey_list {
+                let cmd = IpcCommand::RegisterHotkey { hotkey, group_id };
                 state.try_send_ipc_command(&cmd);
             }
         });

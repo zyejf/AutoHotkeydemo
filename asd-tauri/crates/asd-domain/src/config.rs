@@ -66,7 +66,7 @@ pub struct ControlHotkeys {
     pub toggle_hold_mode: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HoldSettings {
     #[serde(rename = "allowOverlap")]
     pub allow_overlap: bool,
@@ -80,7 +80,7 @@ pub struct HoldSettings {
     pub release_on_emergency: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GroupConfig {
     pub hotkey: String,
     pub key_press_duration: Option<u64>,
@@ -110,7 +110,7 @@ impl Serialize for ModeData {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ModeData {
     Periodic(PeriodicData),
     Sequence(SequenceData),
@@ -124,19 +124,19 @@ pub enum ModeData {
     JoystickHold(JoystickHoldData),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PeriodicData {
     pub keys: Vec<String>,
     pub intervals: Vec<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SequenceData {
     pub keys: Vec<String>,
     pub delays: Vec<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HybridData {
     pub groups: Vec<GroupItem>,
     #[serde(
@@ -147,7 +147,7 @@ pub struct HybridData {
     pub seq_interval: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HoldData {
     #[serde(rename = "holdDuration")]
     pub hold_duration: u64,
@@ -165,14 +165,14 @@ pub struct HoldData {
     pub repeat_interval: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EnhancedPeriodicData {
     #[serde(rename = "pressKeys")]
     pub press_keys: Vec<String>,
     pub intervals: Vec<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EnhancedSequenceData {
     #[serde(rename = "pressKeys")]
     pub press_keys: Vec<String>,
@@ -180,7 +180,7 @@ pub struct EnhancedSequenceData {
     pub press_delays: Vec<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EnhancedHybridData {
     pub groups: Vec<GroupItem>,
     #[serde(
@@ -191,7 +191,7 @@ pub struct EnhancedHybridData {
     pub seq_interval: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JoystickPeriodicData {
     #[serde(rename = "pressKeys", default)]
     pub press_keys: Vec<String>,
@@ -205,7 +205,7 @@ pub struct JoystickPeriodicData {
     pub joystick_id: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JoystickSequenceData {
     #[serde(rename = "pressKeys", default)]
     pub press_keys: Vec<String>,
@@ -219,7 +219,7 @@ pub struct JoystickSequenceData {
     pub joystick_id: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JoystickHoldData {
     #[serde(
         rename = "holdDuration",
@@ -247,7 +247,7 @@ pub struct JoystickHoldData {
     pub joystick_id: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum GroupItem {
     #[serde(rename = "periodic")]
