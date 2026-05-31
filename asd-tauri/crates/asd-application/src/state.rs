@@ -223,7 +223,9 @@ impl AppState {
         *self.config_path.write() = Some(path);
     }
 
-    pub fn save_config_atomic(&self, new_config: Config) -> Result<(), AppError> {
+    pub fn save_config_atomic(&self, mut new_config: Config) -> Result<(), AppError> {
+        new_config.last_modified = Some(chrono::Local::now().to_rfc3339());
+
         if let Some(path) = self.get_config_path() {
             ConfigRepository::save_to_path(&new_config, &path).map_err(|e| {
                 tracing::error!("保存配置到磁盘失败: {e}");
@@ -285,11 +287,11 @@ impl AppState {
     }
 
     pub fn delete_group_atomic(&self, group_id: &str) -> Result<bool, AppError> {
-        let (is_active, ipc_cmd) = {
-            let mut cs = self.config_state.write();
-
-            let is_active = cs.groups.get(group_id).map(|g| g.active).unwrap_or(false);
-
+        let (new_config, is_active, ipc_cmd) = {
+            let guard = self.config_state.read();
+            let is_active = guard.groups.get(group_id).map(|g| g.active).unwrap_or(false);
+            let mut new_config = guard.config.clone();
+            new_config.group_settings.shift_remove(group_id);
             let ipc_cmd = if is_active {
                 Some(IpcCommand::ToggleGroup {
                     group_id: group_id.to_string(),
@@ -303,32 +305,27 @@ impl AppState {
             } else {
                 None
             };
-
-            cs.config.group_settings.shift_remove(group_id);
-            cs.groups.shift_remove(group_id);
-
-            if is_active {
-                self.active_hotkeys.write().retain(|_, gid| gid != group_id);
-            }
-
-            (is_active, ipc_cmd)
+            (new_config, is_active, ipc_cmd)
         };
+
+        if let Some(path) = self.get_config_path() {
+            ConfigRepository::save_to_path(&new_config, &path).map_err(|e| {
+                AppError::Config(format!("删除分组后保存配置失败: {e}"))
+            })?;
+        }
+
+        {
+            let mut cs = self.config_state.write();
+            cs.config = new_config;
+            cs.groups.shift_remove(group_id);
+        }
+
+        if is_active {
+            self.active_hotkeys.write().retain(|_, gid| gid != group_id);
+        }
 
         if let Some(cmd) = ipc_cmd {
             self.try_send_ipc_command(&cmd);
-        }
-
-        if let Some(path) = self.get_config_path() {
-            let config = {
-                let guard = self.config_state.read();
-                guard.config.clone()
-            };
-            if let Err(e) = ConfigRepository::save_to_path(&config, &path) {
-                tracing::error!("删除分组后保存配置失败: {e}");
-                return Err(AppError::Config(format!(
-                    "删除分组成功但保存配置失败: {e}"
-                )));
-            }
         }
 
         tracing::info!("已删除分组: {}", group_id);

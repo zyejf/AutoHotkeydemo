@@ -38,7 +38,13 @@ impl HotkeyMerger {
 
     pub fn flush(&mut self) -> Vec<IpcMessage> {
         self.last_flush = std::time::Instant::now();
-        self.buffer.drain().map(|(_, v)| v).collect()
+        let mut messages: Vec<IpcMessage> = self.buffer.drain().map(|(_, v)| v).collect();
+        messages.sort_by(|a, b| {
+            a.keys.as_ref().and_then(|k| k.first()).cmp(
+                &b.keys.as_ref().and_then(|k| k.first())
+            )
+        });
+        messages
     }
 }
 

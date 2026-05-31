@@ -23,6 +23,12 @@ pub struct IpcMessage {
 }
 
 impl IpcMessage {
+    /// 从 IpcCommand 构建 IPC 命令消息。
+    ///
+    /// # 维护约束
+    ///
+    /// 此方法手动构建 `data` 字段的 JSON 结构，与 `IpcCommand` 的 serde 派生宏序列化逻辑
+    /// 是两套独立实现。修改 `IpcCommand` 的字段时，必须同步更新此方法中的 JSON 构建逻辑。
     pub fn command(seq: u64, cmd: &IpcCommand) -> Self {
         let action_str = match cmd {
             IpcCommand::ToggleGroup { .. } => "toggle_group",

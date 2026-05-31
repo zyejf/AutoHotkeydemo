@@ -546,8 +546,8 @@ impl WatchdogRunner {
                     tracing::info!("Watchdog: 等待退避 {:?}", remaining);
                 }
                 WatchdogAction::MaxRetriesExceeded => {
-                    tracing::error!("Watchdog: 超过最大重启次数");
-                    break;
+                    tracing::error!("Watchdog: 超过最大重启次数，等待恢复");
+                    tokio::time::sleep(Duration::from_secs(30)).await;
                 }
             }
         }

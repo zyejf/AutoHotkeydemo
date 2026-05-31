@@ -1,5 +1,4 @@
 use std::fs;
-use std::path::PathBuf;
 use tauri::Manager;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -13,14 +12,13 @@ pub fn init(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     fs::create_dir_all(&app_data_dir)?;
 
-    let log_path = app_data_dir.join("asd.log");
-
-    let file_appender = tracing_appender::rolling::never(
-        log_path.parent().unwrap_or(&PathBuf::from(".")),
-        log_path
-            .file_name()
-            .unwrap_or(std::ffi::OsStr::new("asd.log")),
-    );
+    let file_appender = tracing_appender::rolling::RollingFileAppender::builder()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_prefix("asd")
+        .filename_suffix("log")
+        .max_log_files(7)
+        .build(&app_data_dir)
+        .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
 
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
