@@ -463,7 +463,12 @@ fn test_app_state_save_config_atomic_rollback() {
     let bad_path = std::path::PathBuf::from("/nonexistent/directory/config.json");
     state.set_config_path(bad_path);
 
-    let original_emergency = state.read_config().unwrap().control_hotkeys.emergency.clone();
+    let original_emergency = state
+        .read_config()
+        .unwrap()
+        .control_hotkeys
+        .emergency
+        .clone();
 
     let mut new_config = make_test_config();
     new_config.control_hotkeys.emergency = "F12".to_string();

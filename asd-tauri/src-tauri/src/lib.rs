@@ -295,7 +295,8 @@ pub fn run() {
 
             let (ipc_manager, outbound_rx) = IpcManager::new("asd_ipc");
             let outbound_sender = ipc_manager.outbound_sender();
-            let ipc_manager_arc: IpcManagerArc = Arc::new(tokio::sync::Mutex::new(Some(ipc_manager)));
+            let ipc_manager_arc: IpcManagerArc =
+                Arc::new(tokio::sync::Mutex::new(Some(ipc_manager)));
 
             let watchdog: WatchdogArc = Arc::new(tokio::sync::Mutex::new(ProcessWatchdog::new()));
 
@@ -393,32 +394,30 @@ pub fn run() {
                         }
                     }
                 })
-                .on_menu_event(move |app, event| {
-                    match event.id().as_ref() {
-                        "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                .on_menu_event(move |app, event| match event.id().as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
                         }
-                        "hide" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.hide();
-                            }
-                        }
-                        "quit" => {
-                            let state = app.state::<Arc<AppState>>();
-                            let state_clone = state.inner().clone();
-                            let ipc_mgr = ipc_mgr_tray.clone();
-                            let wd = wd_tray.clone();
-                            let handle = app.clone();
-                            tauri::async_runtime::spawn(async move {
-                                perform_graceful_shutdown(&state_clone, &ipc_mgr, &wd).await;
-                                handle.exit(0);
-                            });
-                        }
-                        _ => {}
                     }
+                    "hide" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.hide();
+                        }
+                    }
+                    "quit" => {
+                        let state = app.state::<Arc<AppState>>();
+                        let state_clone = state.inner().clone();
+                        let ipc_mgr = ipc_mgr_tray.clone();
+                        let wd = wd_tray.clone();
+                        let handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            perform_graceful_shutdown(&state_clone, &ipc_mgr, &wd).await;
+                            handle.exit(0);
+                        });
+                    }
+                    _ => {}
                 })
                 .menu(&menu)
                 .build(app)?;

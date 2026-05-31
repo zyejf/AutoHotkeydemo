@@ -192,7 +192,10 @@ fn test_config_to_validator_duplicate_hotkeys() {
 
     let result = ConfigValidator::validate(&group_settings);
     assert!(!result.is_valid());
-    assert!(result.errors.iter().any(|e| e.field == "hotkey" && e.message.contains("重复")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.field == "hotkey" && e.message.contains("重复")));
 }
 
 #[test]
@@ -294,7 +297,9 @@ fn test_skill_group_from_config_to_manager() {
 
     let cmd = SkillManager::build_toggle_command(mgr.get_group("1").unwrap());
     match cmd {
-        IpcCommand::ToggleGroup { group_id, active, .. } => {
+        IpcCommand::ToggleGroup {
+            group_id, active, ..
+        } => {
             assert_eq!(group_id, "1");
             assert!(active);
         }

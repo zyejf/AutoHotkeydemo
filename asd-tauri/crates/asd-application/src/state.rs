@@ -1,9 +1,9 @@
+use crate::config_repository::ConfigRepository;
+use crate::error::AppError;
 use asd_domain::config::{Config, WatchdogStateEnum};
 use asd_domain::models::SkillGroup;
 use asd_domain::traits::{EventEmitter, IpcSender, ProcessWatcher};
 use asd_ipc_protocol::{IpcCommand, IpcMessage};
-use crate::config_repository::ConfigRepository;
-use crate::error::AppError;
 use indexmap::IndexMap;
 use serde::Serialize;
 use std::collections::HashMap;

@@ -1,26 +1,10 @@
-use asd_application::config_repository::ConfigRepository;
-use asd_application::error::AppError;
-use asd_application::state::AppState;
 use crate::domain::config::Config;
 use crate::domain::validator::{ConfigValidator, ValidationResult};
+use asd_application::backup_service;
+use asd_application::backup_service::{BackupInfo, ConfigDiff};
+use asd_application::error::AppError;
+use asd_application::state::AppState;
 use std::sync::Arc;
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct BackupInfo {
-    pub filename: String,
-    pub timestamp: String,
-    pub size: u64,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct ConfigDiff {
-    #[serde(rename = "addedGroups")]
-    pub added_groups: Vec<String>,
-    #[serde(rename = "removedGroups")]
-    pub removed_groups: Vec<String>,
-    #[serde(rename = "modifiedGroups")]
-    pub modified_groups: Vec<String>,
-}
 
 #[tauri::command]
 pub fn get_config(state: tauri::State<'_, Arc<AppState>>) -> Result<Config, AppError> {
@@ -58,81 +42,12 @@ pub fn validate_config(config: Config) -> Result<ValidationResult, AppError> {
 pub async fn list_backups(
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<Vec<BackupInfo>, AppError> {
-    let config_path = state
-        .get_config_path()
-        .ok_or_else(|| AppError::Config("配置路径未设置".to_string()))?;
-
-    let backup_dir = config_path
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."))
-        .join("backups");
-
-    if !backup_dir.exists() {
-        std::fs::create_dir_all(&backup_dir)
-            .map_err(|e| AppError::Config(format!("创建备份目录失败: {e}")))?;
-        return Ok(vec![]);
-    }
-
-    let mut backups = Vec::new();
-    let entries = std::fs::read_dir(&backup_dir)
-        .map_err(|e| AppError::Config(format!("读取备份目录失败: {e}")))?;
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("json") {
-            let metadata = entry
-                .metadata()
-                .map_err(|e| AppError::Config(format!("读取备份元数据失败: {e}")))?;
-            let filename = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("unknown")
-                .to_string();
-            let timestamp = filename
-                .trim_end_matches(".json")
-                .replace("backup_", "")
-                .replace("_", " ")
-                .replace("-", ":");
-            backups.push(BackupInfo {
-                filename,
-                timestamp,
-                size: metadata.len(),
-            });
-        }
-    }
-
-    backups.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-    Ok(backups)
+    backup_service::list_backups(&state)
 }
 
 #[tauri::command]
 pub async fn create_backup(state: tauri::State<'_, Arc<AppState>>) -> Result<String, AppError> {
-    let config_path = state
-        .get_config_path()
-        .ok_or_else(|| AppError::Config("配置路径未设置".to_string()))?;
-
-    let backup_dir = config_path
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."))
-        .join("backups");
-
-    if !backup_dir.exists() {
-        std::fs::create_dir_all(&backup_dir)
-            .map_err(|e| AppError::Config(format!("创建备份目录失败: {e}")))?;
-    }
-
-    let now = chrono::Local::now();
-    let timestamp = now.format("%Y%m%d_%H%M%S").to_string();
-    let backup_filename = format!("backup_{timestamp}.json");
-    let backup_path = backup_dir.join(&backup_filename);
-
-    let current_config = state.read_config()?;
-
-    ConfigRepository::save_to_path(&current_config, &backup_path)
-        .map_err(AppError::Config)?;
-
-    tracing::info!("已创建备份: {backup_filename}");
-    Ok(backup_filename)
+    backup_service::create_backup(&state)
 }
 
 #[tauri::command]
@@ -140,51 +55,12 @@ pub async fn restore_backup(
     state: tauri::State<'_, Arc<AppState>>,
     filename: String,
 ) -> Result<(), AppError> {
-    let config_path = state
-        .get_config_path()
-        .ok_or_else(|| AppError::Config("配置路径未设置".to_string()))?;
-
-    let backup_dir = config_path
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."))
-        .join("backups");
-
-    let backup_path = backup_dir.join(&filename);
-    if !backup_path.exists() {
-        return Err(AppError::Config(format!("备份文件不存在: {filename}")));
-    }
-
-    // 安全检查：确保文件在备份目录内，防止路径遍历攻击
-    let canonical_backup = backup_path
-        .canonicalize()
-        .map_err(|e| AppError::Config(format!("路径解析失败: {e}")))?;
-    let canonical_dir = backup_dir
-        .canonicalize()
-        .map_err(|e| AppError::Config(format!("目录解析失败: {e}")))?;
-    if !canonical_backup.starts_with(&canonical_dir) {
-        return Err(AppError::Config(
-            "非法路径：备份文件不在备份目录内".to_string(),
-        ));
-    }
-
-    let restored_config = ConfigRepository::load_from_path(&backup_path).map_err(AppError::Config)?;
-    state.save_config_atomic(restored_config)?;
-
-    tracing::info!("已恢复备份: {filename}");
-    Ok(())
+    backup_service::restore_backup(&state, &filename)
 }
 
 #[tauri::command]
 pub fn hot_reload(state: tauri::State<'_, Arc<AppState>>) -> Result<Config, AppError> {
-    let config_path = state
-        .get_config_path()
-        .ok_or_else(|| AppError::Config("配置路径未设置".to_string()))?;
-
-    let reloaded_config = ConfigRepository::load_from_path(&config_path).map_err(AppError::Config)?;
-    state.save_config_atomic(reloaded_config.clone())?;
-
-    tracing::info!("热重载配置成功");
-    Ok(reloaded_config)
+    backup_service::hot_reload(&state)
 }
 
 #[tauri::command]
@@ -192,38 +68,7 @@ pub async fn delete_backup(
     state: tauri::State<'_, Arc<AppState>>,
     filename: String,
 ) -> Result<(), AppError> {
-    let config_path = state
-        .get_config_path()
-        .ok_or_else(|| AppError::Config("配置路径未设置".to_string()))?;
-
-    let backup_dir = config_path
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."))
-        .join("backups");
-
-    let backup_path = backup_dir.join(&filename);
-    if !backup_path.exists() {
-        return Err(AppError::Config(format!("备份文件不存在: {filename}")));
-    }
-
-    // 安全检查：确保文件在备份目录内，防止路径遍历攻击
-    let canonical_backup = backup_path
-        .canonicalize()
-        .map_err(|e| AppError::Config(format!("路径解析失败: {e}")))?;
-    let canonical_dir = backup_dir
-        .canonicalize()
-        .map_err(|e| AppError::Config(format!("目录解析失败: {e}")))?;
-    if !canonical_backup.starts_with(&canonical_dir) {
-        return Err(AppError::Config(
-            "非法路径：备份文件不在备份目录内".to_string(),
-        ));
-    }
-
-    std::fs::remove_file(&backup_path)
-        .map_err(|e| AppError::Config(format!("删除备份失败: {e}")))?;
-
-    tracing::info!("已删除备份: {filename}");
-    Ok(())
+    backup_service::delete_backup(&state, &filename)
 }
 
 #[tauri::command]
@@ -231,15 +76,7 @@ pub async fn export_config(
     state: tauri::State<'_, Arc<AppState>>,
     path: String,
 ) -> Result<(), AppError> {
-    let config = state.read_config()?;
-
-    let json = serde_json::to_string_pretty(&config)
-        .map_err(|e| AppError::Config(format!("序列化配置失败: {e}")))?;
-
-    std::fs::write(&path, json).map_err(|e| AppError::Config(format!("写入文件失败: {e}")))?;
-
-    tracing::info!("配置已导出: {}", path);
-    Ok(())
+    backup_service::export_config(&state, &path)
 }
 
 #[tauri::command]
@@ -247,16 +84,7 @@ pub async fn import_config(
     state: tauri::State<'_, Arc<AppState>>,
     path: String,
 ) -> Result<(), AppError> {
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| AppError::Config(format!("读取文件失败: {e}")))?;
-
-    let imported_config: Config = serde_json::from_str(&content)
-        .map_err(|e| AppError::Config(format!("解析配置失败: {e}")))?;
-
-    state.save_config_atomic(imported_config)?;
-
-    tracing::info!("配置已导入: {}", path);
-    Ok(())
+    backup_service::import_config(&state, &path)
 }
 
 #[tauri::command]
@@ -264,65 +92,7 @@ pub async fn compare_configs(
     state: tauri::State<'_, Arc<AppState>>,
     backup_filename: String,
 ) -> Result<ConfigDiff, AppError> {
-    let current_config = state.read_config()?;
-
-    let config_path = state
-        .get_config_path()
-        .ok_or_else(|| AppError::Config("配置路径未设置".to_string()))?;
-
-    let backup_dir = config_path
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."))
-        .join("backups");
-
-    let backup_path = backup_dir.join(&backup_filename);
-    if !backup_path.exists() {
-        return Err(AppError::Config(format!(
-            "备份文件不存在: {backup_filename}"
-        )));
-    }
-
-    // 安全检查：确保文件在备份目录内，防止路径遍历攻击
-    let canonical_backup = backup_path
-        .canonicalize()
-        .map_err(|e| AppError::Config(format!("路径解析失败: {e}")))?;
-    let canonical_dir = backup_dir
-        .canonicalize()
-        .map_err(|e| AppError::Config(format!("目录解析失败: {e}")))?;
-    if !canonical_backup.starts_with(&canonical_dir) {
-        return Err(AppError::Config(
-            "非法路径：备份文件不在备份目录内".to_string(),
-        ));
-    }
-
-    let backup_config = ConfigRepository::load_from_path(&backup_path).map_err(AppError::Config)?;
-
-    let current_ids: std::collections::HashSet<String> =
-        current_config.group_settings.keys().cloned().collect();
-    let backup_ids: std::collections::HashSet<String> =
-        backup_config.group_settings.keys().cloned().collect();
-
-    let added: Vec<String> = current_ids.difference(&backup_ids).cloned().collect();
-    let removed: Vec<String> = backup_ids.difference(&current_ids).cloned().collect();
-
-    let mut modified = Vec::new();
-    for id in current_ids.intersection(&backup_ids) {
-        // 使用 JSON 序列化比较，因为 GroupConfig 未实现 PartialEq
-        // intersection 保证两边都存在，unwrap 安全
-        let current_json = serde_json::to_string(current_config.group_settings.get(id).unwrap())
-            .unwrap_or_default();
-        let backup_json = serde_json::to_string(backup_config.group_settings.get(id).unwrap())
-            .unwrap_or_default();
-        if current_json != backup_json {
-            modified.push(id.clone());
-        }
-    }
-
-    Ok(ConfigDiff {
-        added_groups: added,
-        removed_groups: removed,
-        modified_groups: modified,
-    })
+    backup_service::compare_configs(&state, &backup_filename)
 }
 
 #[cfg(test)]

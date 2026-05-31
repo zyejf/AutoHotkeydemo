@@ -1,5 +1,5 @@
-use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use crate::config::WatchdogStateEnum;
+use asd_ipc_protocol::{IpcCommand, IpcMessage};
 
 pub trait IpcSender: Send + Sync {
     fn send_command(&self, cmd: IpcCommand) -> Result<u64, String>;

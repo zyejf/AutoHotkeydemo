@@ -1,8 +1,8 @@
-use asd_domain::traits::{EventEmitter, IpcSender, ProcessWatcher};
-use asd_domain::config::WatchdogStateEnum;
-use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use crate::infrastructure::ipc::{IpcManager, IpcOutboundSender};
 use crate::infrastructure::watchdog::ProcessWatchdog;
+use asd_domain::config::WatchdogStateEnum;
+use asd_domain::traits::{EventEmitter, IpcSender, ProcessWatcher};
+use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -13,7 +13,10 @@ pub struct IpcBridge {
 
 impl IpcBridge {
     pub fn new(outbound: IpcOutboundSender, ipc_manager: Arc<Mutex<Option<IpcManager>>>) -> Self {
-        Self { outbound, ipc_manager }
+        Self {
+            outbound,
+            ipc_manager,
+        }
     }
 }
 
@@ -44,7 +47,9 @@ impl IpcSender for IpcBridge {
         };
         let mut msg_with_seq = msg.clone();
         msg_with_seq.seq = seq;
-        self.outbound.try_send(msg_with_seq).map_err(|e| e.to_string())
+        self.outbound
+            .try_send(msg_with_seq)
+            .map_err(|e| e.to_string())
     }
 }
 

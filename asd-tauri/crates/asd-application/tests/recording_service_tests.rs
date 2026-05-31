@@ -1,0 +1,209 @@
+use asd_application::error::AppError;
+use asd_application::recording_service::{self, ImportedRecording, RecordingResult};
+use asd_application::state::AppState;
+use asd_domain::config::*;
+use asd_domain::traits::{EventEmitter, IpcSender, ProcessWatcher};
+use asd_ipc_protocol::{IpcCommand, IpcMessage};
+use indexmap::IndexMap;
+use std::sync::Arc;
+
+struct MockIpcSender;
+
+impl IpcSender for MockIpcSender {
+    fn send_command(&self, _cmd: IpcCommand) -> Result<u64, String> {
+        Ok(1)
+    }
+    fn send_and_wait(
+        &self,
+        _cmd: IpcCommand,
+        _timeout: std::time::Duration,
+    ) -> Result<IpcMessage, String> {
+        Ok(IpcMessage::response(
+            1,
+            0,
+            "ok",
+            Some(serde_json::json!({
+                "keys": ["1", "2"],
+                "mode": "periodic",
+                "intervals": [50, 100],
+                "delays": []
+            })),
+        ))
+    }
+    fn send_message(&self, _msg: &IpcMessage) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+struct MockEventEmitter {
+    emitted: std::sync::Mutex<Vec<(String, serde_json::Value)>>,
+}
+
+impl MockEventEmitter {
+    fn new() -> Self {
+        Self {
+            emitted: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+}
+
+impl EventEmitter for MockEventEmitter {
+    fn emit(&self, event: &str, payload: serde_json::Value) -> bool {
+        self.emitted
+            .lock()
+            .unwrap()
+            .push((event.to_string(), payload));
+        true
+    }
+}
+
+struct MockProcessWatcher;
+
+impl ProcessWatcher for MockProcessWatcher {
+    fn state(&self) -> WatchdogStateEnum {
+        WatchdogStateEnum::Idle
+    }
+    fn restart_count(&self) -> u32 {
+        0
+    }
+}
+
+fn make_test_config() -> Config {
+    let mut group_settings = IndexMap::new();
+    group_settings.insert(
+        "1".to_string(),
+        GroupConfig {
+            hotkey: "F1".to_string(),
+            key_press_duration: Some(10),
+            name: Some("测试组".to_string()),
+            mode: "periodic".to_string(),
+            hold_keys: None,
+            hold_mode: None,
+            hold_pattern: None,
+            hold_triggers: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        },
+    );
+    Config {
+        control_hotkeys: ControlHotkeys {
+            emergency: "F10".to_string(),
+            release_all_holds: "^r".to_string(),
+            show_status: "^0".to_string(),
+            toggle_all: "^1".to_string(),
+            toggle_hold_mode: "^h".to_string(),
+        },
+        group_settings,
+        hold_settings: None,
+        last_modified: None,
+        version: Some("3.0".to_string()),
+    }
+}
+
+fn make_test_state() -> Arc<AppState> {
+    let config = make_test_config();
+    let ipc_sender = Arc::new(MockIpcSender);
+    let watchdog = Arc::new(MockProcessWatcher);
+    let event_emitter = Arc::new(MockEventEmitter::new());
+    Arc::new(AppState::new(config, ipc_sender, watchdog, event_emitter))
+}
+
+#[test]
+fn test_start_recording() {
+    let state = make_test_state();
+    let result = recording_service::start_recording(&state, "1", "periodic");
+    assert!(result.is_ok(), "开始录制应成功: {:?}", result);
+}
+
+#[test]
+fn test_start_recording_group_not_found() {
+    let state = make_test_state();
+    let result = recording_service::start_recording(&state, "999", "periodic");
+    assert!(
+        matches!(result, Err(AppError::GroupNotFound(_))),
+        "不存在的分组应返回 GroupNotFound 错误"
+    );
+}
+
+#[test]
+fn test_stop_recording() {
+    let state = make_test_state();
+    let result = recording_service::stop_recording(&state);
+    assert!(result.is_ok(), "停止录制应成功: {:?}", result);
+    let recording = result.unwrap();
+    assert_eq!(recording.seq, 1);
+    assert_eq!(recording.keys, vec!["1", "2"]);
+    assert_eq!(recording.mode, "periodic");
+    assert_eq!(recording.intervals, vec![50, 100]);
+    assert!(recording.delays.is_empty());
+}
+
+#[test]
+fn test_pause_recording() {
+    let state = make_test_state();
+    let result = recording_service::pause_recording(&state);
+    assert!(result.is_ok(), "暂停录制应成功: {:?}", result);
+    assert_eq!(result.unwrap(), 1);
+}
+
+#[test]
+fn test_resume_recording() {
+    let state = make_test_state();
+    let result = recording_service::resume_recording(&state);
+    assert!(result.is_ok(), "恢复录制应成功: {:?}", result);
+    assert_eq!(result.unwrap(), 1);
+}
+
+#[test]
+fn test_export_import_recording() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("recording.json");
+    let path_str = path.to_str().unwrap();
+
+    let keys = vec!["1".to_string(), "2".to_string()];
+    let intervals = vec![50, 100];
+    let mode = "periodic";
+
+    let export_result = recording_service::export_recording(path_str, &keys, &intervals, mode);
+    assert!(export_result.is_ok(), "导出录制应成功: {:?}", export_result);
+
+    let import_result = recording_service::import_recording(path_str);
+    assert!(import_result.is_ok(), "导入录制应成功: {:?}", import_result);
+    let imported = import_result.unwrap();
+    assert_eq!(imported.keys, vec!["1", "2"]);
+    assert_eq!(imported.intervals, vec![50, 100]);
+    assert_eq!(imported.mode, "periodic");
+}
+
+#[test]
+fn test_import_recording_not_found() {
+    let result = recording_service::import_recording("/nonexistent/path/recording.json");
+    assert!(result.is_err(), "导入不存在的文件应返回错误");
+}
+
+#[test]
+fn test_import_recording_invalid_json() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bad.json");
+    std::fs::write(&path, "{invalid json!!!}").unwrap();
+    let result = recording_service::import_recording(path.to_str().unwrap());
+    assert!(result.is_err(), "导入无效 JSON 应返回错误");
+}
+
+#[test]
+fn test_start_validation() {
+    let state = make_test_state();
+    let result = recording_service::start_validation(&state, "1");
+    assert!(result.is_ok(), "启动验证应成功: {:?}", result);
+    assert_eq!(result.unwrap(), 1);
+}
+
+#[test]
+fn test_stop_validation() {
+    let state = make_test_state();
+    let result = recording_service::stop_validation(&state);
+    assert!(result.is_ok(), "停止验证应成功: {:?}", result);
+    assert_eq!(result.unwrap(), 1);
+}

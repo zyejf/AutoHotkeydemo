@@ -1,5 +1,5 @@
-use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use crate::infrastructure::ipc::*;
+use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use interprocess::local_socket::traits::tokio::{Listener as ListenerTrait, Stream as StreamTrait};
 use std::sync::Arc;
 use std::time::{Duration, Instant};

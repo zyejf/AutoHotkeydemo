@@ -6,12 +6,12 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use indexmap::IndexMap;
 
+use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use asd_tauri_lib::domain::config::{
     Config, ControlHotkeys, EnhancedHybridData, EnhancedPeriodicData, EnhancedSequenceData,
     GroupConfig, GroupItem, HoldData, HoldSettings, HybridData, ModeData, PeriodicData,
     SequenceData,
 };
-use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use asd_tauri_lib::domain::validator::ConfigValidator;
 
 // =================================================================

@@ -231,7 +231,10 @@ fn test_config_full_roundtrip() {
     assert!(decoded.hold_settings.is_some());
     assert_eq!(decoded.hold_settings.as_ref().unwrap().check_interval, 50);
     assert_eq!(decoded.version.as_deref(), Some("3.0"));
-    assert_eq!(decoded.last_modified.as_deref(), Some("2025-01-01T00:00:00"));
+    assert_eq!(
+        decoded.last_modified.as_deref(),
+        Some("2025-01-01T00:00:00")
+    );
 }
 
 #[test]
@@ -516,7 +519,11 @@ fn test_config_validator_valid_multi_group() {
     groups.insert("3".to_string(), make_hybrid_config());
 
     let result = ConfigValidator::validate(&groups);
-    assert!(result.is_valid(), "多组有效配置不应有错误: {:?}", result.errors);
+    assert!(
+        result.is_valid(),
+        "多组有效配置不应有错误: {:?}",
+        result.errors
+    );
 }
 
 #[test]
@@ -590,7 +597,10 @@ fn test_config_validator_cross_field_large_key_press_duration() {
         },
     );
     let result = ConfigValidator::validate(&groups);
-    assert!(result.warnings.iter().any(|w| w.contains("keyPressDuration")));
+    assert!(result
+        .warnings
+        .iter()
+        .any(|w| w.contains("keyPressDuration")));
 }
 
 #[test]
@@ -616,7 +626,10 @@ fn test_config_validator_duplicate_hotkeys_across_groups() {
     );
     let result = ConfigValidator::validate(&groups);
     assert!(!result.is_valid());
-    assert!(result.errors.iter().any(|e| e.field == "hotkey" && e.message.contains("重复")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.field == "hotkey" && e.message.contains("重复")));
 }
 
 #[test]
@@ -900,7 +913,10 @@ fn test_group_item_periodic_roundtrip() {
     let json = serde_json::to_string(&item).unwrap();
     let decoded: GroupItem = serde_json::from_str(&json).unwrap();
     match decoded {
-        GroupItem::Periodic { press_keys, intervals } => {
+        GroupItem::Periodic {
+            press_keys,
+            intervals,
+        } => {
             assert_eq!(press_keys, vec!["1", "2"]);
             assert_eq!(intervals, vec![50, 60]);
         }
@@ -918,7 +934,11 @@ fn test_group_item_sequence_roundtrip() {
     let json = serde_json::to_string(&item).unwrap();
     let decoded: GroupItem = serde_json::from_str(&json).unwrap();
     match decoded {
-        GroupItem::Sequence { press_keys, delays, seq_interval } => {
+        GroupItem::Sequence {
+            press_keys,
+            delays,
+            seq_interval,
+        } => {
             assert_eq!(press_keys, vec!["A"]);
             assert_eq!(delays, vec![100]);
             assert_eq!(seq_interval, Some(50));
