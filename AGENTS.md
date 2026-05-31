@@ -1,12 +1,17 @@
-<!-- Generated: 2026-03-24T20:45:00+08:00 | Updated: 2026-05-01T12:00:00+08:00 -->
+<!-- Generated: 2026-03-24T20:45:00+08:00 | Updated: 2026-05-30T12:00:00+08:00 -->
 
-# AutoHotkey v2 技能管理器 v3.0
+# ASD 技能管理器 v4.0
 
 ## Purpose
 
-AutoHotkey v2 技能管理器 - 支持多种执行模式的按键连招管理系统。v3.0 采用**严格 DDD 四层架构**重构。
+ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0 采用 **Rust/Tauri + AHK 混合架构**：Rust 负责核心逻辑与 GUI，AHK 执行器作为子进程负责按键模拟与热键钩子。
+
+- **AHK v2 部分**（项目根目录）：v3.0 采用严格 DDD 四层架构，作为独立运行模式保留
+- **Rust/Tauri 部分**（`asd-tauri/`）：v4.0 采用 4-crate workspace 架构，通过 IPC 管理 AHK 子进程
 
 ## Key Files
+
+### AHK v2 部分（项目根目录）
 
 | File                          | Description                                 |
 | ----------------------------- | ------------------------------------------- |
@@ -19,7 +24,37 @@ AutoHotkey v2 技能管理器 - 支持多种执行模式的按键连招管理系
 | `ocr.ahk`                     | OCR 封装模块（外围模块）                            |
 | `joystick_tester.ahk`         | 摇杆测试器模块（外围模块）                            |
 
-## Architecture (DDD)
+### Rust/Tauri 部分（asd-tauri/）
+
+| File | Description |
+|------|-------------|
+| `asd-tauri/Cargo.toml` | Workspace root（resolver = "2"，4 members） |
+| `asd-tauri/crates/asd-domain/src/config.rs` | Config, GroupConfig, ModeData, WatchdogStateEnum |
+| `asd-tauri/crates/asd-domain/src/models.rs` | SkillGroup 领域模型 |
+| `asd-tauri/crates/asd-domain/src/validator.rs` | ConfigValidator（213 tests） |
+| `asd-tauri/crates/asd-domain/src/traits.rs` | IpcSender, EventEmitter, ProcessWatcher trait |
+| `asd-tauri/crates/asd-ipc-protocol/src/command.rs` | IpcCommand（13 variants） |
+| `asd-tauri/crates/asd-ipc-protocol/src/message.rs` | IpcMessage + constructors |
+| `asd-tauri/crates/asd-ipc-protocol/src/error.rs` | IpcError |
+| `asd-tauri/crates/asd-ipc-protocol/src/hotkey_merger.rs` | HotkeyMerger |
+| `asd-tauri/crates/asd-application/src/scheduler.rs` | SkillManager（Arc\<dyn IpcSender\>） |
+| `asd-tauri/crates/asd-application/src/state.rs` | AppState + trait objects |
+| `asd-tauri/crates/asd-application/src/config_repository.rs` | ConfigRepository（file I/O） |
+| `asd-tauri/crates/asd-application/src/error.rs` | AppError |
+| `asd-tauri/src-tauri/src/lib.rs` | 19 Tauri commands + 应用初始化 |
+| `asd-tauri/src-tauri/src/bridge.rs` | IpcBridge, TauriEventBridge, WatchdogBridge（trait 实现） |
+| `asd-tauri/src-tauri/src/infrastructure/ipc.rs` | IpcManager（interprocess 通信） |
+| `asd-tauri/src-tauri/src/infrastructure/watchdog.rs` | ProcessWatchdog + WatchdogRunner |
+| `asd-tauri/src-tauri/src/infrastructure/logging.rs` | tracing 日志初始化 |
+| `asd-tauri/src-tauri/src/commands/` | config_cmd, group_cmd, hotkey_cmd, recording_cmd, system_cmd |
+| `asd-tauri/src-tauri/src/tests/` | ipc_tests, config_compat_tests |
+| `asd-tauri/src-tauri/ahk_executor/` | AHK 子进程执行器（executor.ahk, ipc_client.ahk, hotkey_hook.ahk 等） |
+| `asd-tauri/src/main.js` | Vite 前端入口 |
+| `asd-tauri/src/api.js` | 前端 API 封装（Tauri invoke） |
+
+## Architecture
+
+### AHK v2 架构（DDD 四层）
 
 | Layer            | Directory          | Modules                                     |
 | ---------------- | ------------------ | ------------------------------------------- |
@@ -29,7 +64,7 @@ AutoHotkey v2 技能管理器 - 支持多种执行模式的按键连招管理系
 | 表现层 (presentation) | `presentation/`    | `webview2_manager`, `ui_manager`, `gui_manager`, `group_editor`, `backup_ui`, `debug_panel` |
 | 测试层 (tests)       | `tests/`           | `test_domain`, `test_infrastructure`, `test_application`, `test_presentation`, `test_webview2_bridge`, `test_boundary`, `test_error_captor`, `test_error_system`, `test_integration_error_system`, `test_result_reporter`, `run_all_tests`, `run_tests`, `AutoHotUnit`, `run_tests.ps1` |
 
-### 已知架构妥协（Known Architecture Compromises）
+#### AHK 已知架构妥协（Known Architecture Compromises）
 
 以下妥协是在 AHK v2 无原生依赖注入（DI）容器的环境下，经过审慎评估后接受的务实决策。每个妥协都记录了原因和约束边界，以防止退化。
 
@@ -39,7 +74,7 @@ AutoHotkey v2 技能管理器 - 支持多种执行模式的按键连招管理系
 | 2 | **`_Notify` 签名差异** | `domain/interfaces.ahk` vs `presentation/webview2_manager.ahk` | 接口定义的 `_Notify` 签名为 `(event, data)`，但表现层实现使用 `(event, data, meta*)` 可变参数。这是因为 Bridge 通信需要额外元数据（`requestId`、`timestamp` 等）。 | 调用方始终使用双参数形式；额外参数由表现层实现的可选参数处理，不破坏接口契约。 |
 | 3 | **`BackupCore` 隐式依赖** | `application/config_service.ahk` → `infrastructure/backup_core.ahk` | 应用层通过全局 `BackupCore` 类名隐式引用基础设施层模块。应通过显式 `#Include` 或接口抽象化。 | `ConfigService` 内部仅通过 `BackupCore.CreateBackup()` 静态方法调用，不直接访问其内部状态。未来若引入 DI 机制应重构为接口注入。 |
 
-### 内部工具函数迁移
+#### AHK 内部工具函数迁移
 
 以下函数已从各模块迁移至 `infrastructure/utils.ahk`（v3.1+），作为跨层共享的统一入口：
 
@@ -48,7 +83,67 @@ AutoHotkey v2 技能管理器 - 支持多种执行模式的按键连招管理系
 | `_GetProp(obj, key, default)` | — | `infrastructure/utils.ahk` | Map/Object 统一属性访问 |
 | `_GetField(obj, key, default)` | `webview2_manager.ahk` | `infrastructure/utils.ahk` | 含 JSON 字符串解析的属性访问 |
 
+### Rust/Tauri 架构（4-Crate Workspace）
+
+```
+asd-tauri/
+├── Cargo.toml              (workspace root)
+├── crates/
+│   ├── asd-domain/         (纯逻辑 crate — 领域模型 + trait + 验证)
+│   │   ├── src/config.rs   (Config, GroupConfig, ModeData, WatchdogStateEnum)
+│   │   ├── src/models.rs   (SkillGroup)
+│   │   ├── src/validator.rs (ConfigValidator, 213 tests)
+│   │   └── src/traits.rs   (IpcSender, EventEmitter, ProcessWatcher)
+│   ├── asd-ipc-protocol/   (纯逻辑 crate — IPC 协议定义)
+│   │   ├── src/command.rs  (IpcCommand, 13 variants)
+│   │   ├── src/message.rs  (IpcMessage + constructors)
+│   │   ├── src/error.rs    (IpcError)
+│   │   └── src/hotkey_merger.rs (HotkeyMerger)
+│   └── asd-application/    (应用逻辑 crate — 调度 + 状态 + 配置仓库)
+│       ├── src/scheduler.rs (SkillManager, Arc<dyn IpcSender>)
+│       ├── src/state.rs     (AppState, trait objects)
+│       ├── src/config_repository.rs (ConfigRepository, file I/O)
+│       └── src/error.rs     (AppError)
+└── src-tauri/              (表现层 + 基础设施 — Tauri 主 crate)
+    ├── src/lib.rs           (19 Tauri commands)
+    ├── src/bridge.rs        (IpcBridge, TauriEventBridge, WatchdogBridge)
+    ├── src/infrastructure/  (IpcManager, ProcessWatchdog, Logging)
+    ├── src/commands/        (config_cmd, group_cmd, hotkey_cmd, recording_cmd, system_cmd)
+    ├── src/tests/           (ipc_tests, config_compat_tests)
+    ├── ahk_executor/        (AHK 子进程执行器)
+    ├── benches/             (criterion 基准测试)
+    └── fuzz/                (cargo-fuzz 模糊测试)
+```
+
+#### Crate 依赖关系
+
+```
+asd-domain ──→ asd-ipc-protocol
+asd-application ──→ asd-domain ──→ asd-ipc-protocol
+asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ asd-ipc-protocol
+```
+
+#### 关键设计决策
+
+| # | 决策 | 说明 |
+|---|------|------|
+| 1 | **Trait 抽象解耦** | IpcSender/EventEmitter/ProcessWatcher trait 在 asd-domain 中定义，在 src-tauri/bridge.rs 中实现。纯逻辑 crate 不依赖 Tauri 或 tokio。 |
+| 2 | **I/O 泄漏修复** | Config 的 I/O 方法从 domain 层移到 application 层的 ConfigRepository，确保 domain crate 无文件 I/O。 |
+| 3 | **Miri 兼容** | asd-domain, asd-ipc-protocol, asd-application 可通过 Miri 验证（0 UB），不含 unsafe 代码。 |
+| 4 | **AHK 子进程隔离** | AHK 执行器（asd_executor.exe）作为子进程由 Rust 主进程管理，通过 interprocess named pipe 通信。 |
+| 5 | **测试覆盖** | 389 个测试（82+38+53 单元 + 43+33+49 集成 + 91 主 crate + 1 manifest_helper + 1 helper）。纯逻辑 crate 覆盖率 96.57%。 |
+
+#### Rust/Tauri 已知架构妥协
+
+| # | 妥协 | 影响文件 | 说明 | 约束边界 |
+|---|------|---------|------|---------|
+| 1 | **asd-domain 依赖 asd-ipc-protocol** | `crates/asd-domain/Cargo.toml` | 领域层 crate 依赖 IPC 协议 crate 的 IpcCommand/IpcMessage 类型。严格 DDD 中领域层不应知道通信协议。 | asd-domain 仅使用 IpcCommand/IpcMessage 的数据结构（serde 序列化），不包含任何 IPC 传输逻辑。trait 定义（IpcSender）的参数类型引用 IpcCommand 是合理的抽象。 |
+| 2 | **bridge.rs 中 blocking_lock** | `src-tauri/src/bridge.rs` | IpcBridge 和 WatchdogBridge 使用 `blocking_lock()` 实现 trait 的同步方法。 | 仅在已知不会死锁的短临界区使用；未来可考虑将 trait 改为 async。 |
+| 3 | **src-tauri 内部 DDD 分层不完整** | `src-tauri/src/domain/`, `src-tauri/src/application/` | src-tauri 内部有 domain/application 子模块但仅包含 re-export，未形成完整 DDD 层。 | 当前仅作为命名空间占位，避免循环依赖；实际领域逻辑在 asd-domain crate 中。 |
+
 ## Subdirectories
+
+### AHK v2 部分
 
 | Directory        | Purpose                                |
 | ---------------- | -------------------------------------- |
@@ -56,10 +151,34 @@ AutoHotkey v2 技能管理器 - 支持多种执行模式的按键连招管理系
 | `logs/`          | 日志文件（`app.log` / `debug.log`）         |
 | `backups/`       | 配置备份文件                                |
 | `config_backup/` | 配置备份目录（遗留）                            |
+| `domain/`        | AHK 领域层模块                             |
+| `infrastructure/`| AHK 基础设施层模块                           |
+| `application/`   | AHK 应用层模块                             |
+| `presentation/`  | AHK 表现层模块                             |
+| `tests/`         | AHK 测试套件                              |
+| `lib/`           | AHK 第三方库（ahk2_lib）                    |
+
+### Rust/Tauri 部分
+
+| Directory | Purpose |
+|-----------|---------|
+| `asd-tauri/crates/asd-domain/` | 纯逻辑 crate — 领域模型、验证、trait 定义 |
+| `asd-tauri/crates/asd-ipc-protocol/` | 纯逻辑 crate — IPC 协议（命令、消息、错误） |
+| `asd-tauri/crates/asd-application/` | 应用逻辑 crate — 调度器、状态、配置仓库 |
+| `asd-tauri/src-tauri/` | Tauri 主 crate — 表现层 + 基础设施 |
+| `asd-tauri/src-tauri/src/commands/` | Tauri 命令处理器（5 个模块） |
+| `asd-tauri/src-tauri/src/infrastructure/` | 基础设施（IPC、Watchdog、日志） |
+| `asd-tauri/src-tauri/src/tests/` | 主 crate 集成测试 |
+| `asd-tauri/src-tauri/ahk_executor/` | AHK 子进程执行器脚本 |
+| `asd-tauri/src-tauri/benches/` | Criterion 基准测试 |
+| `asd-tauri/src-tauri/fuzz/` | cargo-fuzz 模糊测试目标 |
+| `asd-tauri/src/` | Vite 前端源码（JS/CSS） |
 
 ## For AI Agents
 
 ### Working In This Directory
+
+#### AHK v2 规则
 
 - **⚠️ 强制：所有 .ahk 文件顶部必须包含以下警告/错误接管指令（在 `#Requires` 之后、任何代码之前）：**
   ```autohotkey
@@ -85,7 +204,25 @@ AutoHotkey v2 技能管理器 - 支持多种执行模式的按键连招管理系
 - 模块文件顶部必须包含 `#Requires AutoHotkey v2.0`
 - 主脚本使用 `#Include` 引入模块
 
+#### Rust/Tauri 规则
+
+- **⚠️ 强制：纯逻辑 crate（asd-domain, asd-ipc-protocol, asd-application）禁止引入以下依赖：**
+  - `tokio`（异步运行时）
+  - `tauri`（GUI 框架）
+  - `interprocess`（IPC 传输）
+  - `windows`（Win32 API）
+  - 任何涉及文件 I/O 的 crate（`std::fs` 除外，仅在 asd-application 的 ConfigRepository 中使用）
+- **⚠️ 强制：新增 trait 方法必须提供默认实现**，避免破坏现有实现者
+- **⚠️ 强制：src-tauri 中的 Tauri command 函数必须使用 `#[tauri::command]` 宏标注**
+- **⚠️ 强制：IPC 通信必须通过 `IpcSender` trait**，禁止直接调用 `IpcManager`
+- 使用 `thiserror` 定义错误类型，禁止手动实现 `std::error::Error`
+- 使用 `tracing` 而非 `log` 进行日志记录
+- 测试必须通过 `cargo test` 运行，主 crate 测试需要 `--features test-manifest`
+- 新增 IpcCommand variant 必须同步更新 `asd-ipc-protocol/src/command.rs` 和对应的 AHK 执行器处理逻辑
+
 ### Testing Requirements
+
+#### AHK v2 测试
 
 - **AHK v2 路径**: `D:\Program Files\AutoHotkey\v2\AutoHotkey64.exe` (64位) 或 `D:\Program Files\AutoHotkey\v2\AutoHotkey.exe`
 - 运行语法检查: `& "D:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" /ErrorStdOut asd.ahk`
@@ -94,6 +231,41 @@ AutoHotkey v2 技能管理器 - 支持多种执行模式的按键连招管理系
 - 查看调试日志（实时）: `Get-Content logs\debug.log -Tail 20 -Wait`
 - 查看应用日志: `Get-Content logs\app.log -Tail 10`
 - 过滤错误日志: `Select-String -Path logs\app.log -Pattern '"level":"ERROR"'`
+
+#### Rust/Tauri 测试
+
+```bash
+# 编译
+cd asd-tauri && cargo build
+
+# 语法检查
+cd asd-tauri/src-tauri && cargo check
+
+# 纯逻辑 crate 测试（不需要 feature flag）
+cd asd-tauri && cargo test -p asd-domain
+cd asd-tauri && cargo test -p asd-ipc-protocol
+cd asd-tauri && cargo test -p asd-application
+
+# 主 crate 测试（需要 test-manifest feature）
+cd asd-tauri/src-tauri && cargo test --lib --features test-manifest
+
+# 全 workspace 测试
+cd asd-tauri && cargo test --workspace
+
+# Miri 验证（纯逻辑 crate，0 UB）
+cd asd-tauri && cargo +nightly miri test -p asd-domain
+cd asd-tauri && cargo +nightly miri test -p asd-ipc-protocol
+cd asd-tauri && cargo +nightly miri test -p asd-application -- --skip config_repository --skip save_config --skip load_from
+
+# 基准测试
+cd asd-tauri/src-tauri && cargo bench
+
+# 覆盖率
+cd asd-tauri && cargo tarpaulin -p asd-domain -p asd-ipc-protocol -p asd-application --skip-clean --out Stdout
+
+# 模糊测试
+cd asd-tauri/src-tauri/fuzz && cargo +nightly fuzz run fuzz_config_deserialize
+```
 
 ### 错误与警告接管机制（⚠️ 强制，无例外）
 
@@ -337,6 +509,8 @@ exit $proc.ExitCode
 
 ### Common Patterns
 
+#### AHK v2 模式
+
 - 文件结构使用分节注释：`; =================================================================`
 - 类名使用 PascalCase，方法名使用 PascalCase，静态属性使用 camelCase
 - 使用 `HasProp()` 和 `_GetProp()` 兼容 Map 和 Object 访问
@@ -345,9 +519,73 @@ exit $proc.ExitCode
 - 错误处理使用 `try-catch` 并记录 JSON 日志
 - 配置数据使用全局 Map 结构
 
+#### Rust/Tauri 模式
+
+- **Trait 抽象**: 在 domain crate 定义 trait，在 infrastructure 层实现
+  ```rust
+  // asd-domain/src/traits.rs — 定义
+  pub trait IpcSender: Send + Sync {
+      fn send_command(&self, cmd: IpcCommand) -> Result<u64, String>;
+  }
+
+  // src-tauri/src/bridge.rs — 实现
+  impl IpcSender for IpcBridge {
+      fn send_command(&self, cmd: IpcCommand) -> Result<u64, String> { ... }
+  }
+  ```
+- **错误类型**: 使用 `thiserror` 派生宏
+  ```rust
+  #[derive(Debug, thiserror::Error)]
+  pub enum AppError {
+      #[error("配置验证失败: {0}")]
+      Validation(String),
+      #[error("IPC 通信错误: {0}")]
+      Ipc(String),
+  }
+  ```
+- **状态管理**: 使用 `Arc<AppState>` 共享状态，trait objects 实现依赖反转
+  ```rust
+  pub struct AppState {
+      pub scheduler: SkillManager,
+      pub config_repo: ConfigRepository,
+      pub ipc_sender: Arc<dyn IpcSender>,
+      pub event_emitter: Arc<dyn EventEmitter>,
+      pub process_watcher: Arc<dyn ProcessWatcher>,
+  }
+  ```
+- **Tauri Command**: 使用 `#[tauri::command]` 宏，返回 `Result<T, String>`
+  ```rust
+  #[tauri::command]
+  async fn get_config(state: State<'_, Arc<AppState>>) -> Result<Config, String> {
+      state.config_repo.load_config().map_err(|e| e.to_string())
+  }
+  ```
+- **IPC 通信**: Rust 主进程 → interprocess named pipe → AHK 子进程
+  ```rust
+  // 发送命令
+  ipc_sender.send_command(IpcCommand::StartGroup { id: 1 })?;
+  // 接收消息
+  while let Some(msg) = rx.recv().await { ... }
+  ```
+- **日志**: 使用 `tracing` 框架
+  ```rust
+  tracing::info!("收到热键事件: {hotkey}");
+  tracing::error!("优雅关机失败: {e}");
+  tracing::debug!("收到心跳");
+  ```
+- **测试**: 纯逻辑 crate 使用 `#[cfg(test)] mod tests`，集成测试放在 `tests/` 目录
+  ```rust
+  #[cfg(test)]
+  mod tests {
+      use super::*;
+      #[test]
+      fn test_config_validation() { ... }
+  }
+  ```
+
 ## Dependencies
 
-### Internal
+### AHK v2 Internal
 
 - 模块之间通过 `#Include` 引入
 - `asd.ahk` 引入所有其他 .ahk 模块
@@ -356,10 +594,39 @@ exit $proc.ExitCode
 - `presentation/webview2_manager.ahk` 提供 WebView2 GUI 和 AHK-JS Bridge
 - `presentation/app_ui.html` WebView2 加载的 HTML 界面
 
-### External
+### AHK v2 External
 
 - WebView2 运行时（Edge Chromium 内核，Windows 10+ 内置）
 - `lib/ahk2_lib/WebView2/` — thqby/ahk2_lib WebView2 封装库
+
+### Rust/Tauri Internal (Workspace)
+
+| Crate | 依赖 |
+|-------|------|
+| `asd-ipc-protocol` | serde, serde_json, thiserror |
+| `asd-domain` | asd-ipc-protocol, serde, serde_json, indexmap, thiserror |
+| `asd-application` | asd-domain, asd-ipc-protocol, serde, serde_json, indexmap, thiserror, tracing |
+| `asd-tauri` (src-tauri) | asd-domain, asd-ipc-protocol, asd-application, tauri, tokio, interprocess, windows, tracing, clap, chrono, indexmap |
+
+### Rust/Tauri External
+
+| 依赖 | 版本 | 用途 |
+|------|------|------|
+| `tauri` | 2.11.2 | GUI 框架（tray-icon feature） |
+| `tokio` | 1 (full) | 异步运行时 |
+| `interprocess` | 2.4.2 (tokio) | Named pipe IPC 通信 |
+| `windows` | 0.62.2 | Win32 API（进程管理、JobObjects） |
+| `serde` / `serde_json` | 1.0 | 序列化/反序列化 |
+| `thiserror` | 2.0 | 错误类型派生 |
+| `tracing` / `tracing-subscriber` | 0.1 / 0.3 | 结构化日志 |
+| `indexmap` | 2 (serde) | 有序 Map（保持配置顺序） |
+| `clap` | 4 (derive) | 命令行参数解析 |
+| `chrono` | 0.4 (serde) | 时间戳 |
+| `criterion` | 0.5 | 基准测试（dev） |
+| `tauri-plugin-opener` | 2 | 文件/URL 打开 |
+| `tauri-plugin-global-shortcut` | 2.3.1 | 全局热键注册 |
+| `tauri-plugin-dialog` | 2.7.1 | 系统对话框 |
+| `tauri-plugin-fs` | 2.5.1 | 文件系统访问 |
 
 ### AHK-JS Bridge 通信架构（⚠️ 重要设计决策）
 
@@ -391,27 +658,78 @@ exit $proc.ExitCode
 - `InjectAhkComponent` 用于初始化 `window.ahk` 代理对象
 - `PostWebMessageAsJson` / `postMessage` 用于所有需要返回值的通信
 
+### Rust↔AHK IPC 通信架构（⚠️ 重要设计决策）
+
+**核心问题：** Rust 主进程需要与 AHK 子进程（asd_executor.exe）双向通信，传递热键事件和按键指令。
+
+**解决方案：** 使用 `interprocess` named pipe 双向通信：
+
+| 方向 | 方法 | 说明 |
+|------|------|------|
+| Rust→AHK | `IpcSender::send_command()` | Rust 发送 IpcCommand 到 AHK |
+| AHK→Rust | `IpcMessage` via pipe | AHK 发送心跳/热键/录制事件到 Rust |
+| Rust 接收 | `IpcManager` tokio task | 异步监听 AHK 消息 |
+| AHK 接收 | `ipc_client.ahk` | AHK 端 IPC 客户端 |
+
+**通信流程：**
+
+1. Rust 启动 AHK 子进程（`ProcessWatchdog` 管理）
+2. AHK 通过 named pipe 连接到 Rust
+3. Rust 发送 `IpcCommand::StartGroup` → AHK 开始执行按键序列
+4. AHK 发送 `IpcMessage { type: "hotkey", keys: [...] }` → Rust 转发到前端
+5. Rust 发送 `IpcCommand::StopGroup` → AHK 停止执行
+6. AHK 发送心跳 → Rust 监控进程存活
+
+**⚠️ 禁止事项：**
+- **禁止**在 AHK 执行器中直接操作 Tauri 窗口
+- **禁止**在 Rust 主线程中执行阻塞式 IPC 等待
+- **禁止**跳过 `ProcessWatchdog` 直接启动/停止 AHK 进程
+
+**✅ 允许事项：**
+- 通过 `IpcSender` trait 发送命令（可 mock 测试）
+- 通过 `EventEmitter` trait 发送前端事件
+- 通过 `ProcessWatcher` trait 查询进程状态
+
 <!-- MANUAL: 手动添加的注意事项请放在这里，重新生成时将予以保留。 -->
 
 ## 构建/运行命令
 
-### 运行脚本
+### AHK v2 运行脚本
 
 ```bash
 "C:\Program Files\AutoHotkey\v2\AutoHotkey.exe" asd.ahk
 ```
 
-### 语法检查
+### AHK v2 语法检查
 
 ```bash
 "C:\Program Files\AutoHotkey\v2\AutoHotkey.exe" /ErrorStdOut asd.ahk
+```
+
+### Rust/Tauri 构建
+
+```bash
+# 编译
+cd asd-tauri && cargo build
+
+# 发布构建
+cd asd-tauri && cargo build --release
+
+# 开发模式运行（Tauri + Vite HMR）
+cd asd-tauri && npm run tauri dev
+```
+
+### Rust/Tauri 语法检查
+
+```bash
+cd asd-tauri/src-tauri && cargo check
 ```
 
 ### 调试命令
 
 ```bash
 # 查看调试日志（实时）
-Get-Content logs\debug.log -Tail 20 -Wait
+Get-Content logs\debug.log -Tail 20 -Watch
 
 # 查看应用日志
 Get-Content logs\app.log -Tail 10
@@ -426,7 +744,7 @@ Clear-Content logs\debug.log
 
 ## 代码风格指南
 
-### 文件结构
+### AHK v2 文件结构
 
 ```autohotkey
 ; =================================================================
@@ -439,14 +757,45 @@ Clear-Content logs\debug.log
 ; 第三部分: 初始化代码
 ```
 
-### 导入规范
+### AHK v2 导入规范
 
 ```autohotkey
 #Requires AutoHotkey v2.0  ; 模块文件顶部必须包含
 #Include "json.ahk"        ; 主脚本使用 #Include 引入模块
 ```
 
+### Rust 文件结构
+
+```rust
+// =================================================================
+// 模块名称 - 简要描述
+// =================================================================
+
+use serde::{Deserialize, Serialize};
+
+// 第一部分: 类型定义 + derive 宏
+// 第二部分: impl 块
+// 第三部分: #[cfg(test)] mod tests
+```
+
+### Rust 导入规范
+
+```rust
+// crate 内部模块
+use crate::infrastructure::ipc::IpcManager;
+
+// workspace crate
+use asd_domain::traits::IpcSender;
+use asd_ipc_protocol::IpcCommand;
+
+// 标准库 + 第三方
+use std::sync::Arc;
+use tokio::sync::Mutex;
+```
+
 ### 命名约定
+
+#### AHK v2
 
 | 类型   | 约定                    | 示例                                             |
 | ---- | --------------------- | ---------------------------------------------- |
@@ -458,7 +807,19 @@ Clear-Content logs\debug.log
 | 常量   | 全大写 + 下划线             | `JSONErrorType.FILE_READ_ERROR`                |
 | 私有方法 | 下划线前缀                 | `_ExecutePeriodic()`, `_SetupMode()`           |
 
-### 类结构
+#### Rust
+
+| 类型 | 约定 | 示例 |
+|------|------|------|
+| Crate 名 | snake_case | `asd-domain`, `asd-ipc-protocol` |
+| 结构体/枚举 | PascalCase | `IpcCommand`, `AppState`, `AppError` |
+| 函数/方法 | snake_case | `send_command()`, `load_config()` |
+| 常量 | SCREAMING_SNAKE_CASE | `MAX_RESTART_COUNT` |
+| Trait | PascalCase | `IpcSender`, `EventEmitter`, `ProcessWatcher` |
+| 模块 | snake_case | `config_repository`, `hotkey_merger` |
+| 生命周期 | 短小写字母 | `'a`, `'ctx` |
+
+### AHK v2 类结构
 
 ```autohotkey
 class ClassName {
@@ -475,7 +836,24 @@ class ClassName {
 }
 ```
 
+### Rust 结构体 + Trait 实现
+
+```rust
+pub struct IpcBridge {
+    outbound: IpcOutboundSender,
+    ipc_manager: Arc<Mutex<Option<IpcManager>>>,
+}
+
+impl IpcSender for IpcBridge {
+    fn send_command(&self, cmd: IpcCommand) -> Result<u64, String> {
+        // 实现
+    }
+}
+```
+
 ### 错误处理
+
+#### AHK v2
 
 ```autohotkey
 ; 使用 try-catch 处理可能失败的操作
@@ -493,7 +871,31 @@ if (this.config.hotkey = "") {
 }
 ```
 
+#### Rust
+
+```rust
+// 使用 thiserror 定义错误类型
+#[derive(Debug, thiserror::Error)]
+pub enum AppError {
+    #[error("配置验证失败: {0}")]
+    Validation(String),
+    #[error("IPC 通信错误: {0}")]
+    Ipc(String),
+}
+
+// 使用 ? 操作符传播错误
+fn load_config(path: &Path) -> Result<Config, AppError> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    let config: Config = serde_json::from_str(&content)
+        .map_err(|e| AppError::Validation(e.to_string()))?;
+    Ok(config)
+}
+```
+
 ### 日志系统
+
+#### AHK v2
 
 ```autohotkey
 ; 普通调试日志
@@ -504,6 +906,19 @@ DebugLogger.Log("_ExecuteHybrid: START groups.Length=" this.groups.Length)
 
 ; JSON 结构化日志
 JSONLogger.LogError("Module", JSONErrorType.ERROR_xxx, "消息")
+```
+
+#### Rust
+
+```rust
+// 结构化日志（tracing）
+tracing::info!("收到热键事件: {hotkey}");
+tracing::warn!("进程重启次数: {count}");
+tracing::error!("优雅关机失败: {e}");
+tracing::debug!("收到心跳");
+
+// 带字段的日志
+tracing::info!(hotkey = %hotkey, group_id = id, "热键触发");
 ```
 
 ### Map vs Object 访问规范（重要！）
@@ -600,6 +1015,8 @@ switch mode {
 
 ### 数据结构约定
 
+#### AHK v2
+
 ```autohotkey
 ; 分组配置 - groups 数组格式
 groups := [
@@ -615,6 +1032,39 @@ config := {
     intervals: [50, 100, 100],
     holdKeys: ["Shift"],
     holdMode: "continuous"
+}
+```
+
+#### Rust
+
+```rust
+// IpcCommand 枚举（13 variants）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
+pub enum IpcCommand {
+    StartGroup { id: usize },
+    StopGroup { id: usize },
+    StopAll,
+    UpdateConfig { config: Config },
+    // ...
+}
+
+// IpcMessage 消息结构
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IpcMessage {
+    pub seq: u64,
+    pub r#type: String,
+    pub keys: Option<Vec<String>>,
+    pub data: Option<serde_json::Value>,
+}
+
+// Config 领域模型
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Config {
+    pub hotkey: String,
+    pub mode: String,
+    pub groups: IndexMap<String, GroupConfig>,
+    // ...
 }
 ```
 
@@ -634,11 +1084,20 @@ config := {
 
 ### 日志文件位置
 
+#### AHK v2
+
 - 主日志: `logs/app.log` (JSON Lines 格式)
 - 调试日志: `logs/debug.log` (详细执行追踪)
 - JSON 错误: `logs/json_errors.log`
 
+#### Rust/Tauri
+
+- Rust 日志: 由 `tracing-appender` 管理，输出到标准位置
+- Tauri 日志: `%APPDATA%/com.asd.skillmanager/logs/`
+
 ### 常见错误
+
+#### AHK v2
 
 1. **Map 属性访问错误**: `config.groups` 对 Map 无效，应使用 `config["groups"]` 或 `_GetProp()`
 2. **控件位置参数错误**: `"x20 y30"` 必须有引号，`x20 y30` 是语法错误
@@ -650,8 +1109,18 @@ config := {
 8. **Map.Delete 不存在的键**: `Map.Delete(key)` 在键不存在时抛出异常，必须先 `Map.Has(key)` 检查
 9. **ExecuteScriptAsync 不等待 Promise**: `wv.ExecuteScriptAsync('Promise.resolve(42)')` 返回 `{}`，不是 `42`。必须使用 WebMessage 模式
 10. **WebView2 sync 代理死锁**: `hostObjects.sync.ahk.Method()` 在 AHK 消息循环中被调用时会死锁，必须使用 postMessage 模式
-9. **⚠️ 箭头函数块体语法错误（致命）**: AHK v2 的箭头函数 `=>` 只支持表达式体，**不支持块体 `{ }`**！使用 `(args) => { ... }` 会导致 "Missing propertyname: in object literal" 语法错误。必须使用逗号表达式 `(expr1, expr2, expr3)` 或闭包函数替代。
-10. **⚠️ 字符串拼接中的花括号解析错误**: 在字符串拼接中，紧跟变量后的字符串字面量会被 AHK v2 解析为对象字面量的属性名。例如 `"try" OB "{" "code" CB "}"` 会报错。解决方案：使用 `Format()` 函数、单引号字符串 `'...'`、或分步构建。
+11. **⚠️ 箭头函数块体语法错误（致命）**: AHK v2 的箭头函数 `=>` 只支持表达式体，**不支持块体 `{ }`**！使用 `(args) => { ... }` 会导致 "Missing propertyname: in object literal" 语法错误。必须使用逗号表达式 `(expr1, expr2, expr3)` 或闭包函数替代。
+12. **⚠️ 字符串拼接中的花括号解析错误**: 在字符串拼接中，紧跟变量后的字符串字面量会被 AHK v2 解析为对象字面量的属性名。例如 `"try" OB "{" "code" CB "}"` 会报错。解决方案：使用 `Format()` 函数、单引号字符串 `'...'`、或分步构建。
+
+#### Rust/Tauri
+
+1. **纯逻辑 crate 引入 Tauri 依赖**: asd-domain/asd-ipc-protocol/asd-application 禁止引入 `tauri`, `tokio`, `interprocess`, `windows` crate
+2. **IpcCommand 新增 variant 未同步**: 新增 IpcCommand variant 必须同步更新 AHK 执行器的处理逻辑，否则 IPC 通信会失败
+3. **blocking_lock 死锁**: `Mutex::blocking_lock()` 在 tokio 异步上下文中可能导致死锁，优先使用 `lock().await`
+4. **test-manifest feature 遗漏**: 主 crate 测试需要 `--features test-manifest`，否则部分测试会被跳过
+5. **Config 序列化兼容性**: Rust 的 Config 结构体必须与 AHK 的 config.json 格式兼容（字段名、嵌套结构），否则 `config_compat_tests` 会失败
+6. **Named pipe 路径**: interprocess named pipe 名称必须与 AHK 执行器中的管道名称一致
+7. **ProcessWatchdog 超时**: AHK 子进程心跳超时时间需要与 AHK 端心跳间隔匹配
 
 ## 重要提醒
 
@@ -667,5 +1136,6 @@ config := {
 - **⚠️ 箭头函数 `=>` 只支持表达式体，绝对不能使用 `=> { }` 块体语法**
 - **⚠️ 执行测试前必须完成前置检查：语法检查（stderr 重定向 + 退出码验证）→ 接管指令验证 → 运行时验证**
 - **⚠️ 语法检查必须使用 `Start-Process -RedirectStandardError` 或 `2>&1` 重定向 stderr，否则无法捕获 `#ErrorStdOut` 输出的错误**
+- **⚠️ 纯逻辑 Rust crate 禁止引入 Tauri/tokio/interprocess/windows 依赖**
+- **⚠️ 新增 IpcCommand variant 必须同步更新 AHK 执行器处理逻辑**
 - 使用中文回复
-
