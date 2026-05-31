@@ -4,6 +4,10 @@ use asd_ipc_protocol::IpcCommand;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+#[deprecated(
+    since = "3.1.0",
+    note = "SkillManager 与 AppState 职责重叠，请使用 AppState 的方法替代。activate/deactivate → set_group_active, register_hotkey/unregister_hotkey → AppState::register_hotkey/unregister_hotkey, build_toggle_command → group_service::build_toggle_command"
+)]
 pub struct SkillManager {
     groups: HashMap<String, SkillGroup>,
     hotkey_registry: HashMap<String, String>,
@@ -11,6 +15,7 @@ pub struct SkillManager {
     ipc_sender: Arc<dyn IpcSender>,
 }
 
+#[allow(deprecated)]
 impl SkillManager {
     pub fn new(groups: HashMap<String, SkillGroup>, ipc_sender: Arc<dyn IpcSender>) -> Self {
         Self {
@@ -143,6 +148,7 @@ impl SkillManager {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use asd_domain::config::*;

@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::Duration;
 
+/// 子进程监控状态，用于序列化到前端展示。
 #[derive(Debug, Clone, Serialize)]
 pub struct WatchdogState {
     pub status: WatchdogStateEnum,
@@ -45,6 +46,10 @@ struct ConfigState {
     groups: IndexMap<String, SkillGroup>,
 }
 
+/// 应用全局状态，管理配置、分组、热键注册和 IPC 通信。
+///
+/// `AppState` 是应用层的核心结构体，通过 `RwLock` 和 `AtomicBool` 提供线程安全的并发访问。
+/// 所有 Tauri 命令通过 `Arc<AppState>` 共享此状态。
 pub struct AppState {
     config_state: RwLock<ConfigState>,
     ipc_sender: Arc<dyn IpcSender>,
@@ -143,7 +148,9 @@ impl AppState {
                     .groups
                     .values()
                     .cloned()
-                    .map(|g| serde_json::to_value(g).unwrap_or_default())
+                    .filter_map(|g| {
+                        serde_json::to_value(&g).ok().filter(|v| !v.is_null())
+                    })
                     .collect();
                 (groups_data, Some((active, hotkey)))
             } else {
@@ -241,32 +248,29 @@ impl AppState {
 
     pub fn save_config_atomic(&self, new_config: Config) -> Result<(), AppError> {
         let old_state = {
-            let guard = self
-                .config_state
-                .read()
-                .map_err(|e| AppError::Internal(e.to_string()))?;
-            ConfigState {
-                config: guard.config.clone(),
-                groups: guard.groups.clone(),
-            }
-        };
-
-        let mut new_groups = Self::build_groups_from_config(&new_config);
-
-        for (id, new_group) in new_groups.iter_mut() {
-            if let Some(old_group) = old_state.groups.get(id) {
-                new_group.active = old_group.active;
-            }
-        }
-
-        {
             let mut guard = self
                 .config_state
                 .write()
                 .map_err(|e| AppError::Internal(e.to_string()))?;
+
+            let old_config = guard.config.clone();
+            let old_groups = guard.groups.clone();
+
+            let mut new_groups = Self::build_groups_from_config(&new_config);
+            for (id, new_group) in new_groups.iter_mut() {
+                if let Some(old_group) = old_groups.get(id) {
+                    new_group.active = old_group.active;
+                }
+            }
+
             guard.config = new_config.clone();
             guard.groups = new_groups;
-        }
+
+            ConfigState {
+                config: old_config,
+                groups: old_groups,
+            }
+        };
 
         if let Some(path) = self.get_config_path() {
             if let Err(save_err) = ConfigRepository::save_to_path(&new_config, &path) {
@@ -344,38 +348,58 @@ impl AppState {
     }
 
     pub fn delete_group_atomic(&self, group_id: &str) -> Result<bool, AppError> {
-        let is_active = {
-            let guard = self
+        let (is_active, ipc_cmd) = {
+            let mut cs = self
                 .config_state
-                .read()
+                .write()
                 .map_err(|e| AppError::Internal(e.to_string()))?;
-            guard
-                .groups
-                .get(group_id)
-                .map(|g| g.active)
-                .unwrap_or(false)
+
+            let is_active = cs.groups.get(group_id).map(|g| g.active).unwrap_or(false);
+
+            let ipc_cmd = if is_active {
+                Some(IpcCommand::ToggleGroup {
+                    group_id: group_id.to_string(),
+                    active: false,
+                    mode: None,
+                    key_press_duration: None,
+                    hold_keys: None,
+                    hold_mode: None,
+                    mode_data: None,
+                })
+            } else {
+                None
+            };
+
+            cs.config.group_settings.shift_remove(group_id);
+            cs.groups.shift_remove(group_id);
+
+            if is_active {
+                if let Ok(mut registry) = self.active_hotkeys.write() {
+                    registry.retain(|_, gid| gid != group_id);
+                }
+            }
+
+            (is_active, ipc_cmd)
         };
 
-        if is_active {
-            let cmd = IpcCommand::ToggleGroup {
-                group_id: group_id.to_string(),
-                active: false,
-                mode: None,
-                key_press_duration: None,
-                hold_keys: None,
-                hold_mode: None,
-                mode_data: None,
-            };
+        if let Some(cmd) = ipc_cmd {
             self.try_send_ipc_command(&cmd);
         }
 
-        let current_config = self.read_config()?;
-        let mut new_config = current_config;
-        new_config.group_settings.shift_remove(group_id);
-        self.save_config_atomic(new_config)?;
-
-        if is_active {
-            self.remove_group_hotkeys(group_id)?;
+        if let Some(path) = self.get_config_path() {
+            let config = {
+                let guard = self
+                    .config_state
+                    .read()
+                    .map_err(|e| AppError::Internal(e.to_string()))?;
+                guard.config.clone()
+            };
+            if let Err(e) = ConfigRepository::save_to_path(&config, &path) {
+                tracing::error!("删除分组后保存配置失败: {e}");
+                return Err(AppError::Config(format!(
+                    "删除分组成功但保存配置失败: {e}"
+                )));
+            }
         }
 
         tracing::info!("已删除分组: {}", group_id);

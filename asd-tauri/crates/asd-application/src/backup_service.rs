@@ -1,47 +1,9 @@
 use crate::config_repository::ConfigRepository;
 use crate::error::AppError;
 use crate::state::AppState;
+use crate::time_format::format_timestamp;
 use asd_domain::config::Config;
 use std::path::Path;
-
-fn format_timestamp() -> String {
-    let dur = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = dur.as_secs();
-    let days = secs / 86400;
-    let time_of_day = secs % 86400;
-    let hours = time_of_day / 3600;
-    let minutes = (time_of_day % 3600) / 60;
-    let seconds = time_of_day % 60;
-    let year = 1970 + (days as f64 / 365.25) as u64;
-    let day_of_year = (days as f64 % 365.25) as u64;
-    let month_days = [
-        31,
-        if year.is_multiple_of(4) { 29 } else { 28 },
-        31,
-        30,
-        31,
-        30,
-        31,
-        31,
-        30,
-        31,
-        30,
-        31,
-    ];
-    let mut month = 1u64;
-    let mut remaining = day_of_year;
-    for &md in &month_days {
-        if remaining < md {
-            break;
-        }
-        remaining -= md;
-        month += 1;
-    }
-    let day = remaining + 1;
-    format!("{year:04}{month:02}{day:02}_{hours:02}{minutes:02}{seconds:02}")
-}
 
 pub(crate) fn validate_file_path(path: &str) -> Result<(), AppError> {
     let p = std::path::Path::new(path);
@@ -52,6 +14,17 @@ pub(crate) fn validate_file_path(path: &str) -> Result<(), AppError> {
         if matches!(component, std::path::Component::ParentDir) {
             return Err(AppError::Config("路径不能包含父目录引用 (..)".to_string()));
         }
+    }
+    let path_lower = path.to_lowercase();
+    if path_lower.starts_with("\\\\") || path_lower.starts_with("//") {
+        return Err(AppError::Config("不支持 UNC 路径或设备路径".to_string()));
+    }
+    if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+        if ext.to_lowercase() != "json" {
+            return Err(AppError::Config("文件扩展名必须是 .json".to_string()));
+        }
+    } else {
+        return Err(AppError::Config("文件必须有 .json 扩展名".to_string()));
     }
     Ok(())
 }
@@ -117,33 +90,33 @@ pub fn list_backups(state: &AppState) -> Result<Vec<BackupInfo>, AppError> {
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) == Some("json") {
-            let metadata = entry
-                .metadata()
-                .map_err(|e| AppError::Config(format!("读取备份元数据失败: {e}")))?;
             let filename = path
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown")
                 .to_string();
-            let timestamp = if filename.starts_with("backup_") && filename.ends_with(".json") {
-                let core = filename
-                    .trim_start_matches("backup_")
-                    .trim_end_matches(".json");
-                if core.len() == 15 && core.chars().nth(8) == Some('_') {
-                    let date_part = &core[0..8];
-                    let time_part = &core[9..15];
-                    format!(
-                        "{} {}:{}:{}",
-                        date_part,
-                        &time_part[0..2],
-                        &time_part[2..4],
-                        &time_part[4..6]
-                    )
-                } else {
-                    core.to_string()
-                }
+            if !filename.starts_with("backup_") {
+                tracing::debug!("跳过非备份文件: {}", filename);
+                continue;
+            }
+            let metadata = entry
+                .metadata()
+                .map_err(|e| AppError::Config(format!("读取备份元数据失败: {e}")))?;
+            let core = filename
+                .trim_start_matches("backup_")
+                .trim_end_matches(".json");
+            let timestamp = if core.len() == 15 && core.chars().nth(8) == Some('_') {
+                let date_part = &core[0..8];
+                let time_part = &core[9..15];
+                format!(
+                    "{} {}:{}:{}",
+                    date_part,
+                    &time_part[0..2],
+                    &time_part[2..4],
+                    &time_part[4..6]
+                )
             } else {
-                filename.clone()
+                core.to_string()
             };
             backups.push(BackupInfo {
                 filename,

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use asd_application::state::AppState;
 use asd_domain::config::*;
 use asd_domain::traits::{EventEmitter, IpcSender, ProcessWatcher};

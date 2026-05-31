@@ -9,7 +9,7 @@ mod tests;
 
 use application::state::AppState;
 use asd_application::config_repository::ConfigRepository;
-use asd_domain::config::WatchdogStateEnum;
+use asd_domain::config::{Config, WatchdogStateEnum};
 use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use bridge::{IpcBridge, TauriEventBridge, WatchdogBridge};
 use domain::models::SkillGroup;
@@ -248,6 +248,156 @@ fn setup_ipc_callbacks(
     }
 }
 
+fn init_app_state(
+    config: Config,
+    config_path: std::path::PathBuf,
+    ipc_bridge: Arc<IpcBridge>,
+    event_bridge: Arc<TauriEventBridge>,
+    watchdog_bridge: Arc<WatchdogBridge>,
+) -> Arc<AppState> {
+    let mut app_state = Arc::new(AppState::new(
+        config,
+        ipc_bridge,
+        watchdog_bridge,
+        event_bridge,
+    ));
+    {
+        let state_ref =
+            Arc::get_mut(&mut app_state).expect("AppState should be uniquely held during setup");
+        state_ref.set_config_path(config_path);
+    }
+    app_state
+}
+
+fn setup_ipc_and_watchdog(
+    app_state: &Arc<AppState>,
+    ipc_manager_arc: &IpcManagerArc,
+    watchdog: &WatchdogArc,
+    outbound_rx: IpcOutboundReceiver,
+    app_handle: &tauri::AppHandle,
+    exe_path: &std::path::Path,
+) {
+    {
+        let guard = tokio::task::block_in_place(|| ipc_manager_arc.blocking_lock());
+        if let Some(ref mgr) = *guard {
+            setup_ipc_callbacks(app_state, mgr, watchdog, ipc_manager_arc);
+        }
+    }
+
+    spawn_ipc_listener(outbound_rx, app_state.clone(), app_handle.clone());
+    spawn_ipc_accept_loop(ipc_manager_arc.clone());
+
+    {
+        let exe_str = exe_path.to_string_lossy().to_string();
+        let mut wd = tokio::task::block_in_place(|| watchdog.blocking_lock());
+        if let Err(e) = wd.spawn_child(&exe_str) {
+            tracing::error!("启动 AHK 子进程失败: {e}");
+        }
+    }
+
+    spawn_heartbeat_ping(ipc_manager_arc.clone());
+    spawn_watchdog(app_state.clone(), watchdog.clone());
+}
+
+fn setup_tray_menu(
+    app_handle: &tauri::AppHandle,
+    ipc_manager_arc: &IpcManagerArc,
+    watchdog: &WatchdogArc,
+) -> Result<(), tauri::Error> {
+    let show_item = MenuItemBuilder::with_id("show", "显示主窗口").build(app_handle)?;
+    let hide_item = MenuItemBuilder::with_id("hide", "隐藏到托盘").build(app_handle)?;
+    let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app_handle)?;
+
+    let menu = MenuBuilder::new(app_handle)
+        .item(&show_item)
+        .item(&hide_item)
+        .separator()
+        .item(&quit_item)
+        .build()?;
+
+    let ipc_mgr_tray = ipc_manager_arc.clone();
+    let wd_tray = watchdog.clone();
+    let _tray = TrayIconBuilder::new()
+        .tooltip("ASD - 技能管理器")
+        .icon(
+            app_handle
+                .default_window_icon()
+                .cloned()
+                .unwrap_or_else(|| {
+                    tracing::warn!("未配置默认窗口图标，使用空图标");
+                    tauri::image::Image::new_owned(Vec::new(), 0, 0)
+                }),
+        )
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                if let Some(window) = tray.app_handle().get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        })
+        .on_menu_event(move |app, event| match event.id().as_ref() {
+            "show" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            "hide" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
+            "quit" => {
+                let state = app.state::<Arc<AppState>>();
+                let state_clone = state.inner().clone();
+                let ipc_mgr = ipc_mgr_tray.clone();
+                let wd = wd_tray.clone();
+                let handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    perform_graceful_shutdown(&state_clone, &ipc_mgr, &wd).await;
+                    handle.exit(0);
+                });
+            }
+            _ => {}
+        })
+        .menu(&menu)
+        .build(app_handle)?;
+
+    Ok(())
+}
+
+fn setup_window_close_handler(
+    window: &tauri::WebviewWindow,
+    app_state: &Arc<AppState>,
+    app_handle: &tauri::AppHandle,
+    ipc_manager_arc: &IpcManagerArc,
+    watchdog: &WatchdogArc,
+) {
+    let state_for_close = app_state.clone();
+    let app_handle_for_close = app_handle.clone();
+    let ipc_mgr_close = ipc_manager_arc.clone();
+    let wd_close = watchdog.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let state = state_for_close.clone();
+            let handle = app_handle_for_close.clone();
+            let ipc_mgr = ipc_mgr_close.clone();
+            let wd = wd_close.clone();
+            tauri::async_runtime::spawn(async move {
+                perform_graceful_shutdown(&state, &ipc_mgr, &wd).await;
+                handle.exit(0);
+            });
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -278,8 +428,11 @@ pub fn run() {
             let config_path = app
                 .path()
                 .app_data_dir()
-                .expect("无法获取 app_data_dir")
-                .join("config.json");
+                .map(|dir| dir.join("config.json"))
+                .unwrap_or_else(|e| {
+                    tracing::error!("无法获取 app_data_dir: {e}，使用当前目录");
+                    std::path::PathBuf::from("config.json")
+                });
             let config = ConfigRepository::load_from_file(&config_path);
 
             let (ipc_manager, outbound_rx) = IpcManager::new("asd_ipc");
@@ -293,145 +446,70 @@ pub fn run() {
             let event_bridge = Arc::new(TauriEventBridge::new(app.handle().clone()));
             let watchdog_bridge = Arc::new(WatchdogBridge::new(watchdog.clone()));
 
-            let mut app_state = Arc::new(AppState::new(
+            let app_state = init_app_state(
                 config,
+                config_path,
                 ipc_bridge,
-                watchdog_bridge,
                 event_bridge,
-            ));
+                watchdog_bridge,
+            );
 
-            {
-                let state_ref = Arc::get_mut(&mut app_state)
-                    .expect("AppState should be uniquely held during setup");
-                state_ref.set_config_path(config_path);
-            }
-
-            {
-                let guard = tokio::task::block_in_place(|| ipc_manager_arc.blocking_lock());
-                if let Some(ref mgr) = *guard {
-                    setup_ipc_callbacks(&app_state, mgr, &watchdog, &ipc_manager_arc);
-                }
-            }
-
-            spawn_ipc_listener(outbound_rx, app_state.clone(), app.handle().clone());
-            spawn_ipc_accept_loop(ipc_manager_arc.clone());
-
-            {
-                let exe_path = if let Ok(p) = app.path().resolve(
-                    "ahk_executor/asd_executor.exe",
-                    tauri::path::BaseDirectory::Resource,
-                ) {
-                    if p.exists() {
-                        tracing::info!("使用编译模式 AHK 子进程: {:?}", p);
-                        p
-                    } else {
-                        tracing::warn!("asd_executor.exe 不存在，尝试便携模式");
-                        app.path()
-                            .resolve(
-                                "ahk_executor/AutoHotkey64.exe",
-                                tauri::path::BaseDirectory::Resource,
-                            )
-                            .expect("无法解析 AutoHotkey64.exe 路径")
-                    }
+            let exe_path = if let Ok(p) = app.path().resolve(
+                "ahk_executor/asd_executor.exe",
+                tauri::path::BaseDirectory::Resource,
+            ) {
+                if p.exists() {
+                    tracing::info!("使用编译模式 AHK 子进程: {:?}", p);
+                    p
                 } else {
-                    tracing::warn!("无法解析 asd_executor.exe 路径，尝试便携模式");
+                    tracing::warn!("asd_executor.exe 不存在，尝试便携模式");
                     app.path()
                         .resolve(
                             "ahk_executor/AutoHotkey64.exe",
                             tauri::path::BaseDirectory::Resource,
                         )
-                        .expect("无法解析 AutoHotkey64.exe 路径")
-                };
-                let exe_str = exe_path.to_string_lossy().to_string();
-                let mut wd = tokio::task::block_in_place(|| watchdog.blocking_lock());
-                if let Err(e) = wd.spawn_child(&exe_str) {
-                    tracing::error!("启动 AHK 子进程失败: {e}");
+                        .unwrap_or_else(|e| {
+                            tracing::error!("无法解析 AutoHotkey64.exe 路径: {e}");
+                            std::path::PathBuf::from("AutoHotkey64.exe")
+                        })
                 }
-            }
+            } else {
+                tracing::warn!("无法解析 asd_executor.exe 路径，尝试便携模式");
+                app.path()
+                    .resolve(
+                        "ahk_executor/AutoHotkey64.exe",
+                        tauri::path::BaseDirectory::Resource,
+                    )
+                    .unwrap_or_else(|e| {
+                        tracing::error!("无法解析 AutoHotkey64.exe 路径: {e}");
+                        std::path::PathBuf::from("AutoHotkey64.exe")
+                    })
+            };
 
-            spawn_heartbeat_ping(ipc_manager_arc.clone());
-            spawn_watchdog(app_state.clone(), watchdog.clone());
+            setup_ipc_and_watchdog(
+                &app_state,
+                &ipc_manager_arc,
+                &watchdog,
+                outbound_rx,
+                app.handle(),
+                &exe_path,
+            );
 
             app.manage(app_state);
 
-            let show_item = MenuItemBuilder::with_id("show", "显示主窗口").build(app)?;
-            let hide_item = MenuItemBuilder::with_id("hide", "隐藏到托盘").build(app)?;
-            let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
-
-            let menu = MenuBuilder::new(app)
-                .item(&show_item)
-                .item(&hide_item)
-                .separator()
-                .item(&quit_item)
-                .build()?;
-
-            let ipc_mgr_tray = ipc_manager_arc.clone();
-            let wd_tray = watchdog.clone();
-            let _tray = TrayIconBuilder::new()
-                .tooltip("ASD - 技能管理器")
-                .icon(app.default_window_icon().unwrap().clone())
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        if let Some(window) = tray.app_handle().get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                })
-                .on_menu_event(move |app, event| match event.id().as_ref() {
-                    "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                    "hide" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.hide();
-                        }
-                    }
-                    "quit" => {
-                        let state = app.state::<Arc<AppState>>();
-                        let state_clone = state.inner().clone();
-                        let ipc_mgr = ipc_mgr_tray.clone();
-                        let wd = wd_tray.clone();
-                        let handle = app.clone();
-                        tauri::async_runtime::spawn(async move {
-                            perform_graceful_shutdown(&state_clone, &ipc_mgr, &wd).await;
-                            handle.exit(0);
-                        });
-                    }
-                    _ => {}
-                })
-                .menu(&menu)
-                .build(app)?;
+            setup_tray_menu(app.handle(), &ipc_manager_arc, &watchdog)?;
 
             let gs = app.global_shortcut();
             let _ = gs.register("Ctrl+Shift+A");
 
             if let Some(window) = app.get_webview_window("main") {
-                let state_for_close = app.state::<Arc<AppState>>().inner().clone();
-                let app_handle_for_close = app.handle().clone();
-                let ipc_mgr_close = ipc_manager_arc.clone();
-                let wd_close = watchdog.clone();
-                window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let state = state_for_close.clone();
-                        let handle = app_handle_for_close.clone();
-                        let ipc_mgr = ipc_mgr_close.clone();
-                        let wd = wd_close.clone();
-                        tauri::async_runtime::spawn(async move {
-                            perform_graceful_shutdown(&state, &ipc_mgr, &wd).await;
-                            handle.exit(0);
-                        });
-                    }
-                });
+                setup_window_close_handler(
+                    &window,
+                    app.state::<Arc<AppState>>().inner(),
+                    app.handle(),
+                    &ipc_manager_arc,
+                    &watchdog,
+                );
             }
 
             Ok(())
@@ -471,5 +549,6 @@ pub fn run() {
             commands::system_cmd::toggle_hold_mode,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .inspect_err(|e| tracing::error!("Tauri 应用运行错误: {e}"))
+        .expect("Tauri 应用启动失败");
 }

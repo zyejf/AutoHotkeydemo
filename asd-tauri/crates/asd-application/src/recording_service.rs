@@ -1,47 +1,9 @@
 use crate::backup_service::validate_file_path;
 use crate::error::AppError;
 use crate::state::AppState;
+use crate::time_format::format_datetime;
 use asd_ipc_protocol::IpcCommand;
 use serde::{Deserialize, Serialize};
-
-fn format_datetime() -> String {
-    let dur = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = dur.as_secs();
-    let days = secs / 86400;
-    let time_of_day = secs % 86400;
-    let hours = time_of_day / 3600;
-    let minutes = (time_of_day % 3600) / 60;
-    let seconds = time_of_day % 60;
-    let year = 1970 + (days as f64 / 365.25) as u64;
-    let day_of_year = (days as f64 % 365.25) as u64;
-    let month_days = [
-        31,
-        if year.is_multiple_of(4) { 29 } else { 28 },
-        31,
-        30,
-        31,
-        30,
-        31,
-        31,
-        30,
-        31,
-        30,
-        31,
-    ];
-    let mut month = 1u64;
-    let mut remaining = day_of_year;
-    for &md in &month_days {
-        if remaining < md {
-            break;
-        }
-        remaining -= md;
-        month += 1;
-    }
-    let day = remaining + 1;
-    format!("{year:04}-{month:02}-{day:02} {hours:02}:{minutes:02}:{seconds:02}")
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecordingResult {

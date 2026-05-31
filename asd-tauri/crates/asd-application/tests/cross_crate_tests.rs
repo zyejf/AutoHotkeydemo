@@ -1,5 +1,6 @@
 use asd_application::config_repository::ConfigRepository;
 use asd_application::error::AppError;
+#[allow(deprecated)]
 use asd_application::scheduler::SkillManager;
 use asd_application::state::AppState;
 use asd_domain::config::*;

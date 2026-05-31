@@ -2,6 +2,36 @@ use asd_domain::config::Config;
 use std::fs;
 use std::path::Path;
 
+/// 配置文件加载错误类型，区分文件不存在和解析失败。
+#[derive(Debug)]
+pub enum ConfigLoadError {
+    /// 配置文件不存在。
+    FileNotFound(std::io::Error),
+    /// 配置文件 JSON 解析失败。
+    ParseError(String),
+}
+
+impl std::fmt::Display for ConfigLoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigLoadError::FileNotFound(e) => write!(f, "配置文件不存在: {e}"),
+            ConfigLoadError::ParseError(e) => write!(f, "配置文件解析失败: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for ConfigLoadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ConfigLoadError::FileNotFound(e) => Some(e),
+            ConfigLoadError::ParseError(_) => None,
+        }
+    }
+}
+
+/// 配置文件仓库，提供配置的加载、保存和原子写入功能。
+///
+/// 支持自动剥离 BOM、原子写入（先写临时文件再重命名）和详细的错误类型区分。
 pub struct ConfigRepository;
 
 impl ConfigRepository {
@@ -13,16 +43,33 @@ impl ConfigRepository {
                 match serde_json::from_str(cleaned) {
                     Ok(config) => config,
                     Err(e) => {
-                        tracing::error!("配置文件解析失败: {e}");
+                        tracing::error!(
+                            "配置文件解析失败: {e}，路径: {}，使用默认配置（建议使用 load_from_file_checked 获取详细错误）",
+                            path.display()
+                        );
                         Config::default()
                     }
                 }
             }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                tracing::info!("配置文件不存在，使用默认配置");
+                Config::default()
+            }
             Err(e) => {
-                tracing::warn!("配置文件读取失败: {e}，使用默认配置");
+                tracing::warn!(
+                    "配置文件读取失败: {e}，路径: {}，使用默认配置",
+                    path.display()
+                );
                 Config::default()
             }
         }
+    }
+
+    pub fn load_from_file_checked<P: AsRef<Path>>(path: P) -> Result<Config, ConfigLoadError> {
+        let path = path.as_ref();
+        let content = fs::read_to_string(path).map_err(ConfigLoadError::FileNotFound)?;
+        let cleaned = content.trim_start_matches('\u{feff}');
+        serde_json::from_str(cleaned).map_err(|e| ConfigLoadError::ParseError(e.to_string()))
     }
 
     pub fn save_to_file<P: AsRef<Path>>(config: &Config, path: P) -> Result<(), String> {
@@ -270,6 +317,56 @@ mod tests {
 
         let loaded = ConfigRepository::load_from_file(&path);
         assert_eq!(loaded.control_hotkeys.emergency, "F10");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_load_from_file_checked_valid() {
+        let dir = std::env::temp_dir().join("asd_app_test_checked_valid");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let path = dir.join("config.json");
+        let config = Config::default();
+        let json = serde_json::to_string_pretty(&config).unwrap();
+        std::fs::write(&path, json).unwrap();
+
+        let result = ConfigRepository::load_from_file_checked(&path);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().control_hotkeys.emergency, "F10");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_load_from_file_checked_not_found() {
+        let path = std::path::PathBuf::from("/nonexistent/path/config.json");
+        let result = ConfigRepository::load_from_file_checked(&path);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ConfigLoadError::FileNotFound(_) => {}
+            other => panic!("Expected FileNotFound, got: {other}"),
+        }
+    }
+
+    #[test]
+    fn test_load_from_file_checked_parse_error() {
+        let dir = std::env::temp_dir().join("asd_app_test_checked_parse");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let path = dir.join("bad_config.json");
+        std::fs::write(&path, "{invalid json!!!}").unwrap();
+
+        let result = ConfigRepository::load_from_file_checked(&path);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ConfigLoadError::ParseError(msg) => {
+                assert!(!msg.is_empty());
+            }
+            other => panic!("Expected ParseError, got: {other}"),
+        }
 
         let _ = std::fs::remove_dir_all(&dir);
     }

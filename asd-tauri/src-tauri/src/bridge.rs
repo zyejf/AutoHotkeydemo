@@ -6,6 +6,10 @@ use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+/// IPC 桥接器，实现 `IpcSender` trait，连接 Rust 主进程与 AHK 子进程。
+///
+/// 通过 `interprocess` named pipe 向 AHK 子进程发送命令，
+/// 并通过 outbound mpsc 通道转发 AHK→Rust 方向的消息到前端。
 pub struct IpcBridge {
     outbound: IpcOutboundSender,
     ipc_manager: Arc<Mutex<Option<IpcManager>>>,
@@ -18,17 +22,48 @@ impl IpcBridge {
             ipc_manager,
         }
     }
+
+    pub fn is_pipe_connected(&self) -> bool {
+        let ipc_manager = self.ipc_manager.clone();
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async move {
+                let manager = ipc_manager.lock().await;
+                match *manager {
+                    Some(ref mgr) => mgr.is_connected().await,
+                    None => false,
+                }
+            })
+        })
+    }
 }
 
 impl IpcSender for IpcBridge {
     fn send_command(&self, cmd: IpcCommand) -> Result<u64, String> {
-        let seq = {
-            let manager = self.ipc_manager.blocking_lock();
-            manager.as_ref().map(|m| m.next_seq()).unwrap_or(0)
-        };
-        let msg = IpcMessage::command(seq, &cmd);
-        self.outbound.try_send(msg).map_err(|e| e.to_string())?;
-        Ok(seq)
+        let ipc_manager = self.ipc_manager.clone();
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async move {
+                let manager = ipc_manager.lock().await;
+                match *manager {
+                    Some(ref mgr) => {
+                        if !mgr.is_connected().await {
+                            tracing::warn!(
+                                "IPC 管道未连接，无法发送命令: {:?}",
+                                std::mem::discriminant(&cmd)
+                            );
+                            return Err("IPC 管道未连接，AHK 执行器可能未启动".to_string());
+                        }
+                        mgr.send_command(cmd).await.map_err(|e| {
+                            tracing::warn!("IPC 发送命令失败: {e}");
+                            format!("IPC 通信错误: {e}")
+                        })
+                    }
+                    None => {
+                        tracing::warn!("IPC 管理器未初始化，无法发送命令: {:?}", std::mem::discriminant(&cmd));
+                        Err("IPC 管理器未初始化，请等待系统就绪".to_string())
+                    }
+                }
+            })
+        })
     }
 
     fn send_and_wait(
@@ -36,14 +71,42 @@ impl IpcSender for IpcBridge {
         cmd: IpcCommand,
         timeout: std::time::Duration,
     ) -> Result<IpcMessage, String> {
-        let _ = (cmd, timeout);
-        Err("send_and_wait requires async context, use try_send_ipc_command instead".to_string())
+        let ipc_manager = self.ipc_manager.clone();
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async move {
+                let manager = ipc_manager.lock().await;
+                match *manager {
+                    Some(ref mgr) => {
+                        if !mgr.is_connected().await {
+                            tracing::warn!(
+                                "IPC 管道未连接，无法发送等待命令: {:?}",
+                                std::mem::discriminant(&cmd)
+                            );
+                            return Err("IPC 管道未连接，AHK 执行器可能未启动".to_string());
+                        }
+                        mgr.send_and_wait(cmd, timeout).await.map_err(|e| {
+                            tracing::warn!("IPC send_and_wait 失败: {e}");
+                            format!("IPC 通信错误: {e}")
+                        })
+                    }
+                    None => {
+                        tracing::warn!("IPC 管理器未初始化，无法发送等待命令: {:?}", std::mem::discriminant(&cmd));
+                        Err("IPC 管理器未初始化，请等待系统就绪".to_string())
+                    }
+                }
+            })
+        })
     }
 
     fn send_message(&self, msg: &IpcMessage) -> Result<(), String> {
         let seq = {
-            let manager = self.ipc_manager.blocking_lock();
-            manager.as_ref().map(|m| m.next_seq()).unwrap_or(0)
+            let ipc_manager = self.ipc_manager.clone();
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async move {
+                    let manager = ipc_manager.lock().await;
+                    manager.as_ref().map(|m| m.next_seq()).unwrap_or(0)
+                })
+            })
         };
         let mut msg_with_seq = msg.clone();
         msg_with_seq.seq = seq;
@@ -53,6 +116,7 @@ impl IpcSender for IpcBridge {
     }
 }
 
+/// Tauri 事件桥接器，实现 `EventEmitter` trait，通过 Tauri 事件系统向前端推送事件。
 pub struct TauriEventBridge {
     app_handle: tauri::AppHandle,
 }
@@ -70,6 +134,7 @@ impl EventEmitter for TauriEventBridge {
     }
 }
 
+/// 进程监控桥接器，实现 `ProcessWatcher` trait，通过 `ProcessWatchdog` 查询 AHK 子进程状态。
 pub struct WatchdogBridge {
     watchdog: Arc<Mutex<ProcessWatchdog>>,
 }
@@ -82,12 +147,22 @@ impl WatchdogBridge {
 
 impl ProcessWatcher for WatchdogBridge {
     fn state(&self) -> WatchdogStateEnum {
-        let guard = self.watchdog.blocking_lock();
-        guard.state().clone()
+        let watchdog = self.watchdog.clone();
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async move {
+                let guard = watchdog.lock().await;
+                guard.state().clone()
+            })
+        })
     }
 
     fn restart_count(&self) -> u32 {
-        let guard = self.watchdog.blocking_lock();
-        guard.restart_count()
+        let watchdog = self.watchdog.clone();
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async move {
+                let guard = watchdog.lock().await;
+                guard.restart_count()
+            })
+        })
     }
 }

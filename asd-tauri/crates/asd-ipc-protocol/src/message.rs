@@ -61,7 +61,7 @@ impl IpcMessage {
                     data["keyPressDuration"] = serde_json::Value::Number((*kpd).into());
                 }
                 if let Some(ref hk) = hold_keys {
-                    data["holdKeys"] = serde_json::to_value(hk).unwrap_or(serde_json::Value::Null);
+                    data["holdKeys"] = serde_json::to_value(hk).ok().filter(|v| !v.is_null()).unwrap_or(serde_json::Value::Null);
                 }
                 if let Some(ref hm) = hold_mode {
                     data["holdMode"] = serde_json::Value::String(hm.clone());

@@ -80,11 +80,11 @@ impl IpcManager {
     }
 
     pub fn set_pipe_broken_callback(&self, cb: Arc<dyn Fn() + Send + Sync>) {
-        *self.on_pipe_broken.lock().unwrap() = Some(cb);
+        *self.on_pipe_broken.lock().unwrap_or_else(|e| e.into_inner()) = Some(cb);
     }
 
     pub fn set_heartbeat_callback(&self, cb: Arc<dyn Fn() + Send + Sync>) {
-        *self.on_heartbeat.lock().unwrap() = Some(cb);
+        *self.on_heartbeat.lock().unwrap_or_else(|e| e.into_inner()) = Some(cb);
     }
 
     /// 标记正在关机，抑制后续 pipe_broken 回调
@@ -315,7 +315,7 @@ impl IpcManager {
                     }
 
                     if msg.r#type == "pong" {
-                        let cb = self.on_heartbeat.lock().unwrap().clone();
+                        let cb = self.on_heartbeat.lock().unwrap_or_else(|e| e.into_inner()).clone();
                         if let Some(cb) = cb {
                             cb();
                         }
@@ -372,7 +372,7 @@ impl IpcManager {
             tracing::info!("IPC: 关机期间管道断裂，跳过 pipe_broken 回调");
             return;
         }
-        let cb = self.on_pipe_broken.lock().unwrap().clone();
+        let cb = self.on_pipe_broken.lock().unwrap_or_else(|e| e.into_inner()).clone();
         if let Some(cb) = cb {
             cb();
         }
