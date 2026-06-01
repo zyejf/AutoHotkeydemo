@@ -53,11 +53,8 @@ pub fn build_toggle_command(group_id: &str, active: bool, group: &SkillGroup) ->
 }
 
 pub fn toggle_group(state: &AppState, group_id: &str) -> Result<GroupStatus, AppError> {
-    let new_active = state.toggle_group_active(group_id)?;
+    let (new_active, group) = state.toggle_group_active(group_id)?;
 
-    let group = state
-        .get_group(group_id)
-        .ok_or_else(|| AppError::GroupNotFound(group_id.to_string()))?;
     let cmd = build_toggle_command(group_id, new_active, &group);
     if let Err(e) = state.send_ipc_command(&cmd) {
         tracing::warn!("IPC 发送切换命令失败，回滚分组 {} 状态: {e}", group_id);

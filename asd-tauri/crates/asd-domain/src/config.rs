@@ -433,6 +433,12 @@ impl Serialize for GroupConfig {
             .map_err(|e| serde::ser::Error::custom(e.to_string()))?;
         if let serde_json::Value::Object(mode_map) = mode_value {
             for (key, value) in mode_map {
+                if map.contains_key(&key) {
+                    return Err(serde::ser::Error::custom(format!(
+                        "ModeData 序列化键 '{}' 与 GroupConfig 顶层字段冲突",
+                        key
+                    )));
+                }
                 map.insert(key, value);
             }
         }

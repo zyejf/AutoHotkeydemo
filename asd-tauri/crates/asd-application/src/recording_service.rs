@@ -163,6 +163,26 @@ pub fn import_recording(path: &str) -> Result<ImportedRecording, AppError> {
         .unwrap_or("periodic")
         .to_string();
 
+    let valid_modes = [
+        "periodic",
+        "sequence",
+        "hybrid",
+        "hold",
+        "enhanced_periodic",
+        "enhanced_sequence",
+        "enhanced_hybrid",
+        "joystick_periodic",
+        "joystick_sequence",
+        "joystick_hold",
+    ];
+    if !valid_modes.contains(&mode.as_str()) {
+        return Err(AppError::Validation(format!(
+            "不支持的模式: '{}'，有效模式: {}",
+            mode,
+            valid_modes.join(", ")
+        )));
+    }
+
     Ok(ImportedRecording {
         keys,
         intervals,

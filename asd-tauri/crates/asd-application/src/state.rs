@@ -185,15 +185,15 @@ impl AppState {
         Ok(())
     }
 
-    pub fn toggle_group_active(&self, id: &str) -> Result<bool, AppError> {
-        let (new_active, hotkey) = {
+    pub fn toggle_group_active(&self, id: &str) -> Result<(bool, SkillGroup), AppError> {
+        let (new_active, group, hotkey) = {
             let mut cs = self.config_state.write();
             let group = cs
                 .groups
                 .get_mut(id)
                 .ok_or_else(|| AppError::GroupNotFound(id.to_string()))?;
             group.active = !group.active;
-            (group.active, group.hotkey.clone())
+            (group.active, group.clone(), group.hotkey.clone())
         };
 
         if new_active {
@@ -209,7 +209,7 @@ impl AppState {
                 "active": new_active,
             }),
         );
-        Ok(new_active)
+        Ok((new_active, group))
     }
 
     pub fn active_group_ids(&self) -> Vec<String> {

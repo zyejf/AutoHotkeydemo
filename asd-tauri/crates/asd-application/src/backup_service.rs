@@ -214,10 +214,13 @@ pub fn compare_configs(state: &AppState, backup_filename: &str) -> Result<Config
 
     let mut modified = Vec::new();
     for id in current_ids.intersection(&backup_ids) {
-        if current_config.group_settings.get(id).unwrap()
-            != backup_config.group_settings.get(id).unwrap()
-        {
-            modified.push(id.clone());
+        if let (Some(curr), Some(backup)) = (
+            current_config.group_settings.get(id),
+            backup_config.group_settings.get(id),
+        ) {
+            if curr != backup {
+                modified.push(id.clone());
+            }
         }
     }
 
