@@ -171,6 +171,33 @@ impl AppState {
         Ok(())
     }
 
+    pub fn toggle_group_active(&self, id: &str) -> Result<bool, AppError> {
+        let (new_active, hotkey) = {
+            let mut cs = self.config_state.write();
+            let group = cs
+                .groups
+                .get_mut(id)
+                .ok_or_else(|| AppError::GroupNotFound(id.to_string()))?;
+            group.active = !group.active;
+            (group.active, group.hotkey.clone())
+        };
+
+        if new_active {
+            self.active_hotkeys.write().insert(hotkey.clone(), id.to_string());
+        } else {
+            self.active_hotkeys.write().remove(&hotkey);
+        }
+
+        self.emit_event(
+            "status_update",
+            serde_json::json!({
+                "groupId": id,
+                "active": new_active,
+            }),
+        );
+        Ok(new_active)
+    }
+
     pub fn active_group_ids(&self) -> Vec<String> {
         self.active_hotkeys.read().values().cloned().collect()
     }

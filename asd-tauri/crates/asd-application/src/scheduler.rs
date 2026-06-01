@@ -113,21 +113,7 @@ impl SkillManager {
     }
 
     pub fn build_toggle_command(group: &SkillGroup) -> IpcCommand {
-        IpcCommand::ToggleGroup {
-            group_id: group.id.clone(),
-            active: group.active,
-            mode: Some(group.mode.clone()),
-            key_press_duration: if group.key_press_duration > 0 {
-                Some(group.key_press_duration)
-            } else {
-                None
-            },
-            hold_keys: group.hold_keys.clone(),
-            hold_mode: group.hold_mode.clone(),
-            mode_data: serde_json::to_value(&group.mode_data)
-                .ok()
-                .filter(|v| !v.is_null()),
-        }
+        crate::group_service::build_toggle_command(&group.id, group.active, group)
     }
 
     pub fn send_ipc_command(ipc_sender: &dyn IpcSender, cmd: IpcCommand) -> Result<u64, String> {

@@ -92,8 +92,10 @@ impl ConfigValidator {
         }
 
         let valid_prefixes = ["^", "!", "+", "#", "~", "*"];
-        let has_modifier = valid_prefixes.iter().any(|p| hotkey.starts_with(p));
-        let rest = if has_modifier { &hotkey[1..] } else { hotkey };
+        let mut rest = hotkey;
+        while let Some(&prefix) = valid_prefixes.iter().find(|p| rest.starts_with(**p)) {
+            rest = &rest[prefix.len()..];
+        }
 
         let valid_keys = [
             "F1",

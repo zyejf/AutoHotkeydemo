@@ -1,7 +1,7 @@
-use asd_domain::models::SkillGroup;
 use asd_application::error::AppError;
-use asd_application::group_service::{GroupStatus, GroupSummary};
+use asd_application::group_service::{BatchDeleteResult, GroupStatus, GroupSummary};
 use asd_application::state::AppState;
+use asd_domain::models::SkillGroup;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -127,7 +127,7 @@ pub async fn batch_toggle_groups(
 pub async fn batch_delete_groups(
     state: tauri::State<'_, Arc<AppState>>,
     group_ids: Vec<String>,
-) -> Result<(), AppError> {
+) -> Result<BatchDeleteResult, AppError> {
     asd_application::group_service::batch_delete_groups(&state, &group_ids)
 }
 

@@ -15,6 +15,10 @@ pub use asd_ipc_protocol::{HotkeyMerger, IpcError};
 
 const MAX_MESSAGE_SIZE: usize = 64 * 1024;
 const IPC_CHANNEL_CAPACITY: usize = 256;
+/// pending_responses 周期性清理的最大存活时间。
+///
+/// **约束**: `send_and_wait` 的 timeout 不应超过此值，否则 pending response
+/// 会在超时前被清理，导致收到 `ChannelClosed` 而非 `Timeout` 错误。
 const PENDING_CLEANUP_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(30);
 
 static AUTH_FALLBACK_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -430,13 +434,17 @@ impl IpcManager {
                     }
                 }
                 _ = flush_interval.tick() => {
-                    let mut merger = self.hotkey_merger.lock().await;
-                    if merger.should_flush() {
-                        for msg in merger.flush() {
-                            let _ = self.outbound_tx.send(msg).await;
+                    let messages = {
+                        let mut merger = self.hotkey_merger.lock().await;
+                        if merger.should_flush() {
+                            merger.flush()
+                        } else {
+                            Vec::new()
                         }
+                    };
+                    for msg in messages {
+                        let _ = self.outbound_tx.send(msg).await;
                     }
-                    drop(merger);
                     self.cleanup_stale_pending(PENDING_CLEANUP_MAX_AGE).await;
                 }
             }

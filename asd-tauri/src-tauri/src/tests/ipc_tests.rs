@@ -454,7 +454,8 @@ async fn test_accept_from_ahk_valid_auth() {
     let name_clone = pipe_name.clone();
     let listener = create_listener(&pipe_name).expect("创建 Listener 失败");
 
-    let (server, _server_rx) = IpcManager::new_with_token(&name_clone, "TEST_AUTH_TOKEN".to_string());
+    let (server, _server_rx) =
+        IpcManager::new_with_token(&name_clone, "TEST_AUTH_TOKEN".to_string());
     let server_handle = tokio::spawn(async move { server.accept_from_ahk(&listener).await });
 
     tokio::time::sleep(Duration::from_millis(100)).await;

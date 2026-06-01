@@ -33,7 +33,7 @@ pub struct GroupStatus {
     pub active: bool,
 }
 
-fn build_toggle_command(group_id: &str, active: bool, group: &SkillGroup) -> IpcCommand {
+pub fn build_toggle_command(group_id: &str, active: bool, group: &SkillGroup) -> IpcCommand {
     let mode_data = serde_json::to_value(&group.mode_data)
         .ok()
         .filter(|v| !v.is_null());
@@ -53,12 +53,11 @@ fn build_toggle_command(group_id: &str, active: bool, group: &SkillGroup) -> Ipc
 }
 
 pub fn toggle_group(state: &AppState, group_id: &str) -> Result<GroupStatus, AppError> {
+    let new_active = state.toggle_group_active(group_id)?;
+
     let group = state
         .get_group(group_id)
         .ok_or_else(|| AppError::GroupNotFound(group_id.to_string()))?;
-    let new_active = !group.active;
-    state.set_group_active(group_id, new_active)?;
-
     let cmd = build_toggle_command(group_id, new_active, &group);
     if let Err(e) = state.send_ipc_command(&cmd) {
         tracing::warn!("IPC 发送切换命令失败，回滚分组 {} 状态: {e}", group_id);
@@ -171,17 +170,62 @@ pub fn batch_toggle_groups(
     }
 }
 
-pub fn batch_delete_groups(state: &AppState, group_ids: &[String]) -> Result<(), AppError> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchDeleteResult {
+    pub deleted: Vec<String>,
+    pub failed: Vec<(String, String)>,
+}
+
+pub fn batch_delete_groups(state: &AppState, group_ids: &[String]) -> Result<BatchDeleteResult, AppError> {
+    let mut deleted = Vec::new();
+    let mut failed = Vec::new();
+
     for id in group_ids {
-        state.delete_group_atomic(id)?;
+        match state.delete_group_atomic(id) {
+            Ok(_) => deleted.push(id.clone()),
+            Err(e) => failed.push((id.clone(), e.to_string())),
+        }
     }
 
-    tracing::info!("批量删除: {} 个分组", group_ids.len());
-    Ok(())
+    if failed.is_empty() {
+        tracing::info!("批量删除: {} 个分组全部成功", deleted.len());
+    } else {
+        tracing::warn!(
+            "批量删除: {} 成功, {} 失败",
+            deleted.len(),
+            failed.len()
+        );
+    }
+
+    Ok(BatchDeleteResult { deleted, failed })
 }
 
 pub fn reorder_groups(state: &AppState, group_ids: &[String]) -> Result<(), AppError> {
     let current_config = state.read_config()?;
+
+    let mut seen = std::collections::HashSet::new();
+    let mut not_found = Vec::new();
+    let mut duplicates = Vec::new();
+    for id in group_ids {
+        if !current_config.group_settings.contains_key(id) {
+            not_found.push(id.clone());
+        }
+        if !seen.insert(id) {
+            duplicates.push(id.clone());
+        }
+    }
+    if !not_found.is_empty() {
+        return Err(AppError::Validation(format!(
+            "分组不存在: {}",
+            not_found.join(", ")
+        )));
+    }
+    if !duplicates.is_empty() {
+        return Err(AppError::Validation(format!(
+            "分组 ID 重复: {}",
+            duplicates.join(", ")
+        )));
+    }
 
     let group_ids_set: HashSet<&String> = group_ids.iter().collect();
 

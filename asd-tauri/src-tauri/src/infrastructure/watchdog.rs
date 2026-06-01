@@ -537,30 +537,61 @@ impl WatchdogRunner {
                 }
                 WatchdogAction::RestartNeeded => {
                     wd.begin_restart();
-                    if let Some(ref exe_path) = wd.exe_path {
-                        let path_clone = exe_path.clone();
-                        let token = match wd.auth_token.clone() {
-                            Some(t) if !t.is_empty() => t,
-                            _ => {
-                                tracing::error!("Watchdog: auth_token 缺失，无法重启子进程");
-                                continue;
-                            }
+                    let exe_path = wd.exe_path.clone();
+                    let auth_token = wd.auth_token.clone();
+                    drop(wd);
+                    if let (Some(path), Some(token)) = (exe_path, auth_token) {
+                        if token.is_empty() {
+                            tracing::error!("Watchdog: auth_token 缺失，无法重启子进程");
+                            continue;
+                        }
+                        let (program, mut args) = if path.ends_with("asd_executor.exe") {
+                            (path.clone(), Vec::new())
+                        } else if path.ends_with("asd_executor.bat") {
+                            (
+                                "cmd".to_string(),
+                                vec!["/C".to_string(), path.clone()],
+                            )
+                        } else if path.ends_with("AutoHotkey64.exe") {
+                            let script_path = path.replace("AutoHotkey64.exe", "executor.ahk");
+                            (path.clone(), vec![script_path])
+                        } else {
+                            (path.clone(), Vec::new())
                         };
-                        wd.child = None;
-                        wd.job_guard = None;
-                        match wd.spawn_child(&path_clone, &token) {
-                            Ok(()) => {
-                                tracing::info!(
-                                    "Watchdog: 子进程重启成功 (attempt={})",
-                                    wd.restart_count()
-                                );
+                        args.push("--auth-token".to_string());
+                        args.push(token.clone());
+
+                        let child_result = {
+                            let mut cmd = Command::new(&program);
+                            cmd.creation_flags(CREATE_NO_WINDOW.0);
+                            if !args.is_empty() {
+                                cmd.args(&args);
+                            }
+                            cmd.env("ASD_AUTH_TOKEN", &token);
+                            cmd.spawn()
+                        };
+
+                        let mut wd = self.watchdog.lock().await;
+                        match child_result {
+                            Ok(child) => {
+                                match wd.attach_child(child) {
+                                    Ok(()) => {
+                                        tracing::info!(
+                                            "Watchdog: 子进程重启成功 (attempt={})",
+                                            wd.restart_count()
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("Watchdog: 附加子进程失败: {e}");
+                                    }
+                                }
                             }
                             Err(e) => {
                                 tracing::error!("Watchdog: 子进程重启失败: {e}");
                             }
                         }
                     } else {
-                        tracing::error!("Watchdog: 无法重启子进程，exe_path 未设置");
+                        tracing::error!("Watchdog: 无法重启子进程，exe_path 或 auth_token 未设置");
                     }
                 }
                 WatchdogAction::WaitForBackoff(remaining) => {

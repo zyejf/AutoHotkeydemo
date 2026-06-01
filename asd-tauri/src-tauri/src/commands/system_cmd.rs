@@ -16,7 +16,7 @@ pub fn get_executor_status(
 #[tauri::command]
 pub async fn emergency_release(state: tauri::State<'_, Arc<AppState>>) -> Result<(), AppError> {
     state.set_emergency_mode(true);
-    state.send_ipc_command(&IpcCommand::EmergencyRelease)?;
+    state.try_send_ipc_command(&IpcCommand::EmergencyRelease);
     tracing::warn!("紧急释放已激活");
     Ok(())
 }
@@ -30,11 +30,8 @@ pub async fn clear_emergency(state: tauri::State<'_, Arc<AppState>>) -> Result<(
 
 #[tauri::command]
 pub async fn toggle_hold_mode(state: tauri::State<'_, Arc<AppState>>) -> Result<bool, AppError> {
-    let new_value = state
-        .hold_mode_enabled
-        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| Some(!current))
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-    let new_value = !new_value;
+    let old_value = state.hold_mode_enabled.fetch_xor(true, Ordering::SeqCst);
+    let new_value = !old_value;
 
     state.send_ipc_command(&IpcCommand::HoldModeToggle { enabled: new_value })?;
 
