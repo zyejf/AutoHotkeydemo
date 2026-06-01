@@ -294,6 +294,13 @@ impl IpcManager {
         cmd: IpcCommand,
         timeout: std::time::Duration,
     ) -> Result<IpcMessage, IpcError> {
+        debug_assert!(
+            timeout <= PENDING_CLEANUP_MAX_AGE,
+            "send_and_wait timeout ({:?}) exceeds PENDING_CLEANUP_MAX_AGE ({:?}), \
+             pending response may be cleaned up before timeout fires",
+            timeout,
+            PENDING_CLEANUP_MAX_AGE,
+        );
         let rx = self.prepare_send_and_wait(cmd).await?;
         match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(msg)) => Ok(msg),

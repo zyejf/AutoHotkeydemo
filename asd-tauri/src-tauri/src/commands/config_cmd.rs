@@ -25,9 +25,7 @@ pub fn save_config(state: tauri::State<'_, Arc<AppState>>, config: Config) -> Re
         ));
     }
 
-    state
-        .save_config_atomic(config)
-        .map_err(|e| AppError::Config(e.to_string()))?;
+    state.save_config_atomic(config)?;
 
     Ok(())
 }

@@ -246,26 +246,33 @@ pub fn register_hotkey(state: &AppState, hotkey: &str, group_id: &str) -> Result
         )));
     }
 
-    tracing::info!("热键 '{}' 已注册到分组 '{}'", hotkey, group_id);
-
     let cmd = IpcCommand::RegisterHotkey {
         hotkey: hotkey.to_string(),
         group_id: group_id.to_string(),
     };
-    state.try_send_ipc_command(&cmd);
+    if let Err(e) = state.send_ipc_command(&cmd) {
+        let _ = state.unregister_hotkey(hotkey);
+        return Err(e);
+    }
 
+    tracing::info!("热键 '{}' 已注册到分组 '{}'", hotkey, group_id);
     Ok(())
 }
 
 pub fn unregister_hotkey(state: &AppState, hotkey: &str) -> Result<(), AppError> {
-    let removed = state.unregister_hotkey(hotkey)?;
+    let group_id = state.get_hotkey_group(hotkey)?.filter(|_| {
+        state.unregister_hotkey(hotkey).unwrap_or(false)
+    });
 
-    if removed {
-        tracing::info!("热键 '{}' 已注销", hotkey);
+    if let Some(gid) = group_id {
         let cmd = IpcCommand::UnregisterHotkey {
             hotkey: hotkey.to_string(),
         };
-        state.try_send_ipc_command(&cmd);
+        if let Err(e) = state.send_ipc_command(&cmd) {
+            let _ = state.register_hotkey(hotkey, &gid);
+            return Err(e);
+        }
+        tracing::info!("热键 '{}' 已注销", hotkey);
         Ok(())
     } else {
         Err(AppError::Validation(format!("热键 '{}' 未注册", hotkey)))

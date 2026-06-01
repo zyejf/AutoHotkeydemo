@@ -166,7 +166,7 @@ impl ConfigValidator {
             "MButton",
         ];
 
-        if !valid_keys.contains(&rest) {
+        if !valid_keys.contains(&rest) && !valid_keys.contains(&rest.to_lowercase().as_str()) {
             result.add_warning(&format!(
                 "[{}] 热键 '{}' 格式可能不正确，请确认是否为有效的 AHK 热键",
                 group_id, hotkey

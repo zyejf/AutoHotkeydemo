@@ -33,7 +33,10 @@ pub async fn toggle_hold_mode(state: tauri::State<'_, Arc<AppState>>) -> Result<
     let old_value = state.hold_mode_enabled.fetch_xor(true, Ordering::SeqCst);
     let new_value = !old_value;
 
-    state.send_ipc_command(&IpcCommand::HoldModeToggle { enabled: new_value })?;
+    if let Err(e) = state.send_ipc_command(&IpcCommand::HoldModeToggle { enabled: new_value }) {
+        state.hold_mode_enabled.fetch_xor(true, Ordering::SeqCst);
+        return Err(e);
+    }
 
     tracing::info!("长按模式已{}", if new_value { "开启" } else { "关闭" });
     Ok(new_value)
