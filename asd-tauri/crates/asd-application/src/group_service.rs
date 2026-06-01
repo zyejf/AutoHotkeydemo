@@ -260,9 +260,7 @@ pub fn register_hotkey(state: &AppState, hotkey: &str, group_id: &str) -> Result
 }
 
 pub fn unregister_hotkey(state: &AppState, hotkey: &str) -> Result<(), AppError> {
-    let group_id = state.get_hotkey_group(hotkey)?.filter(|_| {
-        state.unregister_hotkey(hotkey).unwrap_or(false)
-    });
+    let group_id = state.unregister_hotkey_return_group(hotkey)?;
 
     if let Some(gid) = group_id {
         let cmd = IpcCommand::UnregisterHotkey {
@@ -272,7 +270,7 @@ pub fn unregister_hotkey(state: &AppState, hotkey: &str) -> Result<(), AppError>
             let _ = state.register_hotkey(hotkey, &gid);
             return Err(e);
         }
-        tracing::info!("热键 '{}' 已注销", hotkey);
+        tracing::info!("热键 '{}' 已注销 (原分组: {})", hotkey, gid);
         Ok(())
     } else {
         Err(AppError::Validation(format!("热键 '{}' 未注册", hotkey)))

@@ -338,6 +338,8 @@ impl AppState {
                 }
                 return Err(AppError::Config(e));
             }
+        } else {
+            tracing::debug!("save_config_atomic: config_path 未设置，仅更新内存状态");
         }
 
         Ok(())
@@ -359,6 +361,11 @@ impl AppState {
     pub fn unregister_hotkey(&self, hotkey: &str) -> Result<bool, AppError> {
         let mut registry = self.active_hotkeys.write();
         Ok(registry.remove(hotkey).is_some())
+    }
+
+    pub fn unregister_hotkey_return_group(&self, hotkey: &str) -> Result<Option<String>, AppError> {
+        let mut registry = self.active_hotkeys.write();
+        Ok(registry.remove(hotkey))
     }
 
     pub fn is_hotkey_registered(&self, hotkey: &str) -> Result<bool, AppError> {
