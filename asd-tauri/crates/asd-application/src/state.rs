@@ -61,10 +61,12 @@ struct ConfigState {
 /// `AppState` 是应用层的核心结构体，通过 `parking_lot::RwLock` 和 `AtomicBool` 提供线程安全的并发访问。
 /// 所有 Tauri 命令通过 `Arc<AppState>` 共享此状态。
 ///
-/// # 约束
+/// # 磁盘 I/O 策略
 ///
-/// `save_config_atomic` 和 `delete_group_atomic` 在持有 `parking_lot::RwLock` 写锁期间执行磁盘写入，
-/// 以消除回滚竞态条件。配置保存是低频操作（用户手动触发），短暂阻塞读操作是可接受的权衡。
+/// `save_config_atomic` 和 `delete_group_atomic` 先在写锁内更新内存状态，
+/// 释放写锁后再执行磁盘写入。如果磁盘写入失败，重新获取写锁回滚内存状态。
+/// 这意味着在磁盘写入期间，读操作可以看到尚未持久化的内存状态，
+/// 但避免了磁盘 I/O 阻塞所有读操作的风险。
 pub struct AppState {
     config_state: RwLock<ConfigState>,
     ipc_sender: Arc<dyn IpcSender>,
@@ -141,6 +143,17 @@ impl AppState {
         self.config_state.read().groups.get(id).cloned()
     }
 
+    /// 设置分组的激活状态。
+    ///
+    /// # TOCTOU 权衡
+    ///
+    /// 此方法先在 `config_state` 写锁内更新分组的 `active` 字段，释放锁后
+    /// 再获取 `active_hotkeys` 写锁更新热键注册。在两个锁释放之间的极短时间窗口内，
+    /// 其他线程可能读取到不一致的状态（`group.active == true` 但 `active_hotkeys` 中
+    /// 还没有对应条目）。这是可接受的权衡，因为：
+    /// 1. 时间窗口极短（微秒级）
+    /// 2. 不影响 IPC 命令发送（IPC 命令在锁外发送）
+    /// 3. 合并两个 RwLock 会增加锁争用（热键注册是高频操作）
     pub fn set_group_active(&self, id: &str, active: bool) -> Result<(), AppError> {
         let hotkey_update: Option<(bool, String)> = {
             let mut cs = self.config_state.write();
@@ -266,22 +279,26 @@ impl AppState {
 
         let config_path = self.get_config_path();
 
-        let mut guard = self.config_state.write();
-        let old_config = guard.config.clone();
-        let old_groups = guard.groups.clone();
+        let (old_config, old_groups) = {
+            let mut guard = self.config_state.write();
+            let old_config = guard.config.clone();
+            let old_groups = guard.groups.clone();
 
-        let mut new_groups = Self::build_groups_from_config(&new_config);
-        for (id, new_group) in new_groups.iter_mut() {
-            if let Some(old_group) = old_groups.get(id) {
-                new_group.active = old_group.active;
+            let mut new_groups = Self::build_groups_from_config(&new_config);
+            for (id, new_group) in new_groups.iter_mut() {
+                if let Some(old_group) = old_groups.get(id) {
+                    new_group.active = old_group.active;
+                }
             }
-        }
-        guard.config = new_config.clone();
-        guard.groups = new_groups;
+            guard.config = new_config.clone();
+            guard.groups = new_groups;
+            (old_config, old_groups)
+        };
 
         if let Some(path) = config_path {
             if let Err(e) = ConfigRepository::save_to_path(&new_config, &path) {
                 tracing::error!("保存配置到磁盘失败，回滚内存状态: {e}");
+                let mut guard = self.config_state.write();
                 guard.config = old_config;
                 guard.groups = old_groups;
                 return Err(AppError::Config(e));
@@ -297,6 +314,9 @@ impl AppState {
         group_id: &str,
     ) -> Result<Option<String>, AppError> {
         let mut registry = self.active_hotkeys.write();
+        if let Some(existing) = registry.get(hotkey) {
+            return Ok(Some(existing.clone()));
+        }
         let existing = registry.insert(hotkey.to_string(), group_id.to_string());
         Ok(existing)
     }
@@ -333,7 +353,7 @@ impl AppState {
     pub fn delete_group_atomic(&self, group_id: &str) -> Result<bool, AppError> {
         let config_path = self.get_config_path();
 
-        let (is_active, ipc_cmd) = {
+        let (is_active, ipc_cmd, saved_config, old_config, old_groups) = {
             let mut cs = self.config_state.write();
 
             if !cs.config.group_settings.contains_key(group_id) {
@@ -347,14 +367,7 @@ impl AppState {
             cs.config.group_settings.shift_remove(group_id);
             cs.groups.shift_remove(group_id);
 
-            if let Some(path) = config_path {
-                if let Err(e) = ConfigRepository::save_to_path(&cs.config, &path) {
-                    tracing::error!("删除分组后保存配置失败，回滚内存状态: {e}");
-                    cs.config = old_config;
-                    cs.groups = old_groups;
-                    return Err(AppError::Config(format!("删除分组后保存配置失败: {e}")));
-                }
-            }
+            let saved_config = cs.config.clone();
 
             let ipc_cmd = if is_active {
                 Some(IpcCommand::ToggleGroup {
@@ -370,8 +383,18 @@ impl AppState {
                 None
             };
 
-            (is_active, ipc_cmd)
+            (is_active, ipc_cmd, saved_config, old_config, old_groups)
         };
+
+        if let Some(path) = config_path {
+            if let Err(e) = ConfigRepository::save_to_path(&saved_config, &path) {
+                tracing::error!("删除分组后保存配置失败，回滚内存状态: {e}");
+                let mut cs = self.config_state.write();
+                cs.config = old_config;
+                cs.groups = old_groups;
+                return Err(AppError::Config(format!("删除分组后保存配置失败: {e}")));
+            }
+        }
 
         if is_active {
             self.active_hotkeys.write().retain(|_, gid| gid != group_id);

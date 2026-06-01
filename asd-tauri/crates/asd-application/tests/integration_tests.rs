@@ -552,6 +552,7 @@ fn test_app_state_emit_event() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_config_repository_load_save_roundtrip() {
     let dir = std::env::temp_dir().join("asd_integration_test_repo_roundtrip");
     let _ = std::fs::remove_dir_all(&dir);
@@ -618,6 +619,7 @@ fn test_config_repository_save_to_path_atomic() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_config_repository_save_to_invalid_path() {
     let path = std::path::PathBuf::from("/nonexistent/directory/config.json");
     let config = Config::default();
@@ -724,6 +726,7 @@ fn test_skill_manager_multiple_groups() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_config_repository_overwrite_consistency() {
     let dir = std::env::temp_dir().join("asd_integration_test_overwrite");
     let _ = std::fs::remove_dir_all(&dir);

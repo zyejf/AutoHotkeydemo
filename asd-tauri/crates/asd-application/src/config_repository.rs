@@ -53,12 +53,9 @@ impl ConfigRepository {
         serde_json::from_str(cleaned).map_err(|e| ConfigLoadError::ParseError(e.to_string()))
     }
 
+    #[deprecated(since = "4.0.0", note = "使用 save_to_path 替代，提供原子写入保证")]
     pub fn save_to_file<P: AsRef<Path>>(config: &Config, path: P) -> Result<(), String> {
-        let path = path.as_ref();
-        let json =
-            serde_json::to_string_pretty(config).map_err(|e| format!("序列化配置失败: {e}"))?;
-        fs::write(path, json).map_err(|e| format!("写入配置文件失败: {e}"))?;
-        Ok(())
+        Self::save_to_path(config, path)
     }
 
     pub fn load_from_path<P: AsRef<Path>>(path: P) -> Result<Config, String> {
@@ -211,6 +208,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_save_to_file_writes_successfully() {
         let dir = std::env::temp_dir().join("asd_app_test_save_to_file");
         let _ = std::fs::remove_dir_all(&dir);
@@ -229,6 +227,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_save_to_file_overwrite_consistency() {
         let dir = std::env::temp_dir().join("asd_app_test_save_overwrite");
         let _ = std::fs::remove_dir_all(&dir);
@@ -251,6 +250,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_save_to_file_invalid_directory_returns_error() {
         let path = std::path::PathBuf::from("/nonexistent/directory/config.json");
         let config = Config::default();

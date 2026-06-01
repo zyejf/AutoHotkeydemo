@@ -113,6 +113,13 @@ fn spawn_heartbeat_ping(ipc_manager: IpcManagerArc) {
         let mut consecutive_failures: u32 = 0;
         loop {
             interval.tick().await;
+            {
+                let guard = ipc_manager.lock().await;
+                if guard.as_ref().map(|m| m.is_shutting_down()).unwrap_or(false) {
+                    tracing::info!("心跳 ping 循环检测到关机标志，退出");
+                    break;
+                }
+            }
             let mgr = {
                 let guard = ipc_manager.lock().await;
                 guard.clone()
@@ -204,22 +211,7 @@ fn setup_ipc_callbacks(
                     .unwrap_or_default()
             };
             for (id, group) in active_groups_data {
-                let mode_data_json = serde_json::to_value(&group.mode_data)
-                    .ok()
-                    .filter(|v| !v.is_null());
-                let cmd = IpcCommand::ToggleGroup {
-                    group_id: id,
-                    active: true,
-                    mode: Some(group.mode.clone()),
-                    key_press_duration: if group.key_press_duration > 0 {
-                        Some(group.key_press_duration)
-                    } else {
-                        None
-                    },
-                    hold_keys: group.hold_keys.clone(),
-                    hold_mode: group.hold_mode.clone(),
-                    mode_data: mode_data_json,
-                };
+                let cmd = asd_application::group_service::build_toggle_command(&id, true, &group);
                 state.try_send_ipc_command(&cmd);
             }
             let active_hotkey_list: Vec<(String, String)> =

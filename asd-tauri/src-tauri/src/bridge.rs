@@ -15,8 +15,11 @@ use tokio::sync::Mutex;
 ///
 /// 所有 trait 方法使用 `block_in_place` + `Handle::block_on()` 模式将同步调用
 /// 桥接到异步上下文。此模式要求调用方在 tokio 多线程运行时上下文中执行。
-/// `ipc_manager` 的 `tokio::sync::Mutex` 锁持有时间极短（仅 clone + 单次 async 调用），
-/// 不存在跨 await 点的长时间持锁，因此不会与 `listen_ahk`/`accept_loop` 产生死锁。
+///
+/// `send_and_wait` 使用 `prepare_send_and_wait` 模式：先在 ipc_manager 锁内
+/// 发送命令并注册 pending response，释放锁后再等待 oneshot 响应。
+/// 这样 ipc_manager 锁仅在发送期间被持有（通常 < 1ms），不会阻塞
+/// `listen_ahk`/`accept_loop` 等其他需要 ipc_manager 锁的操作。
 pub struct IpcBridge {
     outbound: IpcOutboundSender,
     ipc_manager: Arc<Mutex<Option<IpcManager>>>,
@@ -76,19 +79,27 @@ impl IpcSender for IpcBridge {
         let ipc_manager = self.ipc_manager.clone();
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async move {
-                let manager = ipc_manager.lock().await;
-                match *manager {
-                    Some(ref mgr) => mgr.send_and_wait(cmd, timeout).await.map_err(|e| {
-                        tracing::warn!("IPC send_and_wait 失败: {e}");
-                        format!("IPC 通信错误: {e}")
-                    }),
-                    None => {
-                        tracing::warn!(
-                            "IPC 管理器未初始化，无法发送等待命令: {:?}",
-                            std::mem::discriminant(&cmd)
-                        );
-                        Err("IPC 管理器未初始化，请等待系统就绪".to_string())
+                let rx = {
+                    let manager = ipc_manager.lock().await;
+                    match *manager {
+                        Some(ref mgr) => mgr.prepare_send_and_wait(cmd).await.map_err(|e| {
+                            tracing::warn!("IPC prepare_send_and_wait 失败: {e}");
+                            format!("IPC 通信错误: {e}")
+                        })?,
+                        None => {
+                            tracing::warn!(
+                                "IPC 管理器未初始化，无法发送等待命令: {:?}",
+                                std::mem::discriminant(&cmd)
+                            );
+                            return Err("IPC 管理器未初始化，请等待系统就绪".to_string());
+                        }
                     }
+                };
+
+                match tokio::time::timeout(timeout, rx).await {
+                    Ok(Ok(msg)) => Ok(msg),
+                    Ok(Err(_)) => Err("IPC 通道已关闭".to_string()),
+                    Err(_) => Err("IPC 等待响应超时".to_string()),
                 }
             })
         })

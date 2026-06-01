@@ -76,19 +76,15 @@ pub fn delete_group(state: &AppState, group_id: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn toggle_all(state: &AppState, active: bool) -> Result<(), AppError> {
-    let toggle_data: Vec<(String, SkillGroup)> = {
-        let groups = state.read_groups()?;
-        groups
-            .iter()
-            .filter(|(_, group)| group.active != active)
-            .map(|(id, group)| (id.clone(), group.clone()))
-            .collect()
-    };
-
+fn batch_toggle_impl(
+    state: &AppState,
+    toggle_data: &[(String, SkillGroup)],
+    active: bool,
+    log_label: &str,
+) -> Result<(), AppError> {
     let mut errors = Vec::new();
     let mut rolled_back = Vec::new();
-    for (id, group) in &toggle_data {
+    for (id, group) in toggle_data {
         if let Err(e) = state.set_group_active(id, active) {
             errors.push(format!("分组 {}: {}", id, e));
             continue;
@@ -102,7 +98,7 @@ pub fn toggle_all(state: &AppState, active: bool) -> Result<(), AppError> {
     }
 
     if errors.is_empty() && rolled_back.is_empty() {
-        tracing::info!("全局切换: active={}", active);
+        tracing::info!("{}: active={}", log_label, active);
         Ok(())
     } else {
         let mut parts = Vec::new();
@@ -112,13 +108,21 @@ pub fn toggle_all(state: &AppState, active: bool) -> Result<(), AppError> {
         if !rolled_back.is_empty() {
             parts.push(format!("IPC 失败已回滚: {}", rolled_back.join(", ")));
         }
-        tracing::warn!(
-            "全局切换部分失败: active={}, 问题: {:?}",
-            active,
-            parts
-        );
+        tracing::warn!("{}部分失败: active={}, 问题: {:?}", log_label, active, parts);
         Err(AppError::Internal(parts.join("；")))
     }
+}
+
+pub fn toggle_all(state: &AppState, active: bool) -> Result<(), AppError> {
+    let toggle_data: Vec<(String, SkillGroup)> = {
+        let groups = state.read_groups()?;
+        groups
+            .iter()
+            .filter(|(_, group)| group.active != active)
+            .map(|(id, group)| (id.clone(), group.clone()))
+            .collect()
+    };
+    batch_toggle_impl(state, &toggle_data, active, "全局切换")
 }
 
 pub fn batch_toggle_groups(
@@ -133,41 +137,12 @@ pub fn batch_toggle_groups(
             .filter_map(|id| groups.get(id).map(|g| (id.clone(), g.clone())))
             .collect()
     };
-
-    let mut errors = Vec::new();
-    let mut rolled_back = Vec::new();
-    for (id, group) in &toggle_data {
-        if let Err(e) = state.set_group_active(id, active) {
-            errors.push(format!("分组 {}: {}", id, e));
-            continue;
-        }
-        let cmd = build_toggle_command(id, active, group);
-        if let Err(e) = state.send_ipc_command(&cmd) {
-            tracing::warn!("IPC 发送切换命令失败，回滚分组 {} 状态: {e}", id);
-            let _ = state.set_group_active(id, !active);
-            rolled_back.push(id.clone());
-        }
-    }
-
-    if errors.is_empty() && rolled_back.is_empty() {
-        tracing::info!("批量切换: {} 个分组, active={}", group_ids.len(), active);
-        Ok(())
-    } else {
-        let mut parts = Vec::new();
-        if !errors.is_empty() {
-            parts.push(format!("状态更新失败: {}", errors.join("; ")));
-        }
-        if !rolled_back.is_empty() {
-            parts.push(format!("IPC 失败已回滚: {}", rolled_back.join(", ")));
-        }
-        tracing::warn!(
-            "批量切换部分失败: {} 个分组, active={}, 问题: {:?}",
-            group_ids.len(),
-            active,
-            parts
-        );
-        Err(AppError::Internal(parts.join("；")))
-    }
+    batch_toggle_impl(
+        state,
+        &toggle_data,
+        active,
+        &format!("批量切换({} 个分组)", group_ids.len()),
+    )
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

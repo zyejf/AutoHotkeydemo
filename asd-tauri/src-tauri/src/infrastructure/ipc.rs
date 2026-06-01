@@ -290,6 +290,18 @@ impl IpcManager {
         cmd: IpcCommand,
         timeout: std::time::Duration,
     ) -> Result<IpcMessage, IpcError> {
+        let rx = self.prepare_send_and_wait(cmd).await?;
+        match tokio::time::timeout(timeout, rx).await {
+            Ok(Ok(msg)) => Ok(msg),
+            Ok(Err(_)) => Err(IpcError::ChannelClosed),
+            Err(_) => Err(IpcError::Timeout),
+        }
+    }
+
+    pub async fn prepare_send_and_wait(
+        &self,
+        cmd: IpcCommand,
+    ) -> Result<tokio::sync::oneshot::Receiver<IpcMessage>, IpcError> {
         let seq = self.next_seq();
 
         let (tx, rx) = oneshot::channel();
@@ -311,19 +323,7 @@ impl IpcManager {
             return Err(e);
         }
 
-        match tokio::time::timeout(timeout, rx).await {
-            Ok(Ok(msg)) => Ok(msg),
-            Ok(Err(_)) => {
-                let mut pending = self.pending_responses.lock().await;
-                pending.remove(&seq);
-                Err(IpcError::ChannelClosed)
-            }
-            Err(_) => {
-                let mut pending = self.pending_responses.lock().await;
-                pending.remove(&seq);
-                Err(IpcError::Timeout)
-            }
-        }
+        Ok(rx)
     }
 
     pub async fn recv(&self) -> Result<IpcMessage, IpcError> {
@@ -427,8 +427,20 @@ impl IpcManager {
                     }
 
                     if msg.r#type == "hotkey" {
-                        let mut merger = self.hotkey_merger.lock().await;
-                        merger.push(msg);
+                        let immediate_flush = {
+                            let mut merger = self.hotkey_merger.lock().await;
+                            merger.push(msg);
+                            merger.should_flush()
+                        };
+                        if immediate_flush {
+                            let messages = {
+                                let mut merger = self.hotkey_merger.lock().await;
+                                merger.flush()
+                            };
+                            for msg in messages {
+                                let _ = self.outbound_tx.send(msg).await;
+                            }
+                        }
                     } else {
                         let _ = self.outbound_tx.send(msg).await;
                     }

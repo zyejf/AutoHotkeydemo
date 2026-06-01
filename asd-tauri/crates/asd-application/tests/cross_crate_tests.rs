@@ -372,6 +372,7 @@ fn test_full_config_lifecycle() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_config_validation_then_save_reload() {
     let dir = std::env::temp_dir().join("asd_cross_crate_validate_save");
     let _ = std::fs::remove_dir_all(&dir);
