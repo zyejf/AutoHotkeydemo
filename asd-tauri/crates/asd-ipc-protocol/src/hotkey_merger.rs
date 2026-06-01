@@ -1,10 +1,10 @@
 use crate::message::IpcMessage;
-use indexmap::IndexMap;
+use std::collections::HashMap;
 
 const HOTKEY_MERGE_WINDOW_MS: u64 = 100;
 
 pub struct HotkeyMerger {
-    buffer: IndexMap<String, IpcMessage>,
+    buffer: HashMap<String, IpcMessage>,
     merge_window: std::time::Duration,
     last_flush: std::time::Instant,
 }
@@ -12,7 +12,7 @@ pub struct HotkeyMerger {
 impl HotkeyMerger {
     pub fn new(merge_window_ms: u64) -> Self {
         Self {
-            buffer: IndexMap::new(),
+            buffer: HashMap::new(),
             merge_window: std::time::Duration::from_millis(merge_window_ms),
             last_flush: std::time::Instant::now(),
         }
@@ -38,7 +38,7 @@ impl HotkeyMerger {
 
     pub fn flush(&mut self) -> Vec<IpcMessage> {
         self.last_flush = std::time::Instant::now();
-        self.buffer.drain(..).map(|(_, v)| v).collect()
+        self.buffer.drain().map(|(_, v)| v).collect()
     }
 }
 

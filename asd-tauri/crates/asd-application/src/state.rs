@@ -5,12 +5,12 @@ use asd_domain::models::SkillGroup;
 use asd_domain::traits::{EventEmitter, IpcSender, ProcessWatcher};
 use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use indexmap::IndexMap;
+use parking_lot::RwLock;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use parking_lot::RwLock;
 use std::time::Duration;
 
 /// 子进程监控状态，用于序列化到前端展示。
@@ -20,8 +20,18 @@ pub struct WatchdogState {
     pub restart_count: u32,
     #[serde(skip)]
     pub last_restart: Option<std::time::Instant>,
-    #[serde(skip)]
+    #[serde(
+        rename = "backoffDurationSecs",
+        serialize_with = "serialize_duration_secs"
+    )]
     pub backoff_duration: Duration,
+}
+
+fn serialize_duration_secs<S: serde::Serializer>(
+    duration: &Duration,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.serialize_f64(duration.as_secs_f64())
 }
 
 impl WatchdogState {
@@ -53,9 +63,8 @@ struct ConfigState {
 ///
 /// # 约束
 ///
-/// 不要在持有 `parking_lot::RwLock` 写锁时执行阻塞 I/O 操作（如文件写入），
-/// 因为 `parking_lot::RwLock` 是同步锁，会阻塞整个 tokio 运行时。
-/// 文件 I/O 应在释放锁之后执行。
+/// `save_config_atomic` 和 `delete_group_atomic` 在持有 `parking_lot::RwLock` 写锁期间执行磁盘写入，
+/// 以消除回滚竞态条件。配置保存是低频操作（用户手动触发），短暂阻塞读操作是可接受的权衡。
 pub struct AppState {
     config_state: RwLock<ConfigState>,
     ipc_sender: Arc<dyn IpcSender>,
@@ -163,11 +172,7 @@ impl AppState {
     }
 
     pub fn active_group_ids(&self) -> Vec<String> {
-        self.active_hotkeys
-            .read()
-            .values()
-            .cloned()
-            .collect()
+        self.active_hotkeys.read().values().cloned().collect()
     }
 
     pub fn send_ipc_command(&self, cmd: &IpcCommand) -> Result<u64, AppError> {
@@ -215,6 +220,12 @@ impl AppState {
         self.event_emitter.emit(event, payload)
     }
 
+    pub fn reset_watchdog(&self) -> Result<(), AppError> {
+        self.watchdog
+            .reset()
+            .map_err(|e| AppError::Internal(format!("重置看门狗失败: {e}")))
+    }
+
     pub fn get_config_path(&self) -> Option<PathBuf> {
         self.config_path.read().clone()
     }
@@ -226,23 +237,29 @@ impl AppState {
     pub fn save_config_atomic(&self, mut new_config: Config) -> Result<(), AppError> {
         new_config.last_modified = Some(chrono::Local::now().to_rfc3339());
 
-        if let Some(path) = self.get_config_path() {
-            ConfigRepository::save_to_path(&new_config, &path).map_err(|e| {
-                tracing::error!("保存配置到磁盘失败: {e}");
-                AppError::Config(e)
-            })?;
-        }
+        let config_path = self.get_config_path();
 
         let mut guard = self.config_state.write();
-        let mut new_groups = Self::build_groups_from_config(&new_config);
+        let old_config = guard.config.clone();
         let old_groups = guard.groups.clone();
+
+        let mut new_groups = Self::build_groups_from_config(&new_config);
         for (id, new_group) in new_groups.iter_mut() {
             if let Some(old_group) = old_groups.get(id) {
                 new_group.active = old_group.active;
             }
         }
-        guard.config = new_config;
+        guard.config = new_config.clone();
         guard.groups = new_groups;
+
+        if let Some(path) = config_path {
+            if let Err(e) = ConfigRepository::save_to_path(&new_config, &path) {
+                tracing::error!("保存配置到磁盘失败，回滚内存状态: {e}");
+                guard.config = old_config;
+                guard.groups = old_groups;
+                return Err(AppError::Config(e));
+            }
+        }
 
         Ok(())
     }
@@ -287,11 +304,31 @@ impl AppState {
     }
 
     pub fn delete_group_atomic(&self, group_id: &str) -> Result<bool, AppError> {
-        let (new_config, is_active, ipc_cmd) = {
-            let guard = self.config_state.read();
-            let is_active = guard.groups.get(group_id).map(|g| g.active).unwrap_or(false);
-            let mut new_config = guard.config.clone();
-            new_config.group_settings.shift_remove(group_id);
+        let config_path = self.get_config_path();
+
+        let (is_active, ipc_cmd) = {
+            let mut cs = self.config_state.write();
+
+            if !cs.config.group_settings.contains_key(group_id) {
+                return Err(AppError::GroupNotFound(group_id.to_string()));
+            }
+
+            let is_active = cs.groups.get(group_id).map(|g| g.active).unwrap_or(false);
+
+            let old_config = cs.config.clone();
+            let old_groups = cs.groups.clone();
+            cs.config.group_settings.shift_remove(group_id);
+            cs.groups.shift_remove(group_id);
+
+            if let Some(path) = config_path {
+                if let Err(e) = ConfigRepository::save_to_path(&cs.config, &path) {
+                    tracing::error!("删除分组后保存配置失败，回滚内存状态: {e}");
+                    cs.config = old_config;
+                    cs.groups = old_groups;
+                    return Err(AppError::Config(format!("删除分组后保存配置失败: {e}")));
+                }
+            }
+
             let ipc_cmd = if is_active {
                 Some(IpcCommand::ToggleGroup {
                     group_id: group_id.to_string(),
@@ -305,20 +342,9 @@ impl AppState {
             } else {
                 None
             };
-            (new_config, is_active, ipc_cmd)
+
+            (is_active, ipc_cmd)
         };
-
-        if let Some(path) = self.get_config_path() {
-            ConfigRepository::save_to_path(&new_config, &path).map_err(|e| {
-                AppError::Config(format!("删除分组后保存配置失败: {e}"))
-            })?;
-        }
-
-        {
-            let mut cs = self.config_state.write();
-            cs.config = new_config;
-            cs.groups.shift_remove(group_id);
-        }
 
         if is_active {
             self.active_hotkeys.write().retain(|_, gid| gid != group_id);

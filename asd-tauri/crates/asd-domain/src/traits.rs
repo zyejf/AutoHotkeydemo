@@ -51,9 +51,11 @@ pub trait EventEmitter: Send + Sync {
 /// 此 trait 在 `asd-domain` crate 中定义，在 `src-tauri/bridge.rs` 中由 `WatchdogBridge` 实现。
 /// 通过 `ProcessWatchdog` 查询子进程的运行状态和重启次数。
 pub trait ProcessWatcher: Send + Sync {
-    /// 获取 AHK 子进程的当前状态。
     fn state(&self) -> WatchdogStateEnum;
 
-    /// 获取 AHK 子进程的累计重启次数。
     fn restart_count(&self) -> u32;
+
+    fn reset(&self) -> Result<(), String> {
+        Err("reset not supported".to_string())
+    }
 }

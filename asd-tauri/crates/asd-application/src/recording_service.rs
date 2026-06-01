@@ -84,16 +84,16 @@ pub fn stop_recording(state: &AppState) -> Result<RecordingResult, AppError> {
 
 pub fn pause_recording(state: &AppState) -> Result<u64, AppError> {
     let cmd = IpcCommand::PauseRecording;
-    let seq = state.send_ipc_command(&cmd)?;
-    tracing::info!("暂停录制: seq={}", seq);
-    Ok(seq)
+    let response = state.send_ipc_and_wait(&cmd, std::time::Duration::from_secs(5))?;
+    tracing::info!("暂停录制: seq={}", response.seq);
+    Ok(response.seq)
 }
 
 pub fn resume_recording(state: &AppState) -> Result<u64, AppError> {
     let cmd = IpcCommand::ResumeRecording;
-    let seq = state.send_ipc_command(&cmd)?;
-    tracing::info!("恢复录制: seq={}", seq);
-    Ok(seq)
+    let response = state.send_ipc_and_wait(&cmd, std::time::Duration::from_secs(5))?;
+    tracing::info!("恢复录制: seq={}", response.seq);
+    Ok(response.seq)
 }
 
 pub fn export_recording(

@@ -414,6 +414,10 @@ class IpcClient {
     static _pollTimer := 0
     static _readBuffer := ""
 
+    ; 认证令牌（从 --auth-token 命令行参数读取）
+    static _authToken := ""
+    static _authParseRetries := 0
+
     ; 回调
     static OnCommand := ""        ; (action, data) => void
     static OnShutdown := ""       ; () => void
@@ -426,7 +430,31 @@ class IpcClient {
 
     static Start() {
         IpcClient.shuttingDown := false
+        IpcClient._ParseAuthToken()
         IpcClient._TryConnect()
+    }
+
+    static _ParseAuthToken() {
+        if IpcClient._authToken != ""
+            return
+
+        try {
+            envToken := EnvGet("ASD_AUTH_TOKEN")
+            if envToken != "" {
+                IpcClient._authToken := envToken
+                OutputDebug("IpcClient: 从环境变量读取 auth_token")
+                return
+            }
+        }
+
+        loop A_Args.Length {
+            if A_Args[A_Index] = "--auth-token" && A_Index < A_Args.Length {
+                IpcClient._authToken := A_Args[A_Index + 1]
+                OutputDebug("IpcClient: 从命令行参数读取 auth_token")
+                return
+            }
+        }
+        OutputDebug("IpcClient: 未找到 auth_token，将重试解析")
     }
 
     static Stop() {
@@ -490,6 +518,18 @@ class IpcClient {
         if IpcClient.shuttingDown
             return
 
+        if IpcClient._authToken = "" {
+            IpcClient._authParseRetries++
+            if IpcClient._authParseRetries > 5 {
+                OutputDebug("IpcClient: auth-token 缺失，超过最大重试次数，退出")
+                ExitApp(1)
+            }
+            OutputDebug("IpcClient: auth-token 为空，500ms 后重试解析 (attempt=" IpcClient._authParseRetries ")")
+            IpcClient._reconnectTimer := () => (IpcClient._ParseAuthToken(), IpcClient._TryConnect())
+            SetTimer(IpcClient._reconnectTimer, -500)
+            return
+        }
+
         hPipe := DllCall("CreateFileW",
             "Str", IPCConst.PIPE_NAME,
             "UInt", IPCConst.GENERIC_READ_WRITE,
@@ -524,7 +564,7 @@ class IpcClient {
         authMsg := Map(
             "type", "auth",
             "seq", IpcClient._NextSeq(),
-            "data", Map("token", "ASD_IPC_AUTH_V1")
+            "data", Map("token", IpcClient._authToken)
         )
         IpcClient._SendMsg(authMsg)
 

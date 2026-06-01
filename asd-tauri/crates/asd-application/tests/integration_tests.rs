@@ -667,7 +667,6 @@ fn test_app_error_variants_display() {
     assert!(format!("{}", AppError::Ipc("i".to_string())).contains("IPC"));
     assert!(format!("{}", AppError::GroupNotFound("g".to_string())).contains("分组不存在"));
     assert!(format!("{}", AppError::Validation("v".to_string())).contains("验证失败"));
-    assert!(format!("{}", AppError::Executor("e".to_string())).contains("执行器错误"));
     assert!(format!("{}", AppError::Internal("x".to_string())).contains("内部错误"));
 }
 

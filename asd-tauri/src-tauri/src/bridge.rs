@@ -10,6 +10,13 @@ use tokio::sync::Mutex;
 ///
 /// 通过 `interprocess` named pipe 向 AHK 子进程发送命令，
 /// 并通过 outbound mpsc 通道转发 AHK→Rust 方向的消息到前端。
+///
+/// # 并发安全约束
+///
+/// 所有 trait 方法使用 `block_in_place` + `Handle::block_on()` 模式将同步调用
+/// 桥接到异步上下文。此模式要求调用方在 tokio 多线程运行时上下文中执行。
+/// `ipc_manager` 的 `tokio::sync::Mutex` 锁持有时间极短（仅 clone + 单次 async 调用），
+/// 不存在跨 await 点的长时间持锁，因此不会与 `listen_ahk`/`accept_loop` 产生死锁。
 pub struct IpcBridge {
     outbound: IpcOutboundSender,
     ipc_manager: Arc<Mutex<Option<IpcManager>>>,
@@ -23,7 +30,8 @@ impl IpcBridge {
         }
     }
 
-    pub fn is_pipe_connected(&self) -> bool {
+    #[allow(dead_code)]
+    pub(crate) fn is_pipe_connected(&self) -> bool {
         let ipc_manager = self.ipc_manager.clone();
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async move {
@@ -44,21 +52,15 @@ impl IpcSender for IpcBridge {
             tokio::runtime::Handle::current().block_on(async move {
                 let manager = ipc_manager.lock().await;
                 match *manager {
-                    Some(ref mgr) => {
-                        if !mgr.is_connected().await {
-                            tracing::warn!(
-                                "IPC 管道未连接，无法发送命令: {:?}",
-                                std::mem::discriminant(&cmd)
-                            );
-                            return Err("IPC 管道未连接，AHK 执行器可能未启动".to_string());
-                        }
-                        mgr.send_command(cmd).await.map_err(|e| {
-                            tracing::warn!("IPC 发送命令失败: {e}");
-                            format!("IPC 通信错误: {e}")
-                        })
-                    }
+                    Some(ref mgr) => mgr.send_command(cmd).await.map_err(|e| {
+                        tracing::warn!("IPC 发送命令失败: {e}");
+                        format!("IPC 通信错误: {e}")
+                    }),
                     None => {
-                        tracing::warn!("IPC 管理器未初始化，无法发送命令: {:?}", std::mem::discriminant(&cmd));
+                        tracing::warn!(
+                            "IPC 管理器未初始化，无法发送命令: {:?}",
+                            std::mem::discriminant(&cmd)
+                        );
                         Err("IPC 管理器未初始化，请等待系统就绪".to_string())
                     }
                 }
@@ -76,21 +78,15 @@ impl IpcSender for IpcBridge {
             tokio::runtime::Handle::current().block_on(async move {
                 let manager = ipc_manager.lock().await;
                 match *manager {
-                    Some(ref mgr) => {
-                        if !mgr.is_connected().await {
-                            tracing::warn!(
-                                "IPC 管道未连接，无法发送等待命令: {:?}",
-                                std::mem::discriminant(&cmd)
-                            );
-                            return Err("IPC 管道未连接，AHK 执行器可能未启动".to_string());
-                        }
-                        mgr.send_and_wait(cmd, timeout).await.map_err(|e| {
-                            tracing::warn!("IPC send_and_wait 失败: {e}");
-                            format!("IPC 通信错误: {e}")
-                        })
-                    }
+                    Some(ref mgr) => mgr.send_and_wait(cmd, timeout).await.map_err(|e| {
+                        tracing::warn!("IPC send_and_wait 失败: {e}");
+                        format!("IPC 通信错误: {e}")
+                    }),
                     None => {
-                        tracing::warn!("IPC 管理器未初始化，无法发送等待命令: {:?}", std::mem::discriminant(&cmd));
+                        tracing::warn!(
+                            "IPC 管理器未初始化，无法发送等待命令: {:?}",
+                            std::mem::discriminant(&cmd)
+                        );
                         Err("IPC 管理器未初始化，请等待系统就绪".to_string())
                     }
                 }
@@ -163,6 +159,26 @@ impl ProcessWatcher for WatchdogBridge {
             tokio::runtime::Handle::current().block_on(async move {
                 let guard = watchdog.lock().await;
                 guard.restart_count()
+            })
+        })
+    }
+
+    fn reset(&self) -> Result<(), String> {
+        let watchdog = self.watchdog.clone();
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async move {
+                let mut guard = watchdog.lock().await;
+                let current = guard.state().clone();
+                match current {
+                    WatchdogStateEnum::Failed | WatchdogStateEnum::Hung => {
+                        guard.reset_to_restart();
+                        Ok(())
+                    }
+                    _ => Err(format!(
+                        "仅在 Failed/Hung 状态下可重置，当前状态: {:?}",
+                        current
+                    )),
+                }
             })
         })
     }

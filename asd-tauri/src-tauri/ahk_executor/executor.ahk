@@ -36,7 +36,7 @@ class CommandDispatcher {
     static _groupConfigs := Map()
 
     ; 录制状态
-    static _isRecording := false
+    static _recordState := "idle"
     static _recordedKeys := []
     static _recordMode := "periodic"
     static _recordGroupId := ""
@@ -63,6 +63,14 @@ class CommandDispatcher {
                 CommandDispatcher._HandleStartRecording(data, seq)
             case "stop_recording":
                 CommandDispatcher._HandleStopRecording(seq)
+            case "pause_recording":
+                CommandDispatcher._HandlePauseRecording(seq)
+            case "resume_recording":
+                CommandDispatcher._HandleResumeRecording(data, seq)
+            case "start_validation":
+                CommandDispatcher._HandleStartValidation(data, seq)
+            case "stop_validation":
+                CommandDispatcher._HandleStopValidation(seq)
             default:
                 OutputDebug("CommandDispatcher: 未知命令 action=" action)
                 IpcClient.SendResult(seq, Map("status", "error", "message", "未知命令: " action))
@@ -135,24 +143,26 @@ class CommandDispatcher {
     static _HandleStartRecording(data, seq) {
         groupId := CommandDispatcher._GetStr(data, "groupId", "")
         mode := CommandDispatcher._GetStr(data, "mode", "periodic")
-        if CommandDispatcher._isRecording {
+        if CommandDispatcher._recordState = "recording" {
             IpcClient.SendResult(seq, Map("status", "error", "message", "已在录制中"))
             return
         }
-        CommandDispatcher._isRecording := true
-        CommandDispatcher._recordedKeys := []
-        CommandDispatcher._recordMode := mode
-        CommandDispatcher._recordGroupId := groupId
+        if CommandDispatcher._recordState = "idle" {
+            CommandDispatcher._recordedKeys := []
+            CommandDispatcher._recordMode := mode
+            CommandDispatcher._recordGroupId := groupId
+        }
+        CommandDispatcher._recordState := "recording"
         OutputDebug("CommandDispatcher: 录制开始 groupId=" groupId " mode=" mode)
         IpcClient.SendResult(seq, Map("status", "ok", "groupId", groupId, "mode", mode))
     }
 
     static _HandleStopRecording(seq) {
-        if !CommandDispatcher._isRecording {
+        if CommandDispatcher._recordState = "idle" {
             IpcClient.SendResult(seq, Map("status", "error", "message", "未在录制中"))
             return
         }
-        CommandDispatcher._isRecording := false
+        CommandDispatcher._recordState := "idle"
         recordedKeys := CommandDispatcher._recordedKeys
         mode := CommandDispatcher._recordMode
 
@@ -195,9 +205,50 @@ class CommandDispatcher {
         ))
     }
 
+    static _HandlePauseRecording(seq) {
+        if CommandDispatcher._recordState != "recording" {
+            IpcClient.SendResult(seq, Map("status", "error", "message", "未在录制中"))
+            return
+        }
+        CommandDispatcher._recordState := "paused"
+        OutputDebug("CommandDispatcher: 录制已暂停")
+        IpcClient.SendResult(seq, Map("status", "ok", "paused", true))
+    }
+
+    static _HandleResumeRecording(data, seq) {
+        if CommandDispatcher._recordState != "paused" {
+            IpcClient.SendResult(seq, Map("status", "error", "message", "未在暂停中"))
+            return
+        }
+        CommandDispatcher._recordState := "recording"
+        OutputDebug("CommandDispatcher: 录制已恢复")
+        IpcClient.SendResult(seq, Map("status", "ok", "resumed", true))
+    }
+
+    ; 验证状态
+    static _validationGroupId := ""
+
+    static _HandleStartValidation(data, seq) {
+        groupId := CommandDispatcher._GetStr(data, "groupId", "")
+        if groupId = "" {
+            IpcClient.SendResult(seq, Map("status", "error", "message", "缺少 groupId"))
+            return
+        }
+        CommandDispatcher._validationGroupId := groupId
+        OutputDebug("CommandDispatcher: 验证模式启动 groupId=" groupId)
+        IpcClient.SendResult(seq, Map("status", "ok", "validation", true, "groupId", groupId))
+    }
+
+    static _HandleStopValidation(seq) {
+        groupId := CommandDispatcher._validationGroupId
+        CommandDispatcher._validationGroupId := ""
+        OutputDebug("CommandDispatcher: 验证模式停止 groupId=" groupId)
+        IpcClient.SendResult(seq, Map("status", "ok", "validation", false, "groupId", groupId))
+    }
+
     ; 录制按键回调 — 同时记录按键名称和时间戳
     static RecordKey(key) {
-        if CommandDispatcher._isRecording {
+        if CommandDispatcher._recordState = "recording" {
             entry := Map(
                 "key", key,
                 "time", A_TickCount

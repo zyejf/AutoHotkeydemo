@@ -5,12 +5,12 @@ pub mod infrastructure;
 #[cfg(test)]
 mod tests;
 
-use asd_application::state::AppState;
 use asd_application::config_repository::ConfigRepository;
+use asd_application::state::AppState;
 use asd_domain::config::{Config, WatchdogStateEnum};
+use asd_domain::models::SkillGroup;
 use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use bridge::{IpcBridge, TauriEventBridge, WatchdogBridge};
-use asd_domain::models::SkillGroup;
 use infrastructure::ipc::{IpcManager, IpcOutboundReceiver};
 use infrastructure::watchdog::{ProcessWatchdog, WatchdogRunner};
 use std::sync::Arc;
@@ -110,6 +110,7 @@ fn spawn_ipc_accept_loop(ipc_manager: IpcManagerArc) {
 fn spawn_heartbeat_ping(ipc_manager: IpcManagerArc) {
     tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+        let mut consecutive_failures: u32 = 0;
         loop {
             interval.tick().await;
             let mgr = {
@@ -117,10 +118,22 @@ fn spawn_heartbeat_ping(ipc_manager: IpcManagerArc) {
                 guard.clone()
             };
             if let Some(mgr) = mgr {
+                if !mgr.is_connected().await {
+                    consecutive_failures = 0;
+                    continue;
+                }
                 let seq = mgr.next_seq();
                 let msg = IpcMessage::ping(seq);
                 if let Err(e) = mgr.send(&msg).await {
-                    tracing::warn!("心跳 ping 发送失败: {e}");
+                    consecutive_failures += 1;
+                    if consecutive_failures <= 3 || consecutive_failures % 30 == 0 {
+                        tracing::warn!(
+                            "心跳 ping 发送失败 (连续第{}次): {e}",
+                            consecutive_failures
+                        );
+                    }
+                } else {
+                    consecutive_failures = 0;
                 }
             }
         }
@@ -274,6 +287,7 @@ fn setup_ipc_and_watchdog(
     outbound_rx: IpcOutboundReceiver,
     app_handle: &tauri::AppHandle,
     exe_path: &std::path::Path,
+    auth_token: &str,
 ) {
     {
         let guard = tokio::task::block_in_place(|| ipc_manager_arc.blocking_lock());
@@ -288,7 +302,7 @@ fn setup_ipc_and_watchdog(
     {
         let exe_str = exe_path.to_string_lossy().to_string();
         let mut wd = tokio::task::block_in_place(|| watchdog.blocking_lock());
-        if let Err(e) = wd.spawn_child(&exe_str) {
+        if let Err(e) = wd.spawn_child(&exe_str, auth_token) {
             tracing::error!("启动 AHK 子进程失败: {e}");
         }
     }
@@ -458,6 +472,7 @@ pub fn run() {
             let config = ConfigRepository::load_from_file(&config_path);
 
             let (ipc_manager, outbound_rx) = IpcManager::new("asd_ipc");
+            let auth_token = ipc_manager.auth_token().to_string();
             let outbound_sender = ipc_manager.outbound_sender();
             let ipc_manager_arc: IpcManagerArc =
                 Arc::new(tokio::sync::Mutex::new(Some(ipc_manager)));
@@ -485,6 +500,7 @@ pub fn run() {
                 outbound_rx,
                 app.handle(),
                 &exe_path,
+                &auth_token,
             );
 
             app.manage(app_state);
@@ -540,6 +556,7 @@ pub fn run() {
             commands::system_cmd::emergency_release,
             commands::system_cmd::clear_emergency,
             commands::system_cmd::toggle_hold_mode,
+            commands::system_cmd::reset_watchdog,
         ])
         .run(tauri::generate_context!())
         .inspect_err(|e| tracing::error!("Tauri 应用运行错误: {e}"))

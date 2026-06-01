@@ -2,31 +2,12 @@ use asd_domain::config::Config;
 use std::fs;
 use std::path::Path;
 
-/// 配置文件加载错误类型，区分文件不存在和解析失败。
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ConfigLoadError {
-    /// 配置文件不存在。
-    FileNotFound(std::io::Error),
-    /// 配置文件 JSON 解析失败。
+    #[error("配置文件不存在: {0}")]
+    FileNotFound(#[source] std::io::Error),
+    #[error("配置文件解析失败: {0}")]
     ParseError(String),
-}
-
-impl std::fmt::Display for ConfigLoadError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ConfigLoadError::FileNotFound(e) => write!(f, "配置文件不存在: {e}"),
-            ConfigLoadError::ParseError(e) => write!(f, "配置文件解析失败: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for ConfigLoadError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            ConfigLoadError::FileNotFound(e) => Some(e),
-            ConfigLoadError::ParseError(_) => None,
-        }
-    }
 }
 
 /// 配置文件仓库，提供配置的加载、保存和原子写入功能。

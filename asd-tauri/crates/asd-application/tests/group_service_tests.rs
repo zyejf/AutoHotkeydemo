@@ -61,7 +61,8 @@ fn test_delete_group() {
 fn test_delete_group_not_found() {
     let (state, _ipc) = make_test_state_with_recording_sender();
     let result = group_service::delete_group(&state, "999");
-    assert!(result.is_ok());
+    assert!(result.is_err());
+    assert!(matches!(result.unwrap_err(), AppError::GroupNotFound(_)));
 }
 
 #[test]

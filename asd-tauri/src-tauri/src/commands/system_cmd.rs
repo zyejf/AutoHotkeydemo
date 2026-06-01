@@ -2,8 +2,8 @@ use asd_application::error::AppError;
 use asd_application::state::AppState;
 use asd_domain::config::WatchdogStateEnum;
 use asd_ipc_protocol::IpcCommand;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 #[tauri::command]
 pub fn get_executor_status(
@@ -32,11 +32,7 @@ pub async fn clear_emergency(state: tauri::State<'_, Arc<AppState>>) -> Result<(
 pub async fn toggle_hold_mode(state: tauri::State<'_, Arc<AppState>>) -> Result<bool, AppError> {
     let new_value = state
         .hold_mode_enabled
-        .fetch_update(
-            Ordering::SeqCst,
-            Ordering::SeqCst,
-            |current| Some(!current),
-        )
+        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| Some(!current))
         .map_err(|e| AppError::Internal(e.to_string()))?;
     let new_value = !new_value;
 
@@ -44,4 +40,11 @@ pub async fn toggle_hold_mode(state: tauri::State<'_, Arc<AppState>>) -> Result<
 
     tracing::info!("长按模式已{}", if new_value { "开启" } else { "关闭" });
     Ok(new_value)
+}
+
+#[tauri::command]
+pub async fn reset_watchdog(state: tauri::State<'_, Arc<AppState>>) -> Result<(), AppError> {
+    state.reset_watchdog()?;
+    tracing::info!("看门狗已重置，将尝试重新启动子进程");
+    Ok(())
 }

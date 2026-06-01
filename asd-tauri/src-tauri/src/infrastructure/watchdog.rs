@@ -46,6 +46,7 @@ pub struct ProcessWatchdog {
     child: Option<Child>,
     job_guard: Option<JobObjectGuard>,
     exe_path: Option<String>,
+    auth_token: Option<String>,
     restart_count: u32,
     missed_heartbeats: u32,
     backoff_duration: Duration,
@@ -82,6 +83,7 @@ impl ProcessWatchdog {
             child: None,
             job_guard: None,
             exe_path: None,
+            auth_token: None,
             restart_count: 0,
             missed_heartbeats: 0,
             backoff_duration: BACKOFF_DURATIONS[0],
@@ -163,39 +165,45 @@ impl ProcessWatchdog {
     /// 支持两种模式：
     /// - 编译模式：exe_path 指向 asd_executor.exe
     /// - 便携模式：exe_path 指向 asd_executor.bat 或 AutoHotkey64.exe
-    pub fn spawn_child(&mut self, exe_path: &str) -> Result<(), String> {
+    ///
+    /// `auth_token` 通过 `--auth-token` 命令行参数传递给 AHK 子进程，
+    /// 用于 IPC 认证。子进程必须在首条消息中发送此 token 才能通过认证。
+    pub fn spawn_child(&mut self, exe_path: &str, auth_token: &str) -> Result<(), String> {
+        if auth_token.is_empty() {
+            return Err("auth_token 不能为空，IPC 认证需要有效的 token".to_string());
+        }
         tracing::info!("Watchdog: 启动 AHK 子进程: {exe_path}");
 
-        // Determine if this is portable mode (AutoHotkey64.exe or .bat launcher)
-        let (program, args) = if exe_path.ends_with("asd_executor.exe") {
-            // Compiled mode: run the exe directly
+        let (program, mut args) = if exe_path.ends_with("asd_executor.exe") {
             (exe_path.to_string(), Vec::new())
         } else if exe_path.ends_with("asd_executor.bat") {
-            // Portable mode via batch launcher: cmd /C launcher.bat
             (
                 "cmd".to_string(),
                 vec!["/C".to_string(), exe_path.to_string()],
             )
         } else if exe_path.ends_with("AutoHotkey64.exe") {
-            // Portable mode: AutoHotkey64.exe executor.ahk
             let script_path = exe_path.replace("AutoHotkey64.exe", "executor.ahk");
             (exe_path.to_string(), vec![script_path])
         } else {
-            // Fallback: try to run as-is
             (exe_path.to_string(), Vec::new())
         };
+
+        args.push("--auth-token".to_string());
+        args.push(auth_token.to_string());
 
         let mut cmd = Command::new(&program);
         cmd.creation_flags(CREATE_NO_WINDOW.0);
         if !args.is_empty() {
             cmd.args(&args);
         }
+        cmd.env("ASD_AUTH_TOKEN", auth_token);
 
         let child = cmd
             .spawn()
             .map_err(|e| format!("启动子进程失败: {e} (program={program}, args={args:?})"))?;
 
         self.exe_path = Some(exe_path.to_string());
+        self.auth_token = Some(auth_token.to_string());
         self.attach_child(child)
     }
 
@@ -210,7 +218,8 @@ impl ProcessWatchdog {
         if self.restart_count > 0 && self.stable_heartbeat_count >= STABLE_HEARTBEAT_THRESHOLD {
             tracing::info!(
                 "Watchdog: 子进程稳定运行 {} 次心跳，重置重启计数器 (was={})",
-                self.stable_heartbeat_count, self.restart_count
+                self.stable_heartbeat_count,
+                self.restart_count
             );
             self.reset_restart_count();
             self.stable_heartbeat_count = 0;
@@ -304,6 +313,17 @@ impl ProcessWatchdog {
         self.stable_heartbeat_count = 0;
     }
 
+    pub fn reset_to_restart(&mut self) {
+        self.restart_count = 0;
+        self.backoff_duration = BACKOFF_DURATIONS[0];
+        self.stable_heartbeat_count = 0;
+        self.missed_heartbeats = 0;
+        self.child = None;
+        self.job_guard = None;
+        self.set_state(WatchdogStateEnum::Restarting);
+        tracing::info!("Watchdog: 已重置为 Restarting 状态，等待 WatchdogRunner 重新启动子进程");
+    }
+
     fn is_child_exited(&mut self) -> bool {
         if let Some(ref mut child) = self.child {
             match child.try_wait() {
@@ -376,7 +396,7 @@ impl ProcessWatchdog {
     fn cleanup(&mut self) {
         self.child = None;
         self.job_guard = None;
-        // 注意：保留 exe_path 以便重启时使用
+        // 注意：保留 exe_path 和 auth_token 以便重启时使用
         self.set_state(WatchdogStateEnum::Idle);
     }
 
@@ -517,17 +537,18 @@ impl WatchdogRunner {
                 }
                 WatchdogAction::RestartNeeded => {
                     wd.begin_restart();
-                    // 实际重启子进程：使用保存的 exe_path
                     if let Some(ref exe_path) = wd.exe_path {
                         let path_clone = exe_path.clone();
-                        // 先清理旧进程资源
+                        let token = match wd.auth_token.clone() {
+                            Some(t) if !t.is_empty() => t,
+                            _ => {
+                                tracing::error!("Watchdog: auth_token 缺失，无法重启子进程");
+                                continue;
+                            }
+                        };
                         wd.child = None;
                         wd.job_guard = None;
-                        // 尝试重新启动子进程
-                        // 注意：不在此处 reset_restart_count()，避免子进程持续崩溃时
-                        // 退避计数器被反复重置导致无限重启循环。restart_count 只在
-                        // 子进程稳定运行一段时间后由外部逻辑重置。
-                        match wd.spawn_child(&path_clone) {
+                        match wd.spawn_child(&path_clone, &token) {
                             Ok(()) => {
                                 tracing::info!(
                                     "Watchdog: 子进程重启成功 (attempt={})",
@@ -547,7 +568,8 @@ impl WatchdogRunner {
                 }
                 WatchdogAction::MaxRetriesExceeded => {
                     tracing::error!("Watchdog: 超过最大重启次数，等待恢复");
-                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    drop(wd);
+                    tokio::time::sleep(Duration::from_secs(60)).await;
                 }
             }
         }

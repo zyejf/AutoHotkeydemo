@@ -22,6 +22,22 @@ pub struct IpcMessage {
     pub data: Option<serde_json::Value>,
 }
 
+impl Default for IpcMessage {
+    fn default() -> Self {
+        Self {
+            id: None,
+            r#type: String::new(),
+            seq: 0,
+            ack_seq: None,
+            action: None,
+            keys: None,
+            delay: None,
+            status: None,
+            data: None,
+        }
+    }
+}
+
 impl IpcMessage {
     /// 从 IpcCommand 构建 IPC 命令消息。
     ///
@@ -52,141 +68,95 @@ impl IpcMessage {
         };
 
         Self {
-            id: None,
             r#type: "command".to_string(),
             seq,
-            ack_seq: None,
             action: Some(action),
-            keys: None,
-            delay: None,
-            status: None,
             data,
+            ..Self::default()
         }
     }
 
     pub fn response(seq: u64, ack_seq: u64, status: &str, data: Option<serde_json::Value>) -> Self {
         Self {
-            id: None,
             r#type: "response".to_string(),
             seq,
             ack_seq: Some(ack_seq),
-            action: None,
-            keys: None,
-            delay: None,
             status: Some(status.to_string()),
             data,
+            ..Self::default()
         }
     }
 
     pub fn ping(seq: u64) -> Self {
         Self {
-            id: None,
             r#type: "ping".to_string(),
             seq,
-            ack_seq: None,
-            action: None,
-            keys: None,
-            delay: None,
-            status: None,
-            data: None,
+            ..Self::default()
         }
     }
 
     pub fn pong(seq: u64, ack_seq: u64) -> Self {
         Self {
-            id: None,
             r#type: "pong".to_string(),
             seq,
             ack_seq: Some(ack_seq),
-            action: None,
-            keys: None,
-            delay: None,
-            status: None,
-            data: None,
+            ..Self::default()
         }
     }
 
     pub fn execute(seq: u64, keys: Vec<String>, delay: u64) -> Self {
         Self {
-            id: None,
             r#type: "execute".to_string(),
             seq,
-            ack_seq: None,
             action: Some("keypress".to_string()),
             keys: Some(keys),
             delay: Some(delay),
-            status: None,
-            data: None,
+            ..Self::default()
         }
     }
 
     pub fn result(seq: u64, ack_seq: u64, data: serde_json::Value) -> Self {
         Self {
-            id: None,
             r#type: "result".to_string(),
             seq,
             ack_seq: Some(ack_seq),
-            action: None,
-            keys: None,
-            delay: None,
-            status: None,
             data: Some(data),
+            ..Self::default()
         }
     }
 
     pub fn shutdown(seq: u64) -> Self {
         Self {
-            id: None,
             r#type: "shutdown".to_string(),
             seq,
-            ack_seq: None,
             action: Some("shutdown".to_string()),
-            keys: None,
-            delay: None,
-            status: None,
-            data: None,
+            ..Self::default()
         }
     }
 
     pub fn hotkey_event(seq: u64, hotkey: &str) -> Self {
         Self {
-            id: None,
             r#type: "hotkey".to_string(),
             seq,
-            ack_seq: None,
             action: Some("hotkey_event".to_string()),
             keys: Some(vec![hotkey.to_string()]),
-            delay: None,
-            status: None,
-            data: None,
+            ..Self::default()
         }
     }
 
     pub fn heartbeat(seq: u64) -> Self {
         Self {
-            id: None,
             r#type: "heartbeat".to_string(),
             seq,
-            ack_seq: None,
-            action: None,
-            keys: None,
-            delay: None,
-            status: None,
-            data: None,
+            ..Self::default()
         }
     }
 
     pub fn auth(token: &str) -> Self {
         Self {
-            id: None,
             r#type: "auth".to_string(),
-            seq: 0,
-            ack_seq: None,
-            action: None,
-            keys: None,
-            delay: None,
-            status: None,
             data: Some(serde_json::json!({"token": token})),
+            ..Self::default()
         }
     }
 }

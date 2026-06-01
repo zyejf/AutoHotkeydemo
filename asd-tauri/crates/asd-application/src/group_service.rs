@@ -60,7 +60,11 @@ pub fn toggle_group(state: &AppState, group_id: &str) -> Result<GroupStatus, App
     state.set_group_active(group_id, new_active)?;
 
     let cmd = build_toggle_command(group_id, new_active, &group);
-    state.try_send_ipc_command(&cmd);
+    if let Err(e) = state.send_ipc_command(&cmd) {
+        tracing::warn!("IPC 发送切换命令失败，回滚分组 {} 状态: {e}", group_id);
+        let _ = state.set_group_active(group_id, !new_active);
+        return Err(e);
+    }
 
     Ok(GroupStatus {
         id: group_id.to_string(),
@@ -84,23 +88,37 @@ pub fn toggle_all(state: &AppState, active: bool) -> Result<(), AppError> {
     };
 
     let mut errors = Vec::new();
+    let mut rolled_back = Vec::new();
     for (id, group) in &toggle_data {
-        let cmd = build_toggle_command(id, active, group);
-        state.try_send_ipc_command(&cmd);
         if let Err(e) = state.set_group_active(id, active) {
             errors.push(format!("分组 {}: {}", id, e));
+            continue;
+        }
+        let cmd = build_toggle_command(id, active, group);
+        if let Err(e) = state.send_ipc_command(&cmd) {
+            tracing::warn!("IPC 发送切换命令失败，回滚分组 {} 状态: {e}", id);
+            let _ = state.set_group_active(id, !active);
+            rolled_back.push(id.clone());
         }
     }
 
-    if errors.is_empty() {
+    if errors.is_empty() && rolled_back.is_empty() {
         tracing::info!("全局切换: active={}", active);
         Ok(())
     } else {
-        tracing::warn!("全局切换部分失败: active={}, 错误: {:?}", active, errors);
-        Err(AppError::Internal(format!(
-            "部分分组切换失败: {}",
-            errors.join("; ")
-        )))
+        let mut parts = Vec::new();
+        if !errors.is_empty() {
+            parts.push(format!("状态更新失败: {}", errors.join("; ")));
+        }
+        if !rolled_back.is_empty() {
+            parts.push(format!("IPC 失败已回滚: {}", rolled_back.join(", ")));
+        }
+        tracing::warn!(
+            "全局切换部分失败: active={}, 问题: {:?}",
+            active,
+            parts
+        );
+        Err(AppError::Internal(parts.join("；")))
     }
 }
 
@@ -118,28 +136,38 @@ pub fn batch_toggle_groups(
     };
 
     let mut errors = Vec::new();
+    let mut rolled_back = Vec::new();
     for (id, group) in &toggle_data {
-        let cmd = build_toggle_command(id, active, group);
-        state.try_send_ipc_command(&cmd);
         if let Err(e) = state.set_group_active(id, active) {
             errors.push(format!("分组 {}: {}", id, e));
+            continue;
+        }
+        let cmd = build_toggle_command(id, active, group);
+        if let Err(e) = state.send_ipc_command(&cmd) {
+            tracing::warn!("IPC 发送切换命令失败，回滚分组 {} 状态: {e}", id);
+            let _ = state.set_group_active(id, !active);
+            rolled_back.push(id.clone());
         }
     }
 
-    if errors.is_empty() {
+    if errors.is_empty() && rolled_back.is_empty() {
         tracing::info!("批量切换: {} 个分组, active={}", group_ids.len(), active);
         Ok(())
     } else {
+        let mut parts = Vec::new();
+        if !errors.is_empty() {
+            parts.push(format!("状态更新失败: {}", errors.join("; ")));
+        }
+        if !rolled_back.is_empty() {
+            parts.push(format!("IPC 失败已回滚: {}", rolled_back.join(", ")));
+        }
         tracing::warn!(
-            "批量切换部分失败: {} 个分组, active={}, 错误: {:?}",
+            "批量切换部分失败: {} 个分组, active={}, 问题: {:?}",
             group_ids.len(),
             active,
-            errors
+            parts
         );
-        Err(AppError::Internal(format!(
-            "部分分组切换失败: {}",
-            errors.join("; ")
-        )))
+        Err(AppError::Internal(parts.join("；")))
     }
 }
 

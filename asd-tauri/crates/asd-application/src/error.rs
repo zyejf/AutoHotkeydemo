@@ -12,8 +12,6 @@ pub enum AppError {
     GroupNotFound(String),
     #[error("验证失败: {0}")]
     Validation(String),
-    #[error("执行器错误: {0}")]
-    Executor(String),
     #[error("内部错误: {0}")]
     Internal(String),
 }
@@ -58,7 +56,6 @@ mod tests {
             AppError::Ipc("i".to_string()),
             AppError::GroupNotFound("g".to_string()),
             AppError::Validation("v".to_string()),
-            AppError::Executor("e".to_string()),
             AppError::Internal("x".to_string()),
         ];
         for v in &variants {

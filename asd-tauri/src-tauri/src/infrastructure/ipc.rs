@@ -6,7 +6,7 @@ use interprocess::local_socket::{
 };
 use parking_lot::Mutex as SyncMutex;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot, Mutex};
@@ -15,6 +15,9 @@ pub use asd_ipc_protocol::{HotkeyMerger, IpcError};
 
 const MAX_MESSAGE_SIZE: usize = 64 * 1024;
 const IPC_CHANNEL_CAPACITY: usize = 256;
+const PENDING_CLEANUP_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(30);
+
+static AUTH_FALLBACK_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 type RecvHalf = <Stream as StreamTrait>::RecvHalf;
 type SendHalf = <Stream as StreamTrait>::SendHalf;
@@ -40,7 +43,7 @@ pub struct IpcManager {
     on_heartbeat: Arc<SyncMutex<Option<IpcCallback>>>,
     shutting_down: Arc<AtomicBool>,
     hotkey_merger: Arc<Mutex<HotkeyMerger>>,
-    auth_token: Arc<String>,
+    auth_token: String,
 }
 
 impl Clone for IpcManager {
@@ -63,13 +66,17 @@ impl Clone for IpcManager {
 
 impl IpcManager {
     pub fn new(pipe_name: &str) -> (Self, IpcOutboundReceiver) {
-        let auth_token = format!(
-            "ASD_{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        );
+        let auth_token = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            Ok(d) => format!("ASD_{}", d.as_nanos()),
+            Err(_) => {
+                let pid = std::process::id();
+                let counter = AUTH_FALLBACK_COUNTER.fetch_add(1, Ordering::Relaxed);
+                tracing::warn!(
+                    "系统时钟异常，使用 PID+计数器作为 auth token 后缀: pid={pid}, counter={counter}"
+                );
+                format!("ASD_FALLBACK_{pid}_{counter}")
+            }
+        };
         Self::new_with_token(pipe_name, auth_token)
     }
 
@@ -86,7 +93,7 @@ impl IpcManager {
             on_heartbeat: Arc::new(SyncMutex::new(None)),
             shutting_down: Arc::new(AtomicBool::new(false)),
             hotkey_merger: Arc::new(Mutex::new(HotkeyMerger::default())),
-            auth_token: Arc::new(auth_token),
+            auth_token,
         };
         (manager, outbound_rx)
     }
@@ -153,7 +160,7 @@ impl IpcManager {
                     .and_then(|d| d.get("token"))
                     .and_then(|t| t.as_str())
                     .unwrap_or("");
-                if token != self.auth_token.as_str() {
+                if token != self.auth_token {
                     self.cleanup_connection().await;
                     tracing::warn!("IPC AHK 认证失败: token 不匹配");
                     return Err(IpcError::AuthFailed("token 不匹配".to_string()));
@@ -279,8 +286,40 @@ impl IpcManager {
         cmd: IpcCommand,
         timeout: std::time::Duration,
     ) -> Result<IpcMessage, IpcError> {
-        let seq = self.send_command(cmd).await?;
-        self.wait_response(seq, timeout).await
+        let seq = self.next_seq();
+
+        let (tx, rx) = oneshot::channel();
+        {
+            let mut pending = self.pending_responses.lock().await;
+            pending.insert(
+                seq,
+                PendingResponse {
+                    tx,
+                    created_at: std::time::Instant::now(),
+                },
+            );
+        }
+
+        let msg = IpcMessage::command(seq, &cmd);
+        if let Err(e) = self.send(&msg).await {
+            let mut pending = self.pending_responses.lock().await;
+            pending.remove(&seq);
+            return Err(e);
+        }
+
+        match tokio::time::timeout(timeout, rx).await {
+            Ok(Ok(msg)) => Ok(msg),
+            Ok(Err(_)) => {
+                let mut pending = self.pending_responses.lock().await;
+                pending.remove(&seq);
+                Err(IpcError::ChannelClosed)
+            }
+            Err(_) => {
+                let mut pending = self.pending_responses.lock().await;
+                pending.remove(&seq);
+                Err(IpcError::Timeout)
+            }
+        }
     }
 
     pub async fn recv(&self) -> Result<IpcMessage, IpcError> {
@@ -328,8 +367,7 @@ impl IpcManager {
     pub async fn listen_ahk(&self) {
         tracing::info!("IPC 开始监听 AHK 消息");
 
-        let (msg_tx, mut msg_rx) =
-            tokio::sync::mpsc::channel::<Result<IpcMessage, IpcError>>(64);
+        let (msg_tx, mut msg_rx) = tokio::sync::mpsc::channel::<Result<IpcMessage, IpcError>>(64);
 
         let recv_manager = self.clone();
         let recv_handle = tokio::spawn(async move {
@@ -398,6 +436,8 @@ impl IpcManager {
                             let _ = self.outbound_tx.send(msg).await;
                         }
                     }
+                    drop(merger);
+                    self.cleanup_stale_pending(PENDING_CLEANUP_MAX_AGE).await;
                 }
             }
         }
@@ -423,15 +463,9 @@ impl IpcManager {
         let mut pending = self.pending_responses.lock().await;
         for (_, p) in pending.drain() {
             let _ = p.tx.send(IpcMessage {
-                id: None,
                 r#type: "error".to_string(),
-                seq: 0,
-                ack_seq: None,
-                action: None,
-                keys: None,
-                delay: None,
-                status: None,
                 data: Some(serde_json::json!({"error": "pipe_broken"})),
+                ..IpcMessage::default()
             });
         }
     }
