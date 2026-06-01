@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// 子进程监控状态，用于序列化到前端展示。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct WatchdogState {
     pub status: WatchdogStateEnum,
     pub restart_count: u32,
@@ -54,6 +54,7 @@ impl Default for WatchdogState {
 struct ConfigState {
     config: Config,
     groups: IndexMap<String, SkillGroup>,
+    version: u64,
 }
 
 /// 应用全局状态，管理配置、分组、热键注册和 IPC 通信。
@@ -89,7 +90,7 @@ impl AppState {
     ) -> Self {
         let groups = Self::build_groups_from_config(&config);
         Self {
-            config_state: RwLock::new(ConfigState { config, groups }),
+            config_state: RwLock::new(ConfigState { config, groups, version: 0 }),
             ipc_sender,
             active_hotkeys: RwLock::new(HashMap::new()),
             emergency_mode: AtomicBool::new(false),
@@ -279,10 +280,11 @@ impl AppState {
 
         let config_path = self.get_config_path();
 
-        let (old_config, old_groups) = {
+        let (old_config, old_groups, old_version, new_hotkey_map) = {
             let mut guard = self.config_state.write();
             let old_config = guard.config.clone();
             let old_groups = guard.groups.clone();
+            let old_version = guard.version;
 
             let mut new_groups = Self::build_groups_from_config(&new_config);
             for (id, new_group) in new_groups.iter_mut() {
@@ -290,17 +292,36 @@ impl AppState {
                     new_group.active = old_group.active;
                 }
             }
+
+            let mut new_hotkey_map = HashMap::new();
+            for (id, group) in &new_groups {
+                if group.active {
+                    new_hotkey_map.insert(group.hotkey.clone(), id.clone());
+                }
+            }
+
             guard.config = new_config.clone();
             guard.groups = new_groups;
-            (old_config, old_groups)
+            guard.version += 1;
+            (old_config, old_groups, old_version, new_hotkey_map)
         };
+
+        {
+            let mut registry = self.active_hotkeys.write();
+            *registry = new_hotkey_map;
+        }
 
         if let Some(path) = config_path {
             if let Err(e) = ConfigRepository::save_to_path(&new_config, &path) {
                 tracing::error!("保存配置到磁盘失败，回滚内存状态: {e}");
                 let mut guard = self.config_state.write();
-                guard.config = old_config;
-                guard.groups = old_groups;
+                if guard.version == old_version + 1 {
+                    guard.config = old_config;
+                    guard.groups = old_groups;
+                    guard.version = old_version;
+                } else {
+                    tracing::warn!("保存失败后回滚跳过：版本已变更 (当前={}, 预期={})", guard.version, old_version + 1);
+                }
                 return Err(AppError::Config(e));
             }
         }
@@ -353,7 +374,7 @@ impl AppState {
     pub fn delete_group_atomic(&self, group_id: &str) -> Result<bool, AppError> {
         let config_path = self.get_config_path();
 
-        let (is_active, ipc_cmd, saved_config, old_config, old_groups) = {
+        let (is_active, ipc_cmd, saved_config, old_config, old_groups, old_version) = {
             let mut cs = self.config_state.write();
 
             if !cs.config.group_settings.contains_key(group_id) {
@@ -364,40 +385,40 @@ impl AppState {
 
             let old_config = cs.config.clone();
             let old_groups = cs.groups.clone();
+            let old_version = cs.version;
             cs.config.group_settings.shift_remove(group_id);
-            cs.groups.shift_remove(group_id);
+
+            let deleted_group = cs.groups.shift_remove(group_id);
+            cs.version += 1;
 
             let saved_config = cs.config.clone();
 
             let ipc_cmd = if is_active {
-                Some(IpcCommand::ToggleGroup {
-                    group_id: group_id.to_string(),
-                    active: false,
-                    mode: None,
-                    key_press_duration: None,
-                    hold_keys: None,
-                    hold_mode: None,
-                    mode_data: None,
-                })
+                deleted_group.map(|g| crate::group_service::build_toggle_command(group_id, false, &g))
             } else {
                 None
             };
 
-            (is_active, ipc_cmd, saved_config, old_config, old_groups)
+            (is_active, ipc_cmd, saved_config, old_config, old_groups, old_version)
         };
+
+        if is_active {
+            self.active_hotkeys.write().retain(|_, gid| gid != group_id);
+        }
 
         if let Some(path) = config_path {
             if let Err(e) = ConfigRepository::save_to_path(&saved_config, &path) {
                 tracing::error!("删除分组后保存配置失败，回滚内存状态: {e}");
                 let mut cs = self.config_state.write();
-                cs.config = old_config;
-                cs.groups = old_groups;
+                if cs.version == old_version + 1 {
+                    cs.config = old_config;
+                    cs.groups = old_groups;
+                    cs.version = old_version;
+                } else {
+                    tracing::warn!("删除分组回滚跳过：版本已变更 (当前={}, 预期={})", cs.version, old_version + 1);
+                }
                 return Err(AppError::Config(format!("删除分组后保存配置失败: {e}")));
             }
-        }
-
-        if is_active {
-            self.active_hotkeys.write().retain(|_, gid| gid != group_id);
         }
 
         if let Some(cmd) = ipc_cmd {

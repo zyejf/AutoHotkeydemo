@@ -228,15 +228,14 @@ pub fn reorder_groups(state: &AppState, group_ids: &[String]) -> Result<(), AppE
 }
 
 pub fn register_hotkey(state: &AppState, hotkey: &str, group_id: &str) -> Result<(), AppError> {
-    if state.is_hotkey_registered(hotkey)? {
-        let existing = state.get_hotkey_group(hotkey)?.unwrap_or_default();
+    let existing = state.register_hotkey(hotkey, group_id)?;
+    if let Some(existing_group_id) = existing {
         return Err(AppError::Validation(format!(
             "热键 '{}' 已被分组 '{}' 注册",
-            hotkey, existing
+            hotkey, existing_group_id
         )));
     }
 
-    state.register_hotkey(hotkey, group_id)?;
     tracing::info!("热键 '{}' 已注册到分组 '{}'", hotkey, group_id);
 
     let cmd = IpcCommand::RegisterHotkey {

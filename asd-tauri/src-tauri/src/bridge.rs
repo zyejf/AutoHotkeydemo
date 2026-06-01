@@ -38,8 +38,11 @@ impl IpcBridge {
         let ipc_manager = self.ipc_manager.clone();
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async move {
-                let manager = ipc_manager.lock().await;
-                match *manager {
+                let mgr = {
+                    let manager = ipc_manager.lock().await;
+                    manager.clone()
+                };
+                match mgr {
                     Some(ref mgr) => mgr.is_connected().await,
                     None => false,
                 }
@@ -53,9 +56,12 @@ impl IpcSender for IpcBridge {
         let ipc_manager = self.ipc_manager.clone();
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async move {
-                let manager = ipc_manager.lock().await;
-                match *manager {
-                    Some(ref mgr) => mgr.send_command(cmd).await.map_err(|e| {
+                let mgr = {
+                    let manager = ipc_manager.lock().await;
+                    manager.clone()
+                };
+                match mgr {
+                    Some(mgr) => mgr.send_command(cmd).await.map_err(|e| {
                         tracing::warn!("IPC 发送命令失败: {e}");
                         format!("IPC 通信错误: {e}")
                     }),
