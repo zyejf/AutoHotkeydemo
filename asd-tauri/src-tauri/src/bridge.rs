@@ -3,33 +3,26 @@ use crate::infrastructure::watchdog::ProcessWatchdog;
 use asd_domain::config::WatchdogStateEnum;
 use asd_domain::traits::{EventEmitter, IpcSender, ProcessWatcher};
 use asd_ipc_protocol::{IpcCommand, IpcMessage};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-/// IPC 桥接器，实现 `IpcSender` trait，连接 Rust 主进程与 AHK 子进程。
-///
-/// 通过 `interprocess` named pipe 向 AHK 子进程发送命令，
-/// 并通过 outbound mpsc 通道转发 AHK→Rust 方向的消息到前端。
-///
-/// # 并发安全约束
-///
-/// 所有 trait 方法使用 `block_in_place` + `Handle::block_on()` 模式将同步调用
-/// 桥接到异步上下文。此模式要求调用方在 tokio 多线程运行时上下文中执行。
-///
-/// `send_and_wait` 使用 `prepare_send_and_wait` 模式：先在 ipc_manager 锁内
-/// 发送命令并注册 pending response，释放锁后再等待 oneshot 响应。
-/// 这样 ipc_manager 锁仅在发送期间被持有（通常 < 1ms），不会阻塞
-/// `listen_ahk`/`accept_loop` 等其他需要 ipc_manager 锁的操作。
 pub struct IpcBridge {
     outbound: IpcOutboundSender,
     ipc_manager: Arc<Mutex<Option<IpcManager>>>,
+    seq_counter: Arc<AtomicU64>,
 }
 
 impl IpcBridge {
-    pub fn new(outbound: IpcOutboundSender, ipc_manager: Arc<Mutex<Option<IpcManager>>>) -> Self {
+    pub fn new(
+        outbound: IpcOutboundSender,
+        ipc_manager: Arc<Mutex<Option<IpcManager>>>,
+        seq_counter: Arc<AtomicU64>,
+    ) -> Self {
         Self {
             outbound,
             ipc_manager,
+            seq_counter,
         }
     }
 
@@ -112,15 +105,7 @@ impl IpcSender for IpcBridge {
     }
 
     fn send_message(&self, msg: &IpcMessage) -> Result<(), String> {
-        let seq = {
-            let ipc_manager = self.ipc_manager.clone();
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async move {
-                    let manager = ipc_manager.lock().await;
-                    manager.as_ref().map(|m| m.next_seq()).unwrap_or(0)
-                })
-            })
-        };
+        let seq = self.seq_counter.fetch_add(1, Ordering::Relaxed);
         let mut msg_with_seq = msg.clone();
         msg_with_seq.seq = seq;
         self.outbound.try_send(msg_with_seq).map_err(|e| {

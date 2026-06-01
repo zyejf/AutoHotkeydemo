@@ -60,7 +60,11 @@ fn spawn_ipc_listener(
                                     "keys": keys,
                                 }),
                             );
+                        } else {
+                            tracing::warn!("收到热键事件但 keys 为空: seq={}", msg.seq);
                         }
+                    } else {
+                        tracing::warn!("收到热键事件但缺少 keys 字段: seq={}", msg.seq);
                     }
                 }
                 "heartbeat" => {
@@ -466,12 +470,13 @@ pub fn run() {
             let (ipc_manager, outbound_rx) = IpcManager::new("asd_ipc");
             let auth_token = ipc_manager.auth_token().to_string();
             let outbound_sender = ipc_manager.outbound_sender();
+            let seq_counter = ipc_manager.seq_counter();
             let ipc_manager_arc: IpcManagerArc =
                 Arc::new(tokio::sync::Mutex::new(Some(ipc_manager)));
 
             let watchdog: WatchdogArc = Arc::new(tokio::sync::Mutex::new(ProcessWatchdog::new()));
 
-            let ipc_bridge = Arc::new(IpcBridge::new(outbound_sender, ipc_manager_arc.clone()));
+            let ipc_bridge = Arc::new(IpcBridge::new(outbound_sender, ipc_manager_arc.clone(), seq_counter));
             let event_bridge = Arc::new(TauriEventBridge::new(app.handle().clone()));
             let watchdog_bridge = Arc::new(WatchdogBridge::new(watchdog.clone()));
 

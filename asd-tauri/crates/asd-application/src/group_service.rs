@@ -93,6 +93,8 @@ fn batch_toggle_impl(
         if let Err(e) = state.send_ipc_command(&cmd) {
             tracing::warn!("IPC 发送切换命令失败，回滚分组 {} 状态: {e}", id);
             let _ = state.set_group_active(id, !active);
+            let rollback_cmd = build_toggle_command(id, !active, group);
+            state.try_send_ipc_command(&rollback_cmd);
             rolled_back.push(id.clone());
         }
     }
@@ -203,6 +205,14 @@ pub fn reorder_groups(state: &AppState, group_ids: &[String]) -> Result<(), AppE
     }
 
     let group_ids_set: HashSet<&String> = group_ids.iter().collect();
+    let existing_ids: HashSet<&String> = current_config.group_settings.keys().collect();
+    let missing_from_input: Vec<&&String> = existing_ids.difference(&group_ids_set).collect();
+    if !missing_from_input.is_empty() {
+        tracing::warn!(
+            "reorder_groups: 以下分组未包含在排序列表中，将追加到末尾: {:?}",
+            missing_from_input
+        );
+    }
 
     let mut new_settings = IndexMap::new();
 

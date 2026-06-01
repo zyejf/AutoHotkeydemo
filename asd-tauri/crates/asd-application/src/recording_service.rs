@@ -114,7 +114,21 @@ pub fn export_recording(
     let json = serde_json::to_string_pretty(&recording_data)
         .map_err(|e| AppError::Config(format!("序列化录制数据失败: {e}")))?;
 
-    std::fs::write(path, json).map_err(|e| AppError::Config(format!("写入文件失败: {e}")))?;
+    let p = std::path::Path::new(path);
+    let file_name = p
+        .file_name()
+        .ok_or_else(|| AppError::Config("无效的文件路径".to_string()))?
+        .to_string_lossy()
+        .to_string();
+    let tmp_file_name = format!(".tmp_{file_name}");
+    let tmp_path = p.with_file_name(&tmp_file_name);
+
+    std::fs::write(&tmp_path, &json)
+        .map_err(|e| AppError::Config(format!("写入临时文件失败: {e}")))?;
+    if let Err(e) = std::fs::rename(&tmp_path, p) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(AppError::Config(format!("重命名文件失败: {e}")));
+    }
 
     tracing::info!("录制结果已导出: {}", path);
     Ok(())
@@ -133,6 +147,10 @@ pub fn import_recording(path: &str) -> Result<ImportedRecording, AppError> {
         .get("keys")
         .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
         .unwrap_or_default();
+
+    if keys.is_empty() {
+        return Err(AppError::Validation("录制数据缺少按键序列".to_string()));
+    }
 
     let intervals = data
         .get("intervals")

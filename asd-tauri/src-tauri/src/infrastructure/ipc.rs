@@ -219,6 +219,10 @@ impl IpcManager {
         self.seq_counter.fetch_add(1, Ordering::Relaxed)
     }
 
+    pub fn seq_counter(&self) -> Arc<AtomicU64> {
+        self.seq_counter.clone()
+    }
+
     pub async fn send(&self, msg: &IpcMessage) -> Result<(), IpcError> {
         let mut line = serde_json::to_string(msg)?;
         line.push('\n');
@@ -481,9 +485,10 @@ impl IpcManager {
         *self.send_half.lock().await = None;
         *self.recv_half.lock().await = None;
         let mut pending = self.pending_responses.lock().await;
-        for (_, p) in pending.drain() {
+        for (seq, p) in pending.drain() {
             let _ = p.tx.send(IpcMessage {
                 r#type: "error".to_string(),
+                ack_seq: Some(seq),
                 data: Some(serde_json::json!({"error": "pipe_broken"})),
                 ..IpcMessage::default()
             });

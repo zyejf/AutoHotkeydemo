@@ -122,22 +122,22 @@ impl AppState {
 
     pub fn is_emergency_mode(&self) -> bool {
         self.emergency_mode
-            .load(std::sync::atomic::Ordering::Relaxed)
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 
     pub fn set_emergency_mode(&self, enabled: bool) {
         self.emergency_mode
-            .store(enabled, std::sync::atomic::Ordering::Relaxed);
+            .store(enabled, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn is_hold_mode_enabled(&self) -> bool {
         self.hold_mode_enabled
-            .load(std::sync::atomic::Ordering::Relaxed)
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 
     pub fn set_hold_mode_enabled(&self, enabled: bool) {
         self.hold_mode_enabled
-            .store(enabled, std::sync::atomic::Ordering::Relaxed);
+            .store(enabled, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn get_group(&self, id: &str) -> Option<SkillGroup> {
@@ -278,12 +278,11 @@ impl AppState {
     }
 
     pub fn save_config_atomic(&self, mut new_config: Config) -> Result<(), AppError> {
-        new_config.last_modified = Some(chrono::Local::now().to_rfc3339());
-
         let config_path = self.get_config_path();
 
         let (old_config, old_groups, old_version, new_hotkey_map) = {
             let mut guard = self.config_state.write();
+            new_config.last_modified = Some(chrono::Local::now().to_rfc3339());
             let old_config = guard.config.clone();
             let old_groups = guard.groups.clone();
             let old_version = guard.version;

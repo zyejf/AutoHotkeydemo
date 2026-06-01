@@ -36,7 +36,7 @@ pub struct BackupInfo {
     pub size: u64,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ConfigDiff {
     #[serde(rename = "addedGroups")]
     pub added_groups: Vec<String>,
@@ -49,6 +49,9 @@ pub struct ConfigDiff {
 fn validate_path_in_backup_dir(backup_path: &Path, backup_dir: &Path) -> Result<(), AppError> {
     if !backup_dir.exists() {
         return Err(AppError::Config("备份目录不存在".to_string()));
+    }
+    if !backup_path.exists() {
+        return Err(AppError::Config("备份文件不存在".to_string()));
     }
     let canonical_backup = backup_path
         .canonicalize()
@@ -245,10 +248,7 @@ pub fn export_config(state: &AppState, path: &str) -> Result<(), AppError> {
 
     let config = state.read_config()?;
 
-    let json = serde_json::to_string_pretty(&config)
-        .map_err(|e| AppError::Config(format!("序列化配置失败: {e}")))?;
-
-    std::fs::write(path, json).map_err(|e| AppError::Config(format!("写入文件失败: {e}")))?;
+    ConfigRepository::save_to_path(&config, path).map_err(AppError::Config)?;
 
     tracing::info!("配置已导出: {}", path);
     Ok(())
