@@ -29,6 +29,9 @@ impl HotkeyMerger {
             .and_then(|k| k.first())
             .cloned()
             .unwrap_or_default();
+        if hotkey.is_empty() {
+            return;
+        }
         self.buffer.insert(hotkey, msg);
     }
 

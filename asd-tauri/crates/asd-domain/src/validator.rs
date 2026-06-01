@@ -294,6 +294,9 @@ impl ConfigValidator {
                             "enhanced_periodic 模式需要至少一个间隔",
                         );
                     }
+                    if data.intervals.contains(&0) {
+                        result.add_error(group_id, "intervals", "间隔不能为 0");
+                    }
                 } else {
                     result.add_error(
                         group_id,
@@ -317,6 +320,9 @@ impl ConfigValidator {
                             "pressDelays",
                             "enhanced_sequence 模式需要至少一个延迟",
                         );
+                    }
+                    if data.press_delays.contains(&0) {
+                        result.add_error(group_id, "pressDelays", "延迟不能为 0");
                     }
                 } else {
                     result.add_error(

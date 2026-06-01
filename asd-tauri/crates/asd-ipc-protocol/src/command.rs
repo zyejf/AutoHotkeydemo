@@ -139,6 +139,10 @@ mod tests {
             IpcCommand::Ping,
             IpcCommand::Shutdown,
             IpcCommand::HoldModeToggle { enabled: true },
+            IpcCommand::StartValidation {
+                group_id: "4".to_string(),
+            },
+            IpcCommand::StopValidation,
         ];
 
         for cmd in &cmds {

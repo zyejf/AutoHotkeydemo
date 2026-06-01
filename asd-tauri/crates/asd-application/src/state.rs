@@ -245,9 +245,11 @@ impl AppState {
     }
 
     pub fn update_watchdog_state(&self, status: WatchdogStateEnum, restart_count: u32) {
-        let mut ws = self.watchdog_state.write();
-        ws.status = status.clone();
-        ws.restart_count = restart_count;
+        {
+            let mut ws = self.watchdog_state.write();
+            ws.status = status.clone();
+            ws.restart_count = restart_count;
+        }
         self.emit_event(
             "executor_status",
             serde_json::json!({
@@ -314,13 +316,26 @@ impl AppState {
         if let Some(path) = config_path {
             if let Err(e) = ConfigRepository::save_to_path(&new_config, &path) {
                 tracing::error!("保存配置到磁盘失败，回滚内存状态: {e}");
-                let mut guard = self.config_state.write();
-                if guard.version == old_version + 1 {
-                    guard.config = old_config;
-                    guard.groups = old_groups;
-                    guard.version = old_version;
-                } else {
-                    tracing::warn!("保存失败后回滚跳过：版本已变更 (当前={}, 预期={})", guard.version, old_version + 1);
+                let restored_hotkey_map = {
+                    let mut guard = self.config_state.write();
+                    if guard.version == old_version + 1 {
+                        guard.config = old_config;
+                        guard.groups = old_groups;
+                        guard.version = old_version;
+                    } else {
+                        tracing::warn!("保存失败后回滚跳过：版本已变更 (当前={}, 预期={})", guard.version, old_version + 1);
+                    }
+                    let mut map = HashMap::new();
+                    for (id, group) in &guard.groups {
+                        if group.active {
+                            map.insert(group.hotkey.clone(), id.clone());
+                        }
+                    }
+                    map
+                };
+                {
+                    let mut registry = self.active_hotkeys.write();
+                    *registry = restored_hotkey_map;
                 }
                 return Err(AppError::Config(e));
             }
@@ -409,13 +424,26 @@ impl AppState {
         if let Some(path) = config_path {
             if let Err(e) = ConfigRepository::save_to_path(&saved_config, &path) {
                 tracing::error!("删除分组后保存配置失败，回滚内存状态: {e}");
-                let mut cs = self.config_state.write();
-                if cs.version == old_version + 1 {
-                    cs.config = old_config;
-                    cs.groups = old_groups;
-                    cs.version = old_version;
-                } else {
-                    tracing::warn!("删除分组回滚跳过：版本已变更 (当前={}, 预期={})", cs.version, old_version + 1);
+                let restored_hotkey_map = {
+                    let mut cs = self.config_state.write();
+                    if cs.version == old_version + 1 {
+                        cs.config = old_config;
+                        cs.groups = old_groups;
+                        cs.version = old_version;
+                    } else {
+                        tracing::warn!("删除分组回滚跳过：版本已变更 (当前={}, 预期={})", cs.version, old_version + 1);
+                    }
+                    let mut map = HashMap::new();
+                    for (id, group) in &cs.groups {
+                        if group.active {
+                            map.insert(group.hotkey.clone(), id.clone());
+                        }
+                    }
+                    map
+                };
+                {
+                    let mut registry = self.active_hotkeys.write();
+                    *registry = restored_hotkey_map;
                 }
                 return Err(AppError::Config(format!("删除分组后保存配置失败: {e}")));
             }
