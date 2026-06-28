@@ -84,16 +84,25 @@ pub async fn resume_recording(state: tauri::State<'_, Arc<AppState>>) -> Result<
     recording_service::resume_recording(&state)
 }
 
+/// 导出录制数据到文件。
+///
+/// 注意：此命令不需要 AppState，因为导出操作是纯文件 I/O，
+/// 不涉及内存状态或 IPC 通信。
 #[tauri::command]
 pub async fn export_recording(
     path: String,
     keys: Vec<String>,
     intervals: Vec<u64>,
+    delays: Vec<u64>,
     mode: String,
 ) -> Result<(), AppError> {
-    recording_service::export_recording(&path, &keys, &intervals, &mode)
+    recording_service::export_recording(&path, &keys, &intervals, &delays, &mode)
 }
 
+/// 从文件导入录制数据。
+///
+/// 注意：此命令不需要 AppState，因为导入仅返回数据供前端使用，
+/// 不直接修改内存配置或触发 IPC 同步。
 #[tauri::command]
 pub async fn import_recording(path: String) -> Result<ImportedRecording, AppError> {
     recording_service::import_recording(&path)

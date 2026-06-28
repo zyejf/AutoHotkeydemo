@@ -68,12 +68,22 @@ struct ConfigState {
 /// 释放写锁后再执行磁盘写入。如果磁盘写入失败，重新获取写锁回滚内存状态。
 /// 这意味着在磁盘写入期间，读操作可以看到尚未持久化的内存状态，
 /// 但避免了磁盘 I/O 阻塞所有读操作的风险。
+///
+/// # TOCTOU 权衡
+///
+/// `save_config_atomic` 和 `delete_group_atomic` 在 `config_state` 写锁内更新
+/// 配置和分组，释放锁后再获取 `active_hotkeys` 写锁更新热键注册。在两个锁释放
+/// 之间的极短时间窗口内，其他线程可能读取到不一致的状态（配置已更新但
+/// `active_hotkeys` 尚未同步）。这与 `set_group_active` 的 TOCTOU 权衡一致，
+/// 是可接受的，因为时间窗口极短且合并两个 RwLock 会增加锁争用。
 pub struct AppState {
     config_state: RwLock<ConfigState>,
     ipc_sender: Arc<dyn IpcSender>,
     pub(crate) active_hotkeys: RwLock<HashMap<String, String>>,
     pub emergency_mode: AtomicBool,
     pub hold_mode_enabled: AtomicBool,
+    pub recording_mode: RwLock<Option<String>>,
+    pub validation_in_progress: AtomicBool,
     pub watchdog_state: RwLock<WatchdogState>,
     #[allow(dead_code)]
     watchdog: Arc<dyn ProcessWatcher>,
@@ -95,6 +105,8 @@ impl AppState {
             active_hotkeys: RwLock::new(HashMap::new()),
             emergency_mode: AtomicBool::new(false),
             hold_mode_enabled: AtomicBool::new(false),
+            recording_mode: RwLock::new(None),
+            validation_in_progress: AtomicBool::new(false),
             watchdog_state: RwLock::new(WatchdogState::new()),
             watchdog,
             event_emitter,
@@ -125,6 +137,10 @@ impl AppState {
             .load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// 设置紧急释放模式。
+    ///
+    /// 注意：此方法使用 `store` 直接写入，绕过了命令层的 `compare_exchange` 保护。
+    /// 仅用于测试代码。生产代码应使用 `system_cmd::emergency_release`/`clear_emergency`。
     pub fn set_emergency_mode(&self, enabled: bool) {
         self.emergency_mode
             .store(enabled, std::sync::atomic::Ordering::SeqCst);
@@ -135,6 +151,10 @@ impl AppState {
             .load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// 设置长按模式。
+    ///
+    /// 注意：此方法使用 `store` 直接写入，绕过了命令层的 `compare_exchange` 保护。
+    /// 仅用于测试代码。生产代码应使用 `system_cmd::toggle_hold_mode`。
     pub fn set_hold_mode_enabled(&self, enabled: bool) {
         self.hold_mode_enabled
             .store(enabled, std::sync::atomic::Ordering::SeqCst);
@@ -182,6 +202,25 @@ impl AppState {
                 "active": active,
             }),
         );
+        Ok(())
+    }
+
+    /// 更新分组热键（仅配置，不更新 active_hotkeys）。
+    ///
+    /// 调用方责任：若分组处于 active 状态，必须自行维护 active_hotkeys 一致性。
+    /// 外部调用方应使用 `group_service::register_hotkey` 替代，后者自动处理
+    /// 活跃/非活跃分组的 active_hotkeys 和 IPC 注册。
+    pub(crate) fn set_group_hotkey(&self, group_id: &str, new_hotkey: &str) -> Result<(), AppError> {
+        let mut cs = self.config_state.write();
+        let group = cs
+            .groups
+            .get_mut(group_id)
+            .ok_or_else(|| AppError::GroupNotFound(group_id.to_string()))?;
+        group.hotkey = new_hotkey.to_string();
+        // 同步更新 config.group_settings 以保持双源一致
+        if let Some(gs) = cs.config.group_settings.get_mut(group_id) {
+            gs.hotkey = new_hotkey.to_string();
+        }
         Ok(())
     }
 
@@ -278,9 +317,17 @@ impl AppState {
     }
 
     pub fn save_config_atomic(&self, mut new_config: Config) -> Result<(), AppError> {
+        // 内部验证配置，防止无效配置被写入内存和磁盘
+        let validation = asd_domain::validator::ConfigValidator::validate_config(&new_config);
+        if !validation.is_valid() {
+            return Err(AppError::Validation(
+                validation.errors.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("; ")
+            ));
+        }
+
         let config_path = self.get_config_path();
 
-        let (old_config, old_groups, old_version, new_hotkey_map) = {
+        let (old_config, old_groups, old_version, new_hotkey_map, new_groups) = {
             let mut guard = self.config_state.write();
             new_config.last_modified = Some(chrono::Local::now().to_rfc3339());
             let old_config = guard.config.clone();
@@ -302,9 +349,9 @@ impl AppState {
             }
 
             guard.config = new_config.clone();
-            guard.groups = new_groups;
+            guard.groups = new_groups.clone();
             guard.version += 1;
-            (old_config, old_groups, old_version, new_hotkey_map)
+            (old_config, old_groups, old_version, new_hotkey_map, new_groups)
         };
 
         {
@@ -339,12 +386,20 @@ impl AppState {
                 return Err(AppError::Config(e));
             }
         } else {
-            tracing::debug!("save_config_atomic: config_path 未设置，仅更新内存状态");
+            tracing::warn!("save_config_atomic: config_path 未设置，仅更新内存状态，配置不会持久化到磁盘");
         }
+
+        self.sync_config_changes_to_ahk(&old_groups, &new_groups);
 
         Ok(())
     }
 
+    /// 注册热键到 active_hotkeys 映射。
+    ///
+    /// # 调用方责任
+    ///
+    /// 若同一 group_id 已注册了其他热键，调用方必须先调用 `unregister_hotkey`
+    /// 注销旧热键，否则旧热键将残留在 active_hotkeys 中导致热键泄漏。
     pub fn register_hotkey(
         &self,
         hotkey: &str,
@@ -378,10 +433,44 @@ impl AppState {
         Ok(registry.get(hotkey).cloned())
     }
 
+    pub fn get_hotkey_group_id(&self, group_id: &str) -> Result<Option<String>, AppError> {
+        let registry = self.active_hotkeys.read();
+        Ok(registry
+            .iter()
+            .find(|(_, gid)| *gid == group_id)
+            .map(|(h, _)| h.clone()))
+    }
+
     pub fn remove_group_hotkeys(&self, group_id: &str) -> Result<(), AppError> {
         let mut registry = self.active_hotkeys.write();
         registry.retain(|_, gid| gid != group_id);
         Ok(())
+    }
+
+    pub fn swap_hotkey(
+        &self,
+        new_hotkey: &str,
+        group_id: &str,
+    ) -> Result<Option<String>, AppError> {
+        let mut registry = self.active_hotkeys.write();
+        if let Some(existing) = registry.get(new_hotkey) {
+            if existing != group_id {
+                return Err(AppError::Validation(format!(
+                    "热键 '{}' 已被分组 '{}' 注册", new_hotkey, existing
+                )));
+            }
+        }
+        let old_hotkey = registry
+            .iter()
+            .find(|(_, gid)| *gid == group_id)
+            .map(|(h, _)| h.clone());
+        if let Some(ref old) = old_hotkey {
+            if old != new_hotkey {
+                registry.remove(old);
+            }
+        }
+        registry.insert(new_hotkey.to_string(), group_id.to_string());
+        Ok(old_hotkey)
     }
 
     pub fn get_all_registered_hotkeys(&self) -> Result<Vec<(String, String)>, AppError> {
@@ -392,10 +481,108 @@ impl AppState {
             .collect())
     }
 
+    fn group_params_changed(old: &SkillGroup, new: &SkillGroup) -> bool {
+        old.mode != new.mode
+            || old.mode_data != new.mode_data
+            || old.key_press_duration != new.key_press_duration
+            || old.hold_keys != new.hold_keys
+            || old.hold_mode != new.hold_mode
+    }
+
+    /// 将配置变更同步到 AHK 子进程。
+    ///
+    /// # 热键变更窗口
+    ///
+    /// 热键注销和重注册通过独立的 IPC 命令顺序发送。在 UnregisterHotkey 和
+    /// RegisterHotkey 之间，目标热键可能短暂处于未注册状态（亚毫秒级窗口），
+    /// 用户按键可能不被响应。此为 fire-and-forget IPC 的固有局限。
+    ///
+    /// # 并发命令乱序风险
+    ///
+    /// 此方法使用 `try_send_ipc_command`（fire-and-forget）发送热键注册/注销命令。
+    /// 如果 `toggle_group` 等并发操作同时发送热键命令，AHK 侧可能收到乱序的
+    /// 注册/注销命令，导致热键注册状态与 Rust 侧 `active_hotkeys` 不一致。
+    /// 此风险在实际场景中极低（需要高并发配置修改+分组切换），且 AHK 重连后
+    /// 会通过 `post_connect_callback` 重新同步状态。
+    fn sync_config_changes_to_ahk(&self, old_groups: &IndexMap<String, SkillGroup>, new_groups: &IndexMap<String, SkillGroup>) {
+        let mut hotkeys_to_unregister: Vec<String> = Vec::new();
+        let mut hotkeys_to_register: Vec<(String, String)> = Vec::new();
+        let mut toggle_commands: Vec<IpcCommand> = Vec::new();
+
+        for (id, new_group) in new_groups {
+            let was_active = old_groups.get(id).map(|g| g.active).unwrap_or(false);
+
+            if new_group.active && !was_active {
+                toggle_commands.push(crate::group_service::build_toggle_command(id, true, new_group));
+                hotkeys_to_register.push((new_group.hotkey.clone(), id.clone()));
+            } else if !new_group.active && was_active {
+                if let Some(old_group) = old_groups.get(id) {
+                    toggle_commands.push(crate::group_service::build_toggle_command(id, false, old_group));
+                    hotkeys_to_unregister.push(old_group.hotkey.clone());
+                }
+            } else if new_group.active && was_active {
+                if let Some(old_group) = old_groups.get(id) {
+                    if old_group.hotkey != new_group.hotkey {
+                        tracing::info!("分组 {} 热键变更 {} → {}，同步到 AHK", id, old_group.hotkey, new_group.hotkey);
+                        hotkeys_to_unregister.push(old_group.hotkey.clone());
+                        hotkeys_to_register.push((new_group.hotkey.clone(), id.clone()));
+                    }
+                    if Self::group_params_changed(old_group, new_group) {
+                        tracing::info!("分组 {} 参数已变更，重新同步到 AHK", id);
+                        toggle_commands.push(crate::group_service::build_toggle_command(id, true, new_group));
+                    }
+                }
+            }
+        }
+
+        for (id, old_group) in old_groups {
+            if old_group.active && !new_groups.contains_key(id) {
+                toggle_commands.push(crate::group_service::build_toggle_command(id, false, old_group));
+                hotkeys_to_unregister.push(old_group.hotkey.clone());
+            }
+        }
+
+        let new_hotkey_set: std::collections::HashSet<&str> = hotkeys_to_register.iter().map(|(h, _)| h.as_str()).collect();
+        for hotkey in &hotkeys_to_unregister {
+            if !new_hotkey_set.contains(hotkey.as_str()) {
+                let unreg_cmd = IpcCommand::UnregisterHotkey {
+                    hotkey: hotkey.clone(),
+                };
+                self.try_send_ipc_command(&unreg_cmd);
+            }
+        }
+        for (hotkey, group_id) in &hotkeys_to_register {
+            let reg_cmd = IpcCommand::RegisterHotkey {
+                hotkey: hotkey.clone(),
+                group_id: group_id.clone(),
+            };
+            self.try_send_ipc_command(&reg_cmd);
+        }
+
+        for cmd in toggle_commands {
+            self.try_send_ipc_command(&cmd);
+        }
+    }
+
+    /// 原子删除分组：先更新内存，再写磁盘，最后同步 IPC。
+    ///
+    /// # 执行顺序
+    ///
+    /// 1. 在 `config_state` 写锁内删除分组、递增版本号
+    /// 2. 更新 `active_hotkeys`（移除已删除分组的热键）
+    /// 3. 写入磁盘（若失败则回滚内存状态）
+    /// 4. 发送 IPC 命令（ToggleGroup(false) + UnregisterHotkey）
+    ///
+    /// # IPC 失败行为
+    ///
+    /// 磁盘写入成功后发送 IPC 命令（ToggleGroup(false) + UnregisterHotkey）。
+    /// 若 IPC 发送失败，内存和磁盘状态已提交（分组已删除），但 AHK 子进程可能
+    /// 仍在执行该分组的按键序列且热键钩子仍然注册。此为已知设计权衡——
+    /// IPC 失败时无法回滚磁盘写入，使用 `try_send_ipc_command` 仅记录警告。
     pub fn delete_group_atomic(&self, group_id: &str) -> Result<bool, AppError> {
         let config_path = self.get_config_path();
 
-        let (is_active, ipc_cmd, saved_config, old_config, old_groups, old_version) = {
+        let (is_active, ipc_cmd, deleted_hotkey, saved_config, old_config, old_groups, old_version) = {
             let mut cs = self.config_state.write();
 
             if !cs.config.group_settings.contains_key(group_id) {
@@ -414,18 +601,25 @@ impl AppState {
 
             let saved_config = cs.config.clone();
 
-            let ipc_cmd = if is_active {
-                deleted_group.map(|g| crate::group_service::build_toggle_command(group_id, false, &g))
+            let deleted_hotkey = if is_active {
+                deleted_group.as_ref().map(|g| g.hotkey.clone())
             } else {
                 None
             };
 
-            (is_active, ipc_cmd, saved_config, old_config, old_groups, old_version)
+            let ipc_cmd = if is_active {
+                deleted_group.as_ref().map(|g| crate::group_service::build_toggle_command(group_id, false, g))
+            } else {
+                None
+            };
+
+            (is_active, ipc_cmd, deleted_hotkey, saved_config, old_config, old_groups, old_version)
         };
 
-        if is_active {
-            self.active_hotkeys.write().retain(|_, gid| gid != group_id);
-        }
+        // 无论是否活跃，都清理 active_hotkeys 中可能残留的热键
+        // （由于 config_state 和 active_hotkeys 使用不同 RwLock，非活跃分组
+        // 的热键可能因 TOCTOU 窗口残留在 active_hotkeys 中）
+        self.active_hotkeys.write().retain(|_, gid| gid != group_id);
 
         if let Some(path) = config_path {
             if let Err(e) = ConfigRepository::save_to_path(&saved_config, &path) {
@@ -457,6 +651,10 @@ impl AppState {
 
         if let Some(cmd) = ipc_cmd {
             self.try_send_ipc_command(&cmd);
+        }
+        if let Some(hotkey) = deleted_hotkey {
+            let unreg_cmd = IpcCommand::UnregisterHotkey { hotkey };
+            self.try_send_ipc_command(&unreg_cmd);
         }
 
         tracing::info!("已删除分组: {}", group_id);
@@ -840,5 +1038,352 @@ mod tests {
 
         state.set_group_active("1", true).unwrap();
         assert_eq!(state.active_group_ids(), vec!["1"]);
+    }
+
+    struct RecordingMockIpcSender {
+        commands: std::sync::Mutex<Vec<IpcCommand>>,
+    }
+    impl RecordingMockIpcSender {
+        fn new() -> Self {
+            Self { commands: std::sync::Mutex::new(Vec::new()) }
+        }
+        fn take_commands(&self) -> Vec<IpcCommand> {
+            std::mem::take(&mut *self.commands.lock().unwrap())
+        }
+    }
+    impl IpcSender for RecordingMockIpcSender {
+        fn send_command(&self, cmd: IpcCommand) -> Result<u64, String> {
+            self.commands.lock().unwrap().push(cmd);
+            Ok(1)
+        }
+        fn send_and_wait(
+            &self,
+            _cmd: IpcCommand,
+            _timeout: Duration,
+        ) -> Result<IpcMessage, String> {
+            Ok(IpcMessage::response(1, 0, "ok", None))
+        }
+        fn send_message(&self, _msg: &IpcMessage) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    fn make_recording_state() -> (Arc<AppState>, Arc<RecordingMockIpcSender>) {
+        let config = make_test_config();
+        let ipc_sender = Arc::new(RecordingMockIpcSender::new());
+        let watchdog = Arc::new(MockProcessWatcher);
+        let event_emitter = Arc::new(MockEventEmitter::new());
+        let state = Arc::new(AppState::new(config, ipc_sender.clone(), watchdog, event_emitter));
+        (state, ipc_sender)
+    }
+
+    fn base_group() -> SkillGroup {
+        SkillGroup {
+            id: "1".to_string(),
+            name: "测试组".to_string(),
+            hotkey: "F1".to_string(),
+            active: false,
+            mode: "periodic".to_string(),
+            key_press_duration: 10,
+            hold_keys: None,
+            hold_mode: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        }
+    }
+
+    #[test]
+    fn test_group_params_changed_identical() {
+        let g = base_group();
+        assert!(!AppState::group_params_changed(&g, &g));
+    }
+
+    #[test]
+    fn test_group_params_changed_mode() {
+        let old_g = base_group();
+        let mut new_g = old_g.clone();
+        new_g.mode = "sequence".to_string();
+        assert!(AppState::group_params_changed(&old_g, &new_g));
+    }
+
+    #[test]
+    fn test_group_params_changed_mode_data() {
+        let old_g = base_group();
+        let mut new_g = old_g.clone();
+        new_g.mode_data = ModeData::Periodic(PeriodicData {
+            keys: vec!["2".to_string()],
+            intervals: vec![100],
+        });
+        assert!(AppState::group_params_changed(&old_g, &new_g));
+    }
+
+    #[test]
+    fn test_group_params_changed_key_press_duration() {
+        let old_g = base_group();
+        let mut new_g = old_g.clone();
+        new_g.key_press_duration = 20;
+        assert!(AppState::group_params_changed(&old_g, &new_g));
+    }
+
+    #[test]
+    fn test_group_params_changed_hold_keys() {
+        let old_g = base_group();
+        let mut new_g = old_g.clone();
+        new_g.hold_keys = Some(vec!["Shift".to_string()]);
+        assert!(AppState::group_params_changed(&old_g, &new_g));
+    }
+
+    #[test]
+    fn test_group_params_changed_hold_mode() {
+        let old_g = base_group();
+        let mut new_g = old_g.clone();
+        new_g.hold_mode = Some("continuous".to_string());
+        assert!(AppState::group_params_changed(&old_g, &new_g));
+    }
+
+    #[test]
+    fn test_group_params_changed_hotkey() {
+        let old_g = base_group();
+        let mut new_g = old_g.clone();
+        new_g.hotkey = "F2".to_string();
+        assert!(!AppState::group_params_changed(&old_g, &new_g));
+    }
+
+    #[test]
+    fn test_sync_newly_activated_group() {
+        let (state, sender) = make_recording_state();
+
+        let mut old_groups = IndexMap::new();
+        old_groups.insert("1".to_string(), SkillGroup {
+            id: "1".to_string(),
+            name: "测试组".to_string(),
+            hotkey: "F1".to_string(),
+            active: false,
+            mode: "periodic".to_string(),
+            key_press_duration: 10,
+            hold_keys: None,
+            hold_mode: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+
+        state.set_group_active("1", true).unwrap();
+        sender.take_commands();
+
+        let new_groups = state.read_groups().unwrap();
+        state.sync_config_changes_to_ahk(&old_groups, &new_groups);
+
+        let cmds = sender.take_commands();
+        assert_eq!(cmds.len(), 2);
+        match &cmds[0] {
+            IpcCommand::RegisterHotkey { hotkey, group_id } => {
+                assert_eq!(hotkey, "F1");
+                assert_eq!(group_id, "1");
+            }
+            other => panic!("Expected RegisterHotkey, got {:?}", other),
+        }
+        match &cmds[1] {
+            IpcCommand::ToggleGroup { group_id, active, .. } => {
+                assert_eq!(group_id, "1");
+                assert!(*active);
+            }
+            other => panic!("Expected ToggleGroup(true), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_sync_deactivated_group() {
+        let (state, sender) = make_recording_state();
+        state.set_group_active("1", true).unwrap();
+        sender.take_commands();
+
+        let mut old_groups = IndexMap::new();
+        old_groups.insert("1".to_string(), SkillGroup {
+            id: "1".to_string(),
+            name: "测试组".to_string(),
+            hotkey: "F1".to_string(),
+            active: true,
+            mode: "periodic".to_string(),
+            key_press_duration: 10,
+            hold_keys: None,
+            hold_mode: None,
+            mode_data: ModeData::Periodic(PeriodicData {
+                keys: vec!["1".to_string()],
+                intervals: vec![50],
+            }),
+        });
+
+        state.set_group_active("1", false).unwrap();
+        let new_groups = state.read_groups().unwrap();
+        state.sync_config_changes_to_ahk(&old_groups, &new_groups);
+
+        let cmds = sender.take_commands();
+        assert_eq!(cmds.len(), 2);
+        match &cmds[0] {
+            IpcCommand::UnregisterHotkey { hotkey } => {
+                assert_eq!(hotkey, "F1");
+            }
+            other => panic!("Expected UnregisterHotkey, got {:?}", other),
+        }
+        match &cmds[1] {
+            IpcCommand::ToggleGroup { group_id, active, .. } => {
+                assert_eq!(group_id, "1");
+                assert!(!*active);
+            }
+            other => panic!("Expected ToggleGroup(false), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_sync_hotkey_change() {
+        let (state, sender) = make_recording_state();
+        state.set_group_active("1", true).unwrap();
+        sender.take_commands();
+
+        let mut new_config = make_test_config();
+        new_config.group_settings.get_mut("1").unwrap().hotkey = "F2".to_string();
+        state.save_config_atomic(new_config).unwrap();
+
+        let cmds = sender.take_commands();
+        assert_eq!(cmds.len(), 2);
+        match &cmds[0] {
+            IpcCommand::UnregisterHotkey { hotkey } => {
+                assert_eq!(hotkey, "F1");
+            }
+            other => panic!("Expected UnregisterHotkey(F1), got {:?}", other),
+        }
+        match &cmds[1] {
+            IpcCommand::RegisterHotkey { hotkey, group_id } => {
+                assert_eq!(hotkey, "F2");
+                assert_eq!(group_id, "1");
+            }
+            other => panic!("Expected RegisterHotkey(F2), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_sync_param_change() {
+        let (state, sender) = make_recording_state();
+        state.set_group_active("1", true).unwrap();
+        sender.take_commands();
+
+        let mut new_config = make_test_config();
+        new_config.group_settings.get_mut("1").unwrap().key_press_duration = Some(99);
+        state.save_config_atomic(new_config).unwrap();
+
+        let cmds = sender.take_commands();
+        assert_eq!(cmds.len(), 1);
+        match &cmds[0] {
+            IpcCommand::ToggleGroup { group_id, active, .. } => {
+                assert_eq!(group_id, "1");
+                assert!(*active);
+            }
+            other => panic!("Expected ToggleGroup(true), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_sync_deleted_active_group() {
+        let (state, sender) = make_recording_state();
+        state.set_group_active("1", true).unwrap();
+        sender.take_commands();
+
+        let new_config = Config {
+            control_hotkeys: ControlHotkeys {
+                emergency: "F10".to_string(),
+                release_all_holds: "^r".to_string(),
+                show_status: "^0".to_string(),
+                toggle_all: "^1".to_string(),
+                toggle_hold_mode: "^h".to_string(),
+            },
+            group_settings: IndexMap::new(),
+            hold_settings: None,
+            last_modified: None,
+            version: Some("3.0".to_string()),
+        };
+        state.save_config_atomic(new_config).unwrap();
+
+        let cmds = sender.take_commands();
+        assert_eq!(cmds.len(), 2);
+        match &cmds[0] {
+            IpcCommand::UnregisterHotkey { hotkey } => {
+                assert_eq!(hotkey, "F1");
+            }
+            other => panic!("Expected UnregisterHotkey, got {:?}", other),
+        }
+        match &cmds[1] {
+            IpcCommand::ToggleGroup { group_id, active, .. } => {
+                assert_eq!(group_id, "1");
+                assert!(!*active);
+            }
+            other => panic!("Expected ToggleGroup(false), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_sync_no_changes() {
+        let (state, sender) = make_recording_state();
+        sender.take_commands();
+
+        let new_config = make_test_config();
+        state.save_config_atomic(new_config).unwrap();
+
+        let cmds = sender.take_commands();
+        assert!(cmds.is_empty(), "无变更时不应发送任何 IPC 命令，实际收到 {} 条", cmds.len());
+    }
+
+    #[test]
+    fn test_sync_hotkey_swap_no_unregister() {
+        let mut config = make_test_config();
+        config.group_settings.insert(
+            "2".to_string(),
+            GroupConfig {
+                hotkey: "F2".to_string(),
+                key_press_duration: Some(10),
+                name: Some("测试组2".to_string()),
+                mode: "periodic".to_string(),
+                hold_keys: None,
+                hold_mode: None,
+                hold_pattern: None,
+                hold_triggers: None,
+                mode_data: ModeData::Periodic(PeriodicData {
+                    keys: vec!["2".to_string()],
+                    intervals: vec![100],
+                }),
+            },
+        );
+        let ipc_sender = Arc::new(RecordingMockIpcSender::new());
+        let watchdog = Arc::new(MockProcessWatcher);
+        let event_emitter = Arc::new(MockEventEmitter::new());
+        let state = Arc::new(AppState::new(config, ipc_sender.clone(), watchdog, event_emitter));
+
+        state.set_group_active("1", true).unwrap();
+        state.set_group_active("2", true).unwrap();
+        ipc_sender.take_commands();
+
+        let mut new_config = state.read_config().unwrap();
+        new_config.group_settings.get_mut("1").unwrap().hotkey = "F2".to_string();
+        new_config.group_settings.get_mut("2").unwrap().hotkey = "F1".to_string();
+        state.save_config_atomic(new_config).unwrap();
+
+        let cmds = ipc_sender.take_commands();
+
+        let unreg_count = cmds.iter().filter(|c| matches!(c, IpcCommand::UnregisterHotkey { .. })).count();
+        assert_eq!(unreg_count, 0, "热键交换场景不应发送 UnregisterHotkey 命令");
+
+        let reg_cmds: Vec<_> = cmds.iter().filter_map(|c| {
+            if let IpcCommand::RegisterHotkey { hotkey, group_id } = c {
+                Some((hotkey.clone(), group_id.clone()))
+            } else {
+                None
+            }
+        }).collect();
+        assert_eq!(reg_cmds.len(), 2);
+        assert!(reg_cmds.contains(&("F2".to_string(), "1".to_string())));
+        assert!(reg_cmds.contains(&("F1".to_string(), "2".to_string())));
     }
 }

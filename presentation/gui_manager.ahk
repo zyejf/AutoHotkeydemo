@@ -30,7 +30,10 @@ class GUIManager {
         "hold", "长按",
         "enhanced_periodic", "增强周期",
         "enhanced_sequence", "增强序列",
-        "enhanced_hybrid", "增强混合"
+        "enhanced_hybrid", "增强混合",
+        "joystick_periodic", "手柄周期",
+        "joystick_sequence", "手柄序列",
+        "joystick_hold", "手柄长按"
     )
     static gui := ""
     static controls := Map()
@@ -287,23 +290,38 @@ class GUIManager {
         LV := GUIManager.controls["GroupLV"]
         selected := LV.GetNext()
 
+        needsRebuild := false
         for id, group in SkillManager.Groups {
-            modeDisplay := GUIManager.modeNames.Has(group.mode) ? GUIManager.modeNames[group.mode] : group.mode
-            status := group.active ? "运行中" : "停止"
             idStr := String(id)
-
             if GUIManager._rowIndex.Has(idStr) {
                 rowIdx := GUIManager._rowIndex[idStr]
-                if rowIdx <= LV.GetCount() && LV.GetText(rowIdx, 1) = idStr {
-                    LV.Modify(rowIdx, , idStr, group.hotkey, modeDisplay, status)
-                } else {
-                    GUIManager._rowIndex.Delete(idStr)
-                    LV.Add(, idStr, group.hotkey, modeDisplay, status)
-                    GUIManager._rowIndex[idStr] := LV.GetCount()
+                if rowIdx > LV.GetCount() || LV.GetText(rowIdx, 1) != idStr {
+                    needsRebuild := true
+                    break
                 }
             } else {
+                needsRebuild := true
+                break
+            }
+        }
+
+        if needsRebuild {
+            LV.Delete()
+            GUIManager._rowIndex := Map()
+            for id, group in SkillManager.Groups {
+                modeDisplay := GUIManager.modeNames.Has(group.mode) ? GUIManager.modeNames[group.mode] : group.mode
+                status := group.active ? "运行中" : "停止"
+                idStr := String(id)
                 LV.Add(, idStr, group.hotkey, modeDisplay, status)
                 GUIManager._rowIndex[idStr] := LV.GetCount()
+            }
+        } else {
+            for id, group in SkillManager.Groups {
+                modeDisplay := GUIManager.modeNames.Has(group.mode) ? GUIManager.modeNames[group.mode] : group.mode
+                status := group.active ? "运行中" : "停止"
+                idStr := String(id)
+                rowIdx := GUIManager._rowIndex[idStr]
+                LV.Modify(rowIdx, , idStr, group.hotkey, modeDisplay, status)
             }
         }
 

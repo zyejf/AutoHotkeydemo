@@ -1,7 +1,7 @@
 use asd_domain::config::*;
 
 static MAIN_CONFIG_JSON: &str = include_str!("../../config.json");
-static TESTS_CONFIG_JSON: &str = include_str!("../../tests_config.json");
+static TESTS_CONFIG_JSON: &str = include_str!("../../../tests/fixtures/configs/tests_config.json");
 
 fn strip_bom(s: &str) -> &str {
     s.trim_start_matches('\u{feff}')

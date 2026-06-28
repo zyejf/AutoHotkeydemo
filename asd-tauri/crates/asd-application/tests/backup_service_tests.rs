@@ -1,6 +1,7 @@
 mod common;
 
 use asd_application::backup_service::*;
+use asd_application::error::AppError;
 use common::*;
 
 #[test]
@@ -139,4 +140,53 @@ fn test_create_and_compare_configs() {
     assert!(diff.added_groups.is_empty(), "未修改时不应有新增组");
     assert!(diff.removed_groups.is_empty(), "未修改时不应有删除组");
     assert!(diff.modified_groups.is_empty(), "未修改时不应有修改组");
+}
+
+#[test]
+fn test_backup_to_readonly_directory() {
+    let (state, dir) = make_test_state_with_path();
+
+    // 在 backups 路径上创建一个文件（而非目录），导致备份写入失败。
+    // Windows 上只读目录仍允许创建文件，因此用文件占用路径模拟不可写场景：
+    // backup_dir.exists() 返回 true（文件存在），跳过 create_dir_all，
+    // 随后 save_to_path 尝试在"文件"下创建子路径会失败。
+    let backups_path = dir.path().join("backups");
+    std::fs::write(&backups_path, "this is a file, not a directory").unwrap();
+
+    let result = create_backup(&state);
+    assert!(
+        result.is_err(),
+        "备份目录被文件占用时 create_backup 应返回错误"
+    );
+    assert!(
+        matches!(result, Err(AppError::Config(_))),
+        "应返回 Config 错误（写入失败），实际: {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_restore_from_corrupted_backup() {
+    let (state, dir) = make_test_state_with_path();
+
+    // 创建 backups 目录
+    let backups_dir = dir.path().join("backups");
+    std::fs::create_dir_all(&backups_dir).unwrap();
+
+    // 创建一个损坏的备份文件（无效 JSON 内容），文件名须以 backup_ 开头
+    // 以通过 restore_backup 的前置校验
+    let corrupted_filename = "backup_corrupted.json";
+    let corrupted_path = backups_dir.join(corrupted_filename);
+    std::fs::write(&corrupted_path, "{invalid json content!!!}").unwrap();
+
+    let result = restore_backup(&state, corrupted_filename);
+    assert!(
+        result.is_err(),
+        "恢复损坏的备份文件应返回错误"
+    );
+    assert!(
+        matches!(result, Err(AppError::Config(_))),
+        "损坏的 JSON 应返回 Config 错误（解析失败），实际: {:?}",
+        result
+    );
 }

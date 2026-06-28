@@ -1,4 +1,4 @@
-use crate::config::{GroupConfig, ModeData};
+use crate::config::{Config, GroupConfig, GroupItem, ModeData};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -55,9 +55,56 @@ impl Default for ValidationResult {
     }
 }
 
+/// 有效热键键名列表（AHK v2 支持的非修饰符键）
+/// validate_hotkey_format 和 normalize_hotkey_for_comparison 共享此列表
+const VALID_HOTKEY_KEYS: &[&str] = &[
+    "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+    "F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24",
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+    "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
+    "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
+    "Space", "Enter", "Esc", "Tab", "Backspace", "Delete", "Insert",
+    "Up", "Down", "Left", "Right", "Home", "End", "PgUp", "PgDn",
+    "LButton", "RButton", "MButton",
+    "CapsLock", "ScrollLock", "Pause", "PrintScreen", "AppsKey",
+    "WheelUp", "WheelDown", "WheelLeft", "WheelRight",
+    "Numpad0", "Numpad1", "Numpad2", "Numpad3", "Numpad4",
+    "Numpad5", "Numpad6", "Numpad7", "Numpad8", "Numpad9",
+    "NumpadEnter", "NumpadDot", "NumpadAdd", "NumpadSub",
+    "NumpadMult", "NumpadDiv", "NumpadDel", "NumpadIns",
+    "NumpadClear", "NumpadUp", "NumpadDown", "NumpadLeft", "NumpadRight",
+    "NumpadHome", "NumpadEnd", "NumpadPgUp", "NumpadPgDn",
+    "Volume_Up", "Volume_Down", "Volume_Mute",
+    "Browser_Back", "Browser_Forward", "Browser_Refresh", "Browser_Stop",
+    "Browser_Search", "Browser_Favorites", "Browser_Home",
+    "Media_Next", "Media_Prev", "Media_Stop", "Media_Play_Pause",
+    "Launch_Mail", "Launch_Media", "Launch_App1", "Launch_App2",
+];
+
 pub struct ConfigValidator;
 
 impl ConfigValidator {
+    pub fn validate_config(config: &Config) -> ValidationResult {
+        let mut result = Self::validate(&config.group_settings);
+
+        Self::validate_hotkey_format("_global", &config.control_hotkeys.emergency, &mut result);
+        Self::validate_hotkey_format("_global", &config.control_hotkeys.release_all_holds, &mut result);
+        Self::validate_hotkey_format("_global", &config.control_hotkeys.show_status, &mut result);
+        Self::validate_hotkey_format("_global", &config.control_hotkeys.toggle_all, &mut result);
+        Self::validate_hotkey_format("_global", &config.control_hotkeys.toggle_hold_mode, &mut result);
+
+        if let Some(ref hs) = config.hold_settings {
+            if hs.check_interval == 0 {
+                result.add_error("_global", "checkInterval", "HoldSettings.checkInterval 不能为 0");
+            }
+            if hs.press_speed == 0 {
+                result.add_error("_global", "pressSpeed", "HoldSettings.pressSpeed 不能为 0");
+            }
+        }
+
+        result
+    }
+
     pub fn validate(groups: &IndexMap<String, GroupConfig>) -> ValidationResult {
         let mut result = ValidationResult::new();
 
@@ -91,82 +138,19 @@ impl ConfigValidator {
             return;
         }
 
-        let valid_prefixes = ["^", "!", "+", "#", "~", "*"];
+        let valid_prefixes = ["^", "!", "+", "#", "~", "*", "<^", ">^", "<!", ">!", "<+", ">+", "<#", ">#"];
         let mut rest = hotkey;
-        while let Some(&prefix) = valid_prefixes.iter().find(|p| rest.starts_with(**p)) {
+        while let Some(&prefix) = valid_prefixes.iter().find(|p| rest.starts_with(*p)) {
             rest = &rest[prefix.len()..];
         }
 
-        let valid_keys = [
-            "F1",
-            "F2",
-            "F3",
-            "F4",
-            "F5",
-            "F6",
-            "F7",
-            "F8",
-            "F9",
-            "F10",
-            "F11",
-            "F12",
-            "0",
-            "1",
-            "2",
-            "3",
-            "4",
-            "5",
-            "6",
-            "7",
-            "8",
-            "9",
-            "a",
-            "b",
-            "c",
-            "d",
-            "e",
-            "f",
-            "g",
-            "h",
-            "i",
-            "j",
-            "k",
-            "l",
-            "m",
-            "n",
-            "o",
-            "p",
-            "q",
-            "r",
-            "s",
-            "t",
-            "u",
-            "v",
-            "w",
-            "x",
-            "y",
-            "z",
-            "Space",
-            "Enter",
-            "Esc",
-            "Tab",
-            "Backspace",
-            "Delete",
-            "Insert",
-            "Up",
-            "Down",
-            "Left",
-            "Right",
-            "Home",
-            "End",
-            "PgUp",
-            "PgDn",
-            "LButton",
-            "RButton",
-            "MButton",
-        ];
+        if rest.is_empty() {
+            result.add_error(group_id, "hotkey", "热键必须包含非修饰符键");
+            return;
+        }
 
-        if !valid_keys.contains(&rest) && !valid_keys.contains(&rest.to_lowercase().as_str()) {
+        // 使用 eq_ignore_ascii_case 进行大小写不敏感匹配，正确处理 PascalCase 键名如 "Space"/"space"
+        if !VALID_HOTKEY_KEYS.iter().any(|k| k.eq_ignore_ascii_case(rest)) {
             result.add_warning(&format!(
                 "[{}] 热键 '{}' 格式可能不正确，请确认是否为有效的 AHK 热键",
                 group_id, hotkey
@@ -178,19 +162,20 @@ impl ConfigValidator {
         groups: &IndexMap<String, GroupConfig>,
         result: &mut ValidationResult,
     ) {
-        let mut seen: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+        let mut seen: std::collections::HashMap<String, &str> = std::collections::HashMap::new();
         for (id, group) in groups {
             if group.hotkey.is_empty() {
                 continue;
             }
-            if let Some(prev_id) = seen.get(group.hotkey.as_str()) {
+            let normalized = normalize_hotkey_for_comparison(&group.hotkey);
+            if let Some(prev_id) = seen.get(&normalized) {
                 result.add_error(
                     id,
                     "hotkey",
                     &format!("热键 '{}' 与分组 '{}' 重复", group.hotkey, prev_id),
                 );
             } else {
-                seen.insert(&group.hotkey, id);
+                seen.insert(normalized, id);
             }
         }
     }
@@ -256,6 +241,9 @@ impl ConfigValidator {
                     if data.delays.is_empty() {
                         result.add_error(group_id, "delays", "sequence 模式需要至少一个延迟");
                     }
+                    if data.delays.contains(&0) {
+                        result.add_error(group_id, "delays", "延迟不能为 0");
+                    }
                 } else {
                     result.add_error(group_id, "mode_data", "sequence 模式数据类型不匹配");
                 }
@@ -264,6 +252,33 @@ impl ConfigValidator {
                 if let ModeData::Hybrid(data) = mode_data {
                     if data.groups.is_empty() {
                         result.add_error(group_id, "groups", "hybrid 模式需要至少一个子组");
+                    }
+                    for (i, sub) in data.groups.iter().enumerate() {
+                        let sub_label = format!("groups[{}]", i);
+                        match sub {
+                            GroupItem::Periodic { press_keys, intervals } => {
+                                if press_keys.is_empty() {
+                                    result.add_error(group_id, &sub_label, "periodic 子组需要至少一个按键");
+                                }
+                                if intervals.is_empty() {
+                                    result.add_error(group_id, &sub_label, "periodic 子组需要至少一个间隔");
+                                }
+                                if intervals.contains(&0) {
+                                    result.add_error(group_id, &sub_label, "periodic 子组间隔不能为 0");
+                                }
+                            }
+                            GroupItem::Sequence { press_keys, delays, .. } => {
+                                if press_keys.is_empty() {
+                                    result.add_error(group_id, &sub_label, "sequence 子组需要至少一个按键");
+                                }
+                                if delays.is_empty() {
+                                    result.add_error(group_id, &sub_label, "sequence 子组需要至少一个延迟");
+                                }
+                                if delays.contains(&0) {
+                                    result.add_error(group_id, &sub_label, "sequence 子组延迟不能为 0");
+                                }
+                            }
+                        }
                     }
                 } else {
                     result.add_error(group_id, "mode_data", "hybrid 模式数据类型不匹配");
@@ -341,6 +356,33 @@ impl ConfigValidator {
                             "enhanced_hybrid 模式需要至少一个子组",
                         );
                     }
+                    for (i, sub) in data.groups.iter().enumerate() {
+                        let sub_label = format!("groups[{}]", i);
+                        match sub {
+                            GroupItem::Periodic { press_keys, intervals } => {
+                                if press_keys.is_empty() {
+                                    result.add_error(group_id, &sub_label, "periodic 子组需要至少一个按键");
+                                }
+                                if intervals.is_empty() {
+                                    result.add_error(group_id, &sub_label, "periodic 子组需要至少一个间隔");
+                                }
+                                if intervals.contains(&0) {
+                                    result.add_error(group_id, &sub_label, "periodic 子组间隔不能为 0");
+                                }
+                            }
+                            GroupItem::Sequence { press_keys, delays, .. } => {
+                                if press_keys.is_empty() {
+                                    result.add_error(group_id, &sub_label, "sequence 子组需要至少一个按键");
+                                }
+                                if delays.is_empty() {
+                                    result.add_error(group_id, &sub_label, "sequence 子组需要至少一个延迟");
+                                }
+                                if delays.contains(&0) {
+                                    result.add_error(group_id, &sub_label, "sequence 子组延迟不能为 0");
+                                }
+                            }
+                        }
+                    }
                 } else {
                     result.add_error(group_id, "mode_data", "enhanced_hybrid 模式数据类型不匹配");
                 }
@@ -353,6 +395,16 @@ impl ConfigValidator {
                             "pressKeys",
                             "joystick_periodic 模式需要至少一个按键",
                         );
+                    }
+                    if data.intervals.is_empty() {
+                        result.add_error(
+                            group_id,
+                            "intervals",
+                            "joystick_periodic 模式需要至少一个间隔",
+                        );
+                    }
+                    if data.intervals.contains(&0) {
+                        result.add_error(group_id, "intervals", "间隔不能为 0");
                     }
                 } else {
                     result.add_error(
@@ -370,6 +422,16 @@ impl ConfigValidator {
                             "pressKeys",
                             "joystick_sequence 模式需要至少一个按键",
                         );
+                    }
+                    if data.delays.is_empty() {
+                        result.add_error(
+                            group_id,
+                            "delays",
+                            "joystick_sequence 模式需要至少一个延迟",
+                        );
+                    }
+                    if data.delays.contains(&0) {
+                        result.add_error(group_id, "delays", "延迟不能为 0");
                     }
                 } else {
                     result.add_error(
@@ -396,6 +458,43 @@ impl ConfigValidator {
             }
         }
     }
+}
+
+fn normalize_hotkey_for_comparison(hotkey: &str) -> String {
+    let single_modifiers = ['^', '!', '+', '#', '~', '*'];
+    let dual_modifiers = ["<^", ">^", "<!", ">!", "<+", ">+", "<#", ">#"];
+    let mut rest = hotkey;
+    let mut prefix_parts = Vec::new();
+    loop {
+        if let Some(dm) = dual_modifiers.iter().find(|dm| rest.starts_with(*dm)) {
+            prefix_parts.push(*dm);
+            rest = &rest[dm.len()..];
+        } else if let Some(c) = rest.chars().next() {
+            if single_modifiers.contains(&c) {
+                prefix_parts.push(&rest[..c.len_utf8()]);
+                rest = &rest[c.len_utf8()..];
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    prefix_parts.sort();
+    let prefix = prefix_parts.join("");
+    // F 键特殊处理：F1-F24 保持大写
+    let normalized_rest = if rest.starts_with('F')
+        && rest.len() > 1
+        && rest[1..].chars().all(|c| c.is_ascii_digit())
+    {
+        rest.to_uppercase()
+    } else if let Some(canonical) = VALID_HOTKEY_KEYS.iter().find(|k| k.eq_ignore_ascii_case(rest)) {
+        // 使用 VALID_HOTKEY_KEYS 统一列表进行大小写不敏感匹配，返回规范形式
+        canonical.to_string()
+    } else {
+        rest.to_lowercase()
+    };
+    format!("{}{}", prefix, normalized_rest)
 }
 
 #[cfg(test)]

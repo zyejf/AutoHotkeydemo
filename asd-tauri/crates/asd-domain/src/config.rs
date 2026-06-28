@@ -1,6 +1,12 @@
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
+pub const VALID_MODES: &[&str] = &[
+    "periodic", "sequence", "hybrid", "hold",
+    "enhanced_periodic", "enhanced_sequence", "enhanced_hybrid",
+    "joystick_periodic", "joystick_sequence", "joystick_hold",
+];
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     #[serde(rename = "CONTROL_HOTKEYS")]
@@ -147,6 +153,11 @@ pub struct HybridData {
     pub seq_interval: Option<u64>,
 }
 
+/// Hold 模式数据。
+///
+/// # 与 JoystickHoldData 的差异
+/// `hold_duration` 为必填字段（u64），而 `JoystickHoldData::hold_duration` 为可选（Option<u64>），
+/// 因为摇杆 hold 模式支持无限持续（不设置持续时间）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HoldData {
     #[serde(rename = "holdDuration")]
@@ -320,10 +331,16 @@ impl<'de> Deserialize<'de> for GroupConfig {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
+        // holdTriggers 解析失败时静默替换为空向量而非报错，
+        // 因为 holdTriggers 是可选字段，解析失败不应阻止配置加载。
+        // 警告日志写入日志文件，前端可通过日志查看。
         let hold_triggers = value
             .get("holdTriggers")
             .map(|v| {
-                serde_json::from_value::<Vec<serde_json::Value>>(v.clone()).unwrap_or_default()
+                serde_json::from_value::<Vec<serde_json::Value>>(v.clone()).unwrap_or_else(|e| {
+                    tracing::warn!("holdTriggers 解析失败，已忽略: {e}");
+                    Vec::new()
+                })
             })
             .filter(|v| !v.is_empty());
 

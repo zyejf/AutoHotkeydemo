@@ -145,6 +145,34 @@ class SkillGroup {
 
             case "enhanced_hybrid":
                 this._SetupEnhancedHybrid(config)
+
+            case "joystick_periodic":
+                this.joyKeys := _GetProp(config, "joyKeys", [])
+                this.joyIntervals := _GetProp(config, "joyIntervals", _GetProp(config, "intervals", []))
+                this.joySendMethod := _GetProp(config, "joySendMethod", _GetProp(config, "sendMethod", "auto"))
+                this.joyKeyDuration := _GetProp(config, "joyKeyDuration", _GetProp(config, "keyDuration", 50))
+                if this.joyKeyDuration < 10
+                    this.joyKeyDuration := 10
+                this._joyLastTriggerTimes := Map()
+
+            case "joystick_sequence":
+                this.joyKeys := _GetProp(config, "joyKeys", [])
+                this.joyDelays := _GetProp(config, "joyDelays", _GetProp(config, "delays", []))
+                this.joySendMethod := _GetProp(config, "joySendMethod", _GetProp(config, "sendMethod", "auto"))
+                this.joyKeyDuration := _GetProp(config, "joyKeyDuration", _GetProp(config, "keyDuration", 50))
+                if this.joyKeyDuration < 10
+                    this.joyKeyDuration := 10
+                this._joyCurrentStep := 1
+                this._joyNextStepTime := 0
+
+            case "joystick_hold":
+                this.joyKeys := _GetProp(config, "joyKeys", [])
+                this.joySendMethod := _GetProp(config, "joySendMethod", _GetProp(config, "sendMethod", "auto"))
+                this.joyKeyDuration := _GetProp(config, "joyKeyDuration", _GetProp(config, "keyDuration", 50))
+                if this.joyKeyDuration < 10
+                    this.joyKeyDuration := 10
+                this.holdDuration := _GetProp(config, "holdDuration", 0)
+                this._holdStartTime := 0
         }
     }
 
@@ -748,7 +776,11 @@ class SkillGroup {
                 this._releaseCounter++
                 releaseId := this._releaseCounter
                 this._pendingReleases[key] := releaseId
-                SetTimer(() => (this._pendingReleases.Has(key) && this._pendingReleases[key] = releaseId ? (this._pendingReleases.Delete(key), SendInput("{Blind}{" releaseKey " Up}")) : 0), -duration)
+                capturedThis := this
+                capturedKey := key
+                capturedReleaseKey := releaseKey
+                capturedId := releaseId
+                SetTimer(() => (capturedThis._pendingReleases.Has(capturedKey) && capturedThis._pendingReleases[capturedKey] = capturedId ? (capturedThis._pendingReleases.Delete(capturedKey), SendInput("{Blind}{" capturedReleaseKey " Up}")) : 0), -duration)
             }
             this._lastSend[key] := A_TickCount
 

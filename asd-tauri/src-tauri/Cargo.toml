@@ -44,6 +44,8 @@ parking_lot = "0.12"
 
 [dev-dependencies]
 criterion = "0.5"
+asd-test-harness = { path = "../crates/asd-test-harness" }
+serial_test = "3"
 
 [[test]]
 name = "manifest_helper"

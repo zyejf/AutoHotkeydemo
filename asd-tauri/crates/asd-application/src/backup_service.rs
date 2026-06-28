@@ -3,9 +3,13 @@ use crate::error::AppError;
 use crate::state::AppState;
 use crate::time_format::format_timestamp;
 use asd_domain::config::Config;
+use asd_domain::validator::ConfigValidator;
 use std::path::Path;
 
 pub(crate) fn validate_file_path(path: &str) -> Result<(), AppError> {
+    if path.contains('\0') {
+        return Err(AppError::Config("路径不能包含空字节".to_string()));
+    }
     let p = std::path::Path::new(path);
     if p.is_relative() {
         return Err(AppError::Config("路径必须是绝对路径".to_string()));
@@ -16,6 +20,9 @@ pub(crate) fn validate_file_path(path: &str) -> Result<(), AppError> {
         }
     }
     let path_lower = path.to_lowercase();
+    if path_lower.starts_with("\\\\?\\") || path_lower.starts_with("//?/") {
+        return Err(AppError::Config("不支持设备路径前缀".to_string()));
+    }
     if path_lower.starts_with("\\\\") || path_lower.starts_with("//") {
         return Err(AppError::Config("不支持 UNC 路径或设备路径".to_string()));
     }
@@ -44,6 +51,25 @@ pub struct ConfigDiff {
     pub removed_groups: Vec<String>,
     #[serde(rename = "modifiedGroups")]
     pub modified_groups: Vec<String>,
+}
+
+fn validate_config_with_context(
+    config: &asd_domain::config::Config,
+    context: &str,
+) -> Result<(), AppError> {
+    let validation = ConfigValidator::validate_config(config);
+    if !validation.is_valid() {
+        let error_msgs: Vec<String> = validation.errors.iter()
+            .map(|e| format!("分组 {} 字段 {}: {}", e.group_id, e.field, e.message))
+            .collect();
+        return Err(AppError::Validation(format!(
+            "{context}配置验证失败: {}", error_msgs.join("; ")
+        )));
+    }
+    for warning in &validation.warnings {
+        tracing::warn!("{context}配置验证警告: {warning}");
+    }
+    Ok(())
 }
 
 fn validate_path_in_backup_dir(backup_path: &Path, backup_dir: &Path) -> Result<(), AppError> {
@@ -154,6 +180,10 @@ pub fn create_backup(state: &AppState) -> Result<String, AppError> {
 }
 
 pub fn restore_backup(state: &AppState, filename: &str) -> Result<(), AppError> {
+    if !filename.starts_with("backup_") {
+        return Err(AppError::Validation("只能恢复备份文件（文件名须以 backup_ 开头）".to_string()));
+    }
+
     let backup_dir = get_backup_dir(state)?;
 
     let backup_path = backup_dir.join(filename);
@@ -165,6 +195,18 @@ pub fn restore_backup(state: &AppState, filename: &str) -> Result<(), AppError> 
 
     let restored_config =
         ConfigRepository::load_from_path(&backup_path).map_err(AppError::Config)?;
+
+    validate_config_with_context(&restored_config, "备份")?;
+
+    // 已知设计权衡：create_backup 与 save_config_atomic 之间存在 TOCTOU 窗口，
+    // 其他并发操作可能在此期间修改配置。但此窗口极短且恢复操作本身为低频管理操作，
+    // 加锁代价过高。auto-backup 仅作为安全网，非关键路径。
+    if let Ok(backup_name) = create_backup(state) {
+        tracing::info!("恢复前已自动创建备份: {backup_name}");
+    } else {
+        tracing::warn!("恢复前自动创建备份失败，继续恢复将无法回滚到当前配置");
+    }
+
     state.save_config_atomic(restored_config)?;
 
     tracing::info!("已恢复备份: {filename}");
@@ -172,6 +214,10 @@ pub fn restore_backup(state: &AppState, filename: &str) -> Result<(), AppError> 
 }
 
 pub fn delete_backup(state: &AppState, filename: &str) -> Result<(), AppError> {
+    if !filename.starts_with("backup_") {
+        return Err(AppError::Validation("只能删除备份文件（文件名须以 backup_ 开头）".to_string()));
+    }
+
     let backup_dir = get_backup_dir(state)?;
 
     let backup_path = backup_dir.join(filename);
@@ -240,6 +286,9 @@ pub fn hot_reload(state: &AppState) -> Result<Config, AppError> {
 
     let reloaded_config =
         ConfigRepository::load_from_path(&config_path).map_err(AppError::Config)?;
+
+    validate_config_with_context(&reloaded_config, "热重载")?;
+
     state.save_config_atomic(reloaded_config.clone())?;
 
     tracing::info!("热重载配置成功");
@@ -263,8 +312,12 @@ pub fn import_config(state: &AppState, path: &str) -> Result<(), AppError> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| AppError::Config(format!("读取文件失败: {e}")))?;
 
-    let imported_config: Config = serde_json::from_str(&content)
+    let cleaned = content.trim_start_matches('\u{feff}');
+
+    let imported_config: Config = serde_json::from_str(cleaned)
         .map_err(|e| AppError::Config(format!("解析配置失败: {e}")))?;
+
+    validate_config_with_context(&imported_config, "导入")?;
 
     state.save_config_atomic(imported_config)?;
 

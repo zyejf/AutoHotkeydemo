@@ -8,18 +8,19 @@ use parking_lot::Mutex as SyncMutex;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+use tokio::io::AsyncReadExt;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 pub use asd_ipc_protocol::{HotkeyMerger, IpcError};
 
 const MAX_MESSAGE_SIZE: usize = 64 * 1024;
-const IPC_CHANNEL_CAPACITY: usize = 256;
+const IPC_CHANNEL_CAPACITY: usize = 512;
 /// pending_responses 周期性清理的最大存活时间。
 ///
 /// **约束**: `send_and_wait` 的 timeout 不应超过此值，否则 pending response
 /// 会在超时前被清理，导致收到 `ChannelClosed` 而非 `Timeout` 错误。
-const PENDING_CLEANUP_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(30);
+pub const PENDING_CLEANUP_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(30);
 
 static AUTH_FALLBACK_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -45,6 +46,7 @@ pub struct IpcManager {
     pipe_name: Arc<String>,
     on_pipe_broken: Arc<SyncMutex<Option<IpcCallback>>>,
     on_heartbeat: Arc<SyncMutex<Option<IpcCallback>>>,
+    on_post_connect: Arc<SyncMutex<Option<IpcCallback>>>,
     shutting_down: Arc<AtomicBool>,
     hotkey_merger: Arc<Mutex<HotkeyMerger>>,
     auth_token: String,
@@ -61,6 +63,7 @@ impl Clone for IpcManager {
             pipe_name: self.pipe_name.clone(),
             on_pipe_broken: self.on_pipe_broken.clone(),
             on_heartbeat: self.on_heartbeat.clone(),
+            on_post_connect: self.on_post_connect.clone(),
             shutting_down: self.shutting_down.clone(),
             hotkey_merger: self.hotkey_merger.clone(),
             auth_token: self.auth_token.clone(),
@@ -95,6 +98,7 @@ impl IpcManager {
             pipe_name: Arc::new(pipe_name.to_string()),
             on_pipe_broken: Arc::new(SyncMutex::new(None)),
             on_heartbeat: Arc::new(SyncMutex::new(None)),
+            on_post_connect: Arc::new(SyncMutex::new(None)),
             shutting_down: Arc::new(AtomicBool::new(false)),
             hotkey_merger: Arc::new(Mutex::new(HotkeyMerger::default())),
             auth_token,
@@ -116,6 +120,10 @@ impl IpcManager {
 
     pub fn set_heartbeat_callback(&self, cb: Arc<dyn Fn() + Send + Sync>) {
         *self.on_heartbeat.lock() = Some(cb);
+    }
+
+    pub fn set_post_connect_callback(&self, cb: Arc<dyn Fn() + Send + Sync>) {
+        *self.on_post_connect.lock() = Some(cb);
     }
 
     /// 标记正在关机，抑制后续 pipe_broken 回调
@@ -156,8 +164,13 @@ impl IpcManager {
         *self.recv_half.lock().await = Some(BufReader::new(recv));
 
         // C-14: 验证认证消息 — 首条消息必须是 auth 类型且 token 匹配
-        match self.recv().await {
-            Ok(msg) if msg.r#type == "auth" => {
+        let auth_result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            self.recv()
+        ).await;
+
+        match auth_result {
+            Ok(Ok(msg)) if msg.r#type == "auth" => {
                 let token = msg
                     .data
                     .as_ref()
@@ -171,7 +184,7 @@ impl IpcManager {
                 }
                 tracing::info!("IPC AHK 认证成功");
             }
-            Ok(msg) => {
+            Ok(Ok(msg)) => {
                 self.cleanup_connection().await;
                 tracing::warn!("IPC AHK 认证失败: 首条消息类型为 {}，期望 auth", msg.r#type);
                 return Err(IpcError::AuthFailed(format!(
@@ -179,18 +192,38 @@ impl IpcManager {
                     msg.r#type
                 )));
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 self.cleanup_connection().await;
+                if matches!(e, IpcError::ConnectionClosed | IpcError::PipeBroken(_)) {
+                    self.notify_pipe_broken().await;
+                }
                 tracing::warn!("IPC AHK 认证失败: 读取认证消息出错: {e}");
                 return Err(e);
+            }
+            Err(_) => {
+                self.cleanup_connection().await;
+                tracing::warn!("IPC AHK 认证超时 (5s)");
+                return Err(IpcError::AuthFailed("认证超时".to_string()));
             }
         }
 
         tracing::info!("IPC 已接受 AHK 连接（已认证）");
+
+        // 设计决策：post_connect_callback 在认证成功后、listen_ahk 启动前同步调用。
+        // 回调内部 spawn 异步任务发送恢复命令（ToggleGroup/RegisterHotkey/HoldModeToggle），
+        // 与后续 listen_ahk 存在理论竞态窗口。但 AHK 子进程在收到恢复命令前不会主动
+        // 发送热键事件（钩子尚未注册），因此实际影响有限。
+        let cb = self.on_post_connect.lock().clone();
+        if let Some(cb) = cb {
+            cb();
+        }
+
         Ok(())
     }
 
     pub async fn accept_loop(&self, listener: &Listener) {
+        let mut auth_fail_count: u32 = 0;
+        let mut non_auth_fail_count: u32 = 0;
         loop {
             if self.shutting_down.load(Ordering::SeqCst) {
                 tracing::info!("IPC: 关机中，退出 accept 循环");
@@ -203,9 +236,40 @@ impl IpcManager {
                     break;
                 }
                 tracing::error!("IPC 接受连接失败: {e}");
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                // 认证失败时使用指数退避，防止恶意连接洪泛
+                let is_auth_fail = matches!(e, IpcError::AuthFailed(_));
+                if is_auth_fail {
+                    auth_fail_count += 1;
+                    non_auth_fail_count = 0;
+                } else {
+                    auth_fail_count = 0;
+                    non_auth_fail_count += 1;
+                    // 连续非认证失败可能表示 listener 损坏（如管道文件系统异常），
+                    // 超过阈值后增加退避避免空转消耗 CPU
+                    if non_auth_fail_count >= 10 {
+                        tracing::error!(
+                            "IPC accept_loop 连续 {} 次非认证失败，listener 可能损坏",
+                            non_auth_fail_count
+                        );
+                    }
+                }
+                // 指数退避: 1, 2, 4, 8, 16, 30 (上限30秒)
+                // 使用 saturating_sub 使首次失败延迟为 1 秒 (1 << 0)
+                // 限制位移量上限为 5，防止 fail_count >= 65 时位移溢出
+                // (1u64 << 64 在 debug 模式 panic，release 模式回绕)
+                let fail_count = if auth_fail_count > 0 {
+                    auth_fail_count
+                } else {
+                    non_auth_fail_count
+                };
+                let shift = (fail_count as usize).saturating_sub(1).min(5);
+                let delay_secs = (1u64 << shift).min(30);
+                tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
                 continue;
             }
+            // 连接成功，重置失败计数
+            auth_fail_count = 0;
+            non_auth_fail_count = 0;
             self.listen_ahk().await;
             if self.shutting_down.load(Ordering::SeqCst) {
                 tracing::info!("IPC: 关机中，退出 accept 循环");
@@ -235,14 +299,26 @@ impl IpcManager {
         let writer = writer_guard.as_mut().ok_or(IpcError::ConnectionClosed)?;
 
         match writer.write_all(bytes).await {
-            Ok(()) => {
-                let _ = writer.flush().await;
-                Ok(())
-            }
+            Ok(()) => match writer.flush().await {
+                Ok(()) => Ok(()),
+                Err(e) => {
+                    let ipc_err = IpcError::from(e);
+                    let is_pipe_broken = matches!(ipc_err, IpcError::PipeBroken(_));
+                    // flush 失败时连接可能已不可靠，无论是否为 PipeBroken 都清理
+                    *writer_guard = None;
+                    drop(writer_guard);
+                    self.notify_pipe_broken().await;
+                    Err(ipc_err)
+                }
+            },
             Err(e) => {
                 let ipc_err = IpcError::from(e);
-                if matches!(ipc_err, IpcError::PipeBroken(_)) {
+                let is_pipe_broken = matches!(ipc_err, IpcError::PipeBroken(_));
+                if is_pipe_broken {
                     *writer_guard = None;
+                }
+                drop(writer_guard);
+                if is_pipe_broken {
                     self.notify_pipe_broken().await;
                 }
                 Err(ipc_err)
@@ -289,30 +365,46 @@ impl IpcManager {
         }
     }
 
+    /// 发送 IPC 命令并等待响应。
+    ///
+    /// **注意**: 返回 `Ok(msg)` 仅表示成功收到 AHK 响应消息，不代表操作成功。
+    /// 响应消息可能包含错误信息（`msg.is_error() == true`），调用方应检查
+    /// 响应内容而非仅依赖 `Ok`/`Err` 判断操作结果。例如 `pipe_broken` 错误
+    /// 响应由 `IpcBridge::send_and_wait` 转换为 `Err`，但其他 AHK 侧错误
+    /// 仍以 `Ok(msg)` 返回。
     pub async fn send_and_wait(
         &self,
         cmd: IpcCommand,
         timeout: std::time::Duration,
     ) -> Result<IpcMessage, IpcError> {
-        debug_assert!(
-            timeout <= PENDING_CLEANUP_MAX_AGE,
-            "send_and_wait timeout ({:?}) exceeds PENDING_CLEANUP_MAX_AGE ({:?}), \
-             pending response may be cleaned up before timeout fires",
-            timeout,
-            PENDING_CLEANUP_MAX_AGE,
-        );
-        let rx = self.prepare_send_and_wait(cmd).await?;
+        if timeout > PENDING_CLEANUP_MAX_AGE {
+            tracing::warn!(
+                "send_and_wait timeout ({:?}) exceeds PENDING_CLEANUP_MAX_AGE ({:?}), pending response may be cleaned up before timeout fires",
+                timeout, PENDING_CLEANUP_MAX_AGE,
+            );
+        }
+        let (seq, rx) = self.prepare_send_and_wait(cmd).await?;
         match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(msg)) => Ok(msg),
-            Ok(Err(_)) => Err(IpcError::ChannelClosed),
-            Err(_) => Err(IpcError::Timeout),
+            Ok(Err(_)) => {
+                // oneshot 通道关闭，主动清理 pending entry
+                let mut pending = self.pending_responses.lock().await;
+                pending.remove(&seq);
+                Err(IpcError::ChannelClosed)
+            }
+            Err(_) => {
+                // 超时，主动清理 pending entry，与 wait_response 行为一致
+                let mut pending = self.pending_responses.lock().await;
+                pending.remove(&seq);
+                Err(IpcError::Timeout)
+            }
         }
     }
 
     pub async fn prepare_send_and_wait(
         &self,
         cmd: IpcCommand,
-    ) -> Result<tokio::sync::oneshot::Receiver<IpcMessage>, IpcError> {
+    ) -> Result<(u64, tokio::sync::oneshot::Receiver<IpcMessage>), IpcError> {
         let seq = self.next_seq();
 
         let (tx, rx) = oneshot::channel();
@@ -334,15 +426,16 @@ impl IpcManager {
             return Err(e);
         }
 
-        Ok(rx)
+        Ok((seq, rx))
     }
 
     pub async fn recv(&self) -> Result<IpcMessage, IpcError> {
         let mut reader_guard = self.recv_half.lock().await;
         let reader = reader_guard.as_mut().ok_or(IpcError::ConnectionClosed)?;
 
+        // 使用 take() 限制读取大小，避免恶意/异常大消息耗尽内存
         let mut line = String::with_capacity(256);
-        match reader.read_line(&mut line).await {
+        match reader.take(MAX_MESSAGE_SIZE as u64).read_line(&mut line).await {
             Ok(0) => {
                 *reader_guard = None;
                 Err(IpcError::ConnectionClosed)
@@ -351,6 +444,27 @@ impl IpcManager {
                 let trimmed = line.trim_end_matches('\n').trim_end_matches('\r');
                 if trimmed.is_empty() {
                     return Err(IpcError::EmptyMessage);
+                }
+                // take() 在达到限制时截断读取，此时行末尾无换行符，
+                // 可判定为超大消息
+                if !line.ends_with('\n') && line.len() >= MAX_MESSAGE_SIZE {
+                    // 消耗掉剩余数据直到换行符，防止后续读取错位。
+                    // 使用 take() 限制最大读取量（1MB），防止异常 AHK 进程
+                    // 发送超长无换行数据导致 OOM。
+                    const MAX_DISCARD_SIZE: u64 = 1024 * 1024;
+                    let mut discard = String::new();
+                    if let Err(discard_err) = reader.take(MAX_DISCARD_SIZE).read_line(&mut discard).await {
+                        tracing::debug!("消耗超大消息残余数据失败（可能是管道断裂）: {discard_err}");
+                    }
+                    if !discard.ends_with('\n') {
+                        tracing::error!(
+                            "超大消息残余数据超过 {} 字节限制，管道状态可能不一致，断开连接",
+                            MAX_DISCARD_SIZE
+                        );
+                        *reader_guard = None;
+                        return Err(IpcError::PipeBroken("残余数据超限，管道状态不一致".to_string()));
+                    }
+                    return Err(IpcError::MessageTooLarge(line.len(), MAX_MESSAGE_SIZE));
                 }
                 if trimmed.len() > MAX_MESSAGE_SIZE {
                     return Err(IpcError::MessageTooLarge(trimmed.len(), MAX_MESSAGE_SIZE));
@@ -370,9 +484,14 @@ impl IpcManager {
 
     async fn dispatch_response(&self, msg: IpcMessage) -> bool {
         if let Some(ack) = msg.ack_seq {
+            if msg.is_error() {
+                tracing::warn!("收到错误响应: ack_seq={}, type={}", ack, msg.r#type);
+            }
             let mut pending = self.pending_responses.lock().await;
             if let Some(p) = pending.remove(&ack) {
-                let _ = p.tx.send(msg);
+                if p.tx.send(msg).is_err() {
+                    tracing::debug!("dispatch_response: oneshot 发送失败 (ack_seq={ack})，接收方可能已超时");
+                }
                 return true;
             }
         }
@@ -411,8 +530,6 @@ impl IpcManager {
                         Some(Ok(msg)) => msg,
                         Some(Err(IpcError::ConnectionClosed) | Err(IpcError::PipeBroken(_))) => {
                             tracing::warn!("IPC 管道断裂，等待重连");
-                            self.cleanup_stale_pending(std::time::Duration::from_secs(5))
-                                .await;
                             self.notify_pipe_broken().await;
                             break;
                         }
@@ -438,19 +555,17 @@ impl IpcManager {
                     }
 
                     if msg.r#type == "hotkey" {
-                        let immediate_flush = {
+                        let messages = {
                             let mut merger = self.hotkey_merger.lock().await;
                             merger.push(msg);
-                            merger.should_flush()
-                        };
-                        if immediate_flush {
-                            let messages = {
-                                let mut merger = self.hotkey_merger.lock().await;
+                            if merger.should_flush() {
                                 merger.flush()
-                            };
-                            for msg in messages {
-                                let _ = self.outbound_tx.send(msg).await;
+                            } else {
+                                Vec::new()
                             }
+                        };
+                        for msg in messages {
+                            let _ = self.outbound_tx.send(msg).await;
                         }
                     } else {
                         let _ = self.outbound_tx.send(msg).await;
@@ -491,14 +606,16 @@ impl IpcManager {
     async fn cleanup_connection(&self) {
         *self.send_half.lock().await = None;
         *self.recv_half.lock().await = None;
+        {
+            let mut merger = self.hotkey_merger.lock().await;
+            let flushed = merger.flush();
+            if !flushed.is_empty() {
+                tracing::debug!("cleanup_connection: 丢弃 {} 条缓冲热键事件", flushed.len());
+            }
+        }
         let mut pending = self.pending_responses.lock().await;
         for (seq, p) in pending.drain() {
-            let _ = p.tx.send(IpcMessage {
-                r#type: "error".to_string(),
-                ack_seq: Some(seq),
-                data: Some(serde_json::json!({"error": "pipe_broken"})),
-                ..IpcMessage::default()
-            });
+            let _ = p.tx.send(IpcMessage::error_response(seq, seq, "pipe_broken"));
         }
     }
 
@@ -510,10 +627,28 @@ impl IpcManager {
         self.outbound_tx.clone()
     }
 
+    /// 按 seq 清理指定的 pending response 条目。
+    /// 用于 IpcBridge 超时/通道关闭后主动清理，避免等待周期性 cleanup_stale_pending。
+    pub async fn cleanup_pending_by_seq(&self, seq: u64) {
+        let mut pending = self.pending_responses.lock().await;
+        pending.remove(&seq);
+    }
+
     pub async fn cleanup_stale_pending(&self, max_age: std::time::Duration) {
         let mut pending = self.pending_responses.lock().await;
         let now = std::time::Instant::now();
-        pending.retain(|_, p| now.duration_since(p.created_at) < max_age);
+        let stale_ids: Vec<u64> = pending
+            .iter()
+            .filter(|(_, p)| now.duration_since(p.created_at) >= max_age)
+            .map(|(seq, _)| *seq)
+            .collect();
+        for seq in stale_ids {
+            if let Some(p) = pending.remove(&seq) {
+                let error_msg = format!("pending response 超时清理 (seq={seq})");
+                let _ = p.tx.send(IpcMessage::error_response(seq, seq, &error_msg));
+                tracing::warn!("清理超时 pending response: seq={seq}");
+            }
+        }
     }
 }
 
@@ -530,6 +665,7 @@ pub fn create_listener(
 mod tests {
     use super::*;
     use asd_ipc_protocol::IpcCommand;
+    use asd_test_harness::unique_pipe_name;
     use std::time::Duration;
 
     // ---- HotkeyMerger 测试 ----
@@ -843,13 +979,14 @@ mod tests {
 
     #[test]
     fn test_ipc_manager_new() {
-        let (manager, _rx) = IpcManager::new("test_pipe");
-        assert_eq!(*manager.pipe_name, "test_pipe");
+        let pipe_name = unique_pipe_name("test_pipe");
+        let (manager, _rx) = IpcManager::new(&pipe_name);
+        assert_eq!(*manager.pipe_name, pipe_name);
     }
 
     #[test]
     fn test_ipc_manager_next_seq_monotonic() {
-        let (manager, _rx) = IpcManager::new("test_seq");
+        let (manager, _rx) = IpcManager::new(&unique_pipe_name("test_seq"));
         let s1 = manager.next_seq();
         let s2 = manager.next_seq();
         let s3 = manager.next_seq();
@@ -859,14 +996,15 @@ mod tests {
 
     #[test]
     fn test_ipc_manager_clone() {
-        let (manager, _rx) = IpcManager::new("test_clone");
+        let pipe_name = unique_pipe_name("test_clone");
+        let (manager, _rx) = IpcManager::new(&pipe_name);
         let cloned = manager.clone();
-        assert_eq!(*cloned.pipe_name, "test_clone");
+        assert_eq!(*cloned.pipe_name, pipe_name);
     }
 
     #[tokio::test]
     async fn test_ipc_manager_not_connected_initially() {
-        let (manager, _rx) = IpcManager::new("test_not_connected");
+        let (manager, _rx) = IpcManager::new(&unique_pipe_name("test_not_connected"));
         assert!(!manager.is_connected().await);
     }
 
@@ -874,7 +1012,7 @@ mod tests {
 
     #[test]
     fn test_shutting_down_initially_false() {
-        let (manager, _rx) = IpcManager::new("test_shutting_down_init");
+        let (manager, _rx) = IpcManager::new(&unique_pipe_name("test_shutting_down_init"));
         assert!(
             !manager.is_shutting_down(),
             "shutting_down 初始值应为 false"
@@ -883,7 +1021,7 @@ mod tests {
 
     #[test]
     fn test_mark_shutting_down_sets_flag() {
-        let (manager, _rx) = IpcManager::new("test_mark_shutting_down");
+        let (manager, _rx) = IpcManager::new(&unique_pipe_name("test_mark_shutting_down"));
         assert!(!manager.is_shutting_down());
         manager.mark_shutting_down();
         assert!(
@@ -894,7 +1032,7 @@ mod tests {
 
     #[test]
     fn test_shutting_down_shared_across_clones() {
-        let (manager, _rx) = IpcManager::new("test_shutting_down_clone");
+        let (manager, _rx) = IpcManager::new(&unique_pipe_name("test_shutting_down_clone"));
         let cloned = manager.clone();
         assert!(!manager.is_shutting_down());
         assert!(!cloned.is_shutting_down());
@@ -909,7 +1047,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_notify_pipe_broken_suppressed_during_shutdown() {
-        let (manager, _rx) = IpcManager::new("test_pipe_broken_suppressed");
+        let (manager, _rx) = IpcManager::new(&unique_pipe_name("test_pipe_broken_suppressed"));
 
         // 设置一个 pipe_broken 回调，如果被调用则 panic
         let called = Arc::new(AtomicBool::new(false));
@@ -932,7 +1070,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_notify_pipe_broken_fires_when_not_shutdown() {
-        let (manager, _rx) = IpcManager::new("test_pipe_broken_fires");
+        let (manager, _rx) = IpcManager::new(&unique_pipe_name("test_pipe_broken_fires"));
 
         let called = Arc::new(AtomicBool::new(false));
         let called_clone = called.clone();

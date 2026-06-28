@@ -17,6 +17,7 @@
 class JoyHotkeyManager {
     static _registered := Map()
     static _pollActive := false
+    static _pollFn := 0
     static _povLastState := -1
     static _connPollActive := false
     static _wasConnected := false
@@ -161,12 +162,16 @@ class JoyHotkeyManager {
         if JoyHotkeyManager._pollActive
             return
         JoyHotkeyManager._pollActive := true
-        SetTimer(() => JoyHotkeyManager._Poll(), 50)
+        JoyHotkeyManager._pollFn := () => JoyHotkeyManager._Poll()
+        SetTimer(JoyHotkeyManager._pollFn, 50)
     }
 
     static _StopPolling() {
         JoyHotkeyManager._pollActive := false
-        SetTimer(() => JoyHotkeyManager._Poll(), 0)
+        if JoyHotkeyManager._pollFn {
+            SetTimer(JoyHotkeyManager._pollFn, 0)
+            JoyHotkeyManager._pollFn := 0
+        }
     }
 
     static _Poll() {

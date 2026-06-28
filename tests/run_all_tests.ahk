@@ -30,6 +30,15 @@
 #Include "../presentation/gui_manager.ahk"
 #Include "../presentation/debug_panel.ahk"
 
+; ============================================================
+; AHK 执行器测试（asd-tauri/src-tauri/ahk_executor/）
+; ============================================================
+#Include "test_ahk_executor/test_executor.ahk"
+#Include "test_ahk_executor/test_ipc_client.ahk"
+#Include "test_ahk_executor/test_hotkey_hook.ahk"
+#Include "test_ahk_executor/test_sender.ahk"
+#Include "test_ahk_executor/test_joystick.ahk"
+
 class SilentReporter {
     failures := []
     passed := 0
@@ -1119,10 +1128,13 @@ class GUIManagerModeNamesTests extends AutoHotUnitSuite {
         this.assert.isTrue(GUIManager.modeNames.Has("enhanced_periodic"))
         this.assert.isTrue(GUIManager.modeNames.Has("enhanced_sequence"))
         this.assert.isTrue(GUIManager.modeNames.Has("enhanced_hybrid"))
+        this.assert.isTrue(GUIManager.modeNames.Has("joystick_periodic"))
+        this.assert.isTrue(GUIManager.modeNames.Has("joystick_sequence"))
+        this.assert.isTrue(GUIManager.modeNames.Has("joystick_hold"))
     }
 
     Test_ModeNames_Count() {
-        this.assert.equal(GUIManager.modeNames.Count, 7)
+        this.assert.equal(GUIManager.modeNames.Count, 10)
     }
 }
 
@@ -2030,6 +2042,69 @@ testManager.RegisterSuite(
     AutoRefreshIncrementalTests,
     OnExitUITimerCleanupTests,
     HealthCheckGetActiveCountCacheTests
+)
+
+; ============================================================
+; 注册 AHK 执行器测试套件（asd-tauri/src-tauri/ahk_executor/）
+; ============================================================
+testManager.RegisterSuite(
+    CommandDispatcherGetStrTests,
+    CommandDispatcherGetIntTests,
+    CommandDispatcherGetBoolTests,
+    CommandDispatcherGetArrTests,
+    CommandDispatcherGetMapTests,
+    CommandDispatcherMergeModeConfigTests,
+    CommandDispatcherDispatchUnknownTests,
+    CommandDispatcherRecordKeyTests,
+    CommandDispatcherValidationTests,
+    IPCConstTests,
+    MiniJsonParseObjectTests,
+    MiniJsonParseArrayTests,
+    MiniJsonParseScalarTests,
+    MiniJsonStringifyTests,
+    MiniJsonRoundTripTests,
+    MiniJsonBoolMarkerTests,
+    IpcClientInitialStateTests,
+    IpcClientNextSeqTests,
+    IpcClientSendDisconnectedTests,
+    IpcClientParseAuthTokenTests,
+    IpcClientDeduplicationTests,
+    HotkeyHookNormalizeTests,
+    HotkeyHookRegistrationStateTests,
+    HotkeyHookRegisterErrorTests,
+    HotkeyHookUnregisterErrorTests,
+    HotkeyHookUnregisterAllTests,
+    HotkeyHookInitTests,
+    HotkeyHookCallbackTests,
+    SenderAllowedKeysTests,
+    SenderValidateKeyTests,
+    SenderToggleGroupTests,
+    SenderStartPeriodicTests,
+    SenderStartSequenceTests,
+    SenderStartEnhancedTests,
+    SenderStartHoldTests,
+    SenderHoldModeToggleTests,
+    SenderEmergencyReleaseTests,
+    SenderShutdownTests,
+    SenderInitTests,
+    JoystickAllowedKeysTests,
+    JoystickValidateKeyTests,
+    JoystickIsButtonTests,
+    JoystickGetButtonNumTests,
+    JoystickIsPovTests,
+    JoystickGetPovDirectionTests,
+    JoystickIsAxisTests,
+    JoystickGetAxisInfoTests,
+    JoystickAxisToVJoyIdTests,
+    JoystickPovDirectionToValueTests,
+    JoystickResolveMethodTests,
+    JoystickIsVJoyAvailableTests,
+    JoystickStopGroupTests,
+    JoystickEmergencyReleaseTests,
+    JoystickInitTests,
+    JoystickStartPeriodicTests,
+    JoystickStartSequenceTests,
+    JoystickStartHoldTests
 )
 
 ; 运行测试

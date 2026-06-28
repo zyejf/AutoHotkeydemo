@@ -128,13 +128,11 @@ class WebView2Manager extends IEventHook {
             if currentKey = WebView2Manager._lastPushHash
                 return
             WebView2Manager._lastPushHash := currentKey
-            combined := '{"debug":' debugInfo ',"groups":' groupList '}'
-            safeCombined := StrReplace(combined, "\", "\\")
-            safeCombined := StrReplace(safeCombined, "'", "\'")
-            safeCombined := StrReplace(safeCombined, "`n", "\n")
-            safeCombined := StrReplace(safeCombined, "`r", "\r")
-            safeCombined := StrReplace(safeCombined, "</", "<\/")
-            WebView2Manager.wv.ExecuteScriptAsync("if(typeof updateDashboard==='function')updateDashboard('" safeCombined "');")
+            debugParsed := JSONParser.Parse(debugInfo)
+            groupParsed := JSONParser.Parse(groupList)
+            combined := Map("debug", debugParsed, "groups", groupParsed)
+            combinedJson := JSONSerializer.Stringify(combined)
+            WebView2Manager.wv.PostWebMessageAsJson(combinedJson)
         } catch as e {
             _DebugLog("_PushStateUpdate error: " e.Message)
         }
@@ -426,6 +424,14 @@ class WebView2Manager extends IEventHook {
                         return JSONSerializer.Stringify(Map("error", true, "message", "热键 " hotkeyValue " 已被分组 " existId " 使用，请更换热键"))
                     }
                 }
+                ctrlHotkeys := ConfigService.ConfigStore.Get("CONTROL_HOTKEYS")
+                if ctrlHotkeys is Map {
+                    for action, ctrlHk in ctrlHotkeys {
+                        if ctrlHk = hotkeyValue {
+                            return JSONSerializer.Stringify(Map("error", true, "message", "热键 " hotkeyValue " 是控制热键(" action ")，请更换热键"))
+                        }
+                    }
+                }
             }
 
             oldConfigRaw := ConfigService.ConfigStore.GetGroupConfig(groupId)
@@ -536,13 +542,21 @@ class WebView2Manager extends IEventHook {
             }
             n := groups.Length
             if n > 1 {
+                orderCache := Map()
+                for g in groups {
+                    gid := g["id"]
+                    if SkillManager.Groups.Has(gid) && HasProp(SkillManager.Groups[gid], "_order")
+                        orderCache[gid] := SkillManager.Groups[gid]._order
+                    else
+                        orderCache[gid] := 0
+                }
                 Loop n - 1 {
                     i := A_Index + 1
                     key := groups[i]
+                    keyOrder := orderCache[key["id"]]
                     j := i - 1
-                    keyOrder := HasProp(SkillManager.Groups[key["id"]], "_order") ? SkillManager.Groups[key["id"]]._order : 0
                     while j >= 1 {
-                        prevOrder := HasProp(SkillManager.Groups[groups[j]["id"]], "_order") ? SkillManager.Groups[groups[j]["id"]]._order : 0
+                        prevOrder := orderCache[groups[j]["id"]]
                         if prevOrder <= keyOrder
                             break
                         groups[j + 1] := groups[j]
@@ -714,6 +728,8 @@ class WebView2Manager extends IEventHook {
                 ConfigService.LoadConfig()
                 SkillManager._BindControlHotkeys()
                 SkillManager.InvalidateHoldSettingsCache()
+                WebView2Manager._lastPushHash := ""
+                WebView2Manager._PushStateUpdate()
                 return true
             }
             return false
@@ -908,11 +924,6 @@ class WebView2Manager extends IEventHook {
             if !IsObject(orderData) || orderData.Length = 0
                 return false
 
-            oldOrders := Map()
-            for existId in SkillManager.Groups {
-                oldOrders[existId] := SkillManager.Groups[existId]._order
-            }
-
             newOrder := Map()
             for idx, id in orderData {
                 newOrder[id] := idx
@@ -924,27 +935,24 @@ class WebView2Manager extends IEventHook {
             }
 
             for id, orderIdx in newOrder {
-                if SkillManager.Groups.Has(id)
-                    SkillManager.Groups[id]._order := orderIdx
+                if ConfigService.ConfigStore.HasGroup(id) {
+                    groupCfg := ConfigService.ConfigStore.GetGroupConfig(id)
+                    if groupCfg is Map {
+                        groupCfg["order"] := orderIdx
+                        ConfigService.ConfigStore.SetGroupConfig(id, groupCfg)
+                    }
+                }
             }
 
             saveResult := ConfigService.SaveConfig()
             if !saveResult {
-                for id, oldOrderIdx in oldOrders {
-                    if SkillManager.Groups.Has(id)
-                        SkillManager.Groups[id]._order := oldOrderIdx
-                }
                 ErrorSystem.LogError("ReorderGroups: SaveConfig failed after reorder", "WARNING", A_ThisFunc, A_LineNumber)
-            } else {
-                for id, orderIdx in newOrder {
-                    if ConfigService.ConfigStore.HasGroup(id) {
-                        groupCfg := ConfigService.ConfigStore.GetGroupConfig(id)
-                        if groupCfg is Map {
-                            groupCfg["order"] := orderIdx
-                            ConfigService.ConfigStore.SetGroupConfig(id, groupCfg)
-                        }
-                    }
-                }
+                return false
+            }
+
+            for id, orderIdx in newOrder {
+                if SkillManager.Groups.Has(id)
+                    SkillManager.Groups[id]._order := orderIdx
             }
 
             return true
@@ -1046,8 +1054,10 @@ class WebView2Manager extends IEventHook {
     static _BridgeImportConfig(jsonStr) {
         tempPath := ""
         try {
-            tempPath := A_Temp "\ahk_import_" A_Now ".json"
-            FileAppend(jsonStr, tempPath)
+            if StrLen(jsonStr) > 5242880
+                return JSONSerializer.Stringify(Map("success", false, "error", "导入数据过大(>5MB)"))
+            tempPath := A_Temp "\ahk_import_" A_Now "_" Random(1000, 9999) ".json"
+            FileAppend(jsonStr, tempPath, "UTF-8")
             result := GroupService.ImportGroups(tempPath)
             try FileDelete(tempPath)
             tempPath := ""
@@ -1093,21 +1103,37 @@ class WebView2Manager extends IEventHook {
         try {
             parsed := data is Map ? data : JSONParser.Parse(String(data))
             ids := parsed.Has("ids") ? parsed["ids"] : []
-            success := 0
-            failed := 0
+            if ids.Length = 0
+                return JSONSerializer.Stringify(Map("success", 0, "failed", 0))
+
+            deletedIds := []
             for id in ids {
                 try {
-                    SkillManager.DeleteGroup(id)
                     ConfigService.ConfigStore.DeleteGroupConfig(id)
-                    success += 1
+                    deletedIds.Push(id)
                 } catch {
-                    failed += 1
+                    break
                 }
             }
-            if success > 0
-                ConfigService.SaveConfig()
+
+            saveResult := ConfigService.SaveConfig()
+            if !saveResult {
+                ErrorSystem.LogError("BatchDeleteGroups: SaveConfig failed, rolling back", "WARNING", A_ThisFunc, A_LineNumber)
+                return JSONSerializer.Stringify(Map("success", 0, "failed", ids.Length, "error", "保存失败，已回滚"))
+            }
+
+            success := 0
+            for id in deletedIds {
+                try {
+                    SkillManager.DeleteGroup(id)
+                    success += 1
+                } catch {
+                    ErrorSystem.LogError("BatchDeleteGroups: 内存删除失败: " id, "WARNING", A_ThisFunc, A_LineNumber)
+                }
+            }
+
             BackupCore.RecordConfigChange(ConfigService.ConfigStore.Load())
-            return JSONSerializer.Stringify(Map("success", success, "failed", failed))
+            return JSONSerializer.Stringify(Map("success", success, "failed", ids.Length - success))
         } catch as e {
             return JSONSerializer.Stringify(Map("success", 0, "failed", 0, "error", e.Message))
         }
@@ -1138,22 +1164,23 @@ class WebView2Manager extends IEventHook {
             if !basePath || !targetPath
                 return JSONSerializer.Stringify(Map("error", "请选择两个配置"))
 
-            if InStr(basePath, "..") || InStr(targetPath, "..")
-                return JSONSerializer.Stringify(Map("error", "路径不合法"))
-
             backupDir := A_ScriptDir "\backups"
-            absBase := basePath
-            absTarget := targetPath
-            if !InStr(absBase, backupDir) || !InStr(absTarget, backupDir)
+            absBase := (StrLen(basePath) > 1 && SubStr(basePath, 2, 1) = ":") ? basePath : A_ScriptDir "\" basePath
+            absTarget := (StrLen(targetPath) > 1 && SubStr(targetPath, 2, 1) = ":") ? targetPath : A_ScriptDir "\" targetPath
+
+            absBase := RegExReplace(absBase, "\.\.", "")
+            absTarget := RegExReplace(absTarget, "\.\.", "")
+
+            if SubStr(absBase, 1, StrLen(backupDir)) != backupDir || SubStr(absTarget, 1, StrLen(backupDir)) != backupDir
                 return JSONSerializer.Stringify(Map("error", "路径不在备份目录内"))
 
-            if !FileExist(basePath)
+            if !FileExist(absBase)
                 return JSONSerializer.Stringify(Map("error", "基准配置不存在"))
-            if !FileExist(targetPath)
+            if !FileExist(absTarget)
                 return JSONSerializer.Stringify(Map("error", "目标配置不存在"))
 
-            baseContent := FileRead(basePath)
-            targetContent := FileRead(targetPath)
+            baseContent := FileRead(absBase)
+            targetContent := FileRead(absTarget)
             baseConfig := JSONParser.Parse(baseContent)
             targetConfig := JSONParser.Parse(targetContent)
 
@@ -1198,13 +1225,9 @@ class WebView2Manager extends IEventHook {
         try {
             if !WebView2Manager.wv
                 return
-            json := JSONSerializer.Stringify(Map("type", eventType, "data", evt))
-            safeJson := StrReplace(json, "\", "\\")
-            safeJson := StrReplace(safeJson, "`n", "\n")
-            safeJson := StrReplace(safeJson, "`r", "\r")
-            safeJson := StrReplace(safeJson, "'", "\'")
-            safeJson := StrReplace(safeJson, "</", "<\/")
-            WebView2Manager.wv.ExecuteScriptAsync("if(typeof onBridgeEvent==='function')onBridgeEvent('" safeJson "');")
+            msg := Map("type", eventType, "data", evt)
+            json := JSONSerializer.Stringify(msg)
+            WebView2Manager.wv.PostWebMessageAsJson(json)
         } catch as e {
             _DebugLog("_PushBridgeEvent error: " e.Message)
         }

@@ -13,7 +13,55 @@ pub enum ConfigLoadError {
 /// 配置文件仓库，提供配置的加载、保存和原子写入功能。
 ///
 /// 支持自动剥离 BOM、原子写入（先写临时文件再重命名）和详细的错误类型区分。
+pub fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| "无效的文件路径".to_string())?
+        .to_string_lossy()
+        .to_string();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let tmp_file_name = format!(".tmp_{file_name}_{}_{}",
+        std::process::id(),
+        now.as_nanos()
+    );
+    let tmp_path = path.with_file_name(&tmp_file_name);
+
+    fs::write(&tmp_path, content).map_err(|e| format!("写入临时文件失败: {e}"))?;
+
+    if let Err(e) = fs::rename(&tmp_path, path) {
+        tracing::debug!("rename 失败，尝试 copy+remove fallback: {e}");
+        fs::copy(&tmp_path, path).map_err(|e2| {
+            let _ = fs::remove_file(&tmp_path);
+            format!("重命名和复制均失败: rename={e}, copy={e2}")
+        })?;
+        if let Err(e) = fs::remove_file(&tmp_path) {
+            tracing::warn!("atomic_write: 临时文件删除失败（可能被锁定）: {} : {e}", tmp_path.display());
+        }
+    }
+
+    Ok(())
+}
+
 pub struct ConfigRepository;
+
+fn cleanup_stale_temp_files(dir: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if name_str.starts_with(".tmp_") {
+            if let Ok(metadata) = entry.metadata() {
+                if let Ok(modified) = metadata.modified() {
+                    if modified.elapsed().unwrap_or_default() > std::time::Duration::from_secs(3600) {
+                        let _ = fs::remove_file(entry.path());
+                    }
+                }
+            }
+        }
+    }
+}
 
 impl ConfigRepository {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Config {
@@ -48,6 +96,8 @@ impl ConfigRepository {
 
     pub fn load_from_file_checked<P: AsRef<Path>>(path: P) -> Result<Config, ConfigLoadError> {
         let path = path.as_ref();
+        // 注意：cleanup_stale_temp_files 仅在 save_to_path 中调用，
+        // 避免在读取路径中引入额外 I/O 延迟
         let content = fs::read_to_string(path).map_err(ConfigLoadError::FileNotFound)?;
         let cleaned = content.trim_start_matches('\u{feff}');
         serde_json::from_str(cleaned).map_err(|e| ConfigLoadError::ParseError(e.to_string()))
@@ -69,23 +119,11 @@ impl ConfigRepository {
         let path = path.as_ref();
         let json =
             serde_json::to_string_pretty(config).map_err(|e| format!("序列化配置失败: {e}"))?;
-
-        let file_name = path
-            .file_name()
-            .ok_or_else(|| "无效的文件路径".to_string())?
-            .to_string_lossy()
-            .to_string();
-        let tmp_file_name = format!(".tmp_{file_name}");
-        let tmp_path = path.with_file_name(&tmp_file_name);
-
-        fs::write(&tmp_path, &json).map_err(|e| format!("写入临时配置文件失败: {e}"))?;
-
-        if let Err(e) = fs::rename(&tmp_path, path) {
-            let _ = fs::remove_file(&tmp_path);
-            return Err(format!("重命名配置文件失败: {e}"));
+        let result = atomic_write(path, &json);
+        if let Some(parent) = path.parent() {
+            cleanup_stale_temp_files(parent);
         }
-
-        Ok(())
+        result
     }
 }
 

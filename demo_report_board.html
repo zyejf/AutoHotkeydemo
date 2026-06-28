@@ -92,6 +92,7 @@ var MODES={
   hybrid:{name:'Hybrid',keys:['1','2','a','b'],intervals:[100,200,150,250],subTypes:{'1':'periodic','2':'periodic','a':'sequence','b':'sequence'},seqCycleInterval:400}
 };
 var COLORS=['#7c4dff','#b388ff','#ffab00','#00e676','#ff5252','#40c4ff'];
+var C={good:'#00e676',warn:'#ffab00',poor:'#ff5252',accent:'#7c4dff',accent2:'#b388ff',muted:'#607d8b',text:'#e8eaf0',border:'#2a1f4e',bg:'#0f0a1e',card:'#1a1030',card2:'#150c28'};
 var currentMode='periodic';
 var charts={};
 
@@ -158,11 +159,11 @@ function renderMetrics(report){
   var holdRate=report.holdDetails.length?Math.round(report.holdDetails.filter(function(h){return h.valid}).length/report.holdDetails.length*100):100;
   var sendRate=Math.round(report.sendSuccessRate*100);
   var items=[
-    {label:'平均偏差',val:report.avgIntervalDeviation+'%',pct:Math.min(100,report.avgIntervalDeviation),color:report.avgIntervalDeviation<=20?'var(--good)':report.avgIntervalDeviation<=50?'var(--warn)':'var(--poor)'},
-    {label:'Good率',val:goodRate+'%',pct:goodRate,color:goodRate>=80?'var(--good)':goodRate>=50?'var(--warn)':'var(--poor)'},
-    {label:'发送成功率',val:sendRate+'%',pct:sendRate,color:sendRate>=95?'var(--good)':sendRate>=80?'var(--warn)':'var(--poor)'},
-    {label:'按压正确率',val:holdRate+'%',pct:holdRate,color:holdRate>=90?'var(--good)':holdRate>=70?'var(--warn)':'var(--poor)'},
-    {label:'顺序正确',val:report.orderCorrect?'YES':'NO',pct:report.orderCorrect?100:0,color:report.orderCorrect?'var(--good)':'var(--poor)'}
+    {label:'平均偏差',val:report.avgIntervalDeviation+'%',pct:Math.min(100,report.avgIntervalDeviation),color:report.avgIntervalDeviation<=20?C.good:report.avgIntervalDeviation<=50?C.warn:C.poor},
+    {label:'Good率',val:goodRate+'%',pct:goodRate,color:goodRate>=80?C.good:goodRate>=50?C.warn:C.poor},
+    {label:'发送成功率',val:sendRate+'%',pct:sendRate,color:sendRate>=95?C.good:sendRate>=80?C.warn:C.poor},
+    {label:'按压正确率',val:holdRate+'%',pct:holdRate,color:holdRate>=90?C.good:holdRate>=70?C.warn:C.poor},
+    {label:'顺序正确',val:report.orderCorrect?'YES':'NO',pct:report.orderCorrect?100:0,color:report.orderCorrect?C.good:C.poor}
   ];
   el.innerHTML=items.map(function(it){return'<div class="metric"><div class="label">'+it.label+'</div><div class="val" style="color:'+it.color+'">'+it.val+'</div><div class="bar"><div class="fill" style="width:'+it.pct+'%;background:'+it.color+'"></div></div></div>';}).join('');
 }
@@ -179,8 +180,8 @@ function renderRadar(report){
     tooltip:{},
     radar:{indicator:[
       {name:'偏差控制',max:100},{name:'Good率',max:100},{name:'发送成功率',max:100},{name:'按压正确',max:100},{name:'稳定性',max:100}
-    ],shape:'polygon',splitNumber:5,axisName:{color:'var(--muted)',fontSize:10},splitLine:{lineStyle:{color:'var(--border)'}},splitArea:{areaStyle:{color:['rgba(124,77,255,.02)','rgba(124,77,255,.05)']}},axisLine:{lineStyle:{color:'var(--border)'}}},
-    series:[{type:'radar',data:[{value:[devScore,goodRate,sendRate,holdRate,stabilityScore],name:'当前测试',areaStyle:{color:'rgba(124,77,255,.2)'},lineStyle:{color:'var(--accent)',width:2},itemStyle:{color:'var(--accent)'}}],tooltip:{formatter:function(p){return p.name+'<br/>'+p.value.map(function(v,i){return['偏差控制','Good率','发送成功率','按压正确','稳定性'][i]+': '+v;}).join('<br/>');}}}]
+    ],shape:'polygon',splitNumber:5,axisName:{color:C.muted,fontSize:10},splitLine:{lineStyle:{color:C.border}},splitArea:{areaStyle:{color:['rgba(124,77,255,.02)','rgba(124,77,255,.05)']}},axisLine:{lineStyle:{color:C.border}}},
+    series:[{type:'radar',data:[{value:[devScore,goodRate,sendRate,holdRate,stabilityScore],name:'当前测试',areaStyle:{color:'rgba(124,77,255,.2)'},lineStyle:{color:C.accent,width:2},itemStyle:{color:C.accent}}],tooltip:{formatter:function(p){return p.name+'<br/>'+p.value.map(function(v,i){return['偏差控制','Good率','发送成功率','按压正确','稳定性'][i]+': '+v;}).join('<br/>');}}}]
   },true);
 }
 
@@ -200,9 +201,9 @@ function renderBox(report){
     backgroundColor:'transparent',
     tooltip:{trigger:'item',formatter:function(p){if(p.seriesType!=='boxplot')return'';var d=p.data;return'<b>'+cfg.keys[p.dataIndex]+'</b><br/>Min: '+d[1]+'%<br/>Q1: '+d[2]+'%<br/>Median: '+d[3]+'%<br/>Q3: '+d[4]+'%<br/>Max: '+d[5]+'%';}},
     grid:{left:50,right:14,top:20,bottom:30},
-    xAxis:{type:'value',name:'偏差%',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
-    yAxis:{type:'category',data:cfg.keys,axisLabel:{color:'var(--text)',fontSize:12,fontWeight:600},axisLine:{lineStyle:{color:'var(--border)'}},axisTick:{show:false}},
-    series:[{type:'boxplot',data:boxData.map(function(d){return[d.min,d.q1,d.median,d.q3,d.max]}),itemStyle:{color:'rgba(124,77,255,.3)',borderColor:'var(--accent)',borderWidth:1},emphasis:{itemStyle:{borderColor:'var(--accent2)',borderWidth:2}}}]
+    xAxis:{type:'value',name:'偏差%',nameTextStyle:{color:C.muted,fontSize:9},axisLabel:{color:C.muted,fontSize:9},axisLine:{lineStyle:{color:C.border}},splitLine:{lineStyle:{color:C.border,type:'dashed'}}},
+    yAxis:{type:'category',data:cfg.keys,axisLabel:{color:C.text,fontSize:12,fontWeight:600},axisLine:{lineStyle:{color:C.border}},axisTick:{show:false}},
+    series:[{type:'boxplot',data:boxData.map(function(d){return[d.min,d.q1,d.median,d.q3,d.max]}),itemStyle:{color:'rgba(124,77,255,.3)',borderColor:C.accent,borderWidth:1},emphasis:{itemStyle:{borderColor:C.accent2,borderWidth:2}}}]
   },true);
 }
 
@@ -214,12 +215,12 @@ function renderPie(report){
   c.setOption({
     backgroundColor:'transparent',
     tooltip:{trigger:'item',formatter:'{b}: {c} ({d}%)'},
-    legend:{orient:'vertical',right:10,top:'center',textStyle:{color:'var(--muted)',fontSize:11},itemWidth:12,itemHeight:12},
-    series:[{type:'pie',radius:['45%','72%'],center:['40%','50%'],avoidLabelOverlap:false,itemStyle:{borderRadius:6,borderColor:'var(--card)',borderWidth:2},label:{show:true,formatter:'{b}\n{d}%',color:'var(--text)',fontSize:11},emphasis:{label:{fontSize:14,fontWeight:'bold'},itemStyle:{shadowBlur:10,shadowColor:'rgba(124,77,255,.4)'}},
+    legend:{orient:'vertical',right:10,top:'center',textStyle:{color:C.muted,fontSize:11},itemWidth:12,itemHeight:12},
+    series:[{type:'pie',radius:['45%','72%'],center:['40%','50%'],avoidLabelOverlap:false,itemStyle:{borderRadius:6,borderColor:C.card,borderWidth:2},label:{show:true,formatter:'{b}\n{d}%',color:C.text,fontSize:11},emphasis:{label:{fontSize:14,fontWeight:'bold'},itemStyle:{shadowBlur:10,shadowColor:'rgba(124,77,255,.4)'}},
       data:[
-        {value:good,name:'Good',itemStyle:{color:'var(--good)'}},
-        {value:acc,name:'Acceptable',itemStyle:{color:'var(--warn)'}},
-        {value:poor,name:'Poor',itemStyle:{color:'var(--poor)'}}
+        {value:good,name:'Good',itemStyle:{color:C.good}},
+        {value:acc,name:'Acceptable',itemStyle:{color:C.warn}},
+        {value:poor,name:'Poor',itemStyle:{color:C.poor}}
       ]
     }]
   },true);
@@ -235,13 +236,13 @@ function renderTrend(report){
   c.setOption({
     backgroundColor:'transparent',
     tooltip:{trigger:'item'},
-    legend:{data:cfg.keys,top:2,textStyle:{color:'var(--muted)',fontSize:10},itemWidth:10,itemHeight:10},
+    legend:{data:cfg.keys,top:2,textStyle:{color:C.muted,fontSize:10},itemWidth:10,itemHeight:10},
     grid:{left:40,right:14,top:28,bottom:30},
-    xAxis:{type:'value',name:'事件序号',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{show:false}},
-    yAxis:{type:'value',name:'偏差%',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
+    xAxis:{type:'value',name:'事件序号',nameTextStyle:{color:C.muted,fontSize:9},axisLabel:{color:C.muted,fontSize:9},axisLine:{lineStyle:{color:C.border}},splitLine:{show:false}},
+    yAxis:{type:'value',name:'偏差%',nameTextStyle:{color:C.muted,fontSize:9},axisLabel:{color:C.muted,fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:C.border,type:'dashed'}}},
     dataZoom:[{type:'inside'}],
     series:series,
-    markLine:{silent:true,data:[{yAxis:20,lineStyle:{color:'var(--good)',type:'dashed',width:1},label:{formatter:'20%',fontSize:8,color:'var(--good)'}},{yAxis:50,lineStyle:{color:'var(--warn)',type:'dashed',width:1},label:{formatter:'50%',fontSize:8,color:'var(--warn)'}}]}
+    markLine:{silent:true,data:[{yAxis:20,lineStyle:{color:C.good,type:'dashed',width:1},label:{formatter:'20%',fontSize:8,color:C.good}},{yAxis:50,lineStyle:{color:C.warn,type:'dashed',width:1},label:{formatter:'50%',fontSize:8,color:C.warn}}]}
   },true);
 }
 
@@ -266,10 +267,10 @@ function renderHeatmap(report){
     backgroundColor:'transparent',
     tooltip:{formatter:function(p){return'按键 '+cfg.keys[p.data[1]]+'<br/>时段 '+xLabels[p.data[0]]+'<br/>事件 '+p.data[2];}},
     grid:{left:50,right:40,top:10,bottom:30},
-    xAxis:{type:'category',data:xLabels,axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{show:false}},
-    yAxis:{type:'category',data:cfg.keys,axisLabel:{color:'var(--text)',fontSize:12,fontWeight:600},axisLine:{lineStyle:{color:'var(--border)'}},axisTick:{show:false}},
-    visualMap:{min:0,max:maxVal,orient:'horizontal',left:'center',bottom:2,inRange:{color:['#1a1a2e','#7c4dff','#ff5252']},textStyle:{color:'var(--muted)',fontSize:9},itemWidth:12,itemHeight:100},
-    series:[{type:'heatmap',data:hmData,label:{show:true,color:'var(--text)',fontSize:10,formatter:function(p){return p.data[2]||''}},emphasis:{itemStyle:{shadowBlur:6,shadowColor:'rgba(124,77,255,.5)'}}}]
+    xAxis:{type:'category',data:xLabels,axisLabel:{color:C.muted,fontSize:9},axisLine:{lineStyle:{color:C.border}},splitLine:{show:false}},
+    yAxis:{type:'category',data:cfg.keys,axisLabel:{color:C.text,fontSize:12,fontWeight:600},axisLine:{lineStyle:{color:C.border}},axisTick:{show:false}},
+    visualMap:{min:0,max:maxVal,orient:'horizontal',left:'center',bottom:2,inRange:{color:['#1a1a2e','#7c4dff','#ff5252']},textStyle:{color:C.muted,fontSize:9},itemWidth:12,itemHeight:100},
+    series:[{type:'heatmap',data:hmData,label:{show:true,color:C.text,fontSize:10,formatter:function(p){return p.data[2]||''}},emphasis:{itemStyle:{shadowBlur:6,shadowColor:'rgba(124,77,255,.5)'}}}]
   },true);
 }
 

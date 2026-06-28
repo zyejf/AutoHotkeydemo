@@ -30,6 +30,7 @@ impl HotkeyMerger {
             .cloned()
             .unwrap_or_default();
         if hotkey.is_empty() {
+            tracing::debug!("HotkeyMerger: 丢弃无热键的消息 type={} seq={}", msg.r#type, msg.seq);
             return;
         }
         self.buffer.insert(hotkey, msg);

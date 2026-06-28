@@ -1,4 +1,4 @@
 #[test]
-fn manifest_helper_smoke_test() {
+fn test_manifest_helper_smoke() {
     assert!(true);
 }

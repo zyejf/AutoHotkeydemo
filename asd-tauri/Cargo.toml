@@ -4,6 +4,7 @@ members = [
     "crates/asd-domain",
     "crates/asd-ipc-protocol",
     "crates/asd-application",
+    "crates/asd-test-harness",
     "src-tauri",
 ]
 

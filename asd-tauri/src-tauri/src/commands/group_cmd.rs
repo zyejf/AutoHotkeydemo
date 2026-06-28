@@ -1,5 +1,5 @@
 use asd_application::error::AppError;
-use asd_application::group_service::{BatchDeleteResult, GroupStatus, GroupSummary};
+use asd_application::group_service::{BatchDeleteResult, BatchToggleResult, GroupStatus, GroupSummary, ReorderResult};
 use asd_application::state::AppState;
 use asd_domain::models::SkillGroup;
 use std::sync::Arc;
@@ -93,6 +93,9 @@ pub fn get_group_detail(
     state: tauri::State<'_, Arc<AppState>>,
     group_id: String,
 ) -> Result<SkillGroup, AppError> {
+    if group_id.trim().is_empty() {
+        return Err(AppError::Validation("分组 ID 不能为空".to_string()));
+    }
     state
         .get_group(&group_id)
         .ok_or(AppError::GroupNotFound(group_id))
@@ -110,7 +113,7 @@ pub async fn delete_group(
 pub async fn toggle_all(
     state: tauri::State<'_, Arc<AppState>>,
     active: bool,
-) -> Result<(), AppError> {
+) -> Result<BatchToggleResult, AppError> {
     asd_application::group_service::toggle_all(&state, active)
 }
 
@@ -119,7 +122,7 @@ pub async fn batch_toggle_groups(
     state: tauri::State<'_, Arc<AppState>>,
     group_ids: Vec<String>,
     active: bool,
-) -> Result<(), AppError> {
+) -> Result<BatchToggleResult, AppError> {
     asd_application::group_service::batch_toggle_groups(&state, &group_ids, active)
 }
 
@@ -135,6 +138,6 @@ pub async fn batch_delete_groups(
 pub fn reorder_groups(
     state: tauri::State<'_, Arc<AppState>>,
     group_ids: Vec<String>,
-) -> Result<(), AppError> {
+) -> Result<ReorderResult, AppError> {
     asd_application::group_service::reorder_groups(&state, &group_ids)
 }

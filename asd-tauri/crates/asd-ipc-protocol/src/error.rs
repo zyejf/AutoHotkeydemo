@@ -24,6 +24,11 @@ pub enum IpcError {
 
 impl From<std::io::Error> for IpcError {
     fn from(e: std::io::Error) -> Self {
+        // 优先使用 ErrorKind 判断，比字符串匹配更可靠
+        if e.kind() == std::io::ErrorKind::BrokenPipe {
+            return IpcError::PipeBroken(e.to_string());
+        }
+        // 字符串匹配作为后备，覆盖非标准 BrokenPipe 错误消息
         let msg = e.to_string();
         if msg.contains("broken pipe")
             || msg.contains("Broken pipe")

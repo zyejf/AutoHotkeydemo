@@ -1,0 +1,6 @@
+{
+  "_comment": "基准性能数据占位文件。首次 bench job 运行时会被实际数据替换。",
+  "_generated_by": "Task 8 of unify-test-management spec",
+  "_generated_at": "2026-06-27",
+  "note": "此文件为占位，实际基线由 cargo bench --save-baseline 生成于 target/criterion/，CI 会自动对比"
+}

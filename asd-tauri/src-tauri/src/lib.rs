@@ -13,6 +13,7 @@ use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use bridge::{IpcBridge, TauriEventBridge, WatchdogBridge};
 use infrastructure::ipc::{IpcManager, IpcOutboundReceiver};
 use infrastructure::watchdog::{ProcessWatchdog, WatchdogRunner};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -27,13 +28,27 @@ async fn perform_graceful_shutdown(
     _app_state: &Arc<AppState>,
     ipc_manager: &IpcManagerArc,
     watchdog: &WatchdogArc,
+    runner_shutting_down: &Arc<std::sync::atomic::AtomicBool>,
+    shutdown_guard: &std::sync::atomic::AtomicBool,
 ) {
+    // 防止窗口关闭和托盘退出并发触发关机
+    if shutdown_guard
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        tracing::info!("关机已在进行中，跳过重复调用");
+        return;
+    }
+
     {
         let ipc_mgr = ipc_manager.lock().await;
         if let Some(ref mgr) = *ipc_mgr {
             mgr.mark_shutting_down();
         }
     }
+
+    // 通知 WatchdogRunner 退出 MaxRetriesExceeded 等待循环
+    runner_shutting_down.store(true, Ordering::SeqCst);
 
     let mut wd = watchdog.lock().await;
     if let Err(e) = wd.graceful_shutdown().await {
@@ -43,7 +58,7 @@ async fn perform_graceful_shutdown(
 
 fn spawn_ipc_listener(
     mut rx: IpcOutboundReceiver,
-    _app_state: Arc<AppState>,
+    app_state: Arc<AppState>,
     app_handle: tauri::AppHandle,
 ) {
     tauri::async_runtime::spawn(async move {
@@ -52,14 +67,18 @@ fn spawn_ipc_listener(
                 "hotkey" => {
                     if let Some(keys) = &msg.keys {
                         if let Some(hotkey) = keys.first() {
-                            tracing::info!("收到热键事件: {hotkey}");
-                            let _ = app_handle.emit(
-                                "hotkey_event",
-                                serde_json::json!({
-                                    "hotkey": hotkey,
-                                    "keys": keys,
-                                }),
-                            );
+                            if app_state.is_hotkey_registered(hotkey).unwrap_or(false) {
+                                tracing::info!("收到热键事件: {hotkey}");
+                                let _ = app_handle.emit(
+                                    "hotkey_event",
+                                    serde_json::json!({
+                                        "hotkey": hotkey,
+                                        "keys": keys,
+                                    }),
+                                );
+                            } else {
+                                tracing::debug!("收到未注册热键事件，已忽略: {hotkey}");
+                            }
                         } else {
                             tracing::warn!("收到热键事件但 keys 为空: seq={}", msg.seq);
                         }
@@ -85,9 +104,14 @@ fn spawn_ipc_listener(
                 }
             }
         }
+        tracing::info!("IPC 消息监听器退出（outbound 通道已关闭）");
     });
 }
 
+/// 启动 IPC 接受循环。
+///
+/// 前置条件：IpcManager 必须在调用前初始化（包装在 Some() 中），
+/// 否则 accept_loop 不会启动且不会重试。
 fn spawn_ipc_accept_loop(ipc_manager: IpcManagerArc) {
     tauri::async_runtime::spawn(async move {
         let listener = match infrastructure::ipc::create_listener("asd_ipc") {
@@ -117,26 +141,22 @@ fn spawn_heartbeat_ping(ipc_manager: IpcManagerArc) {
         let mut consecutive_failures: u32 = 0;
         loop {
             interval.tick().await;
-            {
+            let mgr = {
                 let guard = ipc_manager.lock().await;
                 if guard.as_ref().map(|m| m.is_shutting_down()).unwrap_or(false) {
                     tracing::info!("心跳 ping 循环检测到关机标志，退出");
-                    break;
+                    return;
                 }
-            }
-            let mgr = {
-                let guard = ipc_manager.lock().await;
                 guard.clone()
             };
             if let Some(mgr) = mgr {
                 if !mgr.is_connected().await {
-                    consecutive_failures = 0;
                     continue;
                 }
                 let seq = mgr.next_seq();
                 let msg = IpcMessage::ping(seq);
                 if let Err(e) = mgr.send(&msg).await {
-                    consecutive_failures += 1;
+                    consecutive_failures = consecutive_failures.saturating_add(1);
                     if consecutive_failures <= 3 || consecutive_failures % 30 == 0 {
                         tracing::warn!(
                             "心跳 ping 发送失败 (连续第{}次): {e}",
@@ -151,13 +171,20 @@ fn spawn_heartbeat_ping(ipc_manager: IpcManagerArc) {
     });
 }
 
-fn spawn_watchdog(app_state: Arc<AppState>, watchdog: WatchdogArc) {
+fn spawn_watchdog(app_state: Arc<AppState>, watchdog: WatchdogArc) -> Arc<std::sync::atomic::AtomicBool> {
+    // 提前创建 shutting_down Arc，保存引用供 perform_graceful_shutdown 使用
+    let shutting_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let shutting_down_clone = shutting_down.clone();
+
     tauri::async_runtime::spawn(async move {
-        let runner = WatchdogRunner::from_arc(watchdog.clone());
+        let mut runner = WatchdogRunner::from_arc(watchdog.clone());
+        // 替换 runner 内部的 shutting_down 为共享的 Arc
+        runner.set_shutting_down(shutting_down_clone);
 
         let state_clone = app_state.clone();
         let wd_clone = watchdog.clone();
         let mut last_status = WatchdogStateEnum::Idle;
+        let mut last_restart_count: u32 = 0;
 
         tauri::async_runtime::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
@@ -168,15 +195,20 @@ fn spawn_watchdog(app_state: Arc<AppState>, watchdog: WatchdogArc) {
                 let restart_count = wd_guard.restart_count();
                 drop(wd_guard);
 
-                if current != last_status {
+                // 状态或重启计数变更时同步到前端，确保 Restarting 状态下
+                // restart_count 递增也能及时更新
+                if current != last_status || restart_count != last_restart_count {
                     state_clone.update_watchdog_state(current.clone(), restart_count);
                     last_status = current;
+                    last_restart_count = restart_count;
                 }
             }
         });
 
         runner.run().await;
     });
+
+    shutting_down
 }
 
 fn setup_ipc_callbacks(
@@ -195,14 +227,55 @@ fn setup_ipc_callbacks(
     }));
 
     let watchdog_for_pipe_broken = watchdog.clone();
-    let app_state_for_recover = app_state.clone();
     ipc_manager.set_pipe_broken_callback(Arc::new(move || {
         let wd = watchdog_for_pipe_broken.clone();
-        let state = app_state_for_recover.clone();
         tauri::async_runtime::spawn(async move {
             let mut guard = wd.lock().await;
-            guard.set_state(WatchdogStateEnum::Recovering);
-            drop(guard);
+            match guard.state() {
+                WatchdogStateEnum::Running | WatchdogStateEnum::Hung => {
+                    guard.set_state(WatchdogStateEnum::Recovering);
+                }
+                other => {
+                    tracing::debug!(
+                        "pipe_broken: 当前状态 {:?}，跳过 Recovering 转换", other
+                    );
+                }
+            }
+        });
+    }));
+
+    let app_state_for_reconnect = app_state.clone();
+    let watchdog_for_reconnect = watchdog.clone();
+    ipc_manager.set_post_connect_callback(Arc::new(move || {
+        let state = app_state_for_reconnect.clone();
+        let wd = watchdog_for_reconnect.clone();
+        tauri::async_runtime::spawn(async move {
+            // 设计决策：post_connect_callback 与 toggle_group 回滚存在理论竞态窗口。
+            // 如果 toggle_group 在更新内存状态后、IPC 发送失败回滚前，恰好被此回调读取，
+            // 可能导致恢复状态与实际不一致。窗口极窄（微秒级），且不一致性会在下次
+            // 切换或重连时自动修正，因此作为已知设计权衡接受。
+            tracing::info!("AHK 重连成功，恢复运行时状态");
+            {
+                let mut guard = wd.lock().await;
+                match guard.state() {
+                    WatchdogStateEnum::Recovering | WatchdogStateEnum::Hung => {
+                        guard.notify_heartbeat();
+                        guard.set_state(WatchdogStateEnum::Running);
+                    }
+                    WatchdogStateEnum::Running => {
+                        // 竞态场景：pipe_broken 回调尚未执行
+                        // 仍需重发以确保 AHK 侧状态一致
+                        tracing::info!("AHK 重连成功，当前状态 Running，确保分组/热键同步");
+                    }
+                    WatchdogStateEnum::Restarting => {
+                        tracing::warn!("AHK 重连成功但 Watchdog 已进入 Restarting，跳过状态覆盖");
+                    }
+                    other => {
+                        tracing::warn!("AHK 重连成功但 Watchdog 状态为 {:?}，跳过状态覆盖", other);
+                    }
+                }
+            }
+
             let active_groups_data: Vec<(String, SkillGroup)> = {
                 let groups = state.read_groups().ok();
                 groups
@@ -223,6 +296,35 @@ fn setup_ipc_callbacks(
             for (hotkey, group_id) in active_hotkey_list {
                 let cmd = IpcCommand::RegisterHotkey { hotkey, group_id };
                 state.try_send_ipc_command(&cmd);
+            }
+
+            if state.is_hold_mode_enabled() {
+                state.try_send_ipc_command(&IpcCommand::HoldModeToggle { enabled: true });
+            }
+
+            // 清理不跨重连持久化的瞬态状态。
+            // AHK 重连后是全新进程，之前设置的瞬态标志在 AHK 侧已不存在，
+            // 若不清理会导致 Rust-AHK 状态分裂（如用户无法启动新录制/验证）。
+            if state.emergency_mode.compare_exchange(
+                true, false, Ordering::SeqCst, Ordering::SeqCst,
+            ).is_ok() {
+                tracing::info!("AHK 重连：清理 emergency_mode 瞬态标志");
+            }
+            {
+                // recording_mode 写锁同时保护 validation_in_progress 的清理，
+                // 防止与 start_validation/stop_validation 的竞态：
+                // start_validation 在 recording_mode 写锁内设置 validation_in_progress = true，
+                // 若重连回调在锁外清理 validation_in_progress，会导致 Rust 侧标志为 false
+                // 而 AHK 侧验证仍在运行，用户无法停止验证。
+                let mut mode_guard = state.recording_mode.write();
+                if mode_guard.take().is_some() {
+                    tracing::info!("AHK 重连：清理 recording_mode 瞬态标志");
+                }
+                if state.validation_in_progress.compare_exchange(
+                    true, false, Ordering::SeqCst, Ordering::SeqCst,
+                ).is_ok() {
+                    tracing::info!("AHK 重连：清理 validation_in_progress 瞬态标志");
+                }
             }
         });
     }));
@@ -284,7 +386,7 @@ fn setup_ipc_and_watchdog(
     app_handle: &tauri::AppHandle,
     exe_path: &std::path::Path,
     auth_token: &str,
-) {
+) -> Arc<std::sync::atomic::AtomicBool> {
     {
         let guard = tokio::task::block_in_place(|| ipc_manager_arc.blocking_lock());
         if let Some(ref mgr) = *guard {
@@ -304,13 +406,16 @@ fn setup_ipc_and_watchdog(
     }
 
     spawn_heartbeat_ping(ipc_manager_arc.clone());
-    spawn_watchdog(app_state.clone(), watchdog.clone());
+    let runner_shutting_down = spawn_watchdog(app_state.clone(), watchdog.clone());
+    runner_shutting_down
 }
 
 fn setup_tray_menu(
     app_handle: &tauri::AppHandle,
     ipc_manager_arc: &IpcManagerArc,
     watchdog: &WatchdogArc,
+    runner_shutting_down: &Arc<std::sync::atomic::AtomicBool>,
+    shutdown_guard: &Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<(), tauri::Error> {
     let show_item = MenuItemBuilder::with_id("show", "显示主窗口").build(app_handle)?;
     let hide_item = MenuItemBuilder::with_id("hide", "隐藏到托盘").build(app_handle)?;
@@ -325,6 +430,8 @@ fn setup_tray_menu(
 
     let ipc_mgr_tray = ipc_manager_arc.clone();
     let wd_tray = watchdog.clone();
+    let runner_sd_tray = runner_shutting_down.clone();
+    let sg_tray = shutdown_guard.clone();
     let _tray = TrayIconBuilder::new()
         .tooltip("ASD - 技能管理器")
         .icon(
@@ -366,9 +473,11 @@ fn setup_tray_menu(
                 let state_clone = state.inner().clone();
                 let ipc_mgr = ipc_mgr_tray.clone();
                 let wd = wd_tray.clone();
+                let runner_sd = runner_sd_tray.clone();
+                let sg = sg_tray.clone();
                 let handle = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    perform_graceful_shutdown(&state_clone, &ipc_mgr, &wd).await;
+                    perform_graceful_shutdown(&state_clone, &ipc_mgr, &wd, &runner_sd, &sg).await;
                     handle.exit(0);
                 });
             }
@@ -386,11 +495,15 @@ fn setup_window_close_handler(
     app_handle: &tauri::AppHandle,
     ipc_manager_arc: &IpcManagerArc,
     watchdog: &WatchdogArc,
+    runner_shutting_down: &Arc<std::sync::atomic::AtomicBool>,
+    shutdown_guard: &Arc<std::sync::atomic::AtomicBool>,
 ) {
     let state_for_close = app_state.clone();
     let app_handle_for_close = app_handle.clone();
     let ipc_mgr_close = ipc_manager_arc.clone();
     let wd_close = watchdog.clone();
+    let runner_sd_close = runner_shutting_down.clone();
+    let sg_close = shutdown_guard.clone();
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
             api.prevent_close();
@@ -398,8 +511,10 @@ fn setup_window_close_handler(
             let handle = app_handle_for_close.clone();
             let ipc_mgr = ipc_mgr_close.clone();
             let wd = wd_close.clone();
+            let runner_sd = runner_sd_close.clone();
+            let sg = sg_close.clone();
             tauri::async_runtime::spawn(async move {
-                perform_graceful_shutdown(&state, &ipc_mgr, &wd).await;
+                perform_graceful_shutdown(&state, &ipc_mgr, &wd, &runner_sd, &sg).await;
                 handle.exit(0);
             });
         }
@@ -465,18 +580,23 @@ pub fn run() {
                     tracing::error!("无法获取 app_data_dir: {e}，使用当前目录");
                     std::path::PathBuf::from("config.json")
                 });
-            let config = ConfigRepository::load_from_file(&config_path);
+            let config = match ConfigRepository::load_from_file_checked(&config_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::error!("配置文件加载失败: {e}，使用默认配置");
+                    Config::default()
+                }
+            };
 
             let (ipc_manager, outbound_rx) = IpcManager::new("asd_ipc");
             let auth_token = ipc_manager.auth_token().to_string();
             let outbound_sender = ipc_manager.outbound_sender();
-            let seq_counter = ipc_manager.seq_counter();
             let ipc_manager_arc: IpcManagerArc =
                 Arc::new(tokio::sync::Mutex::new(Some(ipc_manager)));
 
             let watchdog: WatchdogArc = Arc::new(tokio::sync::Mutex::new(ProcessWatchdog::new()));
 
-            let ipc_bridge = Arc::new(IpcBridge::new(outbound_sender, ipc_manager_arc.clone(), seq_counter));
+            let ipc_bridge = Arc::new(IpcBridge::new(outbound_sender, ipc_manager_arc.clone()));
             let event_bridge = Arc::new(TauriEventBridge::new(app.handle().clone()));
             let watchdog_bridge = Arc::new(WatchdogBridge::new(watchdog.clone()));
 
@@ -490,7 +610,7 @@ pub fn run() {
 
             let exe_path = resolve_ahk_executor_path(app);
 
-            setup_ipc_and_watchdog(
+            let runner_shutting_down = setup_ipc_and_watchdog(
                 &app_state,
                 &ipc_manager_arc,
                 &watchdog,
@@ -500,9 +620,12 @@ pub fn run() {
                 &auth_token,
             );
 
+            // 关机保护：防止窗口关闭和托盘退出并发触发关机
+            let shutdown_guard = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
             app.manage(app_state);
 
-            setup_tray_menu(app.handle(), &ipc_manager_arc, &watchdog)?;
+            setup_tray_menu(app.handle(), &ipc_manager_arc, &watchdog, &runner_shutting_down, &shutdown_guard)?;
 
             let gs = app.global_shortcut();
             let _ = gs.register("Ctrl+Shift+A");
@@ -514,6 +637,8 @@ pub fn run() {
                     app.handle(),
                     &ipc_manager_arc,
                     &watchdog,
+                    &runner_shutting_down,
+                    &shutdown_guard,
                 );
             }
 

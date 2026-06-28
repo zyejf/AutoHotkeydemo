@@ -1,0 +1,13 @@
+[package]
+name = "asd-test-harness"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+asd-domain = { path = "../asd-domain" }
+asd-ipc-protocol = { path = "../asd-ipc-protocol" }
+asd-application = { path = "../asd-application" }
+parking_lot = { workspace = true }
+serde_json = { workspace = true }
+indexmap = { workspace = true }
+tempfile = "3"

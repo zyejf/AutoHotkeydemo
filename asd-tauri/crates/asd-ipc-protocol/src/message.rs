@@ -159,6 +159,25 @@ impl IpcMessage {
             ..Self::default()
         }
     }
+
+    /// 构造错误响应消息。
+    ///
+    /// 与 `response` 方法不同，此方法设置 `r#type = "error"`，
+    /// 确保日志和调试中能正确识别消息类型。
+    pub fn error_response(seq: u64, ack_seq: u64, error: &str) -> Self {
+        Self {
+            r#type: "error".to_string(),
+            seq,
+            ack_seq: Some(ack_seq),
+            status: Some("error".to_string()),
+            data: Some(serde_json::json!({"error": error})),
+            ..Self::default()
+        }
+    }
+
+    pub fn is_error(&self) -> bool {
+        self.r#type == "error" || self.status.as_deref() == Some("error")
+    }
 }
 
 #[cfg(test)]

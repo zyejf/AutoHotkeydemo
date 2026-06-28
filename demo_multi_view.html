@@ -143,6 +143,7 @@ var MODES={
   hybrid:{name:'Hybrid',keys:['1','2','a','b'],intervals:[100,200,150,250],subTypes:{'1':'periodic','2':'periodic','a':'sequence','b':'sequence'},seqCycleInterval:400}
 };
 var COLORS=['#00bfa5','#7c4dff','#ffab00','#00e676','#ff5252','#40c4ff'];
+var C={good:'#00e676',warn:'#ffab00',poor:'#ff5252',accent:'#00bfa5',accent2:'#26c6da',muted:'#607d8b',text:'#e8eaf0',border:'#1e3a5f',bg:'#0a1628',card:'#0f2030',card2:'#0c1a28'};
 var currentMode='periodic';
 var charts={};
 var currentReport=null;
@@ -172,10 +173,10 @@ function renderKPI(report){
   var goodRate=report.details.length?Math.round(report.details.filter(function(d){return d.status==='good'}).length/report.details.length*100):100;
   var holdRate=report.holdDetails.length?Math.round(report.holdDetails.filter(function(h){return h.valid}).length/report.holdDetails.length*100):100;
   var items=[
-    {label:'平均偏差',val:report.avgIntervalDeviation+'%',sub:'max '+report.maxIntervalDeviation+'%',color:report.avgIntervalDeviation<=20?'var(--good)':report.avgIntervalDeviation<=50?'var(--warn)':'var(--poor)'},
-    {label:'Good率',val:goodRate+'%',color:goodRate>=80?'var(--good)':goodRate>=50?'var(--warn)':'var(--poor)'},
-    {label:'发送成功率',val:Math.round(report.sendSuccessRate*100)+'%',color:report.sendSuccessRate>=0.95?'var(--good)':'var(--warn)'},
-    {label:'按压正确率',val:holdRate+'%',color:holdRate>=90?'var(--good)':'var(--warn)'}
+    {label:'平均偏差',val:report.avgIntervalDeviation+'%',sub:'max '+report.maxIntervalDeviation+'%',color:report.avgIntervalDeviation<=20?C.good:report.avgIntervalDeviation<=50?C.warn:C.poor},
+    {label:'Good率',val:goodRate+'%',color:goodRate>=80?C.good:goodRate>=50?C.warn:C.poor},
+    {label:'发送成功率',val:Math.round(report.sendSuccessRate*100)+'%',color:report.sendSuccessRate>=0.95?C.good:C.warn},
+    {label:'按压正确率',val:holdRate+'%',color:holdRate>=90?C.good:C.warn}
   ];
   row.innerHTML=items.map(function(it){return'<div class="kpi"><div class="label">'+it.label+'</div><div class="val" style="color:'+it.color+'">'+it.val+'</div>'+(it.sub?'<div class="sub">'+it.sub+'</div>':'')+'</div>';}).join('');
 }
@@ -192,10 +193,10 @@ function renderStatus(report){
   });
   c.setOption({
     backgroundColor:'transparent',tooltip:{trigger:'axis'},
-    legend:{data:cfg.keys,top:2,textStyle:{color:'var(--muted)',fontSize:10},itemWidth:10,itemHeight:10},
+    legend:{data:cfg.keys,top:2,textStyle:{color:C.muted,fontSize:10},itemWidth:10,itemHeight:10},
     grid:{left:40,right:14,top:30,bottom:24},
-    xAxis:{type:'category',data:['Good','Acceptable','Poor'],axisLabel:{color:'var(--muted)',fontSize:10},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{show:false}},
-    yAxis:{type:'value',axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
+    xAxis:{type:'category',data:['Good','Acceptable','Poor'],axisLabel:{color:C.muted,fontSize:10},axisLine:{lineStyle:{color:C.border}},splitLine:{show:false}},
+    yAxis:{type:'value',axisLabel:{color:C.muted,fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:C.border,type:'dashed'}}},
     series:series
   },true);
 }
@@ -209,13 +210,13 @@ function renderTrend(report){
   });
   c.setOption({
     backgroundColor:'transparent',tooltip:{trigger:'item'},
-    legend:{data:cfg.keys,top:2,textStyle:{color:'var(--muted)',fontSize:10},itemWidth:10,itemHeight:10},
+    legend:{data:cfg.keys,top:2,textStyle:{color:C.muted,fontSize:10},itemWidth:10,itemHeight:10},
     grid:{left:40,right:14,top:30,bottom:28},
-    xAxis:{type:'value',axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{show:false}},
-    yAxis:{type:'value',name:'偏差%',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
+    xAxis:{type:'value',axisLabel:{color:C.muted,fontSize:9},axisLine:{lineStyle:{color:C.border}},splitLine:{show:false}},
+    yAxis:{type:'value',name:'偏差%',nameTextStyle:{color:C.muted,fontSize:9},axisLabel:{color:C.muted,fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:C.border,type:'dashed'}}},
     dataZoom:[{type:'inside'}],
     series:series,
-    markLine:{silent:true,data:[{yAxis:20,lineStyle:{color:'var(--good)',type:'dashed',width:1},label:{formatter:'20%',fontSize:8,color:'var(--good)'}},{yAxis:50,lineStyle:{color:'var(--warn)',type:'dashed',width:1},label:{formatter:'50%',fontSize:8,color:'var(--warn)'}}]}
+    markLine:{silent:true,data:[{yAxis:20,lineStyle:{color:C.good,type:'dashed',width:1},label:{formatter:'20%',fontSize:8,color:C.good}},{yAxis:50,lineStyle:{color:C.warn,type:'dashed',width:1},label:{formatter:'50%',fontSize:8,color:C.warn}}]}
   },true);
 }
 
@@ -233,13 +234,13 @@ function renderInterval(report){
   });
   c.setOption({
     backgroundColor:'transparent',tooltip:{trigger:'axis',formatter:function(ps){var idx=ps[0].dataIndex;return'<b>'+cfg.keys[idx]+'</b><br/>期望: '+expectedData[idx]+'ms<br/>实际: '+actualData[idx]+'ms<br/>差值: '+(actualData[idx]-expectedData[idx])+'ms';}},
-    legend:{data:['期望间隔','实际间隔'],top:2,textStyle:{color:'var(--muted)',fontSize:10}},
+    legend:{data:['期望间隔','实际间隔'],top:2,textStyle:{color:C.muted,fontSize:10}},
     grid:{left:50,right:14,top:28,bottom:28},
-    xAxis:{type:'category',data:cfg.keys,axisLabel:{color:'var(--text)',fontSize:12,fontWeight:600},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{show:false}},
-    yAxis:{type:'value',name:'间隔(ms)',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
+    xAxis:{type:'category',data:cfg.keys,axisLabel:{color:C.text,fontSize:12,fontWeight:600},axisLine:{lineStyle:{color:C.border}},splitLine:{show:false}},
+    yAxis:{type:'value',name:'间隔(ms)',nameTextStyle:{color:C.muted,fontSize:9},axisLabel:{color:C.muted,fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:C.border,type:'dashed'}}},
     series:[
-      {name:'期望间隔',type:'bar',data:expectedData,barWidth:'35%',itemStyle:{color:'rgba(0,191,165,.25)',borderColor:'var(--accent)',borderWidth:1,borderRadius:3},label:{show:true,position:'top',formatter:function(p){return p.value+'ms'},color:'var(--accent)',fontSize:9}},
-      {name:'实际间隔',type:'bar',data:actualData,barWidth:'25%',itemStyle:{color:function(p){var d=Math.abs(actualData[p.dataIndex]-expectedData[p.dataIndex])/expectedData[p.dataIndex]*100;return d<=20?'var(--good)':d<=50?'var(--warn)':'var(--poor)';},borderRadius:3},label:{show:true,position:'top',formatter:function(p){return p.value+'ms'},color:'var(--text)',fontSize:9}}
+      {name:'期望间隔',type:'bar',data:expectedData,barWidth:'35%',itemStyle:{color:'rgba(0,191,165,.25)',borderColor:C.accent,borderWidth:1,borderRadius:3},label:{show:true,position:'top',formatter:function(p){return p.value+'ms'},color:C.accent,fontSize:9}},
+      {name:'实际间隔',type:'bar',data:actualData,barWidth:'25%',itemStyle:{color:function(p){var d=Math.abs(actualData[p.dataIndex]-expectedData[p.dataIndex])/expectedData[p.dataIndex]*100;return d<=20?C.good:d<=50?C.warn:C.poor;},borderRadius:3},label:{show:true,position:'top',formatter:function(p){return p.value+'ms'},color:C.text,fontSize:9}}
     ]
   },true);
 }
@@ -253,16 +254,16 @@ function renderSwim(report){
     report.events.forEach(function(e){if(e.key===k){if(e.event==='down')downs.push(e.timestamp);if(e.event==='up')ups.push(e.timestamp);}});
     var barData=[];
     for(var i=0;i<downs.length;i++){var upTs=i<ups.length?ups[i]:downs[i]+15;if(upTs<=downs[i])upTs=downs[i]+15;barData.push([Math.round(downs[i]),Math.round(upTs),Math.round(upTs-downs[i]),k,i]);}
-    series.push({name:k,type:'custom',renderItem:function(params,api){var d0=api.value(0),d1=api.value(1),dur=api.value(2);var s=api.coord([d0,params.seriesIndex]);var e=api.coord([d1,params.seriesIndex]);var h=16;var rect=echarts.graphic.clipRectByRect({x:s[0],y:s[1]-h/2,width:Math.max(e[0]-s[0],1),height:h},{x:params.coordSys.x,y:params.coordSys.y,width:params.coordSys.width,height:params.coordSys.height});if(!rect)return;var color=dur>200?'var(--poor)':dur>100?'var(--warn)':COLORS[ki%COLORS.length];return{type:'rect',shape:rect,style:{fill:color,opacity:.8},emphasis:{style:{opacity:1,shadowBlur:6,shadowColor:'rgba(0,191,165,.4)'}}};},data:barData,encode:{x:[0,1],y:0},tooltip:{formatter:function(p){var d=p.data;return'<b>'+d[3]+'</b> #'+(d[4]+1)+'<br/>触发: '+d[0]+'ms<br/>持续: '+d[2]+'ms';}}});
+    series.push({name:k,type:'custom',renderItem:function(params,api){var d0=api.value(0),d1=api.value(1),dur=api.value(2);var s=api.coord([d0,params.seriesIndex]);var e=api.coord([d1,params.seriesIndex]);var h=16;var rect=echarts.graphic.clipRectByRect({x:s[0],y:s[1]-h/2,width:Math.max(e[0]-s[0],1),height:h},{x:params.coordSys.x,y:params.coordSys.y,width:params.coordSys.width,height:params.coordSys.height});if(!rect)return;var color=dur>200?C.poor:dur>100?C.warn:COLORS[ki%COLORS.length];return{type:'rect',shape:rect,style:{fill:color,opacity:.8},emphasis:{style:{opacity:1,shadowBlur:6,shadowColor:'rgba(0,191,165,.4)'}}};},data:barData,encode:{x:[0,1],y:0},tooltip:{formatter:function(p){var d=p.data;return'<b>'+d[3]+'</b> #'+(d[4]+1)+'<br/>触发: '+d[0]+'ms<br/>持续: '+d[2]+'ms';}}});
   });
   var maxTs=report.events.length?Math.max.apply(null,report.events.map(function(e){return e.timestamp})):5000;
   c.setOption({
     backgroundColor:'transparent',tooltip:{},
-    legend:{data:cfg.keys,top:2,textStyle:{color:'var(--muted)',fontSize:10},itemWidth:10,itemHeight:10},
+    legend:{data:cfg.keys,top:2,textStyle:{color:C.muted,fontSize:10},itemWidth:10,itemHeight:10},
     grid:{left:50,right:16,top:30,bottom:40},
-    xAxis:{type:'value',name:'时间(ms)',nameTextStyle:{color:'var(--muted)',fontSize:9},min:0,max:Math.ceil(maxTs),axisLabel:{color:'var(--muted)',fontSize:9,formatter:function(v){return v+'ms'}},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{lineStyle:{color:'var(--border)',type:'dashed',opacity:.3}}},
-    yAxis:{type:'category',data:cfg.keys,axisLabel:{color:'var(--text)',fontSize:12,fontWeight:600},axisLine:{lineStyle:{color:'var(--border)'}},axisTick:{show:false}},
-    dataZoom:[{type:'slider',start:0,end:100,height:14,bottom:4,borderColor:'var(--border)',fillerColor:'rgba(0,191,165,.08)',handleStyle:{color:'var(--accent)'},textStyle:{color:'var(--muted)',fontSize:9}},{type:'inside'}],
+    xAxis:{type:'value',name:'时间(ms)',nameTextStyle:{color:C.muted,fontSize:9},min:0,max:Math.ceil(maxTs),axisLabel:{color:C.muted,fontSize:9,formatter:function(v){return v+'ms'}},axisLine:{lineStyle:{color:C.border}},splitLine:{lineStyle:{color:C.border,type:'dashed',opacity:.3}}},
+    yAxis:{type:'category',data:cfg.keys,axisLabel:{color:C.text,fontSize:12,fontWeight:600},axisLine:{lineStyle:{color:C.border}},axisTick:{show:false}},
+    dataZoom:[{type:'slider',start:0,end:100,height:14,bottom:4,borderColor:C.border,fillerColor:'rgba(0,191,165,.08)',handleStyle:{color:C.accent},textStyle:{color:C.muted,fontSize:9}},{type:'inside'}],
     series:series,
     toolbox:{feature:{saveAsImage:{title:'保存'},dataZoom:{title:{zoom:'缩放',back:'还原'}}},right:10,top:0}
   },true);
@@ -281,10 +282,10 @@ function renderHold(report){
   var xData=[];for(var i=0;i<bins;i++)xData.push(i*binSize);
   c.setOption({
     backgroundColor:'transparent',tooltip:{trigger:'axis'},
-    legend:{data:cfg.keys,top:2,textStyle:{color:'var(--muted)',fontSize:10},itemWidth:10,itemHeight:10},
+    legend:{data:cfg.keys,top:2,textStyle:{color:C.muted,fontSize:10},itemWidth:10,itemHeight:10},
     grid:{left:40,right:14,top:30,bottom:28},
-    xAxis:{type:'category',data:xData,name:'按压时长(ms)',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{show:false}},
-    yAxis:{type:'value',axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
+    xAxis:{type:'category',data:xData,name:'按压时长(ms)',nameTextStyle:{color:C.muted,fontSize:9},axisLabel:{color:C.muted,fontSize:9},axisLine:{lineStyle:{color:C.border}},splitLine:{show:false}},
+    yAxis:{type:'value',axisLabel:{color:C.muted,fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:C.border,type:'dashed'}}},
     series:series
   },true);
 }
@@ -295,17 +296,17 @@ function renderScatter(report){
   var series=cfg.keys.map(function(k,ki){
     var pts=report.details.filter(function(d){return d.key===k}).map(function(d,i){
       var actual=d.actualInterval-d.expectedInterval;
-      return{value:[i+1,Math.round(actual*10)/10,Math.round(d.deviation*10)/10],itemStyle:{color:d.status==='good'?'var(--good)':d.status==='acceptable'?'var(--warn)':'var(--poor)'},_data:d};
+      return{value:[i+1,Math.round(actual*10)/10,Math.round(d.deviation*10)/10],itemStyle:{color:d.status==='good'?C.good:d.status==='acceptable'?C.warn:C.poor},_data:d};
     });
     return{name:k,type:'scatter',data:pts,symbolSize:function(val){return Math.max(6,Math.min(14,val[2]/3));},tooltip:{formatter:function(p){var d=p.data._data;return'<b>'+d.key+'</b> #'+(p.dataIndex+1)+'<br/>期望: '+d.expectedInterval+'ms<br/>实际: '+d.actualInterval+'ms<br/>偏差: '+d.deviation+'%';}}};
   });
   c.setOption({
     backgroundColor:'transparent',tooltip:{trigger:'item'},
-    legend:{data:cfg.keys,top:2,textStyle:{color:'var(--muted)',fontSize:10},itemWidth:10,itemHeight:10},
+    legend:{data:cfg.keys,top:2,textStyle:{color:C.muted,fontSize:10},itemWidth:10,itemHeight:10},
     grid:{left:50,right:14,top:30,bottom:36},
-    xAxis:{type:'value',name:'事件序号',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{show:false}},
-    yAxis:{type:'value',name:'差值(ms)',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
-    dataZoom:[{type:'inside'},{type:'slider',height:14,bottom:2,borderColor:'var(--border)',fillerColor:'rgba(0,191,165,.08)',handleStyle:{color:'var(--accent)'},textStyle:{color:'var(--muted)',fontSize:9}}],
+    xAxis:{type:'value',name:'事件序号',nameTextStyle:{color:C.muted,fontSize:9},axisLabel:{color:C.muted,fontSize:9},axisLine:{lineStyle:{color:C.border}},splitLine:{show:false}},
+    yAxis:{type:'value',name:'差值(ms)',nameTextStyle:{color:C.muted,fontSize:9},axisLabel:{color:C.muted,fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:C.border,type:'dashed'}}},
+    dataZoom:[{type:'inside'},{type:'slider',height:14,bottom:2,borderColor:C.border,fillerColor:'rgba(0,191,165,.08)',handleStyle:{color:C.accent},textStyle:{color:C.muted,fontSize:9}}],
     series:series
   },true);
 }
@@ -313,14 +314,14 @@ function renderScatter(report){
 function renderCDF(report){
   var c=charts.cdf;if(!c){c=echarts.init(document.getElementById('cdfChart'));charts.cdf=c;}
   var devs=report.details.map(function(d){return d.deviation}).sort(function(a,b){return a-b});
-  if(devs.length===0){c.setOption({backgroundColor:'transparent',title:{text:'无数据',left:'center',top:'center',textStyle:{color:'var(--muted)'}}},true);return;}
+  if(devs.length===0){c.setOption({backgroundColor:'transparent',title:{text:'无数据',left:'center',top:'center',textStyle:{color:C.muted}}},true);return;}
   var cdfData=devs.map(function(d,i){return[d,Math.round((i+1)/devs.length*1000)/10];});
   c.setOption({
     backgroundColor:'transparent',tooltip:{trigger:'axis',formatter:function(ps){return'偏差: '+ps[0].value[0]+'%<br/>CDF: '+ps[0].value[1]+'%';}},
     grid:{left:45,right:14,top:16,bottom:30},
-    xAxis:{type:'value',name:'偏差%',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{show:false}},
-    yAxis:{type:'value',name:'CDF%',nameTextStyle:{color:'var(--muted)',fontSize:9},min:0,max:100,axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
-    series:[{type:'line',data:cdfData,smooth:true,symbol:'none',lineStyle:{color:'var(--accent)',width:2},areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(0,191,165,.2)'},{offset:1,color:'rgba(0,191,165,.01)'}]}}}],
+    xAxis:{type:'value',name:'偏差%',nameTextStyle:{color:C.muted,fontSize:9},axisLabel:{color:C.muted,fontSize:9},axisLine:{lineStyle:{color:C.border}},splitLine:{show:false}},
+    yAxis:{type:'value',name:'CDF%',nameTextStyle:{color:C.muted,fontSize:9},min:0,max:100,axisLabel:{color:C.muted,fontSize:9},axisLine:{show:false},splitLine:{lineStyle:{color:C.border,type:'dashed'}}},
+    series:[{type:'line',data:cdfData,smooth:true,symbol:'none',lineStyle:{color:C.accent,width:2},areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(0,191,165,.2)'},{offset:1,color:'rgba(0,191,165,.01)'}]}}}],
     dataZoom:[{type:'inside'}]
   },true);
 }
@@ -338,9 +339,9 @@ function renderBox(report){
   c.setOption({
     backgroundColor:'transparent',tooltip:{trigger:'item',formatter:function(p){if(p.seriesType!=='boxplot')return'';var d=p.data;return'<b>'+cfg.keys[p.dataIndex]+'</b><br/>Min: '+d[1]+'%<br/>Q1: '+d[2]+'%<br/>Median: '+d[3]+'%<br/>Q3: '+d[4]+'%<br/>Max: '+d[5]+'%';}},
     grid:{left:50,right:14,top:20,bottom:28},
-    xAxis:{type:'value',name:'偏差%',nameTextStyle:{color:'var(--muted)',fontSize:9},axisLabel:{color:'var(--muted)',fontSize:9},axisLine:{lineStyle:{color:'var(--border)'}},splitLine:{lineStyle:{color:'var(--border)',type:'dashed'}}},
-    yAxis:{type:'category',data:cfg.keys,axisLabel:{color:'var(--text)',fontSize:12,fontWeight:600},axisLine:{lineStyle:{color:'var(--border)'}},axisTick:{show:false}},
-    series:[{type:'boxplot',data:boxData,itemStyle:{color:'rgba(0,191,165,.3)',borderColor:'var(--accent)',borderWidth:1}}]
+    xAxis:{type:'value',name:'偏差%',nameTextStyle:{color:C.muted,fontSize:9},axisLabel:{color:C.muted,fontSize:9},axisLine:{lineStyle:{color:C.border}},splitLine:{lineStyle:{color:C.border,type:'dashed'}}},
+    yAxis:{type:'category',data:cfg.keys,axisLabel:{color:C.text,fontSize:12,fontWeight:600},axisLine:{lineStyle:{color:C.border}},axisTick:{show:false}},
+    series:[{type:'boxplot',data:boxData,itemStyle:{color:'rgba(0,191,165,.3)',borderColor:C.accent,borderWidth:1}}]
   },true);
 }
 

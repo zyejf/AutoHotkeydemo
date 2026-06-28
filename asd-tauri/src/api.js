@@ -29,8 +29,16 @@ export async function emergencyRelease() {
   return invoke('emergency_release');
 }
 
+export async function clearEmergency() {
+  return invoke('clear_emergency');
+}
+
 export async function getExecutorStatus() {
   return invoke('get_executor_status');
+}
+
+export async function resetWatchdog() {
+  return invoke('reset_watchdog');
 }
 
 export async function toggleHoldMode() {

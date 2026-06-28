@@ -1,19 +1,14 @@
 use crate::infrastructure::ipc::*;
 use asd_ipc_protocol::{IpcCommand, IpcMessage};
+use asd_test_harness::unique_pipe_name;
 use interprocess::local_socket::traits::tokio::{Listener as ListenerTrait, Stream as StreamTrait};
+use serial_test::serial;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-fn unique_pipe_name(tag: &str) -> String {
-    let id = std::process::id();
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    format!("asd_ipc_poc_{}_{}_{}", tag, id, ts % 100000)
-}
-
 #[tokio::test]
+#[serial]
 async fn test_ping_pong() {
     let pipe_name = unique_pipe_name("ping");
     let name_clone = pipe_name.clone();
@@ -62,6 +57,7 @@ async fn test_ping_pong() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_execute_result() {
     let pipe_name = unique_pipe_name("exec");
     let name_clone = pipe_name.clone();
@@ -122,6 +118,7 @@ async fn test_execute_result() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_roundtrip_latency() {
     let pipe_name = unique_pipe_name("latency");
     let name_clone = pipe_name.clone();
@@ -318,6 +315,7 @@ fn test_ipc_command_serialization() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_send_command_and_wait_response() {
     let pipe_name = unique_pipe_name("cmdwait");
     let name_clone = pipe_name.clone();
@@ -375,6 +373,7 @@ async fn test_send_command_and_wait_response() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_wait_response_timeout() {
     let pipe_name = unique_pipe_name("timeout");
     let name_clone = pipe_name.clone();
@@ -400,6 +399,7 @@ async fn test_wait_response_timeout() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_is_connected() {
     let pipe_name = unique_pipe_name("connected");
     let name_clone = pipe_name.clone();
@@ -449,6 +449,7 @@ fn test_hotkey_event_message() {
 // ---- C-14: Named Pipe 认证测试 ----
 
 #[tokio::test]
+#[serial]
 async fn test_accept_from_ahk_valid_auth() {
     let pipe_name = unique_pipe_name("auth_ok");
     let name_clone = pipe_name.clone();
@@ -476,6 +477,7 @@ async fn test_accept_from_ahk_valid_auth() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_accept_from_ahk_invalid_auth_token() {
     let pipe_name = unique_pipe_name("auth_bad");
     let name_clone = pipe_name.clone();
@@ -505,6 +507,7 @@ async fn test_accept_from_ahk_invalid_auth_token() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_accept_from_ahk_no_auth_message() {
     let pipe_name = unique_pipe_name("auth_none");
     let name_clone = pipe_name.clone();
@@ -530,5 +533,349 @@ async fn test_accept_from_ahk_no_auth_message() {
         matches!(result, Err(IpcError::AuthFailed(_))),
         "应返回 AuthFailed: {:?}",
         result
+    );
+}
+
+// ---- IPC 传输层边界条件测试 (Task 2) ----
+
+#[tokio::test]
+#[serial]
+async fn test_message_size_limit_exceeded() {
+    // 构造超过 64KB 的消息，验证 recv() 检测并拒绝超大消息
+    let pipe_name = unique_pipe_name("oversize");
+    let name_clone = pipe_name.clone();
+    let listener = create_listener(&pipe_name).expect("创建 Listener 失败");
+
+    let server_task = tokio::spawn(async move {
+        let conn = listener.accept().await.expect("Server 接受连接失败");
+        let (_recv, mut writer) = conn.split();
+        // 70KB 负载 + JSON 包裹 + 换行，总大小约 70KB+，远超 64KB 限制。
+        // 换行符放在末尾，前 64KB 内无换行，触发 recv() 的超大消息检测路径。
+        let big_payload = "A".repeat(70 * 1024);
+        let line = format!(
+            "{{\"type\":\"ping\",\"seq\":1,\"data\":\"{}\"}}\n",
+            big_payload
+        );
+        let bytes = line.as_bytes();
+        assert!(
+            bytes.len() > 64 * 1024,
+            "测试消息应超过 64KB，实际 {} 字节",
+            bytes.len()
+        );
+        tokio::io::AsyncWriteExt::write_all(&mut writer, bytes)
+            .await
+            .expect("写入失败");
+        tokio::io::AsyncWriteExt::flush(&mut writer)
+            .await
+            .expect("flush 失败");
+        // 保持连接，等待 client 读取
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    });
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let (client, _rx) = IpcManager::new(&name_clone);
+    client.connect_to_ahk().await.expect("Client 连接失败");
+
+    let result = tokio::time::timeout(Duration::from_secs(3), client.recv())
+        .await
+        .expect("recv 不应挂起");
+    assert!(result.is_err(), "超大消息应返回错误");
+    let err = result.unwrap_err();
+    assert!(
+        matches!(err, IpcError::MessageTooLarge(_, _)),
+        "应返回 MessageTooLarge，实际: {err:?}"
+    );
+
+    drop(client);
+    let _ = tokio::time::timeout(Duration::from_secs(3), server_task).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_message_size_boundary() {
+    // 构造恰好 65535 字节 (64KB - 1) 的消息，验证正常处理
+    let pipe_name = unique_pipe_name("boundary");
+    let name_clone = pipe_name.clone();
+    let listener = create_listener(&pipe_name).expect("创建 Listener 失败");
+
+    // 手工构建 JSON 以精确控制字节数:
+    // {"type":"ping","seq":1,"data":"<padding>"}\n
+    // 前缀 {"type":"ping","seq":1,"data":" = 31 字节
+    // 后缀 "}\n = 3 字节
+    // 总计 31 + N + 3 = 34 + N，目标 65535 → N = 65501
+    let padding = "A".repeat(65501);
+    let line = format!(
+        "{{\"type\":\"ping\",\"seq\":1,\"data\":\"{}\"}}\n",
+        padding
+    );
+    assert_eq!(line.len(), 65535, "消息总长应为 65535 字节");
+    let line_bytes = line.into_bytes();
+
+    let server_task = tokio::spawn(async move {
+        let conn = listener.accept().await.expect("Server 接受连接失败");
+        let (_recv, mut writer) = conn.split();
+        tokio::io::AsyncWriteExt::write_all(&mut writer, &line_bytes)
+            .await
+            .expect("写入失败");
+        tokio::io::AsyncWriteExt::flush(&mut writer)
+            .await
+            .expect("flush 失败");
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    });
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let (client, _rx) = IpcManager::new(&name_clone);
+    client.connect_to_ahk().await.expect("Client 连接失败");
+
+    let result = tokio::time::timeout(Duration::from_secs(3), client.recv())
+        .await
+        .expect("recv 不应挂起");
+    assert!(
+        result.is_ok(),
+        "边界大小消息应正常处理: {:?}",
+        result.err()
+    );
+    let msg = result.unwrap();
+    assert_eq!(msg.r#type, "ping");
+    assert_eq!(msg.seq, 1);
+    assert!(msg.data.is_some(), "data 字段应保留");
+
+    drop(client);
+    let _ = tokio::time::timeout(Duration::from_secs(3), server_task).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_auth_token_mismatch() {
+    // 服务端设置特定 token，客户端发送不匹配的 token，验证认证失败
+    let pipe_name = unique_pipe_name("auth_mismatch");
+    let name_clone = pipe_name.clone();
+    let listener = create_listener(&pipe_name).expect("创建 Listener 失败");
+
+    let (server, _server_rx) =
+        IpcManager::new_with_token(&name_clone, "CORRECT_TOKEN".to_string());
+    let server_handle = tokio::spawn(async move { server.accept_from_ahk(&listener).await });
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let (client, _client_rx) = IpcManager::new(&name_clone);
+    client.connect_to_ahk().await.expect("客户端连接失败");
+
+    let auth_msg = IpcMessage::auth("DIFFERENT_TOKEN");
+    client.send(&auth_msg).await.expect("发送失败");
+
+    let result = tokio::time::timeout(Duration::from_secs(3), server_handle)
+        .await
+        .expect("超时")
+        .expect("任务 panic");
+    assert!(result.is_err(), "token 不匹配应失败");
+    match result {
+        Err(IpcError::AuthFailed(msg)) => {
+            assert!(
+                msg.contains("token 不匹配"),
+                "错误消息应包含 'token 不匹配': {msg}"
+            );
+        }
+        other => panic!("期望 AuthFailed(token 不匹配)，实际: {other:?}"),
+    }
+
+    drop(client);
+}
+
+#[tokio::test]
+#[serial]
+async fn test_auth_wrong_message_type() {
+    // 客户端发送 pong 而非 auth 作为首条消息，验证认证失败
+    let pipe_name = unique_pipe_name("auth_wrong_type");
+    let name_clone = pipe_name.clone();
+    let listener = create_listener(&pipe_name).expect("创建 Listener 失败");
+
+    let (server, _server_rx) = IpcManager::new_with_token(&name_clone, "TOKEN".to_string());
+    let server_handle = tokio::spawn(async move { server.accept_from_ahk(&listener).await });
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let (client, _client_rx) = IpcManager::new(&name_clone);
+    client.connect_to_ahk().await.expect("客户端连接失败");
+
+    let pong_msg = IpcMessage::pong(1, 0);
+    client.send(&pong_msg).await.expect("发送失败");
+
+    let result = tokio::time::timeout(Duration::from_secs(3), server_handle)
+        .await
+        .expect("超时")
+        .expect("任务 panic");
+    assert!(result.is_err(), "非 auth 首条消息应失败");
+    match result {
+        Err(IpcError::AuthFailed(msg)) => {
+            assert!(
+                msg.contains("期望 auth"),
+                "错误消息应包含 '期望 auth': {msg}"
+            );
+            assert!(
+                msg.contains("pong"),
+                "错误消息应包含实际类型 'pong': {msg}"
+            );
+        }
+        other => panic!("期望 AuthFailed(期望 auth)，实际: {other:?}"),
+    }
+
+    drop(client);
+}
+
+#[tokio::test]
+#[serial]
+async fn test_pipe_broken_reconnect() {
+    // 建立连接后突然断开客户端，验证 pipe_broken 回调被触发
+    let pipe_name = unique_pipe_name("broken_reconnect");
+    let name_clone = pipe_name.clone();
+    let listener = create_listener(&pipe_name).expect("创建 Listener 失败");
+
+    let (server, _server_rx) = IpcManager::new_with_token(&name_clone, "TOKEN".to_string());
+    let broken_flag = Arc::new(AtomicBool::new(false));
+    let broken_flag_clone = broken_flag.clone();
+    server.set_pipe_broken_callback(Arc::new(move || {
+        broken_flag_clone.store(true, Ordering::SeqCst);
+    }));
+
+    let server_for_accept = server.clone();
+    let accept_handle =
+        tokio::spawn(async move { server_for_accept.accept_from_ahk(&listener).await });
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let (client, _client_rx) = IpcManager::new(&name_clone);
+    client.connect_to_ahk().await.expect("连接失败");
+    client
+        .send(&IpcMessage::auth("TOKEN"))
+        .await
+        .expect("发送 auth 失败");
+
+    let auth_result = tokio::time::timeout(Duration::from_secs(3), accept_handle)
+        .await
+        .expect("认证超时")
+        .expect("任务 panic");
+    assert!(auth_result.is_ok(), "认证应成功: {:?}", auth_result.err());
+
+    // 启动 listen_ahk 监听客户端消息
+    let server_for_listen = server.clone();
+    let listen_handle = tokio::spawn(async move {
+        server_for_listen.listen_ahk().await;
+    });
+
+    // 突然断开客户端，触发 pipe_broken
+    drop(client);
+
+    // 轮询等待 pipe_broken 回调触发
+    let start = Instant::now();
+    while !broken_flag.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(3) {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        broken_flag.load(Ordering::SeqCst),
+        "pipe_broken 回调应在客户端断开后触发"
+    );
+
+    listen_handle.abort();
+}
+
+#[tokio::test]
+#[serial]
+async fn test_heartbeat_callback_on_pong() {
+    // 说明: IpcManager 本身不含心跳超时逻辑（超时由 ProcessWatchdog 管理）。
+    // 此测试验证 pong 消息能正确触发 on_heartbeat 回调，作为心跳信号路径的间接测试。
+    let pipe_name = unique_pipe_name("heartbeat");
+    let name_clone = pipe_name.clone();
+    let listener = create_listener(&pipe_name).expect("创建 Listener 失败");
+
+    let (server, _server_rx) = IpcManager::new_with_token(&name_clone, "TOKEN".to_string());
+    let hb_flag = Arc::new(AtomicBool::new(false));
+    let hb_flag_clone = hb_flag.clone();
+    server.set_heartbeat_callback(Arc::new(move || {
+        hb_flag_clone.store(true, Ordering::SeqCst);
+    }));
+
+    let server_for_accept = server.clone();
+    let accept_handle =
+        tokio::spawn(async move { server_for_accept.accept_from_ahk(&listener).await });
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let (client, _client_rx) = IpcManager::new(&name_clone);
+    client.connect_to_ahk().await.expect("连接失败");
+    client
+        .send(&IpcMessage::auth("TOKEN"))
+        .await
+        .expect("发送 auth 失败");
+
+    let auth_result = tokio::time::timeout(Duration::from_secs(3), accept_handle)
+        .await
+        .expect("认证超时")
+        .expect("任务 panic");
+    assert!(auth_result.is_ok(), "认证应成功");
+
+    let server_for_listen = server.clone();
+    let listen_handle = tokio::spawn(async move {
+        server_for_listen.listen_ahk().await;
+    });
+
+    // 发送 pong 消息触发 heartbeat 回调
+    let pong = IpcMessage::pong(100, 1);
+    client.send(&pong).await.expect("发送 pong 失败");
+
+    let start = Instant::now();
+    while !hb_flag.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(3) {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        hb_flag.load(Ordering::SeqCst),
+        "pong 消息应触发 on_heartbeat 回调"
+    );
+
+    drop(client);
+    listen_handle.abort();
+}
+
+#[tokio::test]
+#[serial]
+async fn test_pending_responses_cleanup() {
+    // 注册 pending response 后不响应，调用 cleanup_stale_pending 模拟超时清理，
+    // 验证条目被清理且 oneshot 接收方收到 error_response
+    let (manager, _rx) = IpcManager::new(&unique_pipe_name("pending_cleanup"));
+
+    let manager_for_wait = manager.clone();
+    let wait_handle = tokio::spawn(async move {
+        // 使用较长超时，确保不会因 timeout 先返回，只能被 cleanup 唤醒
+        manager_for_wait
+            .wait_response(42, Duration::from_secs(60))
+            .await
+    });
+
+    // 等待 pending entry 插入
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // 直接调用 cleanup_stale_pending(max_age=0)，立即清理所有条目
+    manager.cleanup_stale_pending(Duration::from_millis(0)).await;
+
+    let result = tokio::time::timeout(Duration::from_secs(2), wait_handle)
+        .await
+        .expect("清理后 wait_response 应立即返回")
+        .expect("任务 panic");
+
+    assert!(
+        result.is_ok(),
+        "cleanup 应通过 oneshot 发送 error_response，使 wait_response 返回 Ok: {:?}",
+        result.err()
+    );
+    let msg = result.unwrap();
+    assert!(msg.is_error(), "清理消息应为 error 类型");
+    assert_eq!(msg.ack_seq, Some(42), "ack_seq 应为被清理的 seq");
+    let data = msg.data.as_ref().expect("应有 data 字段");
+    let error_str = data.get("error").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(
+        error_str.contains("超时清理"),
+        "错误消息应包含 '超时清理': {error_str}"
     );
 }

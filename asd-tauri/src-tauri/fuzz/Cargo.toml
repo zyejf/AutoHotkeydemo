@@ -25,3 +25,11 @@ path = "fuzz_targets/fuzz_config_deserialize.rs"
 [[bin]]
 name = "fuzz_ipc_command"
 path = "fuzz_targets/fuzz_ipc_command.rs"
+
+[[bin]]
+name = "fuzz_ipc_message_parse"
+path = "fuzz_targets/fuzz_ipc_message_parse.rs"
+
+[[bin]]
+name = "fuzz_hotkey_merger"
+path = "fuzz_targets/fuzz_hotkey_merger.rs"

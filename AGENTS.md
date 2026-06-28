@@ -132,7 +132,7 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
 | 2 | **I/O 泄漏修复** | Config 的 I/O 方法从 domain 层移到 application 层的 ConfigRepository，确保 domain crate 无文件 I/O。 |
 | 3 | **Miri 兼容** | asd-domain, asd-ipc-protocol, asd-application 可通过 Miri 验证（0 UB），不含 unsafe 代码。 |
 | 4 | **AHK 子进程隔离** | AHK 执行器（asd_executor.exe）作为子进程由 Rust 主进程管理，通过 interprocess named pipe 通信。 |
-| 5 | **测试覆盖** | 389 个测试（82+38+53 单元 + 43+33+49 集成 + 91 主 crate + 1 manifest_helper + 1 helper）。纯逻辑 crate 覆盖率 96.57%。 |
+| 5 | **测试覆盖** | 506+ 个测试（截至 2026-06-27 统计，asd-domain 125 + asd-ipc-protocol 71 + asd-application 175 + asd-test-harness 0 + asd-tauri 134）。纯逻辑 crate 覆盖率 96.57%。另有 57 套件 / 467 AHK 执行器测试、7 个 criterion bench、3 个 fuzz target。详细分布见 `asd-tauri/docs/test-map.md`。 |
 
 #### Rust/Tauri 已知架构妥协
 
@@ -261,12 +261,44 @@ cd asd-tauri && cargo +nightly miri test -p asd-application -- --skip config_rep
 # 基准测试
 cd asd-tauri/src-tauri && cargo bench
 
-# 覆盖率
-cd asd-tauri && cargo tarpaulin -p asd-domain -p asd-ipc-protocol -p asd-application --skip-clean --out Stdout
+# 覆盖率（统一使用 cargo-llvm-cov，详见 .codecov.yml）
+cd asd-tauri && cargo llvm-cov --workspace --html --output-dir coverage/
+# 或生成 lcov.info 用于上传 Codecov：
+cd asd-tauri && cargo llvm-cov --workspace --lcov --output-path lcov.info
 
 # 模糊测试
 cd asd-tauri/src-tauri/fuzz && cargo +nightly fuzz run fuzz_config_deserialize
 ```
+
+#### AHK 执行器测试
+
+- 测试目录：`tests/test_ahk_executor/`（位于项目根目录，非 `asd-tauri/tests/`）
+- 测试框架：AutoHotUnit（`tests/AutoHotUnit.ahk`，提供 `AutoHotUnitSuite` 基类）
+- 运行命令：`& "D:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" tests\run_all_tests.ahk`
+- 测试文件：
+  - `test_executor.ahk`（9 套件）：executor.ahk CommandDispatcher 命令解析与辅助方法
+  - `test_ipc_client.ahk`（12 套件）：ipc_client.ahk MiniJson 解析/序列化、IpcClient 状态与去重
+  - `test_hotkey_hook.ahk`（7 套件）：hotkey_hook.ahk 热键规范化、注册/注销、回调
+  - `test_sender.ahk`（11 套件）：sender.ahk 按键发送、模式切换、紧急释放
+  - `test_joystick.ahk`（18 套件）：joystick.ahk 摇杆输入读取、VJoy 映射、模式启动
+- 总计：57 套件，467 测试
+- 强制规范：所有 AHK 测试文件必须包含 `#ErrorStdOut "UTF-8"` + `#Warn VarUnset, OutputDebug` + `#Warn Unreachable, OutputDebug` + `OnError` 回调（详见「错误与警告接管机制」节）
+- 详细指南：参见 `asd-tauri/TESTING.md` 第 1.6 节
+
+#### 测试结果分析
+
+- JUnit XML 生成：`cargo test -- --format junit -Z unstable-options`（nightly）或 `cargo-junit-report`（stable 回退方案）
+- 分析脚本：`./scripts/analyze-tests.ps1`（解析 JUnit XML，输出通过率、失败清单、耗时 Top10、按 crate 分组统计表格）
+- 一键流程：`./scripts/run-tests.ps1 -Coverage -Analyze`（运行测试 + 生成覆盖率 + 分析结果）
+- 输出目录：`asd-tauri/test-results/`（JUnit XML）与 `asd-tauri/coverage/`（HTML 覆盖率报告）
+- CI artifact：JUnit XML 在 GitHub Actions 中保留 90 天
+
+#### 测试数据管理
+
+- 所有测试固件存放于 `asd-tauri/tests/fixtures/`（如 `tests/fixtures/configs/tests_config.json`）
+- 使用 `include_str!` 引用相对路径，禁止硬编码绝对路径
+- 新增测试固件须在 `asd-tauri/docs/test-map.md` 的「测试固件」章节中登记
+- 固件命名：配置样本 `<场景>_config.json`、输入数据 `<场景>_input.<ext>`、期望输出 `<场景>_expected.<ext>`
 
 ### 错误与警告接管机制（⚠️ 强制，无例外）
 

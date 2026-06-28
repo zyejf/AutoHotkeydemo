@@ -3,44 +3,24 @@ use crate::infrastructure::watchdog::ProcessWatchdog;
 use asd_domain::config::WatchdogStateEnum;
 use asd_domain::traits::{EventEmitter, IpcSender, ProcessWatcher};
 use asd_ipc_protocol::{IpcCommand, IpcMessage};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub struct IpcBridge {
     outbound: IpcOutboundSender,
     ipc_manager: Arc<Mutex<Option<IpcManager>>>,
-    seq_counter: Arc<AtomicU64>,
 }
 
 impl IpcBridge {
     pub fn new(
         outbound: IpcOutboundSender,
         ipc_manager: Arc<Mutex<Option<IpcManager>>>,
-        seq_counter: Arc<AtomicU64>,
     ) -> Self {
         Self {
             outbound,
             ipc_manager,
-            seq_counter,
         }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn is_pipe_connected(&self) -> bool {
-        let ipc_manager = self.ipc_manager.clone();
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async move {
-                let mgr = {
-                    let manager = ipc_manager.lock().await;
-                    manager.clone()
-                };
-                match mgr {
-                    Some(ref mgr) => mgr.is_connected().await,
-                    None => false,
-                }
-            })
-        })
     }
 }
 
@@ -78,37 +58,62 @@ impl IpcSender for IpcBridge {
         let ipc_manager = self.ipc_manager.clone();
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async move {
-                let rx = {
+                let mgr = {
                     let manager = ipc_manager.lock().await;
-                    match *manager {
-                        Some(ref mgr) => mgr.prepare_send_and_wait(cmd).await.map_err(|e| {
-                            tracing::warn!("IPC prepare_send_and_wait 失败: {e}");
-                            format!("IPC 通信错误: {e}")
-                        })?,
-                        None => {
-                            tracing::warn!(
-                                "IPC 管理器未初始化，无法发送等待命令: {:?}",
-                                std::mem::discriminant(&cmd)
-                            );
-                            return Err("IPC 管理器未初始化，请等待系统就绪".to_string());
-                        }
+                    manager.clone()
+                };
+                let (seq, rx) = match &mgr {
+                    Some(mgr) => mgr.prepare_send_and_wait(cmd).await.map_err(|e| {
+                        tracing::warn!("IPC prepare_send_and_wait 失败: {e}");
+                        format!("IPC 通信错误: {e}")
+                    })?,
+                    None => {
+                        tracing::warn!(
+                            "IPC 管理器未初始化，无法发送等待命令: {:?}",
+                            std::mem::discriminant(&cmd)
+                        );
+                        return Err("IPC 管理器未初始化，请等待系统就绪".to_string());
                     }
                 };
 
                 match tokio::time::timeout(timeout, rx).await {
-                    Ok(Ok(msg)) => Ok(msg),
-                    Ok(Err(_)) => Err("IPC 通道已关闭".to_string()),
-                    Err(_) => Err("IPC 等待响应超时".to_string()),
+                    Ok(Ok(msg)) => {
+                        // 所有错误响应统一转换为 Err，避免调用方遗漏错误检查。
+                        // 错误来源包括：pipe_broken（管道断裂）、pending 超时清理等。
+                        if msg.is_error() {
+                            let error_str = msg.data.as_ref()
+                                .and_then(|d| d.get("error"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("未知错误");
+                            if error_str == "pipe_broken" {
+                                tracing::warn!("IPC 管道断裂，收到 pipe_broken 错误响应 (seq={seq})");
+                                return Err("IPC 管道断裂，请等待重连".to_string());
+                            }
+                            return Err(format!("IPC 错误响应: {error_str}"));
+                        }
+                        Ok(msg)
+                    }
+                    Ok(Err(_)) => {
+                        // oneshot 通道关闭，主动清理 pending entry
+                        if let Some(mgr) = &mgr {
+                            mgr.cleanup_pending_by_seq(seq).await;
+                        }
+                        Err("IPC 通道已关闭".to_string())
+                    }
+                    Err(_) => {
+                        // 超时，主动清理 pending entry
+                        if let Some(mgr) = &mgr {
+                            mgr.cleanup_pending_by_seq(seq).await;
+                        }
+                        Err("IPC 等待响应超时".to_string())
+                    }
                 }
             })
         })
     }
 
     fn send_message(&self, msg: &IpcMessage) -> Result<(), String> {
-        let seq = self.seq_counter.fetch_add(1, Ordering::Relaxed);
-        let mut msg_with_seq = msg.clone();
-        msg_with_seq.seq = seq;
-        self.outbound.try_send(msg_with_seq).map_err(|e| {
+        self.outbound.try_send(msg.clone()).map_err(|e| {
             tracing::warn!("IPC outbound channel 已满，消息被丢弃: {e}");
             e.to_string()
         })
@@ -172,12 +177,13 @@ impl ProcessWatcher for WatchdogBridge {
                 let mut guard = watchdog.lock().await;
                 let current = guard.state().clone();
                 match current {
-                    WatchdogStateEnum::Failed | WatchdogStateEnum::Hung => {
+                    WatchdogStateEnum::Failed | WatchdogStateEnum::Hung
+                    | WatchdogStateEnum::Recovering => {
                         guard.reset_to_restart();
                         Ok(())
                     }
                     _ => Err(format!(
-                        "仅在 Failed/Hung 状态下可重置，当前状态: {:?}",
+                        "仅在 Failed/Hung/Recovering 状态下可重置，当前状态: {:?}",
                         current
                     )),
                 }

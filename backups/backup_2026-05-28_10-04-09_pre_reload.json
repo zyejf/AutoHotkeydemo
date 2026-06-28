@@ -1,6 +1,6 @@
 ﻿{
   "CONTROL_HOTKEYS": {
-    "emergency": "f12",
+    "emergency": "F10",
     "releaseAllHolds": "^r",
     "showStatus": "^0",
     "toggleAll": "^1",
@@ -30,8 +30,8 @@
           ],
           "pressKeys": [
             "A",
-            "B",
-            "C"
+            "S",
+            "D"
           ],
           "type": "sequence"
         }
@@ -39,48 +39,29 @@
       "hotkey": "F1",
       "keyPressDuration": 10,
       "mode": "hybrid",
-      "name": "1",
+      "name": "示例混合",
       "seqInterval": 100
     },
-    "hybrid4_1779593662854": {
-      "active": false,
-      "groups": [
-        {
-          "intervals": [
-            100,
-            200
-          ],
-          "pressKeys": [
-            "1",
-            "2"
-          ],
-          "type": "periodic"
-        },
-        {
-          "delays": [
-            150,
-            250
-          ],
-          "pressKeys": [
-            "a",
-            "b"
-          ],
-          "type": "sequence"
-        }
+    "test_cycle": {
+      "hotkey": "F2",
+      "intervals": [
+        100
       ],
-      "hotkey": "F7",
-      "keyPressDuration": 15,
-      "mode": "hybrid",
-      "name": "Hybrid4"
+      "keyPressDuration": 20,
+      "keys": [
+        "a"
+      ],
+      "mode": "periodic",
+      "name": "测试周期按键"
     }
   },
   "HoldSettings": {
     "allowOverlap": false,
     "checkInterval": 50,
-    "debounceDelay": 20,
+    "debounceDelay": 25,
     "pressSpeed": 80,
     "releaseOnEmergency": true
   },
-  "lastModified": "20260524114345",
+  "lastModified": "20260527124046",
   "version": "3.0"
 }

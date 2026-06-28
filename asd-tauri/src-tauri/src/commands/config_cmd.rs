@@ -13,26 +13,14 @@ pub fn get_config(state: tauri::State<'_, Arc<AppState>>) -> Result<Config, AppE
 
 #[tauri::command]
 pub fn save_config(state: tauri::State<'_, Arc<AppState>>, config: Config) -> Result<(), AppError> {
-    let validation = ConfigValidator::validate(&config.group_settings);
-    if !validation.is_valid() {
-        return Err(AppError::Validation(
-            validation
-                .errors
-                .iter()
-                .map(|e| e.to_string())
-                .collect::<Vec<_>>()
-                .join("; "),
-        ));
-    }
-
+    // 验证由 save_config_atomic 内部执行，此处不再冗余验证
     state.save_config_atomic(config)?;
-
     Ok(())
 }
 
 #[tauri::command]
 pub fn validate_config(config: Config) -> Result<ValidationResult, AppError> {
-    let result = ConfigValidator::validate(&config.group_settings);
+    let result = ConfigValidator::validate_config(&config);
     Ok(result)
 }
 
@@ -53,6 +41,9 @@ pub async fn restore_backup(
     state: tauri::State<'_, Arc<AppState>>,
     filename: String,
 ) -> Result<(), AppError> {
+    if filename.trim().is_empty() {
+        return Err(AppError::Validation("备份文件名不能为空".to_string()));
+    }
     backup_service::restore_backup(&state, &filename)
 }
 
@@ -66,6 +57,9 @@ pub async fn delete_backup(
     state: tauri::State<'_, Arc<AppState>>,
     filename: String,
 ) -> Result<(), AppError> {
+    if filename.trim().is_empty() {
+        return Err(AppError::Validation("备份文件名不能为空".to_string()));
+    }
     backup_service::delete_backup(&state, &filename)
 }
 
@@ -74,6 +68,9 @@ pub async fn export_config(
     state: tauri::State<'_, Arc<AppState>>,
     path: String,
 ) -> Result<(), AppError> {
+    if path.trim().is_empty() {
+        return Err(AppError::Validation("导出路径不能为空".to_string()));
+    }
     backup_service::export_config(&state, &path)
 }
 
@@ -82,6 +79,9 @@ pub async fn import_config(
     state: tauri::State<'_, Arc<AppState>>,
     path: String,
 ) -> Result<(), AppError> {
+    if path.trim().is_empty() {
+        return Err(AppError::Validation("导入路径不能为空".to_string()));
+    }
     backup_service::import_config(&state, &path)
 }
 
@@ -90,6 +90,9 @@ pub async fn compare_configs(
     state: tauri::State<'_, Arc<AppState>>,
     backup_filename: String,
 ) -> Result<ConfigDiff, AppError> {
+    if backup_filename.trim().is_empty() {
+        return Err(AppError::Validation("备份文件名不能为空".to_string()));
+    }
     backup_service::compare_configs(&state, &backup_filename)
 }
 

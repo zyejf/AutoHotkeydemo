@@ -176,6 +176,11 @@ class GroupService {
                     ErrorSystem.LogError("UpdateGroup 回滚成功: " id, "WARNING", A_ThisFunc, A_LineNumber)
                 } catch as rollbackErr {
                     ErrorSystem.LogError("回滚失败! 分组 " id " 已丢失: " rollbackErr.Message, "CRITICAL", A_ThisFunc, A_LineNumber)
+                    try {
+                        BackupCore.CreateBackup(Map("lostGroup_" id, oldConfig), "rollback_failure")
+                    } catch as bkErr {
+                        ErrorSystem.LogError("备份丢失配置也失败: " bkErr.Message, "CRITICAL", A_ThisFunc, A_LineNumber)
+                    }
                     GroupService.ConfigStore.SetGroupConfig(id, oldConfig)
                 }
                 throw addErr

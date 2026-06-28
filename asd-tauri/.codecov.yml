@@ -1,0 +1,70 @@
+# Codecov 配置 — ASD-Tauri 项目
+# 统一使用 cargo-llvm-cov 生成 lcov.info，上传到 Codecov
+#
+# 本地生成覆盖率：
+#   cargo llvm-cov --workspace --lcov --output-path lcov.info
+#   cargo llvm-cov --workspace --html --output-dir coverage/
+# CI 中使用 codecov-action@v4 自动上传
+
+coverage:
+  status:
+    project:
+      default:
+        target: 80%          # 总体覆盖率目标
+        threshold: 0.1%      # 允许的下降幅度
+        if_not_found: success
+        if_ci_failed: error
+      asd-domain:
+        target: 95%          # 纯逻辑 crate 高标准
+        paths:
+          - crates/asd-domain/src/
+      asd-ipc-protocol:
+        target: 95%
+        paths:
+          - crates/asd-ipc-protocol/src/
+      asd-application:
+        target: 90%
+        paths:
+          - crates/asd-application/src/
+      asd-tauri:
+        target: 75%          # 主 crate 含 IO/平台代码，标准放宽
+        paths:
+          - src-tauri/src/
+    patch:
+      default:
+        target: 80%
+        threshold: 0.1%
+
+ignore:
+  - "crates/asd-test-harness/**"   # 测试工具 crate 不计入覆盖率
+  - "src-tauri/tests/**"           # 集成测试目录
+  - "src-tauri/benches/**"         # 基准测试
+  - "src-tauri/fuzz/**"            # 模糊测试
+  - "tests/**"                     # 顶层测试目录
+  - "**/tests/**"                  # 所有 tests/ 子目录
+  - "**/*_tests.rs"                # 集成测试文件
+
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: false
+  require_base: no
+  require_head: yes
+
+flags:
+  asd-domain:
+    paths:
+      - crates/asd-domain/src/
+    carryforward: true
+  asd-ipc-protocol:
+    paths:
+      - crates/asd-ipc-protocol/src/
+    carryforward: true
+  asd-application:
+    paths:
+      - crates/asd-application/src/
+    carryforward: true
+  asd-tauri:
+    paths:
+      - src-tauri/src/
+    carryforward: true

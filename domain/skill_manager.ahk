@@ -463,6 +463,8 @@ class SkillManager {
 
     static ResetEmergency() {
         try {
+            if !this.EmergencyMode
+                return
             if SkillManager.HasProp("_resetEmergencyTimer") && SkillManager._resetEmergencyTimer {
                 try
                     SetTimer(SkillManager._resetEmergencyTimer, 0)

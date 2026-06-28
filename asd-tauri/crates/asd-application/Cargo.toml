@@ -16,3 +16,4 @@ parking_lot = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
+asd-test-harness = { path = "../asd-test-harness" }

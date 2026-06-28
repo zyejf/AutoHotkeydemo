@@ -536,7 +536,7 @@ class HoldExecutor extends IExecutor {
                 return 50
             }
 
-            return 5000
+            return 1000
         } catch as e {
             ErrorSystem.LogError(e.Message, "ERROR", A_ThisFunc, A_LineNumber)
             return 0

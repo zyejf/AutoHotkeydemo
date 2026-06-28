@@ -3,76 +3,10 @@ use asd_application::error::AppError;
 #[allow(deprecated)]
 use asd_application::scheduler::SkillManager;
 use asd_application::state::AppState;
-use asd_domain::config::*;
-use asd_domain::models::SkillGroup;
-use asd_domain::traits::{EventEmitter, IpcSender, ProcessWatcher};
-use asd_domain::validator::{ConfigValidator, ValidationResult};
-use asd_ipc_protocol::{IpcCommand, IpcMessage};
+use asd_test_harness::*;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::sync::Arc;
-
-struct MockIpcSender {
-    sent_commands: std::sync::Mutex<Vec<IpcCommand>>,
-}
-
-impl MockIpcSender {
-    fn new() -> Self {
-        Self {
-            sent_commands: std::sync::Mutex::new(Vec::new()),
-        }
-    }
-}
-
-impl IpcSender for MockIpcSender {
-    fn send_command(&self, cmd: IpcCommand) -> Result<u64, String> {
-        self.sent_commands.lock().unwrap().push(cmd);
-        Ok(1)
-    }
-    fn send_and_wait(
-        &self,
-        _cmd: IpcCommand,
-        _timeout: std::time::Duration,
-    ) -> Result<IpcMessage, String> {
-        Ok(IpcMessage::response(1, 0, "ok", None))
-    }
-    fn send_message(&self, _msg: &IpcMessage) -> Result<(), String> {
-        Ok(())
-    }
-}
-
-struct MockEventEmitter {
-    emitted: std::sync::Mutex<Vec<(String, serde_json::Value)>>,
-}
-
-impl MockEventEmitter {
-    fn new() -> Self {
-        Self {
-            emitted: std::sync::Mutex::new(Vec::new()),
-        }
-    }
-}
-
-impl EventEmitter for MockEventEmitter {
-    fn emit(&self, event: &str, payload: serde_json::Value) -> bool {
-        self.emitted
-            .lock()
-            .unwrap()
-            .push((event.to_string(), payload));
-        true
-    }
-}
-
-struct MockProcessWatcher;
-
-impl ProcessWatcher for MockProcessWatcher {
-    fn state(&self) -> WatchdogStateEnum {
-        WatchdogStateEnum::Idle
-    }
-    fn restart_count(&self) -> u32 {
-        0
-    }
-}
 
 fn make_periodic_group_config() -> GroupConfig {
     GroupConfig {

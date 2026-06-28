@@ -21,8 +21,8 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
 const HEARTBEAT_TIMEOUT_COUNT: u32 = 3;
 /// 心跳总超时阈值：超过此时间未收到心跳响应即判定为超时
 const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(3);
-const MAX_RESTART_ATTEMPTS: u32 = 10;
-const BACKOFF_DURATIONS: [Duration; 10] = [
+pub const MAX_RESTART_ATTEMPTS: u32 = 10;
+pub const BACKOFF_DURATIONS: [Duration; 10] = [
     Duration::from_secs(1),
     Duration::from_secs(2),
     Duration::from_secs(4),
@@ -53,7 +53,6 @@ pub struct ProcessWatchdog {
     last_restart: Option<std::time::Instant>,
     last_heartbeat: Option<std::time::Instant>,
     on_state_change: Option<StateChangeCallback>,
-    on_recover: Option<Arc<dyn Fn() + Send + Sync>>,
     send_shutdown: Option<Arc<dyn Fn() + Send + Sync>>,
     stable_heartbeat_count: u32,
 }
@@ -66,8 +65,11 @@ pub struct ProcessWatchdog {
 // - 各种 Option<Arc<dyn Fn>>: 闭包要求 Send + Sync
 // ProcessWatchdog 仅在 tokio::sync::Mutex 保护下访问，确保线程安全
 unsafe impl Send for ProcessWatchdog {}
-// SAFETY: ProcessWatchdog 通过 Arc<Mutex<ProcessWatchdog>> 共享，
-// 所有访问都在 Mutex 锁保护下，不存在并发访问
+// SAFETY: ProcessWatchdog 的 Sync 安全性不依赖于字段本身的 Sync 性质
+// （例如 Child 仅实现了 Send 而非 Sync），而是依赖于外部 Mutex 保护：
+// ProcessWatchdog 仅通过 Arc<tokio::sync::Mutex<ProcessWatchdog>> 共享，
+// 所有访问都必须获取 Mutex 锁，不存在并发访问同一实例的情况。
+// 如果未来移除 Mutex 保护，必须重新评估此 unsafe impl。
 unsafe impl Sync for ProcessWatchdog {}
 
 impl Default for ProcessWatchdog {
@@ -90,7 +92,6 @@ impl ProcessWatchdog {
             last_restart: None,
             last_heartbeat: None,
             on_state_change: None,
-            on_recover: None,
             send_shutdown: None,
             stable_heartbeat_count: 0,
         }
@@ -98,10 +99,6 @@ impl ProcessWatchdog {
 
     pub fn set_on_state_change(&mut self, cb: Arc<dyn Fn(&WatchdogStateEnum) + Send + Sync>) {
         self.on_state_change = Some(cb);
-    }
-
-    pub fn set_on_recover(&mut self, cb: Arc<dyn Fn() + Send + Sync>) {
-        self.on_recover = Some(cb);
     }
 
     pub fn set_send_shutdown(&mut self, cb: Arc<dyn Fn() + Send + Sync>) {
@@ -124,6 +121,50 @@ impl ProcessWatchdog {
 
     pub fn restart_count(&self) -> u32 {
         self.restart_count
+    }
+
+    pub fn backoff_duration(&self) -> std::time::Duration {
+        self.backoff_duration
+    }
+
+    pub fn last_restart(&self) -> Option<std::time::Instant> {
+        self.last_restart
+    }
+
+    pub fn missed_heartbeats(&self) -> u32 {
+        self.missed_heartbeats
+    }
+
+    pub fn has_child(&self) -> bool {
+        self.child.is_some()
+    }
+
+    pub fn set_backoff_duration(&mut self, dur: std::time::Duration) {
+        self.backoff_duration = dur;
+    }
+
+    pub fn set_restart_count(&mut self, count: u32) {
+        self.restart_count = count;
+    }
+
+    pub fn set_missed_heartbeats(&mut self, count: u32) {
+        self.missed_heartbeats = count;
+    }
+
+    pub fn set_last_restart(&mut self, instant: Option<std::time::Instant>) {
+        self.last_restart = instant;
+    }
+
+    /// 终止并等待子进程退出，但保留 child 字段以便后续 is_child_exited 检测。
+    /// 用于测试场景下模拟子进程崩溃。
+    pub fn kill_child(&mut self) -> Result<(), String> {
+        if let Some(ref mut child) = self.child {
+            child.kill().map_err(|e| e.to_string())?;
+            child.wait().map_err(|e| e.to_string())?;
+            Ok(())
+        } else {
+            Err("no child".to_string())
+        }
     }
 
     pub fn attach_child(&mut self, child: Child) -> Result<(), String> {
@@ -166,13 +207,17 @@ impl ProcessWatchdog {
     /// - 编译模式：exe_path 指向 asd_executor.exe
     /// - 便携模式：exe_path 指向 asd_executor.bat 或 AutoHotkey64.exe
     ///
-    /// `auth_token` 通过 `--auth-token` 命令行参数传递给 AHK 子进程，
+    /// `auth_token` 通过环境变量 `ASD_AUTH_TOKEN` 传递给 AHK 子进程，
     /// 用于 IPC 认证。子进程必须在首条消息中发送此 token 才能通过认证。
     pub fn spawn_child(&mut self, exe_path: &str, auth_token: &str) -> Result<(), String> {
         if auth_token.is_empty() {
             return Err("auth_token 不能为空，IPC 认证需要有效的 token".to_string());
         }
         tracing::info!("Watchdog: 启动 AHK 子进程: {exe_path}");
+
+        // 先保存路径和 token，即使 spawn 失败也能重试
+        self.exe_path = Some(exe_path.to_string());
+        self.auth_token = Some(auth_token.to_string());
 
         let (program, mut args) = if exe_path.ends_with("asd_executor.exe") {
             (exe_path.to_string(), Vec::new())
@@ -182,14 +227,15 @@ impl ProcessWatchdog {
                 vec!["/C".to_string(), exe_path.to_string()],
             )
         } else if exe_path.ends_with("AutoHotkey64.exe") {
-            let script_path = exe_path.replace("AutoHotkey64.exe", "executor.ahk");
+            let script_path = std::path::Path::new(exe_path)
+                .with_file_name("executor.ahk")
+                .to_string_lossy()
+                .to_string();
             (exe_path.to_string(), vec![script_path])
         } else {
             (exe_path.to_string(), Vec::new())
         };
 
-        args.push("--auth-token".to_string());
-        args.push(auth_token.to_string());
 
         let mut cmd = Command::new(&program);
         cmd.creation_flags(CREATE_NO_WINDOW.0);
@@ -202,17 +248,15 @@ impl ProcessWatchdog {
             .spawn()
             .map_err(|e| format!("启动子进程失败: {e} (program={program}, args={args:?})"))?;
 
-        self.exe_path = Some(exe_path.to_string());
-        self.auth_token = Some(auth_token.to_string());
         self.attach_child(child)
     }
 
     pub fn notify_heartbeat(&mut self) {
         self.missed_heartbeats = 0;
         self.last_heartbeat = Some(std::time::Instant::now());
-        if self.state == WatchdogStateEnum::Hung {
+        if matches!(self.state, WatchdogStateEnum::Hung | WatchdogStateEnum::Recovering) {
+            tracing::info!("Watchdog: 进程从 {:?} 状态恢复", self.state);
             self.set_state(WatchdogStateEnum::Running);
-            tracing::info!("Watchdog: 进程从挂起状态恢复");
         }
         self.stable_heartbeat_count += 1;
         if self.restart_count > 0 && self.stable_heartbeat_count >= STABLE_HEARTBEAT_THRESHOLD {
@@ -236,6 +280,15 @@ impl ProcessWatchdog {
                 WatchdogAction::None
             }
             WatchdogStateEnum::Running => {
+                // 优先检查子进程退出（比心跳超时更严重，应立即处理）
+                if self.is_child_exited() {
+                    self.set_state(WatchdogStateEnum::Restarting);
+                    return WatchdogAction::RestartNeeded;
+                }
+                // missed_heartbeats 在每次 tick(1s) 中递增，
+                // 当 last_heartbeat 超过 HEARTBEAT_TIMEOUT(3s) 时 +1。
+                // 达到 HEARTBEAT_TIMEOUT_COUNT(3) 时判定为 Hung，
+                // 即约 3+3=6 秒无心跳后触发（首次超时约第4秒 + 再2次tick）。
                 if let Some(last) = self.last_heartbeat {
                     if last.elapsed() > HEARTBEAT_TIMEOUT {
                         self.missed_heartbeats += 1;
@@ -251,10 +304,6 @@ impl ProcessWatchdog {
                             return WatchdogAction::ProcessHung;
                         }
                     }
-                }
-                if self.is_child_exited() {
-                    self.set_state(WatchdogStateEnum::Restarting);
-                    return WatchdogAction::RestartNeeded;
                 }
                 WatchdogAction::None
             }
@@ -281,10 +330,25 @@ impl ProcessWatchdog {
                 WatchdogAction::RestartNeeded
             }
             WatchdogStateEnum::Recovering => {
-                if let Some(ref cb) = self.on_recover {
-                    cb();
+                if self.is_child_exited() {
+                    tracing::warn!("Watchdog: Recovering 状态检测到子进程已退出，转为 Restarting");
+                    self.set_state(WatchdogStateEnum::Restarting);
+                    return WatchdogAction::RestartNeeded;
                 }
-                self.set_state(WatchdogStateEnum::Running);
+                match self.last_heartbeat {
+                    Some(last) if last.elapsed() > Duration::from_secs(30) => {
+                        tracing::warn!("Watchdog: Recovering 状态超时 (30s)，转为 Restarting");
+                        self.set_state(WatchdogStateEnum::Restarting);
+                        return WatchdogAction::RestartNeeded;
+                    }
+                    None => {
+                        // last_heartbeat 为 None 表示从未收到心跳，不应无限等待
+                        tracing::warn!("Watchdog: Recovering 状态无心跳记录，转为 Restarting");
+                        self.set_state(WatchdogStateEnum::Restarting);
+                        return WatchdogAction::RestartNeeded;
+                    }
+                    _ => {}
+                }
                 WatchdogAction::None
             }
             WatchdogStateEnum::Failed => WatchdogAction::MaxRetriesExceeded,
@@ -292,6 +356,13 @@ impl ProcessWatchdog {
     }
 
     pub fn begin_restart(&mut self) {
+        if let Some(ref mut child) = self.child {
+            let _ = child.kill();
+            tracing::info!("Watchdog: begin_restart 已终止旧子进程");
+        }
+        self.child = None;
+        self.job_guard = None;
+        self.missed_heartbeats = 0;
         self.restart_count += 1;
         self.last_restart = Some(std::time::Instant::now());
         self.stable_heartbeat_count = 0;
@@ -314,6 +385,10 @@ impl ProcessWatchdog {
     }
 
     pub fn reset_to_restart(&mut self) {
+        if let Some(ref mut child) = self.child {
+            let _ = child.kill();
+            tracing::info!("Watchdog: reset_to_restart 已终止旧子进程");
+        }
         self.restart_count = 0;
         self.backoff_duration = BACKOFF_DURATIONS[0];
         self.stable_heartbeat_count = 0;
@@ -449,9 +524,9 @@ impl JobObjectGuard {
         let pid = child.id();
         unsafe {
             let process_handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, false, pid)?;
-            AssignProcessToJobObject(self.0, process_handle)?;
+            let result = AssignProcessToJobObject(self.0, process_handle);
             let _ = windows::Win32::Foundation::CloseHandle(process_handle);
-            Ok(())
+            result
         }
     }
 }
@@ -464,22 +539,46 @@ impl Drop for JobObjectGuard {
     }
 }
 
-pub fn send_wm_close(pid: u32) -> Result<(), String> {
-    let pid_ptr = Box::into_raw(Box::new(pid));
-    unsafe {
-        let callback: WNDENUMPROC = Some(enum_windows_callback);
-        let result = EnumWindows(callback, LPARAM(pid_ptr as isize));
-        let _ = Box::from_raw(pid_ptr);
-        if let Err(e) = result {
-            Err(format!("EnumWindows 失败 for PID={pid}: {e}"))
-        } else {
-            Ok(())
+/// RAII 守卫，确保 Box::from_raw 在任何退出路径下都会执行，
+/// 防止 EnumWindows 回调异常导致的内存泄漏。
+struct RawBoxGuard<T>(*mut T);
+impl<T> RawBoxGuard<T> {
+    /// 从 Box 创建守卫，转移所有权到堆上。
+    /// 守卫 drop 时会自动回收堆内存。
+    fn new(value: T) -> Self {
+        Self(Box::into_raw(Box::new(value)))
+    }
+    /// 获取裸指针，用于传递给外部 API 回调。
+    fn as_ptr(&self) -> *mut T {
+        self.0
+    }
+}
+impl<T> Drop for RawBoxGuard<T> {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { let _ = Box::from_raw(self.0); }
         }
     }
 }
 
+pub fn send_wm_close(pid: u32) -> Result<(), String> {
+    let guard = RawBoxGuard::new(pid);
+    unsafe {
+        let callback: WNDENUMPROC = Some(enum_windows_callback);
+        let result = EnumWindows(callback, LPARAM(guard.as_ptr() as isize));
+        if let Err(e) = result {
+            return Err(format!("EnumWindows 失败 for PID={pid}: {e}"));
+        }
+    }
+    Ok(())
+}
+
 unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> windows::core::BOOL {
     let pid_ptr = lparam.0 as *mut u32;
+    if pid_ptr.is_null() {
+        tracing::warn!("enum_windows_callback: lparam 为 null，跳过");
+        return windows::core::BOOL(1); // 继续枚举
+    }
     let target_pid = *pid_ptr;
 
     let mut window_pid: u32 = 0;
@@ -511,17 +610,38 @@ pub enum WatchdogError {
 
 pub struct WatchdogRunner {
     watchdog: Arc<Mutex<ProcessWatchdog>>,
+    shutting_down: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl WatchdogRunner {
     pub fn new(watchdog: ProcessWatchdog) -> Self {
         Self {
             watchdog: Arc::new(Mutex::new(watchdog)),
+            shutting_down: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
     pub fn from_arc(watchdog: Arc<Mutex<ProcessWatchdog>>) -> Self {
-        Self { watchdog }
+        Self {
+            watchdog,
+            shutting_down: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+
+    /// 设置 shutting_down 标志，通知 WatchdogRunner 尽快退出等待循环。
+    pub fn mark_shutting_down(&self) {
+        self.shutting_down.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// 返回 shutting_down Arc 的克隆，允许外部保存引用以便在关机时设置标志。
+    pub fn shutting_down_arc(&self) -> Arc<std::sync::atomic::AtomicBool> {
+        self.shutting_down.clone()
+    }
+
+    /// 替换内部的 shutting_down Arc 为外部共享的实例。
+    /// 用于在 spawn_watchdog 中提前创建 Arc，使 perform_graceful_shutdown 可访问。
+    pub fn set_shutting_down(&mut self, arc: Arc<std::sync::atomic::AtomicBool>) {
+        self.shutting_down = arc;
     }
 
     pub async fn run(&self) {
@@ -536,12 +656,21 @@ impl WatchdogRunner {
                     tracing::warn!("Watchdog: 进程挂起");
                 }
                 WatchdogAction::RestartNeeded => {
-                    wd.begin_restart();
                     let exe_path = wd.exe_path.clone();
                     let auth_token = wd.auth_token.clone();
                     drop(wd);
+                    // 关机检查：避免在关机期间启动新子进程
+                    if self.shutting_down.load(std::sync::atomic::Ordering::SeqCst) {
+                        tracing::info!("Watchdog: shutting_down 已设置，跳过重启");
+                        break;
+                    }
                     if let (Some(path), Some(token)) = (exe_path, auth_token) {
                         let mut wd = self.watchdog.lock().await;
+                        if *wd.state() != WatchdogStateEnum::Restarting {
+                            tracing::info!("Watchdog: 状态已从 Restarting 变更为 {:?}，跳过重启", wd.state());
+                            continue;
+                        }
+                        wd.begin_restart();
                         match wd.spawn_child(&path, &token) {
                             Ok(()) => {
                                 tracing::info!(
@@ -563,7 +692,20 @@ impl WatchdogRunner {
                 WatchdogAction::MaxRetriesExceeded => {
                     tracing::error!("Watchdog: 超过最大重启次数，等待恢复");
                     drop(wd);
-                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    // 可中断的等待：每秒检查一次状态变更或 shutting_down 标志，
+                    // 允许 reset_watchdog 命令或优雅关机在 60 秒内生效
+                    for _ in 0..60 {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        if self.shutting_down.load(std::sync::atomic::Ordering::SeqCst) {
+                            tracing::info!("Watchdog: shutting_down 标志已设置，退出 MaxRetriesExceeded 等待");
+                            break;
+                        }
+                        let wd = self.watchdog.lock().await;
+                        if *wd.state() != WatchdogStateEnum::Failed {
+                            break;
+                        }
+                        drop(wd);
+                    }
                 }
             }
         }
@@ -712,5 +854,76 @@ mod tests {
         assert_eq!(wd.stable_heartbeat_count, 2);
         wd.begin_restart();
         assert_eq!(wd.stable_heartbeat_count, 0);
+    }
+
+    #[test]
+    fn test_recovering_no_child_returns_restart_needed() {
+        let mut wd = ProcessWatchdog::new();
+        wd.state = WatchdogStateEnum::Recovering;
+        let action = wd.tick();
+        assert_eq!(action, WatchdogAction::RestartNeeded);
+        assert_eq!(*wd.state(), WatchdogStateEnum::Restarting);
+    }
+
+    #[test]
+    fn test_recovering_recent_heartbeat_no_child_returns_restart_needed() {
+        // 语义说明：ProcessWatchdog::new() 创建的实例 self.child = None，
+        // is_child_exited() 返回 true（无子进程 = 子进程已退出）。
+        // 因此 Recovering 状态下即使 last_heartbeat 是最近时间，
+        // 也会立即检测到 "子进程已退出" 并返回 RestartNeeded。
+        // 这验证了 "子进程退出检测优先于心跳检查" 的设计。
+        let mut wd = ProcessWatchdog::new();
+        wd.state = WatchdogStateEnum::Recovering;
+        wd.last_heartbeat = Some(std::time::Instant::now());
+        let action = wd.tick();
+        assert_eq!(action, WatchdogAction::RestartNeeded);
+        assert_eq!(*wd.state(), WatchdogStateEnum::Restarting);
+    }
+
+    #[test]
+    fn test_recovering_stale_heartbeat_returns_restart_needed() {
+        let mut wd = ProcessWatchdog::new();
+        wd.state = WatchdogStateEnum::Recovering;
+        wd.last_heartbeat = Some(std::time::Instant::now() - Duration::from_secs(31));
+        let action = wd.tick();
+        assert_eq!(action, WatchdogAction::RestartNeeded);
+        assert_eq!(*wd.state(), WatchdogStateEnum::Restarting);
+    }
+
+    #[test]
+    fn test_recovering_no_heartbeat_returns_restart_needed() {
+        let mut wd = ProcessWatchdog::new();
+        wd.state = WatchdogStateEnum::Recovering;
+        wd.last_heartbeat = None;
+        let action = wd.tick();
+        assert_eq!(action, WatchdogAction::RestartNeeded);
+        assert_eq!(*wd.state(), WatchdogStateEnum::Restarting);
+    }
+
+    #[test]
+    fn test_begin_restart_clears_child_and_job_guard() {
+        let mut wd = ProcessWatchdog::new();
+        wd.child = None;
+        wd.job_guard = None;
+        wd.missed_heartbeats = 5;
+        wd.begin_restart();
+        assert!(wd.child.is_none());
+        assert!(wd.job_guard.is_none());
+        assert_eq!(wd.restart_count(), 1);
+        assert_eq!(wd.missed_heartbeats, 0);
+    }
+
+    #[test]
+    fn test_recovering_boundary_heartbeat_29s_no_child_returns_restart_needed() {
+        // 语义说明：与 test_recovering_recent_heartbeat_no_child_returns_restart_needed 类似，
+        // ProcessWatchdog::new() 创建的实例无子进程，is_child_exited() 返回 true。
+        // 29 秒前的心跳虽然未超过 30s 阈值（心跳检查会返回 None），
+        // 但子进程退出检测优先执行，立即返回 RestartNeeded。
+        let mut wd = ProcessWatchdog::new();
+        wd.state = WatchdogStateEnum::Recovering;
+        wd.last_heartbeat = Some(std::time::Instant::now() - Duration::from_secs(29));
+        let action = wd.tick();
+        assert_eq!(action, WatchdogAction::RestartNeeded);
+        assert_eq!(*wd.state(), WatchdogStateEnum::Restarting);
     }
 }

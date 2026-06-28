@@ -23,9 +23,11 @@
 
 ; =================================================================
 ; 全局错误接管
+; 仅在直接运行时注册；被 #Include 时由包含者负责错误接管
 ; =================================================================
 
-OnError((e, mode) => (OutputDebug("RUNTIME_ERROR: " e.Message " at line " e.Line), true))
+if (A_LineFile = A_ScriptFullPath)
+    OnError((e, mode) => (OutputDebug("RUNTIME_ERROR: " e.Message " at line " e.Line), true))
 
 ; =================================================================
 ; IPC 命令分发器
@@ -450,11 +452,14 @@ Executor_Shutdown() {
     OutputDebug("Executor: 关机完成")
 }
 
-; 退出时清理
-OnExit((exitCode, exitReason) => (Executor_Shutdown(), 0))
+; 退出时清理（仅直接运行时注册）
+if (A_LineFile = A_ScriptFullPath)
+    OnExit((exitCode, exitReason) => (Executor_Shutdown(), 0))
 
 ; =================================================================
 ; 启动
+; 仅在直接运行 executor.ahk 时初始化；被 #Include（如测试）时跳过
 ; =================================================================
 
-Executor_Init()
+if (A_LineFile = A_ScriptFullPath)
+    Executor_Init()
