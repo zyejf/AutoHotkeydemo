@@ -452,14 +452,20 @@ Executor_Shutdown() {
     OutputDebug("Executor: 关机完成")
 }
 
-; 退出时清理（仅直接运行时注册）
-if (A_LineFile = A_ScriptFullPath)
+; 退出时清理（仅直接运行或编译为 exe 时注册）
+; 注意：编译后 A_LineFile 为源文件名（executor.ahk），A_ScriptFullPath 为 exe 路径，
+; 两者不相等，因此需要额外检查 A_IsCompiled
+if (A_IsCompiled || A_LineFile = A_ScriptFullPath)
     OnExit((exitCode, exitReason) => (Executor_Shutdown(), 0))
 
 ; =================================================================
 ; 启动
-; 仅在直接运行 executor.ahk 时初始化；被 #Include（如测试）时跳过
+; 仅在直接运行 executor.ahk 或编译为 exe 时初始化；被 #Include（如测试）时跳过
 ; =================================================================
 
-if (A_LineFile = A_ScriptFullPath)
+if (A_IsCompiled || A_LineFile = A_ScriptFullPath)
     Executor_Init()
+
+; 编译模式下需要 Persistent 保持脚本运行（无热键/GUI 时脚本会自动退出）
+if (A_IsCompiled)
+    Persistent
