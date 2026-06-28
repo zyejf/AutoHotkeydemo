@@ -43,8 +43,8 @@ keyGui.Show("w400 h300")
 ; 要捕获的按键列表
 keysToCapture := ["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","x","y","z","0","1","2","3","4","5","6","7","8","9","Space","Enter","Shift","Ctrl","Alt","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12"]
 
-; 设置热键上下文为当前 GUI 窗口
-Hotkey("IfWinActive", "ahk_id " keyGui.Hwnd)
+; 注意：不使用 IfWinActive 上下文，改为全局热键
+; 原因：E2E 环境中 ASD Tauri 应用可能抢占前台，导致窗口激活失败
 
 ; 注册每个按键的 down 和 up 事件
 for index, key in keysToCapture {

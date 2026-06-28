@@ -232,6 +232,7 @@ describe('hotkey_cmd E2E 测试', () => {
         const scriptContent = [
           '#Requires AutoHotkey v2.0',
           '#ErrorStdOut "UTF-8"',
+          'SendLevel(10)',  // 让 Send 发送的按键能触发热键钩子（默认 SendLevel=0 无法触发）
           'WinActivate("E2E Key Receiver")',
           'Sleep(100)',
           'Send("{F8}")',

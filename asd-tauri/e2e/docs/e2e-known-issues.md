@@ -652,3 +652,15 @@
 - **修复方案:** 在 e2e/helpers/tauri.js 的 invoke 辅助函数轮询循环中添加 try-catch，捕获 browser.execute() 的异常后继续轮询，因为 invoke 可能已在后端成功执行，仅前端读取 window.__e2e_result 失败
 - **验证:** 修复后 E2E-SYS-005 通过（耗时 18742ms，证明 try-catch 生效，"unknown error" 被捕获后继续轮询直到成功）
 
+## ISSUE-E2E-HK-003-RESOLVED [RESOLVED] (关联用例: E2E-HK-003)
+
+- **状态:** 已修复（2026-06-28）
+- **原复现步骤:** 启动 key_receiver 窗口，注册 F8 热键，临时脚本 Send("{F8}") 模拟按下，key_log.txt 应捕获 F8 down 事件
+- **根因:** 两个问题协同导致失败：
+  1. 临时脚本 `Send("{F8}")` 默认 SendLevel=0，无法触发热键钩子（AHK 默认行为：Send 模拟的按键不触发热键，除非 SendLevel > hook level）
+  2. key_receiver.ahk 使用 `Hotkey("IfWinActive", "ahk_id " keyGui.Hwnd)` 限定热键上下文为 GUI 窗口，但 ASD Tauri 应用抢占前台导致窗口激活失败，IfWinActive 上下文不匹配
+- **修复方案:**
+  1. 在 hotkey_cmd.spec.js 临时脚本中添加 `SendLevel(10)`，让 Send 发送的按键携带 level=10 标记，触发 key_receiver 默认 level=0 的热键钩子
+  2. 在 key_receiver.ahk 中移除 `Hotkey("IfWinActive", "ahk_id " keyGui.Hwnd)` 上下文限制，改为全局热键，避免窗口激活问题
+- **验证:** 修复后 E2E-HK-003 通过（耗时 1508ms），key_log.txt 正确捕获到 F8 down/up 事件
+
