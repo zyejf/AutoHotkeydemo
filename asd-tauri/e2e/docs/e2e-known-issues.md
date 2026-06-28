@@ -644,11 +644,11 @@
 - **影响:** key_record_event 转发链路无法完整验证
 - **建议:** 在手动测试环境按下按键验证
 
-## ISSUE-E2E-SYS-005 [HIGH] (关联用例: E2E-SYS-005)
+## ISSUE-E2E-SYS-005-RESOLVED [RESOLVED] (关联用例: E2E-SYS-005)
 
-- **复现步骤:** 执行测试用例 E2E-SYS-005: 调用 reset_watchdog，状态重置或返回合理前置条件错误
-- **预期:** 测试应通过
-- **实际:** 
-- **影响:** E2E 测试失败: E2E-SYS-005: 调用 reset_watchdog，状态重置或返回合理前置条件错误
-- **建议:** 检查相关 Tauri 命令实现与测试断言，或确认 E2E 环境是否支持 AHK 子进程
+- **状态:** 已修复（2026-06-28）
+- **原复现步骤:** 调用 reset_watchdog 时，invoke 辅助函数的 browser.execute() 轮询循环因 tauri-driver/msedgedriver 的 flaky "unknown error"（HTTP 200 with error body）而抛出异常，导致测试失败
+- **根因:** tauri-driver 在执行 /execute/sync 端点时间歇性返回 HTTP 200 + error body，WebDriverIO 重试 3 次后抛出 "unknown error"，错误消息不匹配测试期望的正则表达式
+- **修复方案:** 在 e2e/helpers/tauri.js 的 invoke 辅助函数轮询循环中添加 try-catch，捕获 browser.execute() 的异常后继续轮询，因为 invoke 可能已在后端成功执行，仅前端读取 window.__e2e_result 失败
+- **验证:** 修复后 E2E-SYS-005 通过（耗时 18742ms，证明 try-catch 生效，"unknown error" 被捕获后继续轮询直到成功）
 

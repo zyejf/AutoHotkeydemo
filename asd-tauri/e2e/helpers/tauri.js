@@ -31,16 +31,24 @@ export async function invoke(browser, command, args = {}) {
   }, command, args);
 
   // 轮询等待结果（最多 15 秒 = 150 次 * 100ms）
+  // 注意：browser.execute() 可能因 tauri-driver/msedgedriver 的 flaky 问题
+  // 抛出 "unknown error"（HTTP 200 with error body）。
+  // 此时需要继续重试而非直接抛出，因为 invoke 可能已在后端成功执行。
   let wrapped = null;
+  let lastExecuteError = null;
   const maxAttempts = 150;
   for (let i = 0; i < maxAttempts; i++) {
-    wrapped = await browser.execute(() => window.__e2e_result);
-    if (wrapped) break;
+    try {
+      wrapped = await browser.execute(() => window.__e2e_result);
+      if (wrapped) break;
+    } catch (e) {
+      lastExecuteError = e;
+    }
     await new Promise((r) => setTimeout(r, 100));
   }
 
   if (!wrapped || !wrapped.ok) {
-    const errMsg = wrapped?.error || 'invoke timeout (15s)';
+    const errMsg = wrapped?.error || (lastExecuteError ? String(lastExecuteError) : 'invoke timeout (15s)');
     throw new Error(`Tauri invoke('${command}') failed: ${errMsg}`);
   }
   return wrapped.data;
