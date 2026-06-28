@@ -179,6 +179,21 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
 
 ### Working In This Directory
 
+#### Git 提交规范
+
+- **⚠️ 强制：所有 git commit 必须遵循 [Conventional Commits](https://www.conventionalcommits.org/) 规范**
+- **格式**：`<type>(<scope>): <描述>`，详见 `docs/commit-convention.md`
+- **type**（全小写）：feat / fix / docs / style / refactor / test / chore / perf / ci / build
+- **scope**（全小写，可选）：asd-domain / asd-ipc-protocol / asd-application / asd-tauri / asd-test-harness / ahk / test / ci / docs / config
+- **描述语言**：中文优先，技术术语保留英文；首字母不大写，结尾不加句号
+- **示例**：
+  - `feat(asd-ipc-protocol): 新增 HotkeyMerger 热键合并器`
+  - `fix(asd-test-harness): 修复 unique_pipe_name 并发碰撞`
+  - `docs(test): 新建 TESTING.md 测试管理文档`
+- **BREAKING CHANGE**：在 type 后加 `!`（如 `feat(asd-ipc-protocol)!: 重构 IpcCommand 枚举`）或在 Footer 标注
+- **禁止**：无 type 的提交（如 `update files`）、英文描述（如 `Add new feature`）、描述以句号结尾
+- 提交时使用 `git commit`（不带 -m）会自动加载 `.gitmessage` 模板提示
+
 #### AHK v2 规则
 
 - **⚠️ 强制：所有 .ahk 文件顶部必须包含以下警告/错误接管指令（在 `#Requires` 之后、任何代码之前）：**
