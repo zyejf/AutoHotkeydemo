@@ -67,13 +67,38 @@ return
 ; 注册单个按键的 down/up 热键
 RegisterKeyHotkey(key) {
     capturedKey := key
+    ; 中性修饰键（Shift/Ctrl/Alt）在 AHK v2 中有"fire on release"机制，
+    ; ~Shift 会被推迟到 key-up 时触发，无法捕获 SendInput 的 {Shift Down}。
+    ; 解决方案：使用 left/right specific 变体（VK_LSHIFT/VK_RSHIFT），
+    ; 它们不是中性修饰键，能在 key-down 时机正常触发。
+    ; SendInput("{Blind}{Shift Down}") 发送 VK_SHIFT，在钩子入口被翻译为 VK_LSHIFT。
     ; 使用 ~ 前缀让按键继续传递给其他应用（不阻止默认行为）
-    hotkeyStr := "~" capturedKey
-    try {
-        Hotkey(hotkeyStr, (*) => LogKeyEvent(capturedKey, "down"))
-        Hotkey(hotkeyStr " up", (*) => LogKeyEvent(capturedKey, "up"))
-    } catch as e {
-        OutputDebug("KeyReceiver: 注册按键失败 " key " - " e.Message)
+    neutralModifiers := Map(
+        "Shift", ["LShift", "RShift"],
+        "Ctrl", ["LCtrl", "RCtrl"],
+        "Alt", ["LAlt", "RAlt"]
+    )
+
+    if neutralModifiers.Has(key) {
+        ; 中性修饰键：注册 left/right specific 变体的 down 和 up 事件
+        variants := neutralModifiers[key]
+        for variant in variants {
+            try {
+                Hotkey("~" variant, (*) => LogKeyEvent(capturedKey, "down"))
+                Hotkey("~" variant " up", (*) => LogKeyEvent(capturedKey, "up"))
+            } catch as e {
+                OutputDebug("KeyReceiver: 注册按键失败 " variant " - " e.Message)
+            }
+        }
+    } else {
+        ; 其他按键：直接注册 down 和 up 事件
+        hotkeyStr := "~" capturedKey
+        try {
+            Hotkey(hotkeyStr, (*) => LogKeyEvent(capturedKey, "down"))
+            Hotkey(hotkeyStr " up", (*) => LogKeyEvent(capturedKey, "up"))
+        } catch as e {
+            OutputDebug("KeyReceiver: 注册按键失败 " key " - " e.Message)
+        }
     }
 }
 

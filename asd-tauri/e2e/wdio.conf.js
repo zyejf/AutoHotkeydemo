@@ -8,8 +8,29 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import net from 'node:net';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// 检查指定端口是否在监听（用于诊断 Vite dev server / tauri-driver 是否运行）
+function checkPort(host, port) {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    socket.setTimeout(1000);
+    socket.on('connect', () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.on('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.on('error', () => {
+      resolve(false);
+    });
+    socket.connect(port, host);
+  });
+}
 
 // 应用 binary 路径（绝对路径，避免工作目录歧义）
 // e2e 目录位于 asd-tauri/e2e，binary 在 workspace 根 target/debug/
@@ -54,12 +75,63 @@ export const config = {
 
   // ----------------------------------------------------------------
   // onPrepare: 启动 tauri-driver 子进程（监听 4444 端口）
+  // 增加诊断日志：检查 binary、前端 dist、Vite dev server、msedgedriver
   // ----------------------------------------------------------------
-  onPrepare: () => {
+  onPrepare: async () => {
     // 确保 reports 目录存在
     if (!existsSync(reportsDir)) {
       mkdirSync(reportsDir, { recursive: true });
     }
+
+    // ===== 诊断日志：记录 E2E 启动环境状态 =====
+    const diagLines = [];
+    diagLines.push(`[${new Date().toISOString()}] E2E 诊断启动`);
+
+    // 1. 检查 binary
+    if (existsSync(binaryAbsPath)) {
+      diagLines.push(`[OK] Binary 存在: ${binaryAbsPath}`);
+    } else {
+      diagLines.push(`[FAIL] Binary 不存在: ${binaryAbsPath}`);
+    }
+
+    // 2. 检查 dist/index.html（前端构建产物）
+    const distPath = resolve(__dirname, '../dist/index.html');
+    if (existsSync(distPath)) {
+      diagLines.push(`[OK] 前端 dist 存在: ${distPath}`);
+    } else {
+      diagLines.push(`[WARN] 前端 dist 不存在: ${distPath}`);
+    }
+
+    // 3. 检查 Vite dev server (5173 端口)
+    // 如果 binary 是用 "cargo build" 构建的 debug binary，Tauri 会使用 devUrl 连接 5173
+    // 如果 Vite 未运行，WebView 会显示 "127.0.0.1 拒绝连接"
+    const viteRunning = await checkPort('127.0.0.1', 5173);
+    if (viteRunning) {
+      diagLines.push(`[OK] Vite dev server 运行中 (127.0.0.1:5173)`);
+    } else {
+      diagLines.push(`[WARN] Vite dev server 未运行 (127.0.0.1:5173)`);
+      diagLines.push(`      如果 binary 是用 "cargo build" 构建的，WebView 会显示 "连接被拒绝"`);
+      diagLines.push(`      解决方案: 用 "npx tauri build --debug --no-bundle" 重新构建，内嵌前端资源`);
+    }
+
+    // 4. 检查 msedgedriver.exe
+    if (existsSync(msedgedriverExePath)) {
+      diagLines.push(`[OK] msedgedriver.exe 存在: ${msedgedriverExePath}`);
+    } else {
+      diagLines.push(`[FAIL] msedgedriver.exe 不存在: ${msedgedriverExePath}`);
+    }
+
+    // 5. 检查 4444 端口是否被占用（tauri-driver 端口冲突）
+    const port4444InUse = await checkPort('127.0.0.1', 4444);
+    if (port4444InUse) {
+      diagLines.push(`[WARN] 端口 4444 已被占用，tauri-driver 可能无法启动`);
+    } else {
+      diagLines.push(`[OK] 端口 4444 空闲，tauri-driver 可启动`);
+    }
+
+    diagLines.push(`[${new Date().toISOString()}] 诊断完成`);
+    writeFileSync(resolve(reportsDir, 'e2e-diagnostic.log'), diagLines.join('\n') + '\n', 'utf-8');
+
     // 检查 binary 是否存在；不存在则记录到 skip-reason.txt 但不阻塞
     if (!existsSync(binaryAbsPath)) {
       writeFileSync(
@@ -109,7 +181,7 @@ export const config = {
       );
     });
     // 给 tauri-driver 2 秒启动时间后再继续
-    return new Promise((startupResolve) => setTimeout(() => startupResolve(), 2000));
+    await new Promise((startupResolve) => setTimeout(startupResolve, 2000));
   },
 
   // ----------------------------------------------------------------
