@@ -17,6 +17,7 @@ use std::time::Duration;
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct WatchdogState {
     pub status: WatchdogStateEnum,
+    #[serde(rename = "restartCount")]
     pub restart_count: u32,
     #[serde(skip)]
     pub last_restart: Option<std::time::Instant>,
@@ -1385,5 +1386,19 @@ mod tests {
         assert_eq!(reg_cmds.len(), 2);
         assert!(reg_cmds.contains(&("F2".to_string(), "1".to_string())));
         assert!(reg_cmds.contains(&("F1".to_string(), "2".to_string())));
+    }
+
+    #[test]
+    fn test_watchdog_state_serializes_restart_count_as_camel_case() {
+        let state = WatchdogState::new();
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(
+            json.contains("\"restartCount\""),
+            "JSON 应包含 restartCount 字段（camelCase），实际: {}", json
+        );
+        assert!(
+            !json.contains("\"restart_count\""),
+            "JSON 不应包含 restart_count 字段（snake_case），实际: {}", json
+        );
     }
 }
