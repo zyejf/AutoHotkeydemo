@@ -12,6 +12,10 @@
 #Warn Unreachable, OutputDebug
 #Warn LocalSameAsGlobal, Off
 
+; 设置 SendLevel 让 asd_executor 发送的按键能触发 key_receiver 的热键钩子
+; 默认 SendLevel=0 的 SendInput 不触发热键钩子
+SendLevel(10)
+
 ; =================================================================
 ; 模块引入
 ; =================================================================

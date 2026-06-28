@@ -49,7 +49,11 @@ class HotkeyHook {
             HotkeyHook._registered[normalizedKey] := Map("groupId", groupId, "enabled", true)
 
             capturedKey := normalizedKey
+            ; 设置 InputLevel=11，防止 asd_executor 发送的按键（SendLevel=10）触发自己的 hotkey_hook
+            ; 物理按键总是触发所有 level 的热键，所以不影响用户真实按键
+            InputLevel(11)
             Hotkey(normalizedKey, (*) => HotkeyHook._OnHotkeyPress(capturedKey), "On")
+            InputLevel(0)  ; 恢复默认，避免影响后续热键注册
 
             OutputDebug("HotkeyHook: 已注册 key=" normalizedKey " groupId=" groupId)
             return true
