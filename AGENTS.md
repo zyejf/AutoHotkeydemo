@@ -300,6 +300,40 @@ cd asd-tauri/src-tauri/fuzz && cargo +nightly fuzz run fuzz_config_deserialize
 - 强制规范：所有 AHK 测试文件必须包含 `#ErrorStdOut "UTF-8"` + `#Warn VarUnset, OutputDebug` + `#Warn Unreachable, OutputDebug` + `OnError` 回调（详见「错误与警告接管机制」节）
 - 详细指南：参见 `asd-tauri/TESTING.md` 第 1.6 节
 
+#### E2E 测试
+
+- **E2E 测试目录**：`asd-tauri/e2e/`（独立 Node.js 项目，使用 tauri-driver + WebDriverIO）
+- **测试框架**：WebDriverIO 8.x + Mocha BDD + chai 断言
+- **测试范围**：9 个 suite，53 个用例
+  - `smoke.spec.js`（1）：应用启动与关闭冒烟测试
+  - `config_cmd.spec.js`（12）：11 个 config_cmd 命令
+  - `group_cmd.spec.js`（8）：8 个 group_cmd 命令
+  - `hotkey_cmd.spec.js`（3）：2 个 hotkey_cmd 命令 + 热键触发
+  - `recording_cmd.spec.js`（5）：4 个 recording_cmd 命令 + 状态机
+  - `system_cmd.spec.js`（5）：5 个 system_cmd 命令
+  - `modes.spec.js`（7）：7 种执行模式
+  - `ipc.spec.js`（7）：Rust↔AHK IPC 通信
+  - `key_send.spec.js`（5）：AHK 执行器按键验证
+- **前置条件**：
+  1. 安装 tauri-driver：`cargo install tauri-driver --locked`（tauri-driver 不在 npm registry）
+  2. 构建应用：`cd asd-tauri && cargo build --release`
+  3. 安装 AHK v2：`D:\Program Files\AutoHotkey\v2\AutoHotkey64.exe`
+- **运行命令**：
+  ```bash
+  cd asd-tauri/e2e
+  npm install
+  npm test
+  ```
+- **测试报告**：`docs/e2e-test-report.md`（运行后生成）
+- **测试用例清单**：`docs/e2e-test-checklist.md`
+- **已知问题清单**：`docs/e2e-known-issues.md`
+- **强制规范**：
+  - 所有 E2E 测试文件使用 ESM 语法（`import/export`）
+  - 测试用例编号格式：`E2E-<SUITE>-NNN`（如 `E2E-CFG-001`）
+  - 失败用例必须调用 `appendKnownIssue` 记录到 `docs/e2e-known-issues.md`
+  - binary 缺失时所有测试 skip（不 fail）
+  - 不直接修改用户真实 `config.json`，使用 `backupUserConfig`/`restoreUserConfig`
+
 #### 测试结果分析
 
 - JUnit XML 生成：`cargo test -- --format junit -Z unstable-options`（nightly）或 `cargo-junit-report`（stable 回退方案）

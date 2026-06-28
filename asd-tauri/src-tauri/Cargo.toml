@@ -10,6 +10,10 @@ test-manifest = []
 name = "asd_tauri_lib"
 crate-type = ["rlib", "cdylib", "staticlib"]
 
+[[bin]]
+name = "asd-tauri"
+path = "src/main.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

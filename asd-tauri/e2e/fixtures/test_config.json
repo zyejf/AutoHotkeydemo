@@ -1,0 +1,99 @@
+{
+  "CONTROL_HOTKEYS": {
+    "emergency": "F10",
+    "releaseAllHolds": "^r",
+    "showStatus": "^0",
+    "toggleAll": "^1",
+    "toggleHoldMode": "^h"
+  },
+  "GroupSettings": {
+    "test-periodic": {
+      "hotkey": "F1",
+      "mode": "periodic",
+      "name": "test-periodic",
+      "enabled": false,
+      "keys": ["Space"],
+      "intervals": [100]
+    },
+    "test-sequence": {
+      "hotkey": "F2",
+      "mode": "sequence",
+      "name": "test-sequence",
+      "enabled": false,
+      "keys": ["1", "2", "3"],
+      "delays": [50, 50, 50]
+    },
+    "test-hybrid": {
+      "hotkey": "F3",
+      "mode": "hybrid",
+      "name": "test-hybrid",
+      "enabled": false,
+      "seqInterval": 100,
+      "groups": [
+        {
+          "type": "periodic",
+          "pressKeys": ["Space"],
+          "intervals": [100]
+        },
+        {
+          "type": "sequence",
+          "pressKeys": ["1", "2"],
+          "delays": [100, 100]
+        }
+      ]
+    },
+    "test-hold": {
+      "hotkey": "F4",
+      "mode": "hold",
+      "name": "test-hold",
+      "enabled": false,
+      "holdKeys": ["Shift"],
+      "holdMode": "continuous",
+      "holdDuration": 500
+    },
+    "test-enhanced-periodic": {
+      "hotkey": "F5",
+      "mode": "enhanced_periodic",
+      "name": "test-enhanced-periodic",
+      "enabled": false,
+      "pressKeys": ["Space", "1"],
+      "intervals": [100, 200]
+    },
+    "test-enhanced-sequence": {
+      "hotkey": "F6",
+      "mode": "enhanced_sequence",
+      "name": "test-enhanced-sequence",
+      "enabled": false,
+      "pressKeys": ["1", "2", "3"],
+      "pressDelays": [100, 100, 100]
+    },
+    "test-enhanced-hybrid": {
+      "hotkey": "F7",
+      "mode": "enhanced_hybrid",
+      "name": "test-enhanced-hybrid",
+      "enabled": false,
+      "seqInterval": 100,
+      "groups": [
+        {
+          "type": "periodic",
+          "pressKeys": ["Space"],
+          "intervals": [100]
+        },
+        {
+          "type": "sequence",
+          "pressKeys": ["1", "2"],
+          "delays": [100, 100]
+        }
+      ]
+    }
+  },
+  "HoldSettings": {
+    "allowOverlap": false,
+    "checkInterval": 50,
+    "debounceDelay": 25,
+    "pressSpeed": 80,
+    "releaseOnEmergency": true
+  },
+  "lastModified": "20260628120000",
+  "version": "3.0"
+}

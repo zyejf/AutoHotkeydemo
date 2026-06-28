@@ -151,6 +151,56 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 ---
 
+## E2E 测试
+
+使用 tauri-driver + WebDriverIO 框架，在真实 Windows 桌面环境下测试完整应用链路。
+
+| Suite | 文件路径 | 用例数 | 覆盖范围 |
+|-------|---------|-------|---------|
+| E2E | asd-tauri/e2e/specs/smoke.spec.js | 1 | 应用启动与关闭冒烟测试 |
+| E2E | asd-tauri/e2e/specs/config_cmd.spec.js | 12 | 11 个 config_cmd 命令 |
+| E2E | asd-tauri/e2e/specs/group_cmd.spec.js | 8 | 8 个 group_cmd 命令 |
+| E2E | asd-tauri/e2e/specs/hotkey_cmd.spec.js | 3 | 2 个 hotkey_cmd 命令 + 热键触发 |
+| E2E | asd-tauri/e2e/specs/recording_cmd.spec.js | 5 | 4 个 recording_cmd 命令 + 状态机 |
+| E2E | asd-tauri/e2e/specs/system_cmd.spec.js | 5 | 5 个 system_cmd 命令 |
+| E2E | asd-tauri/e2e/specs/modes.spec.js | 7 | 7 种执行模式 |
+| E2E | asd-tauri/e2e/specs/ipc.spec.js | 7 | Rust↔AHK IPC 通信 |
+| E2E | asd-tauri/e2e/specs/key_send.spec.js | 5 | AHK 执行器按键验证 |
+| **总计** | — | **53** | — |
+
+### E2E 测试固件
+
+| 文件路径 | 用途 |
+|---------|------|
+| asd-tauri/e2e/fixtures/test_config.json | 测试专用配置（7 模式分组） |
+| asd-tauri/e2e/fixtures/key_receiver.ahk | AHK 按键接收窗口（捕获按键事件） |
+| asd-tauri/e2e/helpers/tauri.js | Tauri 交互辅助（invoke/getConfig/saveConfig） |
+| asd-tauri/e2e/helpers/config.js | 配置管理辅助（备份/恢复/加载测试配置） |
+| asd-tauri/e2e/helpers/key_receiver.js | 按键接收器辅助（启停/读取/断言） |
+| asd-tauri/e2e/helpers/report.js | 测试报告辅助（结果收集/Markdown 生成） |
+
+### 运行方式
+
+```bash
+# 前置条件
+cargo install tauri-driver --locked
+cd asd-tauri && cargo build --release
+cd asd-tauri/e2e && npm install
+
+# 运行
+cd asd-tauri/e2e && npm test
+```
+
+### E2E 测试文档
+
+| 文档 | 路径 | 用途 |
+|------|------|------|
+| E2E 测试报告 | docs/e2e-test-report.md | 53 个用例的状态总览（PENDING/PASS/FAIL） |
+| E2E 测试 Checklist | docs/e2e-test-checklist.md | 每个用例的前置条件、步骤、预期结果 |
+| E2E 已知问题 | docs/e2e-known-issues.md | 10 个已知问题与修复建议 |
+
+---
+
 ## 维护规范
 
 1. **新增测试文件**：在本地图的对应 crate 小节追加一行，记录文件路径、测试数、覆盖范围。
