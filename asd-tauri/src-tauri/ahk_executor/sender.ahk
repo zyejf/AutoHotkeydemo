@@ -229,7 +229,9 @@ class Sender {
     }
 
     ; 启动 Hold 模式
-    static StartHold(groupId, holdKeys, holdMode := "continuous") {
+    ; holdDuration=0 表示无限保持（直到主动停止）
+    ; holdDuration>0 表示固定时长保持，超时后自动释放并停用分组
+    static StartHold(groupId, holdKeys, holdMode := "continuous", holdDuration := 0) {
         if !Sender._holdModeEnabled {
             OutputDebug("Sender: Hold 模式已禁用，跳过 groupId=" groupId)
             return
@@ -242,13 +244,46 @@ class Sender {
         state["mode"] := "hold"
         state["holdKeys"] := holdKeys
         state["holdMode"] := holdMode
+        state["holdDuration"] := holdDuration
 
         ; 按住按键
         Sender._heldKeys[groupId] := holdKeys
         for k in holdKeys
             Sender._SendKeyDown(k)
 
-        OutputDebug("Sender: 启动 Hold groupId=" groupId " keys=" holdKeys.Length " mode=" holdMode)
+        ; 如果 holdDuration > 0，设置一次性定时器在超时后自动释放
+        ; holdDuration=0 表示无限保持，不设置定时器
+        ; SetTimer 第二个参数为负数 = 一次性定时器（N 毫秒后触发一次）
+        if holdDuration > 0 {
+            timerFn := () => Sender._HoldTimeout(groupId)
+            Sender._timers[groupId] := timerFn
+            SetTimer(timerFn, -holdDuration)
+            OutputDebug("Sender: 启动 Hold groupId=" groupId " keys=" holdKeys.Length " mode=" holdMode " duration=" holdDuration "ms")
+        } else {
+            OutputDebug("Sender: 启动 Hold groupId=" groupId " keys=" holdKeys.Length " mode=" holdMode " duration=infinite")
+        }
+    }
+
+    ; holdDuration 超时回调：自动释放按键并停用分组
+    static _HoldTimeout(groupId) {
+        if !Sender._activeGroups.Has(groupId)
+            return
+
+        ; 释放 hold 按键
+        if Sender._heldKeys.Has(groupId) {
+            for k in Sender._heldKeys[groupId]
+                Sender._SendKeyUp(k)
+            Sender._heldKeys.Delete(groupId)
+        }
+
+        ; 清理定时器引用
+        if Sender._timers.Has(groupId)
+            Sender._timers.Delete(groupId)
+
+        ; 停用分组
+        Sender._activeGroups.Delete(groupId)
+
+        OutputDebug("Sender: Hold 超时自动释放 groupId=" groupId)
     }
 
     ; 启动混合模式

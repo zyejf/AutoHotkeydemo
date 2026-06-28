@@ -285,10 +285,10 @@ impl ConfigValidator {
                 }
             }
             "hold" => {
-                if let ModeData::Hold(data) = mode_data {
-                    if data.hold_duration == 0 {
-                        result.add_error(group_id, "holdDuration", "hold 模式持续时间不能为 0");
-                    }
+                if let ModeData::Hold(_data) = mode_data {
+                    // holdDuration=0 表示无限保持（直到主动停止），是合法值
+                    // holdDuration>0 表示固定时长保持，超时后自动释放
+                    // 此处无需额外校验，holdDuration 的非负性由类型系统保证（u64）
                 } else {
                     result.add_error(group_id, "mode_data", "hold 模式数据类型不匹配");
                 }
@@ -672,11 +672,11 @@ mod tests {
 
     #[test]
     fn test_hold_zero_duration() {
+        // holdDuration=0 表示无限保持（直到主动停止），现在是合法值
         let mut groups = IndexMap::new();
         groups.insert("1".to_string(), make_hold_group());
         let result = ConfigValidator::validate(&groups);
-        assert!(!result.is_valid());
-        assert!(result.errors.iter().any(|e| e.field == "holdDuration"));
+        assert!(result.is_valid(), "holdDuration=0 应该合法（无限保持模式）");
     }
 
     #[test]

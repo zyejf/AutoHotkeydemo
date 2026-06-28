@@ -304,7 +304,8 @@ class CommandDispatcher {
             case "hold":
                 holdKeys := CommandDispatcher._GetArr(config, "holdKeys")
                 holdMode := CommandDispatcher._GetStr(config, "holdMode", "continuous")
-                Sender.StartHold(groupId, holdKeys, holdMode)
+                holdDuration := CommandDispatcher._GetInt(config, "holdDuration", 0)
+                Sender.StartHold(groupId, holdKeys, holdMode, holdDuration)
             case "hybrid":
                 groups := CommandDispatcher._GetArr(config, "groups")
                 Sender.StartHybrid(groupId, groups, kpd)
