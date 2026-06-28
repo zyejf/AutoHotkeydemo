@@ -8,7 +8,7 @@
 $ErrorActionPreference = "Stop"
 
 $projectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-# 优先使用环境变量，否则使用默认路径
+# Use env var if set, otherwise use default path
 $ahkCompiler = if ($env:AHK_COMPILER) { $env:AHK_COMPILER } else { "D:\Program Files\AutoHotkey\Compiler\Ahk2Exe.exe" }
 $ahkBin = if ($env:AHK_BIN) { $env:AHK_BIN } else { "D:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" }
 $inputFile = Join-Path $projectDir "ahk_executor\executor.ahk"
@@ -19,7 +19,7 @@ $ahkBinTemp = Join-Path $projectDir "ahk_executor\_AutoHotkey64.exe"
 
 Write-Host "=== Building AHK Subprocess ===" -ForegroundColor Cyan
 
-# 自动检测：若默认路径不存在，尝试候选路径
+# Auto-detect: if default path doesn't exist, try candidate paths
 if (-not (Test-Path $ahkBin)) {
     $candidates = @(
         "C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe",
