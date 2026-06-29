@@ -340,12 +340,15 @@ describe('7 种执行模式 E2E 测试', () => {
 
       const downKeys = getDownKeys(entries);
       const spaceCount = downKeys.filter((k) => k === 'Space').length;
-      const hasSequence = containsSubsequence(downKeys, ['1', '2']);
+      // 过滤出序列子组的按键（1, 2），排除 periodic 子组的 Space 干扰
+      // hybrid 模式下 periodic 和 sequence 并行执行，Space 会穿插在 1,2 之间
+      const seqDownKeys = downKeys.filter((k) => k === '1' || k === '2');
+      const hasSequence = containsSubsequence(seqDownKeys, ['1', '2']);
 
       // 验证周期性 Space 出现（约 5 次，±2）
       expect(spaceCount, 'Space 应出现约 5 次（±2）').to.be.at.least(3);
-      // 验证序列 1,2 出现
-      expect(hasSequence, '应包含序列 1→2').to.be.true;
+      // 验证序列 1,2 出现（在过滤后的序列键中查找子序列）
+      expect(hasSequence, '应包含序列 1→2（过滤 Space 后）').to.be.true;
       // 验证两组按键都出现（并行执行）
       expect(downKeys, '应同时包含 Space 与 1/2').to.include.members(['Space', '1', '2']);
     });
@@ -499,12 +502,15 @@ describe('7 种执行模式 E2E 测试', () => {
 
       const downKeys = getDownKeys(entries);
       const spaceCount = downKeys.filter((k) => k === 'Space').length;
-      const hasSequence = containsSubsequence(downKeys, ['1', '2']);
+      // 过滤出序列子组的按键（1, 2），排除 periodic 子组的 Space 干扰
+      // hybrid 模式下 periodic 和 sequence 并行执行，Space 会穿插在 1,2 之间
+      const seqDownKeys = downKeys.filter((k) => k === '1' || k === '2');
+      const hasSequence = containsSubsequence(seqDownKeys, ['1', '2']);
 
       // 验证周期性 Space 出现（约 5 次，±2）
       expect(spaceCount, 'Space 应出现约 5 次（±2）').to.be.at.least(3);
-      // 验证序列 1,2 出现
-      expect(hasSequence, '应包含序列 1→2').to.be.true;
+      // 验证序列 1,2 出现（在过滤后的序列键中查找子序列）
+      expect(hasSequence, '应包含序列 1→2（过滤 Space 后）').to.be.true;
       // 验证两组按键都出现（并行执行）
       expect(downKeys, '应同时包含 Space 与 1/2').to.include.members(['Space', '1', '2']);
     });

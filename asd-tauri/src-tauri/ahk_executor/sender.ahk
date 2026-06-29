@@ -456,7 +456,6 @@ class Sender {
                     step := triggerTimes.Has(stepKey) ? triggerTimes[stepKey] : 1
                     if step > grpKeys.Length
                         step := 1
-                    delay := step <= grpDelays.Length ? grpDelays[step] : 100
                     nextTimeKey := grpIdx ".nextTime"
                     nextTime := triggerTimes.Has(nextTimeKey) ? triggerTimes[nextTimeKey] : now
                     if now >= nextTime {
@@ -464,7 +463,8 @@ class Sender {
                         Sender._SendKeyDown(k)
                         SetTimer(((ck) => () => Sender._SendKeyUp(ck))(k), -kpd)
                         triggerTimes[stepKey] := Mod(step, grpKeys.Length) + 1
-                        nextDelay := triggerTimes[stepKey] <= grpDelays.Length ? grpDelays[triggerTimes[stepKey]] : 100
+                        nextStep := triggerTimes[stepKey]
+                        nextDelay := nextStep <= grpDelays.Length ? grpDelays[nextStep] : 100
                         triggerTimes[nextTimeKey] := A_TickCount + nextDelay
                         minRemaining := 1
                     } else {
