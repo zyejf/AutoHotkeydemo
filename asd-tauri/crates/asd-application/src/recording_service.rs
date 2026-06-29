@@ -368,7 +368,7 @@ pub fn start_validation(state: &AppState, group_id: &str) -> Result<u64, AppErro
     // 消除与 start_recording/delete_group_atomic 的 TOCTOU 窗口。
     // 使用写锁而非读锁，因为 start_recording 也使用写锁，两者互斥。
     {
-        let mut mode_guard = state.recording_mode.write();
+        let mode_guard = state.recording_mode.write();
         if mode_guard.is_some() {
             return Err(AppError::Validation("录制进行中，无法启动验证".to_string()));
         }

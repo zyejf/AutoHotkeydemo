@@ -303,7 +303,7 @@ impl IpcManager {
                 Ok(()) => Ok(()),
                 Err(e) => {
                     let ipc_err = IpcError::from(e);
-                    let is_pipe_broken = matches!(ipc_err, IpcError::PipeBroken(_));
+                    let _is_pipe_broken = matches!(ipc_err, IpcError::PipeBroken(_));
                     // flush 失败时连接可能已不可靠，无论是否为 PipeBroken 都清理
                     *writer_guard = None;
                     drop(writer_guard);

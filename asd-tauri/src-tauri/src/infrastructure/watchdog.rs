@@ -219,7 +219,7 @@ impl ProcessWatchdog {
         self.exe_path = Some(exe_path.to_string());
         self.auth_token = Some(auth_token.to_string());
 
-        let (program, mut args) = if exe_path.ends_with("asd_executor.exe") {
+        let (program, args) = if exe_path.ends_with("asd_executor.exe") {
             (exe_path.to_string(), Vec::new())
         } else if exe_path.ends_with("asd_executor.bat") {
             (

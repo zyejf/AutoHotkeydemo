@@ -3,7 +3,6 @@ use crate::infrastructure::watchdog::ProcessWatchdog;
 use asd_domain::config::WatchdogStateEnum;
 use asd_domain::traits::{EventEmitter, IpcSender, ProcessWatcher};
 use asd_ipc_protocol::{IpcCommand, IpcMessage};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
