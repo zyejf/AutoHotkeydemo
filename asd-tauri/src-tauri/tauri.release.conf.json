@@ -1,0 +1,11 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicehash/Tauri/dev/crates/tauri-config-schema/schema.json",
+  "build": {
+    "beforeBuildCommand": "powershell -ExecutionPolicy Bypass -File src-tauri/build_ahk.ps1 && npm run build"
+  },
+  "bundle": {
+    "resources": [
+      "ahk_executor/asd_executor.exe"
+    ]
+  }
+}
