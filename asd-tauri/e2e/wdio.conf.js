@@ -4,8 +4,8 @@
 // 通过 tauri-driver（监听 4444 端口）驱动 Tauri 应用窗口
 // 所有 JS 使用 ESM 语法（package.json type=module）
 // =================================================================
-import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { spawn, execSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import net from 'node:net';
@@ -129,6 +129,63 @@ export const config = {
       diagLines.push(`[OK] 端口 4444 空闲，tauri-driver 可启动`);
     }
 
+    // 6. 检测二进制文件构建模式（devUrl vs frontendDist）
+    // 通过扫描二进制文件内容判断:
+    //   - 包含 <!DOCTYPE html> → frontendDist 模式（前端已嵌入）
+    //   - 不包含 <!DOCTYPE html> → devUrl 模式（需 Vite dev server）
+    // devUrl 模式 + Vite 未运行 → WebView 必然显示"127.0.0.1 拒绝连接",主动抛错
+    try {
+      const exeBuffer = readFileSync(binaryAbsPath);
+      // latin1 是单字节编码,二进制安全,不会因多字节字符解析出错
+      const exeText = exeBuffer.toString('latin1');
+      const hasDevUrl = exeText.includes('127.0.0.1:5173');
+      const hasFrontendHtml = exeText.includes('<!DOCTYPE html>');
+      const stat = statSync(binaryAbsPath);
+
+      diagLines.push(`[INFO] 二进制构建时间: ${stat.mtime.toISOString()}`);
+      diagLines.push(`[INFO] 二进制大小: ${Math.round(exeBuffer.length / 1024 / 1024 * 100) / 100} MB`);
+      diagLines.push(`[INFO] 含 devUrl 字符串: ${hasDevUrl}`);
+      diagLines.push(`[INFO] 含前端 HTML (<!DOCTYPE html>): ${hasFrontendHtml}`);
+
+      // devUrl 模式判断: 不含前端 HTML (纯 cargo build 构建的 debug 版本)
+      const isDevUrlMode = !hasFrontendHtml;
+
+      if (isDevUrlMode && !viteRunning) {
+        // devUrl 模式 + Vite 未运行 → WebView 必然显示"拒绝连接"
+        const errorMsg = [
+          '',
+          '========================================',
+          'FATAL: 二进制为 devUrl 模式且 Vite dev server 未运行',
+          '========================================',
+          `二进制路径: ${binaryAbsPath}`,
+          `构建时间: ${stat.mtime.toISOString()}`,
+          `大小: ${Math.round(exeBuffer.length / 1024 / 1024 * 100) / 100} MB`,
+          '',
+          '原因: 二进制文件用 "cargo build" 构建的 debug 版本,',
+          '      运行时连接 http://127.0.0.1:5173 (Vite dev server),',
+          '      但 E2E 测试未启动 Vite,导致 WebView 显示 "127.0.0.1 拒绝连接"',
+          '',
+          '修复: 用 "npx tauri build --debug --no-bundle" 重新构建,嵌入前端资源',
+          '  cd asd-tauri',
+          '  npx tauri build --debug --no-bundle',
+          '',
+        ].join('\n');
+
+        writeFileSync(resolve(reportsDir, 'FATAL-devurl-mode.txt'), errorMsg, 'utf-8');
+        throw new Error(errorMsg);
+      }
+
+      if (hasFrontendHtml) {
+        diagLines.push(`[OK] 二进制构建模式: frontendDist (前端已嵌入)`);
+      } else if (viteRunning) {
+        diagLines.push(`[OK] 二进制构建模式: devUrl (Vite 运行中,可加载前端)`);
+      }
+    } catch (e) {
+      // 重新抛出 FATAL 错误（来自上面的 throw）
+      if (e.message && e.message.includes('FATAL')) throw e;
+      diagLines.push(`[WARN] 无法检测二进制构建模式: ${e.message}`);
+    }
+
     diagLines.push(`[${new Date().toISOString()}] 诊断完成`);
     writeFileSync(resolve(reportsDir, 'e2e-diagnostic.log'), diagLines.join('\n') + '\n', 'utf-8');
 
@@ -196,6 +253,23 @@ export const config = {
     } catch {
       // 清理失败时忽略，不阻塞测试
     }
+  },
+
+  // ----------------------------------------------------------------
+  // afterSpec: 每个 spec 文件执行完毕后清理残留进程
+  // closeApp 调用 win.close() 后，Tauri 应用异步退出（graceful_shutdown）
+  // 如果 graceful_shutdown 超时（IPC 超时 + WM_CLOSE 超时），进程可能残留
+  // 这里强制杀死残留进程，防止下一个 spec 启动时冲突
+  // ----------------------------------------------------------------
+  afterSpec: async () => {
+    try {
+      // 强制终止残留的 Tauri 应用和 AHK 执行器
+      // /F = 强制终止, /T = 终止子进程, 2>nul = 忽略错误
+      execSync('taskkill /F /IM asd-tauri.exe /T 2>nul', { stdio: 'ignore' });
+      execSync('taskkill /F /IM asd_executor.exe /T 2>nul', { stdio: 'ignore' });
+    } catch { /* 忽略错误（进程可能已退出） */ }
+    // 等待 1 秒确保进程完全退出和资源释放
+    await new Promise(resolve => setTimeout(resolve, 1000));
   },
 
   // ----------------------------------------------------------------

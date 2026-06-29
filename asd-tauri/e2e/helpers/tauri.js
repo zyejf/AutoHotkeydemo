@@ -6,6 +6,7 @@
 // "Origin header is not a valid URL"（Tauri 自定义协议 origin 不被识别）。
 // /execute/sync 端点正常工作，因此用同步执行 + 全局变量轮询模拟异步。
 // =================================================================
+import { execSync } from 'node:child_process';
 
 /**
  * 通过 browser.execute + 轮询调用 window.__TAURI__.core.invoke(command, args)
@@ -20,6 +21,14 @@ export async function invoke(browser, command, args = {}) {
 
   // 启动 invoke，Promise 结果写入 window.__e2e_result
   await browser.execute((cmd, cmdArgs) => {
+    // 检查 __TAURI__ 是否存在（Tauri 后端初始化完成才会注入）
+    if (!window.__TAURI__ || !window.__TAURI__.core || typeof window.__TAURI__.core.invoke !== 'function') {
+      window.__e2e_result = {
+        ok: false,
+        error: 'window.__TAURI__ or core.invoke not available (Tauri backend not initialized)',
+      };
+      return;
+    }
     Promise.resolve(window.__TAURI__.core.invoke(cmd, cmdArgs))
       .then((data) => { window.__e2e_result = { ok: true, data }; })
       .catch((err) => {
@@ -114,10 +123,33 @@ export async function closeApp(browser) {
           return;
         }
       }
-      // 回退：尝试原生 window.close
       window.close();
     });
   } catch {
-    // 窗口可能已关闭，忽略错误
+    // 忽略错误
+  }
+
+  // 等待 asd-tauri.exe 进程退出（最多 15 秒）
+  // Tauri 应用关闭是异步的（prevent_close + graceful_shutdown + exit）
+  // 不等待会导致下一个 spec 启动时残留进程冲突（全局热键、named pipe 等）
+  const maxWaitMs = 15000;
+  const intervalMs = 500;
+  const startTime = Date.now();
+  while (Date.now() - startTime < maxWaitMs) {
+    try {
+      // 检查 asd-tauri.exe 是否还在运行
+      const output = execSync('tasklist /FI "IMAGENAME eq asd-tauri.exe" /NH /FO CSV', {
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 2000,
+      }).toString();
+      if (!output.includes('asd-tauri.exe')) {
+        // 进程已退出
+        break;
+      }
+    } catch {
+      // tasklist 失败，假设进程已退出
+      break;
+    }
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
   }
 }
