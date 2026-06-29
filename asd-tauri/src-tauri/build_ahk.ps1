@@ -80,8 +80,11 @@ if (Test-Path $ahkCompiler) {
         Remove-Item $outputFile -Force -ErrorAction SilentlyContinue
 
         # Workaround: Ahk2Exe cannot handle /bin paths with spaces.
-        # Copy base file to a space-free temporary path.
-        Copy-Item $ahkBin $ahkBinTemp -Force
+        # Use hardlink to a space-free path.
+        # NOTE: Copy-Item triggers Ahk2Exe "Base file appears to be invalid" warning popup
+        # (silent flag does not suppress it). Hardlink preserves original file bytes/signature.
+        Remove-Item $ahkBinTemp -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType HardLink -Path $ahkBinTemp -Target $ahkBin | Out-Null
 
         # Ahk2Exe is a GUI app - use WaitForExit with timeout to prevent hang on error popup
         # /compress 1 requires mpress.exe; if missing, Ahk2Exe shows a MessageBox and hangs
