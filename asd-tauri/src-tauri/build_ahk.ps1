@@ -62,10 +62,19 @@ if ($LASTEXITCODE -eq 2) {
 }
 Write-Host "Syntax check passed" -ForegroundColor Green
 
+# Check mpress.exe availability (/compress 1 requires mpress)
+$mpressPath = Join-Path (Split-Path $ahkCompiler) "mpress.exe"
+$compressLevel = "1"
+if (-not (Test-Path $mpressPath)) {
+    Write-Host "WARNING: mpress.exe not found at $mpressPath, using /compress 0" -ForegroundColor Yellow
+    Write-Host "  (install mpress.exe to enable compression, or keep /compress 0)" -ForegroundColor Yellow
+    $compressLevel = "0"
+}
+
 # Try compilation if Ahk2Exe is available
 $compiled = $false
 if (Test-Path $ahkCompiler) {
-    Write-Host "Compiling asd_executor.exe..." -ForegroundColor Yellow
+    Write-Host "Compiling asd_executor.exe (compress=$compressLevel)..." -ForegroundColor Yellow
     try {
         # Remove old output to detect fresh compilation
         Remove-Item $outputFile -Force -ErrorAction SilentlyContinue
@@ -74,10 +83,18 @@ if (Test-Path $ahkCompiler) {
         # Copy base file to a space-free temporary path.
         Copy-Item $ahkBin $ahkBinTemp -Force
 
-        # Ahk2Exe is a GUI app - must use Start-Process -Wait
+        # Ahk2Exe is a GUI app - use WaitForExit with timeout to prevent hang on error popup
+        # /compress 1 requires mpress.exe; if missing, Ahk2Exe shows a MessageBox and hangs
         $proc = Start-Process -FilePath $ahkCompiler `
-            -ArgumentList "/in","$inputFile","/out","$outputFile","/bin","$ahkBinTemp","/compress","1" `
-            -Wait -PassThru -NoNewWindow
+            -ArgumentList "/silent","/in","$inputFile","/out","$outputFile","/bin","$ahkBinTemp","/compress","$compressLevel" `
+            -PassThru -NoNewWindow
+
+        # Wait up to 30 seconds (prevent permanent hang on error popup)
+        if (-not $proc.WaitForExit(30000)) {
+            Write-Host "WARNING: Ahk2Exe hung (likely error popup), killing process" -ForegroundColor Yellow
+            $proc | Stop-Process -Force
+            Start-Sleep -Milliseconds 500
+        }
 
         # Clean up temporary base file
         Remove-Item $ahkBinTemp -Force -ErrorAction SilentlyContinue
