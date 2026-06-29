@@ -27,10 +27,13 @@ SendLevel(10)
 
 ; =================================================================
 ; 全局错误接管
-; 仅在直接运行时注册；被 #Include 时由包含者负责错误接管
+; 直接运行、编译为 exe 时注册；被 #Include（如测试）时由包含者负责错误接管
+; 注意：编译后 A_LineFile 为源文件名（executor.ahk），A_ScriptFullPath 为 exe 路径，
+; 两者不相等，因此需要额外检查 A_IsCompiled，否则编译模式下 OnError 不注册，
+; 运行时错误会弹出 AHK 默认错误对话框导致 E2E 测试卡住
 ; =================================================================
 
-if (A_LineFile = A_ScriptFullPath)
+if (A_IsCompiled || A_LineFile = A_ScriptFullPath)
     OnError((e, mode) => (OutputDebug("RUNTIME_ERROR: " e.Message " at line " e.Line), true))
 
 ; =================================================================
