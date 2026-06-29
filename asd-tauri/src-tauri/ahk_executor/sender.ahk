@@ -426,7 +426,14 @@ class Sender {
                     grpIntervals := grp.Has("intervals") ? grp["intervals"] : [50]
                     for i, k in grpKeys {
                         triggerKey := grpIdx "." i
-                        lastTime := triggerTimes.Has(triggerKey) ? triggerTimes[triggerKey] : now
+                        ; 首次触发：记录当前时间并跳过本次发送（与 _ExecutePeriodic 一致）
+                        ; 不这样做会导致 lastTime := now，elapsed=0，永远不满足 threshold
+                        if !triggerTimes.Has(triggerKey) {
+                            triggerTimes[triggerKey] := now
+                            minRemaining := 1
+                            continue
+                        }
+                        lastTime := triggerTimes[triggerKey]
                         interval := i <= grpIntervals.Length ? grpIntervals[i] : 50
                         if interval < 10
                             interval := 10
