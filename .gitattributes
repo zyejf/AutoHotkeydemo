@@ -1,0 +1,41 @@
+# =================================================================
+# 行尾规范化策略
+# =================================================================
+# 项目为 Rust + AHK 混合架构，跨平台开发，统一使用 LF 行尾
+# 与现有 git index 状态一致，消除 autocrlf=true 导致的警告
+# =================================================================
+
+# 默认：所有文本文件自动检测并使用 LF
+* text=auto eol=lf
+
+# Windows 专用脚本保持 CRLF（PowerShell/Batch 在 LF 下可能存在边缘问题）
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 源代码文件显式声明 LF（避免 auto 检测误判）
+*.rs text eol=lf
+*.ahk text eol=lf
+*.toml text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.ts text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+
+# 二进制文件
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.exe binary
+*.dll binary
+*.lib binary
+*.pdb binary
