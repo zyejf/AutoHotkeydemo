@@ -1220,6 +1220,35 @@ class ToggleAllUsesToggleGroupTests extends AutoHotUnitSuite {
             SkillManager.Init(gs)
     }
 
+    _savedStartGroupExecution := ""
+
+    beforeEach() {
+        ; 重置所有分组的防抖时间，确保测试隔离
+        ; 防抖机制（TOGGLE_DEBOUNCE_MS=200ms）会导致测试间的状态污染：
+        ; 前一个测试套件激活的分组 _lastToggleTime 很近，当前测试尝试停用时被防抖阻止，
+        ; 组无法停用而保持活跃，导致 ToggleAll 误入停用分支，最终所有组被停用。
+        for id, group in SkillManager.Groups {
+            group._lastToggleTime := 0
+        }
+        ; 停止所有定时器，防止前一个测试遗留的 executor 回调干扰
+        for id in SkillManager.Groups {
+            try SkillManager._StopGroupExecution(id)
+        }
+        ; mock _StartGroupExecution 防止定时器竞态：
+        ; ToggleAll 激活组后 _StartGroupExecution 设置 10ms 定时器，
+        ; ToggleAll 内部 _Notify/_UpdateBriefInfo 的 GUI 操作可能让出控制权，
+        ; 导致定时器触发，executor 中 Execute() 返回 0 时将 active 置 false。
+        this._savedStartGroupExecution := SkillManager.GetMethod("_StartGroupExecution")
+        SkillManager.DefineProp("_StartGroupExecution", {call: _NoOpStartGroupExecution})
+    }
+
+    afterEach() {
+        ; 恢复原始 _StartGroupExecution，避免影响后续测试套件
+        if this._savedStartGroupExecution is Func
+            SkillManager.DefineProp("_StartGroupExecution", {call: this._savedStartGroupExecution})
+        this._savedStartGroupExecution := ""
+    }
+
     afterAll() {
         try {
             ids := []
@@ -1247,6 +1276,10 @@ class ToggleAllUsesToggleGroupTests extends AutoHotUnitSuite {
         SkillManager.ToggleAll()
         this.assert.equal(SkillManager.GetActiveCount(), 0)
     }
+}
+
+; mock _StartGroupExecution 的空操作函数：不启动定时器，防止 executor 回调竞态
+_NoOpStartGroupExecution(*) {
 }
 
 ; =================================================================
@@ -1546,6 +1579,28 @@ class ToggleAllAccurateNotifyTests extends AutoHotUnitSuite {
                 group.Toggle()
             }
         }
+    }
+
+    _savedStartGroupExecution := ""
+
+    beforeEach() {
+        ; 停止所有定时器，防止前一个测试遗留的 executor 回调干扰
+        for id in SkillManager.Groups {
+            try SkillManager._StopGroupExecution(id)
+        }
+        ; mock _StartGroupExecution 防止定时器竞态：
+        ; ToggleAll 激活组后 _StartGroupExecution 设置 10ms 定时器，
+        ; ToggleAll 内部 _Notify/_UpdateBriefInfo 的 GUI 操作可能让出控制权，
+        ; 导致定时器触发，executor 中 Execute() 返回 0 时将 active 置 false。
+        this._savedStartGroupExecution := SkillManager.GetMethod("_StartGroupExecution")
+        SkillManager.DefineProp("_StartGroupExecution", {call: _NoOpStartGroupExecution})
+    }
+
+    afterEach() {
+        ; 恢复原始 _StartGroupExecution，避免影响后续测试套件
+        if this._savedStartGroupExecution is Func
+            SkillManager.DefineProp("_StartGroupExecution", {call: this._savedStartGroupExecution})
+        this._savedStartGroupExecution := ""
     }
 
     afterAll() {
