@@ -564,7 +564,14 @@ impl<T> Drop for RawBoxGuard<T> {
     }
 }
 
-/// 清理所有遗留的 asd_executor.exe 和 AutoHotkey64.exe 进程。
+/// 仅清理项目专用子进程的映像名列表。
+///
+/// R1 安全约束：不得包含 `AutoHotkey64.exe` 等通用进程名，否则 `taskkill /F /IM`
+/// 会误杀用户系统中所有 AutoHotkey 进程（包括用户自行运行的脚本），属于严重副作用。
+/// 如需清理 AHK 子进程，应通过 JobObject 或子进程句柄精确管理。
+const STALE_PROCESS_NAMES: &[&str] = &["asd_executor.exe"];
+
+/// 清理遗留的 asd_executor.exe 进程。
 ///
 /// 在启动新子进程前调用，防止 JobObject 失败导致的僵尸进程堆积。
 /// 使用 `taskkill /F /IM` 按映像名终止，主进程（asd-tauri.exe）不受影响。
@@ -573,11 +580,13 @@ impl<T> Drop for RawBoxGuard<T> {
 /// # I36 补偿机制
 ///
 /// 当 JobObject 创建或分配失败时，子进程不会随主进程退出而自动终止。
-/// 此函数作为补偿，在每次 spawn_child 前清理可能的遗留进程。
+/// 此函数作为补偿，在每次 spawn_child 前清理可能遗留的项目专用执行器进程。
+///
+/// # R1 安全约束
+///
+/// `STALE_PROCESS_NAMES` 只包含项目专用的 `asd_executor.exe`，绝不包含
+/// `AutoHotkey64.exe` 等通用进程名，避免误杀用户其他 AHK 脚本。
 pub fn cleanup_stale_executor_processes() {
-    // 需要清理的子进程映像名列表
-    const STALE_PROCESS_NAMES: &[&str] = &["asd_executor.exe", "AutoHotkey64.exe"];
-
     let mut killed_count = 0u32;
     for name in STALE_PROCESS_NAMES {
         // taskkill /F /IM <name> 强制按映像名终止
@@ -1042,5 +1051,30 @@ mod tests {
         let result = wd.spawn_child("asd_executor.exe", "");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("auth_token"));
+    }
+
+    // =================================================================
+    // R1: 防止误杀用户其他 AHK 进程 — 测试
+    // =================================================================
+
+    /// 验证 STALE_PROCESS_NAMES 不包含通用进程名 AutoHotkey64.exe。
+    /// taskkill /F /IM AutoHotkey64.exe 会杀死用户系统中所有 AutoHotkey 进程，
+    /// 包括用户自己运行的脚本，属于严重副作用。
+    /// 只应清理项目专用的 asd_executor.exe。
+    #[test]
+    fn test_stale_process_names_excludes_generic_autohotkey() {
+        assert!(
+            !STALE_PROCESS_NAMES.iter().any(|&n| n == "AutoHotkey64.exe"),
+            "STALE_PROCESS_NAMES 不得包含通用进程名 AutoHotkey64.exe，否则会误杀用户其他 AHK 脚本"
+        );
+    }
+
+    /// 验证 STALE_PROCESS_NAMES 包含项目专用执行器 asd_executor.exe。
+    #[test]
+    fn test_stale_process_names_includes_project_executor() {
+        assert!(
+            STALE_PROCESS_NAMES.iter().any(|&n| n == "asd_executor.exe"),
+            "STALE_PROCESS_NAMES 必须包含项目专用执行器 asd_executor.exe"
+        );
     }
 }
