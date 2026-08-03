@@ -7,6 +7,7 @@
 // /execute/sync 端点正常工作，因此用同步执行 + 全局变量轮询模拟异步。
 // =================================================================
 import { execSync } from 'node:child_process';
+import { extractErrorMessage } from './error_utils.js';
 
 /**
  * 通过 browser.execute + 轮询调用 window.__TAURI__.core.invoke(command, args)
@@ -32,10 +33,19 @@ export async function invoke(browser, command, args = {}) {
     Promise.resolve(window.__TAURI__.core.invoke(cmd, cmdArgs))
       .then((data) => { window.__e2e_result = { ok: true, data }; })
       .catch((err) => {
-        window.__e2e_result = {
-          ok: false,
-          error: err instanceof Error ? err.message : String(err),
-        };
+        // 将错误转为可序列化结构。
+        // Error 实例经 WebDriverIO JSON 化会丢失 message，必须在此提取。
+        // AppError {kind, message} 对象（I34 结构化序列化）原样保留字段，
+        // 由 Node 侧 extractErrorMessage 统一提取，避免得到 "[object Object]"。
+        let errorObj;
+        if (err != null && typeof err === 'object') {
+          errorObj = { message: String(err.message ?? ''), kind: err.kind };
+        } else if (typeof err === 'string') {
+          errorObj = { message: err };
+        } else {
+          errorObj = { message: String(err) };
+        }
+        window.__e2e_result = { ok: false, error: errorObj };
       });
   }, command, args);
 
@@ -57,7 +67,11 @@ export async function invoke(browser, command, args = {}) {
   }
 
   if (!wrapped || !wrapped.ok) {
-    const errMsg = wrapped?.error || (lastExecuteError ? String(lastExecuteError) : 'invoke timeout (15s)');
+    // wrapped.error 是浏览器侧提取的可序列化错误对象 {message, kind?}，
+    // 用 extractErrorMessage 统一提取可读消息（兼容 AppError {kind, message} 格式，
+    // 避免 R2 之前的 String(err) 得到 "[object Object]" 丢失 message）
+    const fallback = lastExecuteError ? String(lastExecuteError) : 'invoke timeout (15s)';
+    const errMsg = extractErrorMessage(wrapped?.error, fallback);
     throw new Error(`Tauri invoke('${command}') failed: ${errMsg}`);
   }
   return wrapped.data;

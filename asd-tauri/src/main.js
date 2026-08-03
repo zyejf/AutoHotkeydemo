@@ -1,5 +1,16 @@
 import * as api from './api.js';
 
+/**
+ * 从错误对象提取可读消息。
+ * 兼容 AppError 结构化序列化 {kind, message}（I34 之后）与 Error 实例、字符串，
+ * 避免 "+ e" 拼接得到 "[object Object]"（R2）。
+ */
+function errMsg(e) {
+  if (e != null && typeof e.message === 'string' && e.message.length > 0) return e.message;
+  if (typeof e === 'string' && e.length > 0) return e;
+  return '未知错误';
+}
+
 var _safeStorage = {
   get: function(key, def) { try { var v = localStorage.getItem(key); return v !== null ? v : def; } catch(ex) { return def; } },
   set: function(key, val) { try { localStorage.setItem(key, val); } catch(ex) {} }
@@ -407,7 +418,7 @@ function loadGroupsFromTauri() {
   api.getGroups().then(function(groups) {
     if (Array.isArray(groups)) { sampleGroups = groups; }
     renderDashboard();
-  }).catch(function(e) { console.log("[Tauri] getGroups error: " + e); renderDashboard(); });
+  }).catch(function(e) { console.log("[Tauri] getGroups error: " + errMsg(e)); renderDashboard(); });
 }
 
 function loadBackupsFromTauri() {
@@ -546,12 +557,12 @@ function resetEditor() {
 }
 
 function toggleGroup(id) {
-  api.toggleGroup(id).then(function() { loadGroupsFromTauri(); showToast('分组 '+id+' 已切换','success'); }).catch(function(e) { showToast('操作失败: '+e,'error'); });
+  api.toggleGroup(id).then(function() { loadGroupsFromTauri(); showToast('分组 '+id+' 已切换','success'); }).catch(function(e) { showToast('操作失败: '+errMsg(e),'error'); });
 }
 
 function deleteGroup(id) {
   confirmDialog("删除分组", "确定删除分组 " + id + "？此操作不可撤销。", function() {
-    api.deleteGroup(id).then(function(result) { _fullConfig = null; loadGroupsFromTauri(); refreshGroupList(); showToast('分组 '+id+' 已删除','success'); }).catch(function(e) { showToast('删除失败: '+e,'error'); });
+    api.deleteGroup(id).then(function(result) { _fullConfig = null; loadGroupsFromTauri(); refreshGroupList(); showToast('分组 '+id+' 已删除','success'); }).catch(function(e) { showToast('删除失败: '+errMsg(e),'error'); });
   });
 }
 
@@ -583,7 +594,7 @@ function cloneGroup(id) {
         return api.saveConfig(fullConfig);
       });
     } catch(ex) { showToast("克隆失败: " + ex.message, "error"); }
-  }).then(function(r) { if (r !== undefined) { _fullConfig = null; loadGroupsFromTauri(); showToast("分组已克隆","success"); } }).catch(function(e) { showToast("克隆失败: " + e, "error"); });
+  }).then(function(r) { if (r !== undefined) { _fullConfig = null; loadGroupsFromTauri(); showToast("分组已克隆","success"); } }).catch(function(e) { showToast("克隆失败: " + errMsg(e), "error"); });
 }
 
 function exportAllGroups() {
@@ -678,7 +689,7 @@ function saveConfig() {
   }).then(function() {
     _fullConfig = null;
     showToast("分组 "+id+" 已保存","success"); loadGroupsFromTauri(); refreshGroupList(); switchPage("dashboard");
-  }).catch(function(e) { showToast("保存失败: "+e,"error"); });
+  }).catch(function(e) { showToast("保存失败: "+errMsg(e),"error"); });
 }
 
 function saveSettings() {
@@ -700,7 +711,7 @@ function saveSettings() {
     fullConfig.CONTROL_HOTKEYS = ch;
     fullConfig.HoldSettings = hs;
     return api.saveConfig(fullConfig);
-  }).then(function() { _fullConfig = null; showToast("全局设置已保存","success"); loadSettingsFromTauri(); }).catch(function(e) { showToast("保存失败: "+e,"error"); });
+  }).then(function() { _fullConfig = null; showToast("全局设置已保存","success"); loadSettingsFromTauri(); }).catch(function(e) { showToast("保存失败: "+errMsg(e),"error"); });
 }
 
 function renderBackupList() {
@@ -756,7 +767,7 @@ function confirmDialog(title, message, onConfirm) {
 function exportConfig() { api.exportConfig().then(function(result) { showToast("配置已导出","success"); }).catch(function(e) { showToast(e.message || "导出失败","error"); }); }
 function importConfig() { document.getElementById("importFileInput").click(); }
 
-function emergencyStop() { api.emergencyRelease().then(function() { showToast("紧急停止已执行","success"); loadGroupsFromTauri(); }).catch(function(e) { showToast("紧急停止失败: "+e,"error"); }); }
+function emergencyStop() { api.emergencyRelease().then(function() { showToast("紧急停止已执行","success"); loadGroupsFromTauri(); }).catch(function(e) { showToast("紧急停止失败: "+errMsg(e),"error"); }); }
 function toggleAll() {
   var anyActive = sampleGroups.some(function(g) { return g.active; });
   api.toggleAll(!anyActive).then(function() {
@@ -1023,7 +1034,7 @@ function startRecording() {
   document.getElementById("recStatus").textContent = "录制中..."; document.getElementById("recStatus").style.color = "#4CAF50";
   document.querySelector('[data-action="startRecording"]').disabled = true; document.querySelector('[data-action="pauseRecording"]').disabled = false;
   document.querySelector('[data-action="stopRecording"]').disabled = false; document.querySelector('[data-action="exportRecording"]').disabled = true;
-  api.startRecording(gid, "periodic").then(function() {}).catch(function(e) { resetRecUI(); showToast("启动录制失败: " + e, "error"); });
+  api.startRecording(gid, "periodic").then(function() {}).catch(function(e) { resetRecUI(); showToast("启动录制失败: " + errMsg(e), "error"); });
 }
 
 function pauseRecording() {
@@ -1036,7 +1047,7 @@ function stopRecording() {
     document.querySelector('[data-action="startRecording"]').disabled = false; document.querySelector('[data-action="pauseRecording"]').disabled = true;
     document.querySelector('[data-action="stopRecording"]').disabled = true; document.querySelector('[data-action="exportRecording"]').disabled = false;
     document.querySelector('[data-action="clearRecording"]').disabled = false; showToast("录制完成，共 " + _recEvents.length + " 个事件");
-  }).catch(function(e) { resetRecUI(); showToast("停止录制失败: " + e, "error"); });
+  }).catch(function(e) { resetRecUI(); showToast("停止录制失败: " + errMsg(e), "error"); });
 }
 
 function exportRecording() {
