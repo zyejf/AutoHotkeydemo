@@ -112,7 +112,7 @@ try {
 
     ConfigService.LoadConfig()
 
-    OnExit((*) => SkillManager.OnExit())
+    OnExit((*) => (JoyHotkeyManager.Shutdown(), SkillManager.OnExit()))
 
     WebView2Manager.Show()
 
@@ -127,7 +127,7 @@ try {
 
         ConfigStore.InitDefaults()
         SkillManager.Init(ConfigStore.Get("GroupSettings"))
-        OnExit((*) => SkillManager.OnExit())
+        OnExit((*) => (JoyHotkeyManager.Shutdown(), SkillManager.OnExit()))
 
         try {
             UIManager.Init()

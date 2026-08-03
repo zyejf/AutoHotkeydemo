@@ -401,4 +401,36 @@ class JoyHotkeyReviewFixTests extends AutoHotUnitSuite {
         this.assert.isTrue(JoystickInput.IsAxis("JoyX_RIGHT"))
         this.assert.isTrue(JoystickInput.IsTrigger("JoyZ_DOWN"))
     }
+
+    ; A2: _StopConnectionPoll 方法集成到生命周期
+    ; 问题：_StopConnectionPoll 已定义但从未在生产代码中调用，
+    ;       连接轮询定时器无法在退出时停止，存在资源泄漏
+    ; 修复：新增 Shutdown() 公共方法调用 _StopConnectionPoll()，
+    ;       在 main.ahk 的 OnExit 回调中调用 JoyHotkeyManager.Shutdown()
+
+    ; RED 测试1: JoyHotkeyManager 应有 Shutdown 公共方法
+    Test_Shutdown_Exists() {
+        this.assert.isTrue(HasProp(JoyHotkeyManager, "Shutdown"))
+    }
+
+    ; RED 测试2: Shutdown() 应停止连接轮询定时器（_connPollTimer 置 0）
+    Test_Shutdown_StopsConnectionPoll() {
+        ; 重置连接轮询状态（_ResetJoyHotkeyState 不重置 _connPollActive）
+        JoyHotkeyManager._connPollActive := false
+        if JoyHotkeyManager.HasProp("_connPollTimer") && JoyHotkeyManager._connPollTimer {
+            try SetTimer(JoyHotkeyManager._connPollTimer, 0)
+        }
+        ; 启动连接轮询
+        JoyHotkeyManager._StartConnectionPoll()
+        this.assert.isTrue(JoyHotkeyManager._connPollTimer is Func)
+        ; 调用 Shutdown 应停止连接轮询
+        JoyHotkeyManager.Shutdown()
+        this.assert.equal(JoyHotkeyManager._connPollTimer, 0)
+    }
+
+    ; RED 测试3: main.ahk 退出路径应调用 JoyHotkeyManager.Shutdown()
+    Test_Source_MainCallsShutdownOnExit() {
+        src := FileRead(A_ScriptDir "\..\main.ahk", "UTF-8")
+        this.assert.isTrue(InStr(src, 'JoyHotkeyManager.Shutdown()') > 0)
+    }
 }

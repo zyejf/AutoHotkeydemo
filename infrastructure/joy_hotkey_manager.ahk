@@ -34,6 +34,17 @@ class JoyHotkeyManager {
         JoyHotkeyManager._StartConnectionPoll()
     }
 
+    ; A2: 生命周期清理方法 — 停止所有轮询定时器，防止资源泄漏
+    ; 在 main.ahk 的 OnExit 回调中调用，确保连接轮询和轴/POV 轮询定时器被正确停止
+    static Shutdown() {
+        try {
+            JoyHotkeyManager._StopConnectionPoll()
+            JoyHotkeyManager._StopPolling()
+        } catch as e {
+            ErrorSystem.LogError("JoyHotkeyManager.Shutdown 失败: " e.Message, "ERROR", A_ThisFunc, A_LineNumber)
+        }
+    }
+
     static RegisterHotkey(joyKey, groupId, callback) {
         try {
             if JoystickInput.IsButton(joyKey) {
