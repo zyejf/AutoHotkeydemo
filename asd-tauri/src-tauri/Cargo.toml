@@ -3,9 +3,6 @@ name = "asd-tauri"
 version.workspace = true
 edition.workspace = true
 
-[features]
-test-manifest = []
-
 [lib]
 name = "asd_tauri_lib"
 crate-type = ["rlib", "cdylib", "staticlib"]

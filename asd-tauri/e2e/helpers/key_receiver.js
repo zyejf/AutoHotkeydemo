@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getAhkPath } from './ahk_path.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -13,7 +14,7 @@ const e2eDir = resolve(__dirname, '..');
 const fixturesDir = join(e2eDir, 'fixtures');
 const reportsDir = join(e2eDir, 'reports');
 const keyLogPath = join(reportsDir, 'key_log.txt');
-const ahkPath = 'D:\\Program Files\\AutoHotkey\\v2\\AutoHotkey64.exe';
+const ahkPath = getAhkPath();
 const scriptPath = join(fixturesDir, 'key_receiver.ahk');
 
 /**

@@ -36,11 +36,12 @@ import {
   stopKeyReceiver,
   readKeyLog,
 } from '../helpers/key_receiver.js';
+import { getAhkPath } from '../helpers/ahk_path.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const binaryPath = resolve(__dirname, '../../target/debug/asd-tauri.exe');
-const ahkPath = 'D:\\Program Files\\AutoHotkey\\v2\\AutoHotkey64.exe';
+const ahkPath = getAhkPath();
 
 // 全局状态：binary 是否可用、应用是否已启动
 let binaryAvailable = false;

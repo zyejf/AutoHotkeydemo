@@ -41,7 +41,7 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 | `asd-tauri/crates/asd-application/src/state.rs` | AppState + trait objects |
 | `asd-tauri/crates/asd-application/src/config_repository.rs` | ConfigRepository（file I/O） |
 | `asd-tauri/crates/asd-application/src/error.rs` | AppError |
-| `asd-tauri/src-tauri/src/lib.rs` | 19 Tauri commands + 应用初始化 |
+| `asd-tauri/src-tauri/src/lib.rs` | 34 Tauri commands + 应用初始化 |
 | `asd-tauri/src-tauri/src/bridge.rs` | IpcBridge, TauriEventBridge, WatchdogBridge（trait 实现） |
 | `asd-tauri/src-tauri/src/infrastructure/ipc.rs` | IpcManager（interprocess 通信） |
 | `asd-tauri/src-tauri/src/infrastructure/watchdog.rs` | ProcessWatchdog + WatchdogRunner |
@@ -59,7 +59,7 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 | Layer            | Directory          | Modules                                     |
 | ---------------- | ------------------ | ------------------------------------------- |
 | 领域层 (domain)     | `domain/`          | `interfaces`, `skill_group`, `skill_manager`, `mode_registry` |
-| 基础设施层 (infra)    | `infrastructure/`  | `config_store`, `json_parser`, `json_serializer`, `config_validator`, `debug_logger`, `json_logger`, `error_system`, `error_handler`, `backup_core`, `utils`, `ipc_channel` |
+| 基础设施层 (infra)    | `infrastructure/`  | `config_store`, `json_parser`, `json_serializer`, `config_validator`, `debug_logger`, `json_logger`, `error_system`, `error_handler`, `backup_core`, `utils`, `ipc_channel`, `joy_hotkey_manager` |
 | 应用层 (application) | `application/`     | `group_service`, `config_service`           |
 | 表现层 (presentation) | `presentation/`    | `webview2_manager`, `ui_manager`, `gui_manager`, `group_editor`, `backup_ui`, `debug_panel` |
 | 测试层 (tests)       | `tests/`           | `test_domain`, `test_infrastructure`, `test_application`, `test_presentation`, `test_webview2_bridge`, `test_boundary`, `test_error_captor`, `test_error_system`, `test_integration_error_system`, `test_result_reporter`, `run_all_tests`, `run_tests`, `AutoHotUnit`, `run_tests.ps1` |
@@ -106,7 +106,7 @@ asd-tauri/
 │       ├── src/config_repository.rs (ConfigRepository, file I/O)
 │       └── src/error.rs     (AppError)
 └── src-tauri/              (表现层 + 基础设施 — Tauri 主 crate)
-    ├── src/lib.rs           (19 Tauri commands)
+    ├── src/lib.rs           (34 Tauri commands)
     ├── src/bridge.rs        (IpcBridge, TauriEventBridge, WatchdogBridge)
     ├── src/infrastructure/  (IpcManager, ProcessWatchdog, Logging)
     ├── src/commands/        (config_cmd, group_cmd, hotkey_cmd, recording_cmd, system_cmd)
@@ -233,7 +233,7 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
 - **⚠️ 强制：IPC 通信必须通过 `IpcSender` trait**，禁止直接调用 `IpcManager`
 - 使用 `thiserror` 定义错误类型，禁止手动实现 `std::error::Error`
 - 使用 `tracing` 而非 `log` 进行日志记录
-- 测试必须通过 `cargo test` 运行，主 crate 测试需要 `--features test-manifest`
+- 测试必须通过 `cargo test` 运行
 - 新增 IpcCommand variant 必须同步更新 `asd-ipc-protocol/src/command.rs` 和对应的 AHK 执行器处理逻辑
 
 ### Testing Requirements
@@ -262,8 +262,8 @@ cd asd-tauri && cargo test -p asd-domain
 cd asd-tauri && cargo test -p asd-ipc-protocol
 cd asd-tauri && cargo test -p asd-application
 
-# 主 crate 测试（需要 test-manifest feature）
-cd asd-tauri/src-tauri && cargo test --lib --features test-manifest
+# 主 crate 测试
+cd asd-tauri/src-tauri && cargo test --lib
 
 # 全 workspace 测试
 cd asd-tauri && cargo test --workspace
@@ -1199,10 +1199,9 @@ pub struct Config {
 1. **纯逻辑 crate 引入 Tauri 依赖**: asd-domain/asd-ipc-protocol/asd-application 禁止引入 `tauri`, `tokio`, `interprocess`, `windows` crate
 2. **IpcCommand 新增 variant 未同步**: 新增 IpcCommand variant 必须同步更新 AHK 执行器的处理逻辑，否则 IPC 通信会失败
 3. **blocking_lock 死锁**: `Mutex::blocking_lock()` 在 tokio 异步上下文中可能导致死锁，优先使用 `lock().await`
-4. **test-manifest feature 遗漏**: 主 crate 测试需要 `--features test-manifest`，否则部分测试会被跳过
-5. **Config 序列化兼容性**: Rust 的 Config 结构体必须与 AHK 的 config.json 格式兼容（字段名、嵌套结构），否则 `config_compat_tests` 会失败
-6. **Named pipe 路径**: interprocess named pipe 名称必须与 AHK 执行器中的管道名称一致
-7. **ProcessWatchdog 超时**: AHK 子进程心跳超时时间需要与 AHK 端心跳间隔匹配
+4. **Config 序列化兼容性**: Rust 的 Config 结构体必须与 AHK 的 config.json 格式兼容（字段名、嵌套结构），否则 `config_compat_tests` 会失败
+5. **Named pipe 路径**: interprocess named pipe 名称必须与 AHK 执行器中的管道名称一致
+6. **ProcessWatchdog 超时**: AHK 子进程心跳超时时间需要与 AHK 端心跳间隔匹配
 
 ## 重要提醒
 
