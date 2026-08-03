@@ -59,7 +59,7 @@
 - [x] C7: 测试覆盖热插拔检测 ✅ 已验证（场景 F）
 - [x] C7: 测试覆盖多手柄支持 ✅ 已验证（场景 D）
 - [x] C7: 测试文件遵循标准模板（完整接管指令 + OnError）✅ 已验证
-- [ ] C7: `run_all_tests.ahk` 已注册新测试 ⚠️ 未完成（新测试使用 standalone 风格，run_all_tests.ahk 使用 AutoHotUnit 套件风格，两者不兼容；新测试可独立运行，29/29 通过）
+- [x] C7: `run_all_tests.ahk` 已注册新测试 ✅ 已验证（创建 `test_joy_hotkey_manager_ahu.ahk` AutoHotUnit 套件版本，6 套件 29 用例全部通过；run_all_tests.ahk 总计 497 测试 / 496 通过 / 1 预存失败）
 - [x] C7: 语法检查通过 ✅ 已验证
 - [x] C10: `config_cmd.rs` 11 个 commands 提取了 `_impl` 函数 ✅ 已验证
 - [x] C10: `group_cmd.rs` 8 个 commands 提取了 `_impl` 函数 ✅ 已验证
@@ -102,8 +102,8 @@
 | fe82bb9 | test(ahk) | 新增 joy_hotkey_manager 测试覆盖（C7） |
 | 1abc283 | fix(asd-tauri) | 修复 3 项 Rust Critical 问题 + 文档更新（C8-C10） |
 
-## 已知遗留项
+## 已知遗留项（全部已解决 ✅）
 
-1. **C7 run_all_tests.ahk 注册**：新测试使用 AGENTS.md 标准模板（standalone + OnError + FileAppend），run_all_tests.ahk 使用 AutoHotUnit 套件风格，两者不兼容。新测试可独立运行（29/29 通过）。如需统一，可将新测试改写为 AutoHotUnit 套件。
-2. **workspace 成员数文档**：AGENTS.md 描述"4 members"，实际 Cargo.toml 有 5 个成员（含 asd-test-harness）。子代理按指示保持不变，属 Minor 文档不一致。
-3. **预先存在的脚本修改**：asd-tauri/scripts/analyze-tests.ps1 和 run-tests.ps1 在修复前已被修改，未纳入本次提交（保留原状）。
+1. **C7 run_all_tests.ahk 注册** ✅ 已解决：创建 `tests/test_joy_hotkey_manager_ahu.ahk`（AutoHotUnit 套件风格，6 套件 29 用例），已 #Include 并 RegisterSuite 到 run_all_tests.ahk。原 standalone 测试 `test_joy_hotkey_manager.ahk` 保留不变。完整测试套件验证：497 测试 / 496 通过 / 1 预存失败（Test_ToggleAll_DeactivatesAllGroups，与本次修改无关，已通过 git stash 对比验证）。
+2. **workspace 成员数文档** ✅ 已解决：AGENTS.md 已更新为"5-crate workspace"（3 处）、Cargo.toml 描述"5 members"、架构目录树添加 asd-test-harness、Crate 依赖关系图添加 asd-test-harness 依赖链。
+3. **预先存在的脚本修改** ✅ 已解决：asd-tauri/scripts/analyze-tests.ps1 和 run-tests.ps1 已通过 `git checkout --` 恢复到原始状态。

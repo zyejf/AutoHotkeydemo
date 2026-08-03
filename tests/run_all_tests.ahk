@@ -39,6 +39,11 @@
 #Include "test_ahk_executor/test_sender.ahk"
 #Include "test_ahk_executor/test_joystick.ahk"
 
+; ============================================================
+; joy_hotkey_manager 测试（infrastructure/）
+; ============================================================
+#Include "test_joy_hotkey_manager_ahu.ahk"
+
 class SilentReporter {
     failures := []
     passed := 0
@@ -1184,11 +1189,31 @@ class JSONParseContextIsolationTests extends AutoHotUnitSuite {
     }
 }
 
+; =================================================================
+; MockJoySender - IJoySender 的测试替身（空操作实现）
+; 用于在测试环境中注入 JoystickExecutor，避免 "JoySender 未注入" 异常
+; =================================================================
+class MockJoySender extends IJoySender {
+    SendBtn(btn, state, method := "vjoy") {
+        ; 空操作：模拟成功发送手柄按钮状态
+    }
+    SendPov(direction, method := "vjoy") {
+        ; 空操作：模拟成功发送 POV 方向
+    }
+    SendAxis(axis, value, method := "vjoy") {
+        ; 空操作：模拟成功发送轴值
+    }
+    ReleaseAll() {
+        ; 空操作：模拟成功释放所有手柄输入
+    }
+}
+
 class ToggleAllUsesToggleGroupTests extends AutoHotUnitSuite {
     beforeAll() {
         SkillManager.Logger := JSONLogger
         SkillManager.Notifier := UIManager
         SkillManager.ConfigStore := ConfigStore
+        JoystickExecutor.SetJoySender(MockJoySender())
         ConfigStore.InitDefaults()
         gs := ConfigStore.Get("GroupSettings")
         if gs is Map && gs.Count > 0
@@ -1221,6 +1246,69 @@ class ToggleAllUsesToggleGroupTests extends AutoHotUnitSuite {
             SkillManager.ToggleAll()
         SkillManager.ToggleAll()
         this.assert.equal(SkillManager.GetActiveCount(), 0)
+    }
+}
+
+; =================================================================
+; SkillGroup.Toggle() 异常处理测试（RED-GREEN-REFACTOR）
+; 验证 catch 块在停用失败/激活失败时的状态回滚行为
+; =================================================================
+
+; 辅助函数：模拟 _ReleaseAllKeys 抛异常（停用失败场景）
+_ThrowReleaseAllKeysError(*) {
+    throw Error("模拟停用失败")
+}
+
+; 辅助函数：模拟 _ResetPeriodicTriggerTimes 抛异常（激活失败场景）
+_ThrowResetTriggerError(*) {
+    throw Error("模拟激活失败")
+}
+
+class SkillGroupToggleExceptionTests extends AutoHotUnitSuite {
+    beforeAll() {
+        ErrorSystem.Init()
+    }
+
+    Test_DeactivateFailure_KeepsActiveFalse() {
+        ; 创建周期性分组并先激活
+        sg := SkillGroup("test_deact", Map(
+            "mode", "periodic", "hotkey", "F1",
+            "keys", ["a"], "intervals", [50]
+        ))
+        sg._lastToggleTime := 0
+        result := sg.Toggle()
+        this.assert.isTrue(sg.active)
+        this.assert.equal(result, true)
+
+        ; 覆盖 _ReleaseAllKeys 为抛异常版本（模拟停用时按键释放失败）
+        sg.DefineProp("_ReleaseAllKeys", {call: _ThrowReleaseAllKeysError})
+
+        ; 再次 Toggle 停用（_ReleaseAllKeys 抛异常 → 进入 catch 块）
+        sg._lastToggleTime := 0
+        result := sg.Toggle()
+
+        ; 核心断言：停用失败时 active 应保持 false，不应恢复为 true
+        this.assert.isFalse(sg.active)
+        this.assert.equal(result, false)
+    }
+
+    Test_ActivateFailure_RollsBackActiveFalse() {
+        ; 回归保护：验证激活失败时 active 回滚为 false（现有正确逻辑不被破坏）
+        sg := SkillGroup("test_act", Map(
+            "mode", "periodic", "hotkey", "F1",
+            "keys", ["a"], "intervals", [50]
+        ))
+        this.assert.isFalse(sg.active)
+
+        ; 覆盖 _ResetPeriodicTriggerTimes 为抛异常版本（模拟激活失败）
+        sg.DefineProp("_ResetPeriodicTriggerTimes", {call: _ThrowResetTriggerError})
+
+        sg._lastToggleTime := 0
+        result := sg.Toggle()
+
+        ; 激活失败时 active 应回滚为 false
+        this.assert.isFalse(sg.active)
+        this.assert.equal(result, false)
     }
 }
 
@@ -1960,6 +2048,10 @@ testManager := AutoHotUnitManager(reporter)
 ; 初始化 ModeRegistry（注册所有内置模式）
 ModeRegistry._Init()
 
+; 全局注入 MockJoySender，确保所有测试套件中 JoystickExecutor 可正常工作
+; 避免摇杆分组停用/执行时抛出 "JoySender 未注入" 异常
+JoystickExecutor.SetJoySender(MockJoySender())
+
 ; 注册所有测试套件
 testManager.RegisterSuite(
     InterfaceContractTests, 
@@ -2000,6 +2092,7 @@ testManager.RegisterSuite(
     BackupCoreThrottleTests,
     JSONParseContextIsolationTests,
     ToggleAllUsesToggleGroupTests,
+    SkillGroupToggleExceptionTests,
     ConfigValidatorAllMapFormatTests,
     ValidateGroupOnlyNoDoubleWrapTests,
     JSONLoggerMaxErrorsTests,
@@ -2105,6 +2198,18 @@ testManager.RegisterSuite(
     JoystickStartPeriodicTests,
     JoystickStartSequenceTests,
     JoystickStartHoldTests
+)
+
+; ============================================================
+; 注册 joy_hotkey_manager 测试套件
+; ============================================================
+testManager.RegisterSuite(
+    JoyHotkeyRegisterTests,
+    JoyHotkeyUnregisterTests,
+    JoyHotkeyMultiJoystickTests,
+    JoyHotkeyPollingLogicTests,
+    JoyHotkeyPollingTimerTests,
+    JoyHotkeyCallbackTests
 )
 
 ; 运行测试

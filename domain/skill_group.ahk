@@ -392,10 +392,16 @@ class SkillGroup {
             return true
         } catch as e {
             if !wasActive && this.active {
+                ; 激活失败：原本不活跃，Toggle 后变活跃 → 回滚为不活跃
                 try
                     this._ReleaseAllKeys()
                 this.active := false
+            } else if wasActive && !this.active {
+                ; 停用失败：原本活跃，Toggle 后变不活跃 → 保持不活跃（不恢复）
+                ; 按键释放失败不代表分组应保持活跃，状态已翻转
+                this.active := false
             } else {
+                ; 其他情况（理论上不应到达）：保持原状态
                 this.active := wasActive
             }
             ErrorSystem.LogError(e.Message, "ERROR", A_ThisFunc, A_LineNumber)

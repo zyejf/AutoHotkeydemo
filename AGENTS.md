@@ -7,7 +7,7 @@
 ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0 采用 **Rust/Tauri + AHK 混合架构**：Rust 负责核心逻辑与 GUI，AHK 执行器作为子进程负责按键模拟与热键钩子。
 
 - **AHK v2 部分**（项目根目录）：v3.0 采用严格 DDD 四层架构，作为独立运行模式保留
-- **Rust/Tauri 部分**（`asd-tauri/`）：v4.0 采用 4-crate workspace 架构，通过 IPC 管理 AHK 子进程
+- **Rust/Tauri 部分**（`asd-tauri/`）：v4.0 采用 5-crate workspace 架构，通过 IPC 管理 AHK 子进程
 
 ## Key Files
 
@@ -28,7 +28,7 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 
 | File | Description |
 |------|-------------|
-| `asd-tauri/Cargo.toml` | Workspace root（resolver = "2"，4 members） |
+| `asd-tauri/Cargo.toml` | Workspace root（resolver = "2"，5 members） |
 | `asd-tauri/crates/asd-domain/src/config.rs` | Config, GroupConfig, ModeData, WatchdogStateEnum |
 | `asd-tauri/crates/asd-domain/src/models.rs` | SkillGroup 领域模型 |
 | `asd-tauri/crates/asd-domain/src/validator.rs` | ConfigValidator（213 tests） |
@@ -84,7 +84,7 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 | `_GetProp(obj, key, default)` | — | `infrastructure/utils.ahk` | Map/Object 统一属性访问 |
 | `_GetField(obj, key, default)` | `webview2_manager.ahk` | `infrastructure/utils.ahk` | 含 JSON 字符串解析的属性访问 |
 
-### Rust/Tauri 架构（4-Crate Workspace）
+### Rust/Tauri 架构（5-Crate Workspace）
 
 ```
 asd-tauri/
@@ -100,11 +100,13 @@ asd-tauri/
 │   │   ├── src/message.rs  (IpcMessage + constructors)
 │   │   ├── src/error.rs    (IpcError)
 │   │   └── src/hotkey_merger.rs (HotkeyMerger)
-│   └── asd-application/    (应用逻辑 crate — 调度 + 状态 + 配置仓库)
-│       ├── src/scheduler.rs (SkillManager, Arc<dyn IpcSender>)
-│       ├── src/state.rs     (AppState, trait objects)
-│       ├── src/config_repository.rs (ConfigRepository, file I/O)
-│       └── src/error.rs     (AppError)
+│   ├── asd-application/    (应用逻辑 crate — 调度 + 状态 + 配置仓库)
+│   │   ├── src/scheduler.rs (SkillManager, Arc<dyn IpcSender>)
+│   │   ├── src/state.rs     (AppState, trait objects)
+│   │   ├── src/config_repository.rs (ConfigRepository, file I/O)
+│   │   └── src/error.rs     (AppError)
+│   └── asd-test-harness/   (测试支持 crate — 测试固件 + mock 工具)
+│       └── src/lib.rs      (TestHarness, 测试辅助)
 └── src-tauri/              (表现层 + 基础设施 — Tauri 主 crate)
     ├── src/lib.rs           (34 Tauri commands)
     ├── src/bridge.rs        (IpcBridge, TauriEventBridge, WatchdogBridge)
@@ -121,7 +123,9 @@ asd-tauri/
 ```
 asd-domain ──→ asd-ipc-protocol
 asd-application ──→ asd-domain ──→ asd-ipc-protocol
+asd-test-harness ──→ asd-application ──→ asd-domain ──→ asd-ipc-protocol
 asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ asd-ipc-protocol
+                   └──→ asd-test-harness（dev-dependency，仅测试用）
 ```
 
 #### 关键设计决策
