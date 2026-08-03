@@ -71,9 +71,8 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 | # | 妥协 | 影响文件 | 说明 | 约束边界 |
 |---|------|---------|------|---------|
 | 1 | **DDD 层依赖违规** | `domain/mode_registry.ahk` → `infrastructure/error_system.ahk` | 领域层直接依赖基础设施层的 `ErrorSystem`。在严格 DDD 中领域层应通过接口使用日志服务，但 AHK v2 无 DI 容器，通过接口注入会导致过度复杂化。 | 仅允许 `domain/` 引用 `infrastructure/error_system.ahk` 的 `LogError` 方法。禁止领域层引用 `infrastructure/` 中的其他模块。 |
-| 2 | **`_Notify` 签名差异** | `domain/interfaces.ahk` vs `presentation/webview2_manager.ahk` | 接口定义的 `_Notify` 签名为 `(event, data)`，但表现层实现使用 `(event, data, meta*)` 可变参数。这是因为 Bridge 通信需要额外元数据（`requestId`、`timestamp` 等）。 | 调用方始终使用双参数形式；额外参数由表现层实现的可选参数处理，不破坏接口契约。 |
-| 3 | **`BackupCore` 隐式依赖** | `application/config_service.ahk` → `infrastructure/backup_core.ahk` | 应用层通过全局 `BackupCore` 类名隐式引用基础设施层模块。应通过显式 `#Include` 或接口抽象化。 | `ConfigService` 内部仅通过 `BackupCore.CreateBackup()` 静态方法调用，不直接访问其内部状态。未来若引入 DI 机制应重构为接口注入。 |
-| 4 | **领域层依赖 IPC 协议层** | `domain/traits.rs` → `asd-ipc-protocol` | 领域层 `IpcSender` trait 的方法签名直接使用 `IpcCommand` 和 `IpcMessage` 类型。严格 DDD 中领域层不应依赖基础设施通信协议。 | 仅允许 `domain/traits.rs` 引用 `asd-ipc-protocol` 的 `IpcCommand` 和 `IpcMessage` 类型。禁止领域层引用 `asd-ipc-protocol` 的其他类型或直接构造 IPC 命令。未来应将 `IpcSender` trait 迁移至应用层，领域层定义纯领域命令接口。 |
+| 2 | **`BackupCore` 隐式依赖** | `application/config_service.ahk` → `infrastructure/backup_core.ahk` | 应用层通过全局 `BackupCore` 类名隐式引用基础设施层模块。应通过显式 `#Include` 或接口抽象化。 | `ConfigService` 内部仅通过 `BackupCore.CreateBackup()` 静态方法调用，不直接访问其内部状态。未来若引入 DI 机制应重构为接口注入。 |
+| 3 | **领域层依赖 IPC 协议层** | `domain/traits.rs` → `asd-ipc-protocol` | 领域层 `IpcSender` trait 的方法签名直接使用 `IpcCommand` 和 `IpcMessage` 类型。严格 DDD 中领域层不应依赖基础设施通信协议。 | 仅允许 `domain/traits.rs` 引用 `asd-ipc-protocol` 的 `IpcCommand` 和 `IpcMessage` 类型。禁止领域层引用 `asd-ipc-protocol` 的其他类型或直接构造 IPC 命令。未来应将 `IpcSender` trait 迁移至应用层，领域层定义纯领域命令接口。 |
 
 #### AHK 内部工具函数迁移
 
@@ -136,7 +135,7 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
 | 2 | **I/O 泄漏修复** | Config 的 I/O 方法从 domain 层移到 application 层的 ConfigRepository，确保 domain crate 无文件 I/O。 |
 | 3 | **Miri 兼容** | asd-domain, asd-ipc-protocol, asd-application 可通过 Miri 验证（0 UB），不含 unsafe 代码。 |
 | 4 | **AHK 子进程隔离** | AHK 执行器（asd_executor.exe）作为子进程由 Rust 主进程管理，通过 interprocess named pipe 通信。 |
-| 5 | **测试覆盖** | 506+ 个测试（截至 2026-06-27 统计，asd-domain 125 + asd-ipc-protocol 71 + asd-application 175 + asd-test-harness 0 + asd-tauri 134）。纯逻辑 crate 覆盖率 96.57%。另有 57 套件 / 467 AHK 执行器测试、7 个 criterion bench、3 个 fuzz target。详细分布见 `asd-tauri/docs/test-map.md`。 |
+| 5 | **测试覆盖** | 506+ 个测试（截至 2026-06-27 统计，asd-domain 125 + asd-ipc-protocol 71 + asd-application 175 + asd-test-harness 0 + asd-tauri 134）。纯逻辑 crate 覆盖率 96.57%。另有 57 套件 / 244 个 Test_ 方法（AHK 执行器测试，口径为 `tests/test_ahk_executor/*.ahk` 中 `Test_` 方法数）、7 个 criterion bench、5 个 fuzz target。详细分布见 `asd-tauri/docs/test-map.md`。 |
 
 #### Rust/Tauri 已知架构妥协
 
@@ -144,7 +143,6 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
 |---|------|---------|------|---------|
 | 1 | **asd-domain 依赖 asd-ipc-protocol** | `crates/asd-domain/Cargo.toml` | 领域层 crate 依赖 IPC 协议 crate 的 IpcCommand/IpcMessage 类型。严格 DDD 中领域层不应知道通信协议。 | asd-domain 仅使用 IpcCommand/IpcMessage 的数据结构（serde 序列化），不包含任何 IPC 传输逻辑。trait 定义（IpcSender）的参数类型引用 IpcCommand 是合理的抽象。 |
 | 2 | **bridge.rs 中 blocking_lock** | `src-tauri/src/bridge.rs` | IpcBridge 和 WatchdogBridge 使用 `blocking_lock()` 实现 trait 的同步方法。 | 仅在已知不会死锁的短临界区使用；未来可考虑将 trait 改为 async。 |
-| 3 | **src-tauri 内部 DDD 分层不完整** | `src-tauri/src/domain/`, `src-tauri/src/application/` | src-tauri 内部有 domain/application 子模块但仅包含 re-export，未形成完整 DDD 层。 | 当前仅作为命名空间占位，避免循环依赖；实际领域逻辑在 asd-domain crate 中。 |
 
 ## Subdirectories
 
@@ -300,7 +298,7 @@ cd asd-tauri/src-tauri/fuzz && cargo +nightly fuzz run fuzz_config_deserialize
   - `test_hotkey_hook.ahk`（7 套件）：hotkey_hook.ahk 热键规范化、注册/注销、回调
   - `test_sender.ahk`（11 套件）：sender.ahk 按键发送、模式切换、紧急释放
   - `test_joystick.ahk`（18 套件）：joystick.ahk 摇杆输入读取、VJoy 映射、模式启动
-- 总计：57 套件，467 测试
+- 总计：57 套件，244 个 Test_ 方法（口径为 `tests/test_ahk_executor/*.ahk` 中以 `Test_` 开头的方法数）
 - 强制规范：所有 AHK 测试文件必须包含 `#ErrorStdOut "UTF-8"` + `#Warn VarUnset, OutputDebug` + `#Warn Unreachable, OutputDebug` + `OnError` 回调（详见「错误与警告接管机制」节）
 - 详细指南：参见 `asd-tauri/TESTING.md` 第 1.6 节
 
@@ -639,17 +637,25 @@ exit $proc.ExitCode
       pub process_watcher: Arc<dyn ProcessWatcher>,
   }
   ```
-- **Tauri Command**: 使用 `#[tauri::command]` 宏，返回 `Result<T, String>`
+- **Tauri Command**: 使用 `#[tauri::command]` 宏，返回 `Result<T, AppError>`
   ```rust
   #[tauri::command]
-  async fn get_config(state: State<'_, Arc<AppState>>) -> Result<Config, String> {
-      state.config_repo.load_config().map_err(|e| e.to_string())
+  async fn get_config(state: State<'_, Arc<AppState>>) -> Result<Config, AppError> {
+      state.config_repo.load_config()
   }
   ```
 - **IPC 通信**: Rust 主进程 → interprocess named pipe → AHK 子进程
   ```rust
   // 发送命令
-  ipc_sender.send_command(IpcCommand::StartGroup { id: 1 })?;
+  ipc_sender.send_command(IpcCommand::ToggleGroup {
+      group_id: "1".to_string(),
+      active: true,
+      mode: None,
+      key_press_duration: None,
+      hold_keys: None,
+      hold_mode: None,
+      mode_data: None,
+  })?;
   // 接收消息
   while let Some(msg) = rx.recv().await { ... }
   ```
@@ -1124,15 +1130,50 @@ config := {
 #### Rust
 
 ```rust
-// IpcCommand 枚举（13 variants）
+// IpcCommand 枚举（13 variants，serde tag = "action"）
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
+#[serde(tag = "action")]
 pub enum IpcCommand {
-    StartGroup { id: usize },
-    StopGroup { id: usize },
-    StopAll,
-    UpdateConfig { config: Config },
-    // ...
+    #[serde(rename = "toggle_group")]
+    ToggleGroup {
+        #[serde(rename = "groupId")]
+        group_id: String,
+        active: bool,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        mode: Option<String>,
+        #[serde(rename = "keyPressDuration", skip_serializing_if = "Option::is_none", default)]
+        key_press_duration: Option<u64>,
+        #[serde(rename = "holdKeys", skip_serializing_if = "Option::is_none", default)]
+        hold_keys: Option<Vec<String>>,
+        #[serde(rename = "holdMode", skip_serializing_if = "Option::is_none", default)]
+        hold_mode: Option<String>,
+        #[serde(rename = "modeData", skip_serializing_if = "Option::is_none", default)]
+        mode_data: Option<serde_json::Value>,
+    },
+    #[serde(rename = "register_hotkey")]
+    RegisterHotkey { hotkey: String, #[serde(rename = "groupId")] group_id: String },
+    #[serde(rename = "unregister_hotkey")]
+    UnregisterHotkey { hotkey: String },
+    #[serde(rename = "start_recording")]
+    StartRecording { #[serde(rename = "groupId")] group_id: String, mode: String },
+    #[serde(rename = "stop_recording")]
+    StopRecording,
+    #[serde(rename = "pause_recording")]
+    PauseRecording,
+    #[serde(rename = "resume_recording")]
+    ResumeRecording,
+    #[serde(rename = "emergency_release")]
+    EmergencyRelease,
+    #[serde(rename = "ping")]
+    Ping,
+    #[serde(rename = "shutdown")]
+    Shutdown,
+    #[serde(rename = "hold_mode_toggle")]
+    HoldModeToggle { enabled: bool },
+    #[serde(rename = "start_validation")]
+    StartValidation { #[serde(rename = "groupId")] group_id: String },
+    #[serde(rename = "stop_validation")]
+    StopValidation,
 }
 
 // IpcMessage 消息结构
@@ -1165,6 +1206,9 @@ pub struct Config {
 | `enhanced_periodic` | 增强周期性 | `pressKeys`, `intervals`   |
 | `enhanced_sequence` | 增强序列  | `pressKeys`, `pressDelays` |
 | `enhanced_hybrid`   | 增强混合  | `groups` 数组                |
+| `joystick_periodic` | 摇杆周期性 | `pressKeys`, `intervals`（可选 `joystickId`） |
+| `joystick_sequence` | 摇杆序列  | `pressKeys`, `delays`（可选 `joystickId`） |
+| `joystick_hold`     | 摇杆长按  | `holdDuration` 可选、`autoRepeat` 可选、`repeatInterval` 可选（可选 `joystickId`，支持无限持续） |
 
 ## 常见问题
 
