@@ -352,11 +352,53 @@ class JoyHotkeyReviewFixTests extends AutoHotUnitSuite {
         this.assert.equal(JoyHotkeyManager._connPollTimer, 0)
     }
 
-    ; I3: joy_hotkey_manager.ahk 不应反向依赖 domain/joystick_input.ahk
-    ; 修复前：第 14 行 #Include "../domain/joystick_input.ahk"（infrastructure → domain 反向依赖）
-    ; 修复后：#Include "joystick_input_utils.ahk"（infrastructure → infrastructure 正向依赖）
-    Test_Source_NoDomainJoystickInputInclude() {
+    ; A1: 消除代码重复 — 删除 infrastructure/joystick_input_utils.ahk，
+    ; 改为直接引用 domain/joystick_input.ahk 的 JoystickInput 类。
+    ; 决策依据：AGENTS.md 妥协 #1 已允许领域层纯工具函数被基础设施层引用；
+    ; joystick_input.ahk 是无副作用、无状态的纯工具函数，代码重复比反向依赖更优。
+    ; 此测试集反转了 I3 的决策（I3 为避免反向依赖创建了重复代码，A1 认为重复更糟）。
+
+    ; RED 测试1: joy_hotkey_manager.ahk 应包含 domain/joystick_input.ahk 的 #Include
+    Test_Source_UsesDomainJoystickInputInclude() {
         src := FileRead(A_ScriptDir "\..\infrastructure\joy_hotkey_manager.ahk", "UTF-8")
-        this.assert.equal(InStr(src, '#Include "../domain/joystick_input.ahk"'), 0)
+        this.assert.isTrue(InStr(src, '#Include "../domain/joystick_input.ahk"') > 0)
+    }
+
+    ; RED 测试2: joy_hotkey_manager.ahk 不应再包含 joystick_input_utils.ahk 的 #Include
+    Test_Source_NoJoystickInputUtilsInclude() {
+        src := FileRead(A_ScriptDir "\..\infrastructure\joy_hotkey_manager.ahk", "UTF-8")
+        this.assert.equal(InStr(src, '#Include "joystick_input_utils.ahk"'), 0)
+    }
+
+    ; RED 测试3: joy_hotkey_manager.ahk 不应再调用 JoystickInputUtils 类
+    Test_Source_NoJoystickInputUtilsCalls() {
+        src := FileRead(A_ScriptDir "\..\infrastructure\joy_hotkey_manager.ahk", "UTF-8")
+        this.assert.equal(InStr(src, 'JoystickInputUtils.'), 0)
+    }
+
+    ; RED 测试4: infrastructure/joystick_input_utils.ahk 冗余文件应被删除
+    Test_JoystickInputUtils_FileDeleted() {
+        utilPath := A_ScriptDir "\..\infrastructure\joystick_input_utils.ahk"
+        this.assert.equal(FileExist(utilPath), "")
+    }
+
+    ; RED 测试5: JoystickInputUtils 类应不再被定义（冗余文件删除后无人引入）
+    Test_JoystickInputUtils_ClassRemoved() {
+        utilDefined := false
+        try {
+            if IsObject(JoystickInputUtils)
+                utilDefined := true
+        } catch {
+            utilDefined := false
+        }
+        this.assert.isFalse(utilDefined)
+    }
+
+    ; 回归保护: JoystickInput 纯工具方法可用（确保删除 utils 后功能不丢失）
+    Test_JoystickInput_MethodsAvailable() {
+        this.assert.isTrue(JoystickInput.IsButton("Joy1"))
+        this.assert.isTrue(JoystickInput.IsPov("JoyPOV_UP"))
+        this.assert.isTrue(JoystickInput.IsAxis("JoyX_RIGHT"))
+        this.assert.isTrue(JoystickInput.IsTrigger("JoyZ_DOWN"))
     }
 }

@@ -70,7 +70,7 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 
 | # | 妥协 | 影响文件 | 说明 | 约束边界 |
 |---|------|---------|------|---------|
-| 1 | **DDD 层依赖违规** | `domain/mode_registry.ahk` → `infrastructure/error_system.ahk` | 领域层直接依赖基础设施层的 `ErrorSystem`。在严格 DDD 中领域层应通过接口使用日志服务，但 AHK v2 无 DI 容器，通过接口注入会导致过度复杂化。 | 仅允许 `domain/` 引用 `infrastructure/error_system.ahk` 的 `LogError` 方法。禁止领域层引用 `infrastructure/` 中的其他模块。 |
+| 1 | **DDD 层依赖违规** | `domain/mode_registry.ahk` → `infrastructure/error_system.ahk` | 领域层直接依赖基础设施层的 `ErrorSystem`。在严格 DDD 中领域层应通过接口使用日志服务，但 AHK v2 无 DI 容器，通过接口注入会导致过度复杂化。 | 仅允许 `domain/` 引用 `infrastructure/error_system.ahk` 的 `LogError` 方法。禁止领域层引用 `infrastructure/` 中的其他模块。此外，允许 `infrastructure/joy_hotkey_manager.ahk` 引用 `domain/joystick_input.ahk` 的纯工具函数（`JoystickInput` 类，无副作用、无状态），以消除代码重复（A1 修复：删除冗余的 `infrastructure/joystick_input_utils.ahk`，该文件曾为避免反向依赖而复制 `JoystickInput` 的全部方法）。 |
 | 2 | **`BackupCore` 隐式依赖** | `application/config_service.ahk` → `infrastructure/backup_core.ahk` | 应用层通过全局 `BackupCore` 类名隐式引用基础设施层模块。应通过显式 `#Include` 或接口抽象化。 | `ConfigService` 内部仅通过 `BackupCore.CreateBackup()` 静态方法调用，不直接访问其内部状态。未来若引入 DI 机制应重构为接口注入。 |
 | 3 | **领域层依赖 IPC 协议层** | `domain/traits.rs` → `asd-ipc-protocol` | 领域层 `IpcSender` trait 的方法签名直接使用 `IpcCommand` 和 `IpcMessage` 类型。严格 DDD 中领域层不应依赖基础设施通信协议。 | 仅允许 `domain/traits.rs` 引用 `asd-ipc-protocol` 的 `IpcCommand` 和 `IpcMessage` 类型。禁止领域层引用 `asd-ipc-protocol` 的其他类型或直接构造 IPC 命令。未来应将 `IpcSender` trait 迁移至应用层，领域层定义纯领域命令接口。 |
 
