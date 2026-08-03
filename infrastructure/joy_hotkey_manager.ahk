@@ -11,7 +11,7 @@
 #Warn Unreachable, OutputDebug
 #Warn LocalSameAsGlobal, Off
 
-#Include "../domain/joystick_input.ahk"
+#Include "joystick_input_utils.ahk"
 #Include "error_system.ahk"
 
 class JoyHotkeyManager {
@@ -20,6 +20,7 @@ class JoyHotkeyManager {
     static _pollFn := 0
     static _povLastState := -1
     static _connPollActive := false
+    static _connPollTimer := 0
     static _wasConnected := false
     static _joystickId := 1
     static _lastAxisState := Map()
@@ -35,7 +36,7 @@ class JoyHotkeyManager {
 
     static RegisterHotkey(joyKey, groupId, callback) {
         try {
-            if JoystickInput.IsButton(joyKey) {
+            if JoystickInputUtils.IsButton(joyKey) {
                 key := JoyHotkeyManager._joystickId joyKey
                 if !JoyHotkeyManager._registered.Has(key) {
                     JoyHotkeyManager._registered[key] := []
@@ -47,11 +48,11 @@ class JoyHotkeyManager {
                 }
                 JoyHotkeyManager._registered[key].Push(Map("groupId", groupId, "callback", callback, "joyKey", joyKey))
                 return true
-            } else if JoystickInput.IsAxis(joyKey) || JoystickInput.IsTrigger(joyKey) {
+            } else if JoystickInputUtils.IsAxis(joyKey) || JoystickInputUtils.IsTrigger(joyKey) {
                 JoyHotkeyManager._registered[joyKey] := Map("groupId", groupId, "callback", callback, "joyKey", joyKey)
                 JoyHotkeyManager._StartPolling()
                 return true
-            } else if JoystickInput.IsPov(joyKey) {
+            } else if JoystickInputUtils.IsPov(joyKey) {
                 JoyHotkeyManager._registered[joyKey] := Map("groupId", groupId, "callback", callback, "joyKey", joyKey)
                 JoyHotkeyManager._StartPolling()
                 return true
@@ -65,7 +66,7 @@ class JoyHotkeyManager {
 
     static UnregisterHotkey(joyKey, groupId) {
         try {
-            if JoystickInput.IsButton(joyKey) {
+            if JoystickInputUtils.IsButton(joyKey) {
                 key := JoyHotkeyManager._joystickId joyKey
                 if JoyHotkeyManager._registered.Has(key) {
                     entries := JoyHotkeyManager._registered[key]
@@ -89,7 +90,8 @@ class JoyHotkeyManager {
                     }
                 }
             } else {
-                JoyHotkeyManager._registered.Delete(joyKey)
+                if JoyHotkeyManager._registered.Has(joyKey)
+                    JoyHotkeyManager._registered.Delete(joyKey)
             }
         } catch as e {
             ErrorSystem.LogError("JoyHotkeyManager.UnregisterHotkey 失败: " e.Message, "ERROR", A_ThisFunc, A_LineNumber)
@@ -191,8 +193,8 @@ class JoyHotkeyManager {
             if val = ""
                 return
             if val != JoyHotkeyManager._povLastState {
-                prevDir := JoystickInput.PovToDirection(JoyHotkeyManager._povLastState)
-                newDir := JoystickInput.PovToDirection(val)
+                prevDir := JoystickInputUtils.PovToDirection(JoyHotkeyManager._povLastState)
+                newDir := JoystickInputUtils.PovToDirection(val)
                 JoyHotkeyManager._povLastState := val
                 if prevDir != "" && prevDir != newDir
                     JoyHotkeyManager._TriggerPovCallback(prevDir, false)
@@ -286,17 +288,26 @@ class JoyHotkeyManager {
         if JoyHotkeyManager._connPollActive
             return
         JoyHotkeyManager._connPollActive := true
-        JoyHotkeyManager._wasConnected := JoystickInput.IsJoystickConnected()
-        SetTimer(() => JoyHotkeyManager._PollConnection(), 30000)
+        JoyHotkeyManager._wasConnected := JoystickInputUtils.IsJoystickConnected()
+        JoyHotkeyManager._connPollTimer := () => JoyHotkeyManager._PollConnection()
+        SetTimer(JoyHotkeyManager._connPollTimer, 30000)
+    }
+
+    static _StopConnectionPoll() {
+        JoyHotkeyManager._connPollActive := false
+        if JoyHotkeyManager._connPollTimer {
+            SetTimer(JoyHotkeyManager._connPollTimer, 0)
+            JoyHotkeyManager._connPollTimer := 0
+        }
     }
 
     static _PollConnection() {
         try {
-            isConnected := JoystickInput.IsJoystickConnected()
+            isConnected := JoystickInputUtils.IsJoystickConnected()
             if isConnected != JoyHotkeyManager._wasConnected {
                 JoyHotkeyManager._wasConnected := isConnected
                 if isConnected
-                    ErrorSystem.LogError("手柄已重新连接", "INFO", A_ThisFunc, A_LineNumber)
+                    ErrorSystem.LogError("手柄已重新连接", "DEBUG", A_ThisFunc, A_LineNumber)
                 else
                     ErrorSystem.LogError("手柄已断开连接", "WARNING", A_ThisFunc, A_LineNumber)
             }
@@ -306,6 +317,6 @@ class JoyHotkeyManager {
     }
 
     static IsConnected() {
-        return JoystickInput.IsJoystickConnected()
+        return JoystickInputUtils.IsJoystickConnected()
     }
 }

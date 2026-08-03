@@ -305,3 +305,58 @@ class JoyHotkeyCallbackTests extends AutoHotUnitSuite {
         this.assert.equal(G_CB_LOG.Length, 0)
     }
 }
+
+; =================================================================
+; 场景H: 代码审查修复测试（I3/I4/I8/I10）
+; =================================================================
+class JoyHotkeyReviewFixTests extends AutoHotUnitSuite {
+    beforeEach() {
+        _ResetJoyHotkeyState()
+    }
+
+    ; I4: 日志级别不应使用 INFO，应为 DEBUG（AGENTS.md 规定：ERROR/WARNING/DEBUG）
+    Test_Source_NoInfoLogLevel() {
+        src := FileRead(A_ScriptDir "\..\infrastructure\joy_hotkey_manager.ahk", "UTF-8")
+        ; InStr 返回 0 表示未找到，正整数表示找到位置
+        this.assert.equal(InStr(src, '"INFO"'), 0)
+    }
+
+    ; I8: 注销未注册的非按钮 key 不应写错误日志
+    ; 修复前：else 分支直接 Delete 不存在的 key → 抛异常 → catch 调用 LogError → _writeCount 增加
+    ; 修复后：Has 检查失败 → 跳过 Delete → 不抛异常 → _writeCount 不变
+    Test_UnregisterAxis_NotRegistered_NoErrorLog() {
+        ErrorSystem.Init()
+        beforeCount := ErrorSystem._writeCount
+        ; JoyX_RIGHT 未注册，走 else 分支（非按钮类型）
+        JoyHotkeyManager.UnregisterHotkey("JoyX_RIGHT", "g1")
+        afterCount := ErrorSystem._writeCount
+        this.assert.equal(afterCount, beforeCount)
+    }
+
+    ; I10: 连接轮询定时器引用必须存储且可停止
+    ; 修复前：SetTimer 未存储引用，无法停止（_connPollTimer 不存在）
+    ; 修复后：存储到 _connPollTimer，_StopConnectionPoll 可停止并清除
+    Test_ConnPollTimer_StoredAndStoppable() {
+        ; 重置连接轮询状态（_ResetJoyHotkeyState 不重置 _connPollActive）
+        JoyHotkeyManager._connPollActive := false
+        if JoyHotkeyManager.HasProp("_connPollTimer") && JoyHotkeyManager._connPollTimer {
+            try SetTimer(JoyHotkeyManager._connPollTimer, 0)
+        }
+        ; 启动连接轮询
+        JoyHotkeyManager._StartConnectionPoll()
+        ; 验证定时器引用已存储（是 Func 对象）
+        this.assert.isTrue(JoyHotkeyManager._connPollTimer is Func)
+        ; 停止连接轮询
+        JoyHotkeyManager._StopConnectionPoll()
+        ; 验证定时器引用已清除
+        this.assert.equal(JoyHotkeyManager._connPollTimer, 0)
+    }
+
+    ; I3: joy_hotkey_manager.ahk 不应反向依赖 domain/joystick_input.ahk
+    ; 修复前：第 14 行 #Include "../domain/joystick_input.ahk"（infrastructure → domain 反向依赖）
+    ; 修复后：#Include "joystick_input_utils.ahk"（infrastructure → infrastructure 正向依赖）
+    Test_Source_NoDomainJoystickInputInclude() {
+        src := FileRead(A_ScriptDir "\..\infrastructure\joy_hotkey_manager.ahk", "UTF-8")
+        this.assert.equal(InStr(src, '#Include "../domain/joystick_input.ahk"'), 0)
+    }
+}
