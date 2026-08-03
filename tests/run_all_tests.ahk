@@ -320,6 +320,37 @@ class ConfigStoreTests extends AutoHotUnitSuite {
         config := ConfigStore.GetGroupConfig("99")
         this.assert.equal(config["hotkey"], "F9")
     }
+
+    Test_DeleteGroupConfig_NonExistentId_DoesNotThrow() {
+        ; I7: DeleteGroupConfig 删除不存在的 groupId 不应抛异常
+        ConfigStore.InitDefaults()
+        ; 确保目标 groupId 不存在
+        if ConfigStore.HasGroup("__nonexistent_i7__") {
+            ConfigStore.DeleteGroupConfig("__nonexistent_i7__")
+        }
+        ; 删除不存在的 groupId 不应抛异常
+        threw := false
+        try {
+            ConfigStore.DeleteGroupConfig("__nonexistent_i7__")
+        } catch {
+            threw := true
+        }
+        this.assert.isFalse(threw)
+    }
+
+    Test_Save_DeepClonesGroupSettings() {
+        ; I15: Save 后修改原 config 不应影响 ConfigStore 内部状态
+        ConfigStore.InitDefaults()
+        ; 构建独立 config 并 Save
+        testConfig := Map()
+        testConfig["GroupSettings"] := Map("__i15__", Map("hotkey", "F1", "mode", "periodic"))
+        ConfigStore.Save(testConfig)
+        ; 修改原 config 对象的 GroupSettings
+        testConfig["GroupSettings"]["__i15__"]["hotkey"] := "F2"
+        ; 从 ConfigStore 读取，内部状态应不受影响（深拷贝隔离）
+        saved := ConfigStore.GetGroupConfig("__i15__")
+        this.assert.equal(saved["hotkey"], "F1")
+    }
 }
 
 class ConfigValidatorTests extends AutoHotUnitSuite {
@@ -333,6 +364,75 @@ class ConfigValidatorTests extends AutoHotUnitSuite {
         c2 := Map("GroupSettings", Map("1", Map("hotkey", "F1", "mode", "sequence")))
         errors := ConfigValidator.Validate(c2)
         this.assert.isTrue(errors.Length > 0)
+    }
+
+    ; I18: 热键格式验证测试 — 验证无效热键被拒绝，合法热键通过
+
+    Test_InvalidHotkeyFormat_Xyz123_Rejected() {
+        ; "xyz123" 不是合法热键格式，应产生格式错误
+        config := Map("hotkey", "xyz123", "mode", "periodic", "keys", ["a"], "intervals", [50])
+        errors := ConfigValidator._ValidateGroup("1", config)
+        found := false
+        for err in errors {
+            if err is Map && InStr(err["message"], "热键格式无效")
+                found := true
+        }
+        this.assert.isTrue(found)
+    }
+
+    Test_InvalidHotkeyFormat_PureLongNumber_Rejected() {
+        ; "12345" 纯长数字不是合法热键格式，应产生格式错误
+        config := Map("hotkey", "12345", "mode", "periodic", "keys", ["a"], "intervals", [50])
+        errors := ConfigValidator._ValidateGroup("1", config)
+        found := false
+        for err in errors {
+            if err is Map && InStr(err["message"], "热键格式无效")
+                found := true
+        }
+        this.assert.isTrue(found)
+    }
+
+    Test_ValidHotkeyFormat_F1_Accepted() {
+        ; "F1" 是合法热键，不应产生格式错误
+        config := Map("hotkey", "F1", "mode", "periodic", "keys", ["a"], "intervals", [50])
+        errors := ConfigValidator._ValidateGroup("1", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "热键格式无效")
+                this.assert.fail("F1 是合法热键，不应报格式无效错误")
+        }
+    }
+
+    Test_ValidHotkeyFormat_CaretC_Accepted() {
+        ; "^c" (Ctrl+C) 是合法热键，不应产生格式错误
+        config := Map("hotkey", "^c", "mode", "periodic", "keys", ["a"], "intervals", [50])
+        errors := ConfigValidator._ValidateGroup("1", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "热键格式无效")
+                this.assert.fail("^c 是合法热键，不应报格式无效错误")
+        }
+    }
+
+    Test_ValidHotkeyFormat_ComplexModifier_Accepted() {
+        ; "<^>!z" (左Ctrl+右Alt+Z) 是合法热键，不应产生格式错误
+        config := Map("hotkey", "<^>!z", "mode", "periodic", "keys", ["a"], "intervals", [50])
+        errors := ConfigValidator._ValidateGroup("1", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "热键格式无效")
+                this.assert.fail("<^>!z 是合法热键，不应报格式无效错误")
+        }
+    }
+
+    Test_ValidHotkeyFormat_NamedKeysWithModifiers_Accepted() {
+        ; "~LButton", "*Space", "!Tab", "+#a" 都是合法热键
+        validHotkeys := ["~LButton", "*Space", "!Tab", "+#a", "F12"]
+        for idx, hk in validHotkeys {
+            config := Map("hotkey", hk, "mode", "periodic", "keys", ["a"], "intervals", [50])
+            errors := ConfigValidator._ValidateGroup("1", config)
+            for err in errors {
+                if err is Map && InStr(err["message"], "热键格式无效")
+                    this.assert.fail(hk " 是合法热键，不应报格式无效错误")
+            }
+        }
     }
 }
 
@@ -2264,7 +2364,8 @@ testManager.RegisterSuite(
     JoyHotkeyMultiJoystickTests,
     JoyHotkeyPollingLogicTests,
     JoyHotkeyPollingTimerTests,
-    JoyHotkeyCallbackTests
+    JoyHotkeyCallbackTests,
+    JoyHotkeyReviewFixTests
 )
 
 ; 运行测试

@@ -80,6 +80,12 @@ class ConfigValidator {
 
         if !ConfigValidator._HasField(config, "hotkey")
             errors.Push(Map("type", "ERROR", "message", "分组" id "缺少热键(hotkey)"))
+        else {
+            ; I18: 验证热键格式合法性，避免无效热键在运行时 Hotkey() 调用时才抛异常
+            hotkey := _GetProp(config, "hotkey")
+            if !ConfigValidator._IsValidHotkeyFormat(hotkey)
+                errors.Push(Map("type", "ERROR", "message", "分组" id "热键格式无效: " hotkey))
+        }
 
         if !ConfigValidator._HasField(config, "mode") {
             errors.Push(Map("type", "ERROR", "message", "分组" id "缺少模式(mode)"))
@@ -92,6 +98,18 @@ class ConfigValidator {
         }
 
         return errors
+    }
+
+    ; I18: 验证热键格式是否合法
+    ; 合法格式：零或多个修饰键前缀(! ^ + # ~ * < >) + 合法按键名
+    ; 合法按键名：F1-F24、PascalCase命名键(Space/Tab/LButton等)、单字母、单数字
+    ; 拒绝：纯长数字(12345)、混合无效字符串(xyz123)、空字符串
+    static _IsValidHotkeyFormat(hotkey) {
+        if hotkey = ""
+            return false
+        hotkeyStr := String(hotkey)
+        pattern := "^[!^+~*<>#]*(F(?:[1-9]|1[0-9]|2[0-4])|[A-Z][a-zA-Z0-9]+|[a-zA-Z]|[0-9])$"
+        return RegExMatch(hotkeyStr, pattern) > 0
     }
 
     static ValidateGroupOnly(id, config) {
