@@ -433,7 +433,7 @@ pub fn register_hotkey(state: &AppState, hotkey: &str, group_id: &str) -> Result
     }
 
     // 活跃分组：同步更新 active_hotkeys 并发送 IPC 命令到 AHK
-    let old_hotkey = state.swap_hotkey(hotkey, group_id).map_err(|e| {
+    let old_hotkey = state.swap_hotkey(hotkey, group_id).inspect_err(|_e| {
         // swap_hotkey 失败（热键冲突），回滚 set_group_hotkey
         if let Err(rollback_err) = state.set_group_hotkey(group_id, &original_hotkey) {
             tracing::warn!(
@@ -441,7 +441,6 @@ pub fn register_hotkey(state: &AppState, hotkey: &str, group_id: &str) -> Result
                 group_id, original_hotkey, rollback_err
             );
         }
-        e
     })?;
 
     if let Some(ref old) = old_hotkey {

@@ -281,7 +281,9 @@ mod tests {
     fn test_app_error_serialization() {
         let err = AppError::Validation("测试".to_string());
         let json = serde_json::to_string(&err).unwrap();
-        assert!(json.contains("验证失败"));
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["kind"], "Validation");
+        assert_eq!(parsed["message"], "测试");
     }
 
     // ----------------------------------------------------------------

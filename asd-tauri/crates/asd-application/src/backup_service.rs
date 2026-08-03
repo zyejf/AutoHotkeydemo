@@ -107,16 +107,16 @@ pub fn list_backups(state: &AppState) -> Result<Vec<BackupInfo>, AppError> {
     let backup_dir = get_backup_dir(state)?;
 
     if !backup_dir.exists() {
-        std::fs::create_dir_all(&backup_dir)
+        ConfigRepository::ensure_dir_all(&backup_dir)
             .map_err(|e| AppError::Config(format!("创建备份目录失败: {e}")))?;
         return Ok(vec![]);
     }
 
     let mut backups = Vec::new();
-    let entries = std::fs::read_dir(&backup_dir)
+    let entries = ConfigRepository::list_dir_files(&backup_dir)
         .map_err(|e| AppError::Config(format!("读取备份目录失败: {e}")))?;
 
-    for entry in entries.flatten() {
+    for entry in entries {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) == Some("json") {
             let filename = path
@@ -163,7 +163,7 @@ pub fn create_backup(state: &AppState) -> Result<String, AppError> {
     let backup_dir = get_backup_dir(state)?;
 
     if !backup_dir.exists() {
-        std::fs::create_dir_all(&backup_dir)
+        ConfigRepository::ensure_dir_all(&backup_dir)
             .map_err(|e| AppError::Config(format!("创建备份目录失败: {e}")))?;
     }
 
@@ -227,7 +227,7 @@ pub fn delete_backup(state: &AppState, filename: &str) -> Result<(), AppError> {
 
     validate_path_in_backup_dir(&backup_path, &backup_dir)?;
 
-    std::fs::remove_file(&backup_path)
+    ConfigRepository::delete_file(&backup_path)
         .map_err(|e| AppError::Config(format!("删除备份失败: {e}")))?;
 
     tracing::info!("已删除备份: {filename}");
@@ -309,12 +309,11 @@ pub fn export_config(state: &AppState, path: &str) -> Result<(), AppError> {
 pub fn import_config(state: &AppState, path: &str) -> Result<(), AppError> {
     validate_file_path(path)?;
 
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| AppError::Config(format!("读取文件失败: {e}")))?;
+    // I26: 通过 ConfigRepository 委托文件 I/O（含 BOM 剥离）
+    let cleaned = ConfigRepository::read_file_to_string(path)
+        .map_err(AppError::Config)?;
 
-    let cleaned = content.trim_start_matches('\u{feff}');
-
-    let imported_config: Config = serde_json::from_str(cleaned)
+    let imported_config: Config = serde_json::from_str(&cleaned)
         .map_err(|e| AppError::Config(format!("解析配置失败: {e}")))?;
 
     validate_config_with_context(&imported_config, "导入")?;

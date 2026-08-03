@@ -595,7 +595,9 @@ fn test_app_error_from_ipc_error() {
 fn test_app_error_serialization() {
     let err = AppError::Config("测试错误".to_string());
     let json = serde_json::to_string(&err).unwrap();
-    assert!(json.contains("配置错误"));
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["kind"], "Config");
+    assert_eq!(parsed["message"], "测试错误");
 }
 
 #[test]

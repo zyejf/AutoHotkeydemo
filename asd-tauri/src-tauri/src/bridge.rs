@@ -6,6 +6,23 @@ use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+/// IPC 桥接器，实现 `IpcSender` trait。
+///
+/// # block_in_place 使用说明（已知妥协 #2）
+///
+/// `IpcSender` trait 的方法签名为同步（`fn send_command(&self, ...) -> Result<...>`），
+/// 但底层 `IpcManager` 使用 `tokio::sync::Mutex` 和 async 方法。
+/// 为在同步方法中调用 async 代码，使用 `tokio::task::block_in_place` +
+/// `Handle::current().block_on()` 模式。
+///
+/// **安全性分析**：
+/// - `block_in_place` 将当前工作线程转为阻塞模式，允许其他工作线程继续执行
+/// - 临界区极短（仅 `lock().await` + `send_command().await`），不会长时间阻塞
+/// - 不在 `block_on` 内再次获取同一锁，无死锁风险
+/// - 调用方在 Tauri command 的 async 上下文中调用，`block_in_place` 不会 panic
+///
+/// **已知风险**：如果未来在 `block_on` 内引入需要同一工作线程的操作，
+/// 可能导致死锁。修改时需确保 `block_on` 内的所有操作不依赖当前工作线程。
 pub struct IpcBridge {
     outbound: IpcOutboundSender,
     ipc_manager: Arc<Mutex<Option<IpcManager>>>,
@@ -138,6 +155,16 @@ impl EventEmitter for TauriEventBridge {
 }
 
 /// 进程监控桥接器，实现 `ProcessWatcher` trait，通过 `ProcessWatchdog` 查询 AHK 子进程状态。
+///
+/// # block_in_place 使用说明（已知妥协 #2）
+///
+/// 与 `IpcBridge` 相同的模式：`ProcessWatcher` trait 方法为同步，
+/// 底层 `ProcessWatchdog` 使用 `tokio::sync::Mutex` 保护。
+/// 使用 `block_in_place` + `block_on` 在同步方法中获取 async 锁。
+///
+/// **锁顺序**：仅获取 `watchdog` 锁，不嵌套获取 `ipc_manager` 锁。
+/// 与 `setup_ipc_and_watchdog` 中的锁顺序（ipc_manager → watchdog）一致，
+/// 不会出现锁反转死锁。
 pub struct WatchdogBridge {
     watchdog: Arc<Mutex<ProcessWatchdog>>,
 }

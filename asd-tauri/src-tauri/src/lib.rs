@@ -12,7 +12,7 @@ use asd_domain::models::SkillGroup;
 use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use bridge::{IpcBridge, TauriEventBridge, WatchdogBridge};
 use infrastructure::ipc::{IpcManager, IpcOutboundReceiver};
-use infrastructure::watchdog::{ProcessWatchdog, WatchdogRunner};
+use infrastructure::watchdog::{ProcessWatchdog, WatchdogRunner, register_panic_hook};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
@@ -23,6 +23,12 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 type IpcManagerArc = Arc<tokio::sync::Mutex<Option<IpcManager>>>;
 type WatchdogArc = Arc<tokio::sync::Mutex<ProcessWatchdog>>;
+
+/// IPC named pipe 名称常量。
+///
+/// 集中定义避免多处硬编码，用于 IpcManager::new() 和 create_listener()。
+/// AHK 执行器（ipc_client.ahk）中的管道名称必须与此一致。
+const IPC_PIPE_NAME: &str = "asd_ipc";
 
 async fn perform_graceful_shutdown(
     _app_state: &Arc<AppState>,
@@ -114,7 +120,7 @@ fn spawn_ipc_listener(
 /// 否则 accept_loop 不会启动且不会重试。
 fn spawn_ipc_accept_loop(ipc_manager: IpcManagerArc) {
     tauri::async_runtime::spawn(async move {
-        let listener = match infrastructure::ipc::create_listener("asd_ipc") {
+        let listener = match infrastructure::ipc::create_listener(IPC_PIPE_NAME) {
             Ok(l) => l,
             Err(e) => {
                 tracing::error!("创建 IPC 监听器失败: {e}");
@@ -157,7 +163,7 @@ fn spawn_heartbeat_ping(ipc_manager: IpcManagerArc) {
                 let msg = IpcMessage::ping(seq);
                 if let Err(e) = mgr.send(&msg).await {
                     consecutive_failures = consecutive_failures.saturating_add(1);
-                    if consecutive_failures <= 3 || consecutive_failures % 30 == 0 {
+                    if consecutive_failures <= 3 || consecutive_failures.is_multiple_of(30) {
                         tracing::warn!(
                             "心跳 ping 发送失败 (连续第{}次): {e}",
                             consecutive_failures
@@ -378,6 +384,27 @@ fn init_app_state(
     app_state
 }
 
+/// 设置 IPC 和 Watchdog。
+///
+/// # 锁顺序说明（已知妥协 #2）
+///
+/// 本函数中存在嵌套锁获取：`setup_ipc_callbacks` 在持有 `ipc_manager_arc` 锁的
+/// 期间获取 `watchdog` 锁（设置 `send_shutdown` 回调）。
+///
+/// **锁顺序**：`ipc_manager_arc` → `watchdog`
+///
+/// 此顺序在以下位置一致使用：
+/// - `setup_ipc_and_watchdog`（本函数）：ipc_manager → watchdog
+/// - `perform_graceful_shutdown`：ipc_manager → watchdog（先释放 ipc_manager 再锁 watchdog）
+/// - `setup_ipc_callbacks`：在 ipc_manager 锁内获取 watchdog 锁
+///
+/// **安全性分析**：
+/// - 临界区极短（仅设置回调或查询状态），不会在锁内执行阻塞 I/O
+/// - `block_in_place` 确保同步阻塞不会导致 tokio 运行时死锁
+/// - 所有锁获取点均使用 `blocking_lock()` 而非 `lock().await`，避免跨 await 持锁
+///
+/// 若未来修改锁获取顺序，必须确保不反转此顺序（watchdog → ipc_manager），
+/// 否则会导致死锁。
 fn setup_ipc_and_watchdog(
     app_state: &Arc<AppState>,
     ipc_manager_arc: &IpcManagerArc,
@@ -406,8 +433,7 @@ fn setup_ipc_and_watchdog(
     }
 
     spawn_heartbeat_ping(ipc_manager_arc.clone());
-    let runner_shutting_down = spawn_watchdog(app_state.clone(), watchdog.clone());
-    runner_shutting_down
+    spawn_watchdog(app_state.clone(), watchdog.clone())
 }
 
 fn setup_tray_menu(
@@ -572,6 +598,9 @@ pub fn run() {
         .setup(|app| {
             infrastructure::logging::init(app).map_err(|e| tauri::Error::Setup(e.into()))?;
 
+            // I36 补偿机制：注册 panic hook，确保崩溃时清理子进程
+            register_panic_hook();
+
             let config_path = app
                 .path()
                 .app_data_dir()
@@ -588,7 +617,7 @@ pub fn run() {
                 }
             };
 
-            let (ipc_manager, outbound_rx) = IpcManager::new("asd_ipc");
+            let (ipc_manager, outbound_rx) = IpcManager::new(IPC_PIPE_NAME);
             let auth_token = ipc_manager.auth_token().to_string();
             let outbound_sender = ipc_manager.outbound_sender();
             let ipc_manager_arc: IpcManagerArc =
@@ -683,4 +712,21 @@ pub fn run() {
         .run(tauri::generate_context!())
         .inspect_err(|e| tracing::error!("Tauri 应用运行错误: {e}"))
         .expect("Tauri 应用启动失败");
+}
+
+// =================================================================
+// IPC 管道名称常量
+// =================================================================
+// 集中定义 named pipe 名称，避免多处硬编码导致不一致风险。
+// 用于 IpcManager::new() 和 create_listener() 两处调用。
+
+#[cfg(test)]
+mod pipe_name_tests {
+    use super::*;
+
+    /// 验证 IPC_PIPE_NAME 常量存在且值为 "asd_ipc"。
+    #[test]
+    fn test_ipc_pipe_name_constant_value() {
+        assert_eq!(IPC_PIPE_NAME, "asd_ipc");
+    }
 }

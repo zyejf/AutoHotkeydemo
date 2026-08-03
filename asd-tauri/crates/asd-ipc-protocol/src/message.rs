@@ -1,7 +1,7 @@
 use crate::command::IpcCommand;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct IpcMessage {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub id: Option<String>,
@@ -20,22 +20,6 @@ pub struct IpcMessage {
     pub status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub data: Option<serde_json::Value>,
-}
-
-impl Default for IpcMessage {
-    fn default() -> Self {
-        Self {
-            id: None,
-            r#type: String::new(),
-            seq: 0,
-            ack_seq: None,
-            action: None,
-            keys: None,
-            delay: None,
-            status: None,
-            data: None,
-        }
-    }
 }
 
 impl IpcMessage {

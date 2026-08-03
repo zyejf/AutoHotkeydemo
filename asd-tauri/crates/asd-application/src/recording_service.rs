@@ -1,5 +1,6 @@
 use crate::backup_service::validate_file_path;
 use crate::config_repository::atomic_write;
+use crate::config_repository::ConfigRepository;
 use crate::error::AppError;
 use crate::state::AppState;
 use crate::time_format::format_datetime;
@@ -257,11 +258,11 @@ fn validate_recording_data(mode: &str, keys: &[String], intervals: &[u64], delay
         return Err(AppError::Validation("sequence 模式需要至少一个延迟".to_string()));
     }
 
-    if intervals.iter().any(|&i| i == 0) {
+    if intervals.contains(&0) {
         return Err(AppError::Validation("间隔不能为 0".to_string()));
     }
 
-    if delays.iter().any(|&d| d == 0) {
+    if delays.contains(&0) {
         return Err(AppError::Validation("延迟不能为 0".to_string()));
     }
 
@@ -311,10 +312,10 @@ pub fn export_recording(
 pub fn import_recording(path: &str) -> Result<ImportedRecording, AppError> {
     validate_file_path(path)?;
 
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| AppError::Config(format!("读取文件失败: {e}")))?;
-    let cleaned = content.trim_start_matches('\u{feff}');
-    let data: serde_json::Value = serde_json::from_str(cleaned)
+    // I26: 通过 ConfigRepository 委托文件 I/O（含 BOM 剥离）
+    let cleaned = ConfigRepository::read_file_to_string(path)
+        .map_err(AppError::Config)?;
+    let data: serde_json::Value = serde_json::from_str(&cleaned)
         .map_err(|e| AppError::Config(format!("解析录制数据失败: {e}")))?;
 
     let keys = data

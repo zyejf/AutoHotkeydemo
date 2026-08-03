@@ -18,6 +18,12 @@ use std::sync::Arc;
 
 /// `start_recording` 的核心逻辑。
 pub fn start_recording_impl(state: &AppState, group_id: &str, mode: &str) -> Result<(), AppError> {
+    if group_id.trim().is_empty() {
+        return Err(AppError::Validation("分组 ID 不能为空".to_string()));
+    }
+    if mode.trim().is_empty() {
+        return Err(AppError::Validation("模式不能为空".to_string()));
+    }
     recording_service::start_recording(state, group_id, mode)
 }
 
@@ -47,6 +53,9 @@ pub fn export_recording_impl(
     delays: &[u64],
     mode: &str,
 ) -> Result<(), AppError> {
+    if path.trim().is_empty() {
+        return Err(AppError::Validation("导出路径不能为空".to_string()));
+    }
     recording_service::export_recording(path, keys, intervals, delays, mode)
 }
 
@@ -55,11 +64,17 @@ pub fn export_recording_impl(
 /// 注意：此函数不需要 AppState，因为导入仅返回数据供前端使用，
 /// 不直接修改内存配置或触发 IPC 同步。
 pub fn import_recording_impl(path: &str) -> Result<ImportedRecording, AppError> {
+    if path.trim().is_empty() {
+        return Err(AppError::Validation("导入路径不能为空".to_string()));
+    }
     recording_service::import_recording(path)
 }
 
 /// `start_validation` 的核心逻辑。
 pub fn start_validation_impl(state: &AppState, group_id: &str) -> Result<u64, AppError> {
+    if group_id.trim().is_empty() {
+        return Err(AppError::Validation("分组 ID 不能为空".to_string()));
+    }
     recording_service::start_validation(state, group_id)
 }
 
@@ -323,8 +338,8 @@ mod tests {
 
     /// 验证 export_recording_impl 拒绝空路径。
     ///
-    /// 注意：空路径进入 `validate_file_path` 后返回 `AppError::Config`（"路径必须是绝对路径"），
-    /// 而非 `AppError::Validation`，因为原 command 函数无空路径前置检查。
+    /// 空路径应在 _impl 层被 `AppError::Validation` 拦截，
+    /// 不应进入 `validate_file_path` 返回 `AppError::Config`。
     #[test]
     fn test_export_recording_impl_empty_path() {
         let result = export_recording_impl(
@@ -336,8 +351,25 @@ mod tests {
         );
         assert!(result.is_err(), "空路径应返回错误");
         match result.unwrap_err() {
-            AppError::Config(_) => {}
-            other => panic!("期望 Config 错误，实际: {:?}", other),
+            AppError::Validation(_) => {}
+            other => panic!("期望 Validation 错误，实际: {:?}", other),
+        }
+    }
+
+    /// 验证 export_recording_impl 拒绝纯空白路径。
+    #[test]
+    fn test_export_recording_impl_whitespace_path() {
+        let result = export_recording_impl(
+            "   ",
+            &["1".to_string()],
+            &[50],
+            &[],
+            "periodic",
+        );
+        assert!(result.is_err(), "纯空白路径应返回错误");
+        match result.unwrap_err() {
+            AppError::Validation(_) => {}
+            other => panic!("期望 Validation 错误，实际: {:?}", other),
         }
     }
 
@@ -367,15 +399,26 @@ mod tests {
 
     /// 验证 import_recording_impl 拒绝空路径。
     ///
-    /// 注意：空路径进入 `validate_file_path` 后返回 `AppError::Config`（"路径必须是绝对路径"），
-    /// 而非 `AppError::Validation`，因为原 command 函数无空路径前置检查。
+    /// 空路径应在 _impl 层被 `AppError::Validation` 拦截，
+    /// 不应进入 `validate_file_path` 返回 `AppError::Config`。
     #[test]
     fn test_import_recording_impl_empty_path() {
         let result = import_recording_impl("");
         assert!(result.is_err(), "空路径应返回错误");
         match result.unwrap_err() {
-            AppError::Config(_) => {}
-            other => panic!("期望 Config 错误，实际: {:?}", other),
+            AppError::Validation(_) => {}
+            other => panic!("期望 Validation 错误，实际: {:?}", other),
+        }
+    }
+
+    /// 验证 import_recording_impl 拒绝纯空白路径。
+    #[test]
+    fn test_import_recording_impl_whitespace_path() {
+        let result = import_recording_impl("   ");
+        assert!(result.is_err(), "纯空白路径应返回错误");
+        match result.unwrap_err() {
+            AppError::Validation(_) => {}
+            other => panic!("期望 Validation 错误，实际: {:?}", other),
         }
     }
 

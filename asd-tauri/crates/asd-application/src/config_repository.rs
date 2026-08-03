@@ -125,6 +125,48 @@ impl ConfigRepository {
         }
         result
     }
+
+    // =================================================================
+    // I26: 通用文件 I/O 方法 — 集中封装 std::fs 操作
+    //
+    // AGENTS.md 规则："std::fs 仅在 asd-application 的 ConfigRepository 中使用"。
+    // backup_service 和 recording_service 通过这些方法委托文件 I/O，
+    // 避免在各 service 中散落直接的 std::fs 调用。
+    // =================================================================
+
+    /// 读取文件内容为字符串，自动剥离 UTF-8 BOM。
+    ///
+    /// 用于替代 `std::fs::read_to_string`，统一 BOM 处理逻辑。
+    pub fn read_file_to_string<P: AsRef<Path>>(path: P) -> Result<String, String> {
+        let path = path.as_ref();
+        let content = fs::read_to_string(path).map_err(|e| format!("读取文件失败: {e}"))?;
+        Ok(content.trim_start_matches('\u{feff}').to_string())
+    }
+
+    /// 确保目录存在，不存在则递归创建。
+    ///
+    /// 用于替代 `std::fs::create_dir_all`。
+    pub fn ensure_dir_all<P: AsRef<Path>>(path: P) -> Result<(), String> {
+        fs::create_dir_all(path).map_err(|e| format!("创建目录失败: {e}"))
+    }
+
+    /// 列出目录中的文件条目。
+    ///
+    /// 用于替代 `std::fs::read_dir`，返回 `DirEntry` 向量。
+    pub fn list_dir_files<P: AsRef<Path>>(path: P) -> Result<Vec<fs::DirEntry>, String> {
+        let path = path.as_ref();
+        fs::read_dir(path)
+            .map_err(|e| format!("读取目录失败: {e}"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("读取目录条目失败: {e}"))
+    }
+
+    /// 删除文件。
+    ///
+    /// 用于替代 `std::fs::remove_file`。
+    pub fn delete_file<P: AsRef<Path>>(path: P) -> Result<(), String> {
+        fs::remove_file(path).map_err(|e| format!("删除文件失败: {e}"))
+    }
 }
 
 #[cfg(test)]
@@ -388,5 +430,131 @@ mod tests {
         }
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // =================================================================
+    // I26: 通用文件 I/O 方法测试 — 委托 std::fs 操作
+    // =================================================================
+
+    /// 验证 read_file_to_string 方法能读取有效文件内容。
+    #[test]
+    fn test_read_file_to_string_valid() {
+        let dir = std::env::temp_dir().join("asd_app_test_read_to_string");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let path = dir.join("test.txt");
+        std::fs::write(&path, "hello world").unwrap();
+
+        let content = ConfigRepository::read_file_to_string(&path).unwrap();
+        assert_eq!(content, "hello world");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 验证 read_file_to_string 自动剥离 UTF-8 BOM。
+    #[test]
+    fn test_read_file_to_string_strips_bom() {
+        let dir = std::env::temp_dir().join("asd_app_test_read_bom");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let path = dir.join("bom.txt");
+        std::fs::write(&path, "\u{feff}content with bom").unwrap();
+
+        let content = ConfigRepository::read_file_to_string(&path).unwrap();
+        assert_eq!(content, "content with bom");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 验证 read_file_to_string 对不存在的文件返回错误。
+    #[test]
+    fn test_read_file_to_string_missing_file() {
+        let path = std::path::PathBuf::from("/nonexistent/file.txt");
+        let result = ConfigRepository::read_file_to_string(&path);
+        assert!(result.is_err());
+    }
+
+    /// 验证 ensure_dir_all 方法能创建嵌套目录。
+    #[test]
+    fn test_ensure_dir_all_creates_nested_dirs() {
+        let base = std::env::temp_dir().join("asd_app_test_ensure_dir");
+        let _ = std::fs::remove_dir_all(&base);
+        let nested = base.join("level1").join("level2");
+
+        ConfigRepository::ensure_dir_all(&nested).unwrap();
+        assert!(nested.exists());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// 验证 ensure_dir_all 对已存在目录幂等。
+    #[test]
+    fn test_ensure_dir_all_idempotent() {
+        let dir = std::env::temp_dir().join("asd_app_test_ensure_dir_idem");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // 再次调用不应报错
+        ConfigRepository::ensure_dir_all(&dir).unwrap();
+        assert!(dir.exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 验证 list_dir_files 方法能列出目录中的 .json 文件。
+    #[test]
+    fn test_list_dir_files_lists_json() {
+        let dir = std::env::temp_dir().join("asd_app_test_list_dir");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.json"), "{}").unwrap();
+        std::fs::write(dir.join("b.json"), "{}").unwrap();
+        std::fs::write(dir.join("c.txt"), "hello").unwrap();
+
+        let entries = ConfigRepository::list_dir_files(&dir).unwrap();
+        let json_names: Vec<String> = entries
+            .into_iter()
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.ends_with(".json") { Some(name) } else { None }
+            })
+            .collect();
+        assert_eq!(json_names.len(), 2);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 验证 list_dir_files 对不存在的目录返回错误。
+    #[test]
+    fn test_list_dir_files_missing_dir() {
+        let path = std::path::PathBuf::from("/nonexistent/directory");
+        let result = ConfigRepository::list_dir_files(&path);
+        assert!(result.is_err());
+    }
+
+    /// 验证 delete_file 方法能删除文件。
+    #[test]
+    fn test_delete_file_removes_file() {
+        let dir = std::env::temp_dir().join("asd_app_test_delete_file");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("to_delete.txt");
+        std::fs::write(&path, "content").unwrap();
+        assert!(path.exists());
+
+        ConfigRepository::delete_file(&path).unwrap();
+        assert!(!path.exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 验证 delete_file 对不存在的文件返回错误。
+    #[test]
+    fn test_delete_file_missing_file() {
+        let path = std::env::temp_dir().join("nonexistent_file_for_delete.txt");
+        let result = ConfigRepository::delete_file(&path);
+        assert!(result.is_err());
     }
 }

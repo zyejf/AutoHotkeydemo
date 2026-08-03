@@ -331,18 +331,22 @@ impl<'de> Deserialize<'de> for GroupConfig {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        // holdTriggers 解析失败时静默替换为空向量而非报错，
-        // 因为 holdTriggers 是可选字段，解析失败不应阻止配置加载。
-        // 警告日志写入日志文件，前端可通过日志查看。
-        let hold_triggers = value
-            .get("holdTriggers")
-            .map(|v| {
-                serde_json::from_value::<Vec<serde_json::Value>>(v.clone()).unwrap_or_else(|e| {
-                    tracing::warn!("holdTriggers 解析失败，已忽略: {e}");
-                    Vec::new()
-                })
-            })
-            .filter(|v| !v.is_empty());
+        // holdTriggers 是可选字段：缺失或 null 时为 None。
+        // 字段存在但格式错误（如字符串而非数组）时返回错误，不静默替换。
+        let hold_triggers = match value.get("holdTriggers") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(v) => {
+                let parsed = serde_json::from_value::<Vec<serde_json::Value>>(v.clone())
+                    .map_err(|e| {
+                        serde::de::Error::custom(format!("holdTriggers 解析失败: {e}"))
+                    })?;
+                if parsed.is_empty() {
+                    None
+                } else {
+                    Some(parsed)
+                }
+            }
+        };
 
         let mode_data = match mode.as_str() {
             "periodic" => ModeData::Periodic(
@@ -705,6 +709,46 @@ mod unit_tests {
             err_msg.contains("unknown mode"),
             "错误信息应提及 unknown mode: {err_msg}"
         );
+    }
+
+    /// 验证 holdTriggers 字段缺失时解析为 None（可选字段）。
+    #[test]
+    fn test_group_config_hold_triggers_absent() {
+        let json = r#"{"hotkey":"F1","mode":"periodic","keys":["1"],"intervals":[50]}"#;
+        let gc: GroupConfig = serde_json::from_str(json).unwrap();
+        assert!(gc.hold_triggers.is_none(), "holdTriggers 缺失时应为 None");
+    }
+
+    /// 验证 holdTriggers 字段存在且格式正确时解析为 Some(vec)。
+    #[test]
+    fn test_group_config_hold_triggers_valid_array() {
+        let json = r#"{"hotkey":"F1","mode":"periodic","keys":["1"],"intervals":[50],"holdTriggers":[{"type":"press"}]}"#;
+        let gc: GroupConfig = serde_json::from_str(json).unwrap();
+        assert!(gc.hold_triggers.is_some(), "holdTriggers 存在且有效时应为 Some");
+        assert_eq!(gc.hold_triggers.as_ref().unwrap().len(), 1);
+    }
+
+    /// 验证 holdTriggers 字段存在但格式错误（字符串而非数组）时拒绝解析。
+    ///
+    /// 旧实现静默替换为空向量，新实现应返回 serde 错误。
+    #[test]
+    fn test_group_config_malformed_hold_triggers_rejected() {
+        let json = r#"{"hotkey":"F1","mode":"periodic","keys":["1"],"intervals":[50],"holdTriggers":"not_an_array"}"#;
+        let result = serde_json::from_str::<GroupConfig>(json);
+        assert!(result.is_err(), "格式错误的 holdTriggers 应导致解析失败");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("holdTriggers"),
+            "错误信息应提及 holdTriggers: {err_msg}"
+        );
+    }
+
+    /// 验证 holdTriggers 字段存在但为 null 时解析为 None。
+    #[test]
+    fn test_group_config_hold_triggers_null() {
+        let json = r#"{"hotkey":"F1","mode":"periodic","keys":["1"],"intervals":[50],"holdTriggers":null}"#;
+        let gc: GroupConfig = serde_json::from_str(json).unwrap();
+        assert!(gc.hold_triggers.is_none(), "holdTriggers 为 null 时应为 None");
     }
 
     fn make_periodic_group_config() -> GroupConfig {

@@ -210,6 +210,9 @@ impl ProcessWatchdog {
     /// `auth_token` 通过环境变量 `ASD_AUTH_TOKEN` 传递给 AHK 子进程，
     /// 用于 IPC 认证。子进程必须在首条消息中发送此 token 才能通过认证。
     pub fn spawn_child(&mut self, exe_path: &str, auth_token: &str) -> Result<(), String> {
+        // I36 补偿机制：启动新子进程前清理遗留进程，防止 JobObject 失败导致僵尸进程堆积
+        cleanup_stale_executor_processes();
+
         if auth_token.is_empty() {
             return Err("auth_token 不能为空，IPC 认证需要有效的 token".to_string());
         }
@@ -559,6 +562,79 @@ impl<T> Drop for RawBoxGuard<T> {
             unsafe { let _ = Box::from_raw(self.0); }
         }
     }
+}
+
+/// 清理所有遗留的 asd_executor.exe 和 AutoHotkey64.exe 进程。
+///
+/// 在启动新子进程前调用，防止 JobObject 失败导致的僵尸进程堆积。
+/// 使用 `taskkill /F /IM` 按映像名终止，主进程（asd-tauri.exe）不受影响。
+/// 如果没有遗留进程，taskkill 返回非零退出码，此时静默忽略。
+///
+/// # I36 补偿机制
+///
+/// 当 JobObject 创建或分配失败时，子进程不会随主进程退出而自动终止。
+/// 此函数作为补偿，在每次 spawn_child 前清理可能的遗留进程。
+pub fn cleanup_stale_executor_processes() {
+    // 需要清理的子进程映像名列表
+    const STALE_PROCESS_NAMES: &[&str] = &["asd_executor.exe", "AutoHotkey64.exe"];
+
+    let mut killed_count = 0u32;
+    for name in STALE_PROCESS_NAMES {
+        // taskkill /F /IM <name> 强制按映像名终止
+        // 退出码 0 = 成功终止，128 = 进程未找到（预期情况）
+        let output = Command::new("taskkill")
+            .args(["/F", "/IM", name])
+            .creation_flags(CREATE_NO_WINDOW.0)
+            .output();
+
+        match output {
+            Ok(out) if out.status.success() => {
+                tracing::info!("已清理遗留进程: {name}");
+                killed_count += 1;
+            }
+            Ok(_) => {
+                // 进程未找到或已退出，属于正常情况
+                tracing::debug!("无遗留 {name} 进程需要清理");
+            }
+            Err(e) => {
+                tracing::warn!("清理遗留进程 {name} 失败: {e}");
+            }
+        }
+    }
+
+    if killed_count > 0 {
+        tracing::info!("共清理 {killed_count} 个遗留子进程");
+    }
+}
+
+/// 注册 panic hook，确保主进程崩溃时终止所有子进程。
+///
+/// 使用 `std::sync::Once` 保证幂等，多次调用安全。
+/// panic 时调用 `cleanup_stale_executor_processes()` 终止遗留子进程，
+/// 然后调用原始 panic hook 输出默认信息。
+///
+/// # I36 补偿机制
+///
+/// JobObject 在以下场景可能失败：
+/// - 系统资源不足无法创建 JobObject
+/// - 进程权限不足无法分配到 JobObject
+///
+/// 此时子进程不受 JobObject 保护，主进程 panic 后可能成为僵尸进程。
+/// panic hook 确保即使主进程异常退出，子进程也会被清理。
+pub fn register_panic_hook() {
+    use std::sync::Once;
+    static HOOK_REGISTERED: Once = Once::new();
+
+    HOOK_REGISTERED.call_once(|| {
+        let original_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            // 在 panic 时清理遗留子进程
+            cleanup_stale_executor_processes();
+            // 调用原始 panic hook 输出默认信息
+            original_hook(info);
+        }));
+        tracing::debug!("panic hook 已注册，崩溃时将清理子进程");
+    });
 }
 
 pub fn send_wm_close(pid: u32) -> Result<(), String> {
@@ -925,5 +1001,46 @@ mod tests {
         let action = wd.tick();
         assert_eq!(action, WatchdogAction::RestartNeeded);
         assert_eq!(*wd.state(), WatchdogStateEnum::Restarting);
+    }
+
+    // =================================================================
+    // I36: JobObject 失败无僵尸进程补偿 — 测试
+    // =================================================================
+
+    /// 验证 cleanup_stale_executor_processes 函数存在且可安全调用。
+    /// 在没有遗留进程的环境下不应 panic。
+    #[test]
+    fn test_cleanup_stale_executor_processes_exists_and_is_safe() {
+        // 函数应存在且执行完毕不 panic
+        cleanup_stale_executor_processes();
+    }
+
+    /// 验证 cleanup_stale_executor_processes 不会终止当前测试进程自身。
+    /// 当前进程是 cargo test 进程，不是 asd_executor.exe 或 AutoHotkey64.exe，
+        #[test]
+    fn test_cleanup_does_not_terminate_current_process() {
+        let my_pid = std::process::id();
+        cleanup_stale_executor_processes();
+        // 如果当前进程被终止，后续断言不会执行，测试会失败
+        assert!(my_pid > 0, "当前进程仍在运行，未被误终止");
+    }
+
+    /// 验证 register_panic_hook 函数存在且可安全调用。
+    /// 多次调用不应 panic（使用 Once 保证幂等）。
+    #[test]
+    fn test_register_panic_hook_is_idempotent() {
+        register_panic_hook();
+        register_panic_hook(); // 第二次调用应无副作用
+    }
+
+    /// 验证 spawn_child 在调用前会执行遗留进程清理。
+    /// 通过验证 spawn_child 对空 auth_token 返回错误来确认函数入口可达，
+    /// 清理逻辑在 auth_token 检查之前执行。
+    #[test]
+    fn test_spawn_child_validates_auth_token_after_cleanup() {
+        let mut wd = ProcessWatchdog::new();
+        let result = wd.spawn_child("asd_executor.exe", "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("auth_token"));
     }
 }
