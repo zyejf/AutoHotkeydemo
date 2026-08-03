@@ -1,8 +1,9 @@
 ; =================================================================
 ; 领域层 - JoystickExecutor 手柄模式执行器
-; 版本: 1.0
+; 版本: 1.1
 ; 说明: 实现 IExecutor 接口，提供3种手柄执行模式
 ;       joystick_periodic / joystick_sequence / joystick_hold
+;       v1.1: 通过 IJoySender 抽象注入手柄发送能力，解除对 infrastructure/joy_sender 的直接依赖
 ; =================================================================
 
 #Requires AutoHotkey v2.0
@@ -13,7 +14,6 @@
 
 #Include "interfaces.ahk"
 #Include "joystick_input.ahk"
-#Include "../infrastructure/joy_sender.ahk"
 #Include "../infrastructure/error_system.ahk"
 
 class JoystickPeriodicExecutor extends IExecutor {
@@ -146,21 +146,33 @@ class JoystickHoldExecutor extends IExecutor {
 }
 
 class JoystickExecutor {
+    ; 注入的手柄发送器实例（IJoySender 实现），由 main.ahk InitDependencies 注入
+    static _joySender := ""
+
+    ; 依赖注入入口 - 设置手柄发送器实现
+    static SetJoySender(sender) {
+        this._joySender := sender
+    }
+
     static _SendJoyKey(key, state, sendMethod := "auto") {
+        ; 注入检查（位于 try 之外，确保未注入时异常向上传播而非被吞没）
+        if (this._joySender = "")
+            throw Error("JoySender 未注入，请先调用 SetJoySender", -1)
         try {
+            sender := this._joySender
             if JoystickInput.IsButton(key) {
                 btnNum := JoystickInput.GetButtonNum(key)
-                JoySender.SendBtn(btnNum, state = "down", sendMethod)
+                sender.SendBtn(btnNum, state = "down", sendMethod)
             } else if JoystickInput.IsPov(key) {
                 direction := JoystickInput.GetPovDirection(key)
                 if state = "down"
-                    JoySender.SendPov(direction, sendMethod)
+                    sender.SendPov(direction, sendMethod)
                 else
-                    JoySender.SendPov("CENTER", sendMethod)
+                    sender.SendPov("CENTER", sendMethod)
             } else if JoystickInput.IsTrigger(key) {
                 info := JoystickInput.GetAxisInfo(key)
                 value := state = "down" ? 100 : 0
-                JoySender.SendAxis(info["axis"], value, sendMethod)
+                sender.SendAxis(info["axis"], value, sendMethod)
             } else if JoystickInput.IsAxis(key) {
                 info := JoystickInput.GetAxisInfo(key)
                 value := 50
@@ -170,7 +182,7 @@ class JoystickExecutor {
                     else
                         value := 0
                 }
-                JoySender.SendAxis(info["axis"], value, sendMethod)
+                sender.SendAxis(info["axis"], value, sendMethod)
             }
         } catch as e {
             ErrorSystem.LogError("_SendJoyKey 失败: " key " " state " " e.Message, "ERROR", A_ThisFunc, A_LineNumber)
@@ -178,19 +190,22 @@ class JoystickExecutor {
     }
 
     static _ReleaseJoyKeys(group) {
+        if (this._joySender = "")
+            throw Error("JoySender 未注入，请先调用 SetJoySender", -1)
         try {
+            sender := this._joySender
             sendMethod := group.joySendMethod
             for k in group.joyKeys {
                 if JoystickInput.IsButton(k) {
-                    JoySender.SendBtn(JoystickInput.GetButtonNum(k), false, sendMethod)
+                    sender.SendBtn(JoystickInput.GetButtonNum(k), false, sendMethod)
                 } else if JoystickInput.IsPov(k) {
-                    JoySender.SendPov("CENTER", sendMethod)
+                    sender.SendPov("CENTER", sendMethod)
                 } else if JoystickInput.IsTrigger(k) {
                     info := JoystickInput.GetAxisInfo(k)
-                    JoySender.SendAxis(info["axis"], 0, sendMethod)
+                    sender.SendAxis(info["axis"], 0, sendMethod)
                 } else if JoystickInput.IsAxis(k) {
                     info := JoystickInput.GetAxisInfo(k)
-                    JoySender.SendAxis(info["axis"], 50, sendMethod)
+                    sender.SendAxis(info["axis"], 50, sendMethod)
                 }
             }
         } catch as e {

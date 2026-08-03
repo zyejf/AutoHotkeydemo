@@ -16,6 +16,8 @@
 #Include "../domain/mode_registry.ahk"
 #Include "../domain/skill_group.ahk"
 
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+
 ; 保留旧 TestRunner 对象以维持兼容性（不再使用）
 TestRunner := {
     passed: 0,

@@ -18,6 +18,8 @@
 #Include "../infrastructure/backup_core.ahk"
 #Include "../infrastructure/ipc_channel.ahk"
 
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+
 ; 保留旧版 T 对象声明以兼容，本文件不再使用
 T := {passed: 0, failed: 0, errors: []}
 

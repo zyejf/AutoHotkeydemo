@@ -23,6 +23,8 @@
 #Include "../application/config_service.ahk"
 #Include "../application/group_service.ahk"
 
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+
 class SilentReporter {
     failures := []
     passed := 0

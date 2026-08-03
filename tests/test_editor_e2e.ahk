@@ -20,6 +20,8 @@
 #Include "../application/group_service.ahk"
 #Include "../application/config_service.ahk"
 
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+
 TestReporter.BeginTest("test_editor_e2e.ahk")
 
 JSONLogger.Init()

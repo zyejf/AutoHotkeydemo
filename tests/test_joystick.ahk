@@ -1,5 +1,8 @@
 #Requires AutoHotkey v2.0
 #ErrorStdOut "UTF-8"
+#Warn VarUnset, OutputDebug
+#Warn Unreachable, OutputDebug
+#Warn LocalSameAsGlobal, Off
 
 #Include "../infrastructure/json_serializer.ahk"
 #Include "../infrastructure/json_parser.ahk"
@@ -8,6 +11,8 @@
 #Include "../domain/joystick_input.ahk"
 #Include "../domain/joystick_executor.ahk"
 #Include "../infrastructure/joy_sender.ahk"
+
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
 
 class JoyTestRunner {
     static total := 0

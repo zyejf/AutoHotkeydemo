@@ -6,6 +6,8 @@
 
 #Include "..\lib\ahk2_lib\WebView2\WebView2.ahk"
 
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+
 Persistent(true)
 
 global wvc, wv

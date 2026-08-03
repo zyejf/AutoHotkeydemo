@@ -1,6 +1,11 @@
+#Requires AutoHotkey v2.0
 #SingleInstance Force
-#Warn All, StdOut
+#ErrorStdOut "UTF-8"
+#Warn VarUnset, OutputDebug
+#Warn Unreachable, OutputDebug
+#Warn LocalSameAsGlobal, Off
 FileEncoding("UTF-8")
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
 global ahu := AutoHotUnitManager(AutoHotUnitCLIReporter())
 
 class AutoHotUnitSuite {

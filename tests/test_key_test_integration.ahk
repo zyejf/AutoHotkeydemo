@@ -25,6 +25,8 @@ Persistent(false)
 #Include "../domain/key_recorder.ahk"
 #Include "../domain/key_validator.ahk"
 
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+
 ErrorSystem.Init()
 ModeRegistry._Init()
 ConfigStore.InitDefaults()

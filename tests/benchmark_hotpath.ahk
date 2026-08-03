@@ -23,6 +23,8 @@
 #Include ..\domain\skill_manager.ahk
 #Include ..\infrastructure\ipc_channel.ahk
 
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+
 Fail_Output := true
 ResultReporter := ""
 ReporterEnabled := IsSet(ResultReporter)

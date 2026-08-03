@@ -21,6 +21,8 @@ Persistent(false)
 #Include "../domain/interfaces.ahk"
 #Include "../domain/key_recorder.ahk"
 
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+
 ErrorSystem.Init()
 JSONLogger.Init()
 DebugLogger.Init()

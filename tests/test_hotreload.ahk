@@ -23,6 +23,8 @@
 #Include "../application/group_service.ahk"
 #Include "../application/config_service.ahk"
 
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+
 LoadTestDependencies() {
     ConfigStore.InitDefaults()
     JSONLogger.Init()

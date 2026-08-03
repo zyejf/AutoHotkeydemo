@@ -27,6 +27,8 @@
 #Include "../application/config_service.ahk"
 #Include "../presentation/ui_manager.ahk"
 
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+
 JSONLogger.Init()
 DebugLogger.Init()
 ConfigStore.InitDefaults()

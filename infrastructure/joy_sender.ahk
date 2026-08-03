@@ -1,8 +1,10 @@
 ; =================================================================
 ; 基础设施层 - JoySender 手柄按键发送器
-; 版本: 1.0
+; 版本: 1.1
 ; 说明: 双通道手柄按键发送 — vJoy API (游戏兼容) + 直接Send (无需驱动)
 ;       auto 模式自动检测vJoy可用性并降级
+;       v1.1: 实现 domain/interfaces.ahk 的 IJoySender 抽象接口（依赖倒置）
+;             SendBtn/SendPov/SendAxis 改为实例方法以支持多态注入
 ; =================================================================
 
 #Requires AutoHotkey v2.0
@@ -12,8 +14,9 @@
 #Warn LocalSameAsGlobal, Off
 
 #Include "error_system.ahk"
+#Include "../domain/interfaces.ahk"
 
-class JoySender {
+class JoySender extends IJoySender {
     static _vJoyAvailable := -1
     static _vJoyDeviceId := 1
     static _vJoyDll := ""
@@ -54,7 +57,7 @@ class JoySender {
         return method
     }
 
-    static SendBtn(btnNum, state, method := "vjoy") {
+    SendBtn(btnNum, state, method := "vjoy") {
         resolved := JoySender.ResolveMethod(method)
         try {
             if resolved = "vjoy"
@@ -71,7 +74,7 @@ class JoySender {
         }
     }
 
-    static SendPov(direction, method := "vjoy") {
+    SendPov(direction, method := "vjoy") {
         resolved := JoySender.ResolveMethod(method)
         try {
             povVal := JoySender._PovDirectionToValue(direction)
@@ -84,7 +87,7 @@ class JoySender {
         }
     }
 
-    static SendAxis(axis, value, method := "vjoy") {
+    SendAxis(axis, value, method := "vjoy") {
         resolved := JoySender.ResolveMethod(method)
         try {
             if resolved = "vjoy"

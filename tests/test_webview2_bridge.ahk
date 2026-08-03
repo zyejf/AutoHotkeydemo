@@ -33,6 +33,8 @@ Persistent(false)
 #Include "../presentation/ui_manager.ahk"
 #Include "../presentation/webview2_manager.ahk"
 
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+
 TestReporter.BeginTest("test_webview2_bridge.ahk")
 
 ; ============================================================

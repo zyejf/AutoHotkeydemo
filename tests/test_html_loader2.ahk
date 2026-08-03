@@ -4,6 +4,8 @@
 #Warn Unreachable, OutputDebug
 #Warn LocalSameAsGlobal, Off
 
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+
 Persistent(true)
 
 g := Gui("+Resize", "编辑分组 - 深色主题")

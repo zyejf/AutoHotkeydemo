@@ -109,9 +109,14 @@ class BackupCore {
         try {
             absBackupPath := (StrLen(backupPath) > 1 && SubStr(backupPath, 2, 1) = ":") ? backupPath : A_ScriptDir "\" backupPath
             absBackupDir := (StrLen(BackupCore.backupDir) > 1 && SubStr(BackupCore.backupDir, 2, 1) = ":") ? BackupCore.backupDir : A_ScriptDir "\" BackupCore.backupDir
-            cleanPath := RegExReplace(absBackupPath, "\.\.", "")
-            cleanDir := RegExReplace(absBackupDir, "\.\.", "")
-            if SubStr(cleanPath, 1, StrLen(cleanDir)) != cleanDir {
+            ; C4 安全修复：路径遍历防护 - 检测到 .. 直接拒绝（拒绝式检查）
+            ; 不使用 RegExReplace 删除式过滤（可被 .... 等输入绕过）
+            if InStr(absBackupPath, "..") || InStr(absBackupDir, "..") {
+                JSONLogger.Log("ERROR", "删除备份失败: 路径包含非法字符",
+                              Map("module", "BackupCore"))
+                return false
+            }
+            if SubStr(absBackupPath, 1, StrLen(absBackupDir)) != absBackupDir {
                 JSONLogger.Log("ERROR", "删除备份失败: 路径不在备份目录内",
                               Map("module", "BackupCore"))
                 return false

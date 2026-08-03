@@ -23,6 +23,8 @@
 #Include "../application/group_service.ahk"
 #Include "../application/config_service.ahk"
 
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+
 ; =================================================================
 ; 依赖注入初始化
 ; =================================================================

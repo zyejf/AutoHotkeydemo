@@ -1,5 +1,8 @@
 #Requires AutoHotkey v2.0
 #ErrorStdOut "UTF-8"
+#Warn VarUnset, OutputDebug
+#Warn Unreachable, OutputDebug
+#Warn LocalSameAsGlobal, Off
 
 class MigrationLogger {
     static _logFile := A_ScriptDir "\logs\migrations.log"

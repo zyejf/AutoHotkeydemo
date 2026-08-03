@@ -128,3 +128,31 @@ class IEventHook {
         throw Error("IEventHook.OnEvent: 抽象方法，子类必须实现")
     }
 }
+
+; =================================================================
+; 手柄发送接口 - IJoySender
+; 契约:
+;   SendBtn(btn, state, method)    - 发送手柄按钮状态
+;   SendPov(direction, method)     - 发送 POV（方向键）状态
+;   SendAxis(axis, value, method)  - 发送轴值
+;   ReleaseAll()                   - 释放所有手柄输入
+; 说明: 领域层通过此抽象依赖手柄发送能力
+;       具体实现由基础设施层 JoySender 注入（依赖倒置）
+; =================================================================
+class IJoySender {
+    SendBtn(btn, state, method := "vjoy") {
+        throw Error("IJoySender.SendBtn: 抽象方法，子类必须实现")
+    }
+
+    SendPov(direction, method := "vjoy") {
+        throw Error("IJoySender.SendPov: 抽象方法，子类必须实现")
+    }
+
+    SendAxis(axis, value, method := "vjoy") {
+        throw Error("IJoySender.SendAxis: 抽象方法，子类必须实现")
+    }
+
+    ReleaseAll() {
+        throw Error("IJoySender.ReleaseAll: 抽象方法，子类必须实现")
+    }
+}

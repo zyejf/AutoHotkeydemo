@@ -60,7 +60,11 @@ class WebView2Manager extends IEventHook {
     static _InitWebView2() {
         _DebugLog("WebView2Manager._InitWebView2 START")
         try {
-            EnvSet("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--remote-debugging-port=9222")
+            ; C3 安全修复：仅在非编译模式且显式开启调试标志时设置远程调试端口
+            ; 编译发布版本（A_IsCompiled = true）强制不开启，防止本机进程通过 CDP 注入恶意 JS
+            if (!A_IsCompiled && EnvGet("ASD_DEBUG_WEBVIEW2") = "1") {
+                EnvSet("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--remote-debugging-port=9222")
+            }
             wvc := WebView2.CreateControllerAsync(WebView2Manager.mainGui.Hwnd).await2()
             WebView2Manager.wvc := wvc
             WebView2Manager.wv := wvc.CoreWebView2
@@ -1168,8 +1172,10 @@ class WebView2Manager extends IEventHook {
             absBase := (StrLen(basePath) > 1 && SubStr(basePath, 2, 1) = ":") ? basePath : A_ScriptDir "\" basePath
             absTarget := (StrLen(targetPath) > 1 && SubStr(targetPath, 2, 1) = ":") ? targetPath : A_ScriptDir "\" targetPath
 
-            absBase := RegExReplace(absBase, "\.\.", "")
-            absTarget := RegExReplace(absTarget, "\.\.", "")
+            ; C4 安全修复：路径遍历防护 - 检测到 .. 直接拒绝（拒绝式检查）
+            ; 不使用 RegExReplace 删除式过滤（可被 .... 等输入绕过）
+            if InStr(absBase, "..") || InStr(absTarget, "..")
+                return JSONSerializer.Stringify(Map("error", "路径不在备份目录内"))
 
             if SubStr(absBase, 1, StrLen(backupDir)) != backupDir || SubStr(absTarget, 1, StrLen(backupDir)) != backupDir
                 return JSONSerializer.Stringify(Map("error", "路径不在备份目录内"))

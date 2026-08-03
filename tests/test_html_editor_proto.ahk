@@ -7,6 +7,8 @@
 #Include "../infrastructure/json_parser.ahk"
 #Include "../infrastructure/json_serializer.ahk"
 
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+
 class HTMLEditor {
     static gui := ""
     static wb := ""

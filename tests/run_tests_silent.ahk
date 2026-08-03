@@ -12,6 +12,8 @@
 #Include "../domain/mode_registry.ahk"
 #Include "../domain/skill_group.ahk"
 
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+
 class SilentReporter {
     failures := []
     passed := 0

@@ -87,6 +87,9 @@ InitDependencies() {
     SkillManager.OnExitCallback := () => WebView2Manager._StopAutoUpdate()
     SkillManager.RegisterEventHook(WebView2Manager)
 
+    ; 注入手柄发送器实现（依赖倒置：领域层通过 IJoySender 抽象使用）
+    JoystickExecutor.SetJoySender(JoySender())
+
     JoyHotkeyManager.Init(1)
 }
 

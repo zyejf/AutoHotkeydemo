@@ -4,6 +4,8 @@
 #Warn Unreachable, OutputDebug
 #Warn LocalSameAsGlobal, Off
 
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+
 DarkColors := Map(
     "Background", 0x1E1E2E,
     "Surface",    0x2D2D44,

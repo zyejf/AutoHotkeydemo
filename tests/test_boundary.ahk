@@ -20,6 +20,8 @@
 #Include "../infrastructure/config_store.ahk"
 #Include "../infrastructure/config_validator.ahk"
 
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+
 TestReporter.BeginTest("test_boundary.ahk")
 
 ; =================================================================
