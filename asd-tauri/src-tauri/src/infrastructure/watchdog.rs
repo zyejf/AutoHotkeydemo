@@ -616,11 +616,37 @@ pub fn cleanup_stale_executor_processes() {
     }
 }
 
+/// 构建 panic hook 闭包（可测试，不修改全局状态）。
+///
+/// 接受清理回调和原始 hook，返回组合后的 panic hook 闭包：
+/// 先执行 cleanup（清理子进程），再委托给 original_hook（输出默认 panic 信息）。
+///
+/// 此函数不调用 `std::panic::set_hook`，可在测试中安全调用验证构建逻辑（R3）。
+/// `register_panic_hook` 使用此函数构建闭包后注册到全局。
+fn build_panic_hook_closure<F>(
+    cleanup: F,
+    original_hook: Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Send + Sync + 'static>,
+) -> Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Send + Sync + 'static>
+where
+    F: Fn() + Send + Sync + 'static,
+{
+    Box::new(move |info| {
+        cleanup();
+        original_hook(info);
+    })
+}
+
 /// 注册 panic hook，确保主进程崩溃时终止所有子进程。
 ///
 /// 使用 `std::sync::Once` 保证幂等，多次调用安全。
 /// panic 时调用 `cleanup_stale_executor_processes()` 终止遗留子进程，
 /// 然后调用原始 panic hook 输出默认信息。
+///
+/// # R3 可测试性
+///
+/// 闭包构建逻辑已提取到 `build_panic_hook_closure`（纯函数，不修改全局状态），
+/// 测试通过该函数验证"先 cleanup 后 original_hook"的行为，
+/// 无需直接调用 `register_panic_hook`（后者会修改全局 Once 状态）。
 ///
 /// # I36 补偿机制
 ///
@@ -636,12 +662,8 @@ pub fn register_panic_hook() {
 
     HOOK_REGISTERED.call_once(|| {
         let original_hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            // 在 panic 时清理遗留子进程
-            cleanup_stale_executor_processes();
-            // 调用原始 panic hook 输出默认信息
-            original_hook(info);
-        }));
+        let new_hook = build_panic_hook_closure(cleanup_stale_executor_processes, original_hook);
+        std::panic::set_hook(new_hook);
         tracing::debug!("panic hook 已注册，崩溃时将清理子进程");
     });
 }
@@ -1075,6 +1097,54 @@ mod tests {
         assert!(
             STALE_PROCESS_NAMES.iter().any(|&n| n == "asd_executor.exe"),
             "STALE_PROCESS_NAMES 必须包含项目专用执行器 asd_executor.exe"
+        );
+    }
+
+    // =================================================================
+    // R3: register_panic_hook 可测试不污染全局 hook — 测试
+    // =================================================================
+
+    /// 验证 build_panic_hook_closure 构建的闭包在 panic 时调用 cleanup 回调。
+    ///
+    /// 此测试不直接调用 register_panic_hook()（避免污染全局 Once 状态），
+    /// 而是通过 build_panic_hook_closure 构建 hook 闭包后临时注册验证行为，
+    /// 结束后恢复原始 hook（R3）。
+    #[test]
+    fn test_build_panic_hook_closure_calls_cleanup_on_panic() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Arc, Mutex};
+
+        // 静态 Mutex 确保不与其他修改 panic hook 的测试并行
+        static PANIC_HOOK_GUARD: Mutex<()> = Mutex::new(());
+        let _guard = PANIC_HOOK_GUARD.lock().unwrap();
+
+        let cleanup_called = Arc::new(AtomicBool::new(false));
+        let cleanup_clone = cleanup_called.clone();
+
+        // 构建测试 hook：cleanup 设置标志，original 为空操作
+        let hook = build_panic_hook_closure(
+            move || {
+                cleanup_clone.store(true, Ordering::SeqCst);
+            },
+            Box::new(|_info: &std::panic::PanicHookInfo<'_>| {}),
+        );
+
+        // 保存原始 hook，临时注册测试 hook
+        let saved_hook = std::panic::take_hook();
+        std::panic::set_hook(hook);
+
+        // 触发 panic
+        let result = std::panic::catch_unwind(|| {
+            panic!("R3 test panic");
+        });
+
+        // 恢复原始 hook
+        std::panic::set_hook(saved_hook);
+
+        assert!(result.is_err(), "catch_unwind 应捕获 panic");
+        assert!(
+            cleanup_called.load(Ordering::SeqCst),
+            "panic hook 应调用 cleanup 回调"
         );
     }
 }
