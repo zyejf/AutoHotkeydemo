@@ -38,13 +38,14 @@ class ConfigStore {
             return false
 
         if config.Has("GroupSettings") {
-            this._groupSettings := config["GroupSettings"]
+            ; I15: 深拷贝 GroupSettings，避免外部修改影响内部状态（与 Load 对称）
+            this._groupSettings := deepclone(config["GroupSettings"])
             this._RepairEmptyArrays(this._groupSettings)
         }
         if config.Has("CONTROL_HOTKEYS")
-            this._controlHotkeys := config["CONTROL_HOTKEYS"]
+            this._controlHotkeys := deepclone(config["CONTROL_HOTKEYS"])
         if config.Has("HoldSettings")
-            this._holdSettings := config["HoldSettings"]
+            this._holdSettings := deepclone(config["HoldSettings"])
 
         for ck, cv in config {
             if ck != "GroupSettings" && ck != "CONTROL_HOTKEYS" && ck != "HoldSettings" {
@@ -117,7 +118,9 @@ class ConfigStore {
     }
 
     static DeleteGroupConfig(groupId) {
-        this._groupSettings.Delete(groupId)
+        ; I7: 先检查 groupId 是否存在，避免 Map.Delete 对不存在的键抛异常
+        if this._groupSettings.Has(groupId)
+            this._groupSettings.Delete(groupId)
     }
 
     static HasGroup(groupId) {

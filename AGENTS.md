@@ -379,6 +379,9 @@ OnError((e, mode) => (ErrorSystem.LogError(e.Message, "ERROR", "", 0), true))
 ; 返回 true 阻止默认错误对话框弹出
 ```
 
+> **例外：MemoryError 等不可恢复错误**
+> `ErrorSystem.HandleError` 对 `MemoryError` 返回 `0`（而非 `true`），允许系统显示默认错误对话框。这是有意设计：MemoryError 表示内存耗尽，脚本无法继续可靠执行，让系统感知致命错误比静默吞掉更安全。参见 `infrastructure/error_system.ahk` 第 82-85 行。
+
 #### 测试文件额外必须包含
 
 ```autohotkey
