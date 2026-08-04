@@ -251,7 +251,17 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
   - 根目录保留 22 个核心文件：`AutoHotUnit.ahk`、`run_all_tests.ahk`、`run_tests.ahk`、`run_tests.ps1`、`test_result_reporter.ahk`、`test_joy_hotkey_manager_ahu.ahk` + 15 个核心测试文件（`test_application`/`test_presentation`/`test_webview2_bridge`/`test_error_system`/`test_domain`/`test_infrastructure`/`test_boundary`/`test_error_captor`/`test_integration_error_system`/`test_joystick`/`test_joy_hotkey_manager`/`test_key_recorder`/`test_key_test_integration`/`test_key_validator`）+ `config.json` + `TEST_STRATEGY.md`
   - `tests/archive/`：归档了 39 个调试/原型/旧版本文件（HTML 原型 `test_html_*`、WebView2 原型 `test_wv2_*`/`test_webview2_proto`、编号测试 `test_*_c*`、full 旧版本 `test_*_full`、bug 复现脚本 `run_bug_repro`/`test_bug_reproduction`、基准 `benchmark_hotpath` 等），不参与 `run_all_tests.ahk` 运行
   - `tests/test_ahk_executor/`：AHK 执行器测试（57 套件，详见下方）
+  - `tests/fixtures/`：AHK v2 测试固件目录（v4.1 新增），存放可复用的测试数据文件（如 `sample_config.json` 标准配置样本覆盖 7 种模式、`import_test_data.json` 导入测试场景数据）
   - 删除了 25 个 `.txt`/`.log` 调试输出文件（stderr/stdout 重定向、`bug_repro_results`、`debug_output`、`test_results.log` 等）
+
+#### AHK v2 测试固件管理
+
+- 所有 AHK v2 测试固件存放于 `tests/fixtures/`（如 `tests/fixtures/sample_config.json`）
+- 测试中通过 `FileRead(A_ScriptDir "\fixtures\<filename>", "UTF-8")` 加载固件，再用 `JSONParser.Parse()` 解析
+- 禁止硬编码可复用的测试数据，应提取为独立 fixture 文件
+- 固件命名：配置样本 `<场景>_config.json`、测试数据 `<场景>_data.json`
+- 新增固件须在本节登记说明
+- 与 Rust/Tauri 的 `asd-tauri/tests/fixtures/` 保持对等的管理规范
 
 #### Rust/Tauri 测试
 

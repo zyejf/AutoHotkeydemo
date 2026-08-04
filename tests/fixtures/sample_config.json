@@ -1,0 +1,69 @@
+{
+  "_comment": "AHK v2 测试标准配置固件 - 覆盖 7 种执行模式的标准样本",
+  "_usage": "测试中通过 FileRead(A_ScriptDir '\\fixtures\\sample_config.json', 'UTF-8') 加载，再用 JSONParser.Parse 解析",
+  "CONTROL_HOTKEYS": {
+    "emergency": "f12",
+    "releaseAllHolds": "^r",
+    "showStatus": "^0",
+    "toggleAll": "^1",
+    "toggleHoldMode": "^h"
+  },
+  "GroupSettings": {
+    "periodic_sample": {
+      "hotkey": "F1",
+      "mode": "periodic",
+      "keys": ["a", "b"],
+      "intervals": [50, 100]
+    },
+    "sequence_sample": {
+      "hotkey": "F2",
+      "mode": "sequence",
+      "keys": ["1", "2", "3"],
+      "delays": [100, 100, 100]
+    },
+    "hold_sample": {
+      "hotkey": "F3",
+      "mode": "hold",
+      "holdKeys": ["Shift"],
+      "holdMode": "continuous",
+      "holdDuration": 700
+    },
+    "enhanced_periodic_sample": {
+      "hotkey": "F4",
+      "mode": "enhanced_periodic",
+      "pressKeys": ["space", "1"],
+      "intervals": [50, 100]
+    },
+    "enhanced_sequence_sample": {
+      "hotkey": "F5",
+      "mode": "enhanced_sequence",
+      "pressKeys": ["1", "2"],
+      "pressDelays": [50, 50]
+    },
+    "enhanced_hybrid_sample": {
+      "hotkey": "F6",
+      "mode": "enhanced_hybrid",
+      "groups": [
+        {"type": "periodic", "pressKeys": ["Space"], "intervals": [100]},
+        {"type": "sequence", "pressKeys": ["1", "2"], "delays": [100, 100], "seqInterval": 100}
+      ],
+      "holdKeys": ["Shift"],
+      "holdMode": "continuous"
+    },
+    "hybrid_sample": {
+      "hotkey": "F7",
+      "mode": "hybrid",
+      "groups": [
+        {"type": "periodic", "pressKeys": ["Space"], "intervals": [50]},
+        {"type": "sequence", "pressKeys": ["1", "2"], "delays": [100, 100]}
+      ]
+    }
+  },
+  "HoldSettings": {
+    "allowOverlap": false,
+    "checkInterval": 50,
+    "debounceDelay": 20,
+    "pressSpeed": 80,
+    "releaseOnEmergency": true
+  }
+}

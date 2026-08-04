@@ -1,0 +1,26 @@
+{
+  "_comment": "AHK v2 导入功能测试数据固件 - 提取自 run_all_tests.ahk ConfigImportSecurityTests 中重复的 JSON 字符串",
+  "_usage": "测试中通过 FileRead 加载后用 JSONParser.Parse 解析，按场景名取对应 json 字段",
+  "cases": {
+    "single_periodic_group": {
+      "description": "单个 periodic 分组的标准导入配置",
+      "json": "{\"GroupSettings\":{\"g1\":{\"mode\":\"periodic\",\"hotkey\":\"F1\",\"keys\":[\"a\"],\"intervals\":[50]}}}"
+    },
+    "empty_group_settings": {
+      "description": "空 GroupSettings 配置（用于回滚测试）",
+      "json": "{\"GroupSettings\":{}}"
+    },
+    "unicode_group_name": {
+      "description": "包含中文组名的导入配置",
+      "json": "{\"GroupSettings\":{\"测试组\":{\"mode\":\"periodic\",\"hotkey\":\"F1\"}}}"
+    },
+    "multi_group": {
+      "description": "包含多个分组的导入配置",
+      "json": "{\"GroupSettings\":{\"g1\":{\"mode\":\"periodic\",\"hotkey\":\"F1\",\"keys\":[\"a\"],\"intervals\":[50]},\"g2\":{\"mode\":\"sequence\",\"hotkey\":\"F2\",\"keys\":[\"1\",\"2\"],\"delays\":[100,100]}}}"
+    },
+    "non_map_config": {
+      "description": "非 Map 类型配置（应被拒绝）",
+      "json": "[1, 2, 3]"
+    }
+  }
+}

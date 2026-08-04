@@ -23,6 +23,11 @@ global g_testFailed := 0
 ; 初始化
 ; =================================================================
 ErrorSystem.logFile := A_ScriptDir "\logs\test_errors.log"
+; 偏离标准 OnError 模板说明（合理偏差）：
+; 标准测试模板要求 OnError 使用 FileAppend 输出 RUNTIME_ERROR 到 stdout。
+; 但本测试专测 ErrorSystem 的错误接管功能，需使用 ErrorSystem_HandleError 回调
+; 以验证 ErrorSystem.LogError 的实际行为（错误计数、日志写入）。
+; 使用标准 FileAppend 模式将无法验证 ErrorSystem 自身的错误处理逻辑。
 OnError(ErrorSystem_HandleError, -1)
 
 ; =================================================================
