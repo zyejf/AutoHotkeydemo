@@ -178,6 +178,9 @@ class ConfigValidator {
                     ri := _GetProp(config, "repeatInterval")
                     if IsNumber(ri) && Number(ri) < 10
                         errors.Push(Map("type", "ERROR", "message", "分组" id " repeatInterval=" ri " 过小，最小 10ms"))
+                    ; M19: 数值上限检查，防止超大数值导致定时器间隔错误
+                    if IsNumber(ri) && Number(ri) > 86400000
+                        errors.Push(Map("type", "ERROR", "message", "分组" id " repeatInterval=" ri " 过大，最大 86400000ms(24小时)"))
                 }
 
             case "enhanced_periodic":
@@ -209,6 +212,9 @@ class ConfigValidator {
                     si := _GetProp(config, "seqInterval")
                     if IsNumber(si) && Number(si) < 10
                         errors.Push(Map("type", "ERROR", "message", "分组" id " seqInterval=" si " 过小，最小 10ms"))
+                    ; M19: 数值上限检查，防止超大数值导致定时器间隔错误
+                    if IsNumber(si) && Number(si) > 86400000
+                        errors.Push(Map("type", "ERROR", "message", "分组" id " seqInterval=" si " 过大，最大 86400000ms(24小时)"))
                 }
 
             case "joystick_periodic":
@@ -240,6 +246,9 @@ class ConfigValidator {
                     hd := _GetProp(config, "holdDuration")
                     if IsNumber(hd) && Number(hd) < 50
                         errors.Push(Map("type", "ERROR", "message", "分组" id " holdDuration=" hd " 过小，最小 50ms"))
+                    ; M19: 数值上限检查，防止超大数值导致定时器间隔错误
+                    if IsNumber(hd) && Number(hd) > 86400000
+                        errors.Push(Map("type", "ERROR", "message", "分组" id " holdDuration=" hd " 过大，最大 86400000ms(24小时)"))
                 }
 
             default:

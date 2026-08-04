@@ -755,6 +755,42 @@ class ConfigValidatorNumericLimitTests extends AutoHotUnitSuite {
                 this.assert.fail("恰好等于上限的 intervals 不应报过大错误")
         }
     }
+
+    ; M19: repeatInterval 超过上限（86400000ms=24小时）应产生验证错误
+    Test_M19_RepeatInterval_ExceedMaxLimit_HasError() {
+        config := Map("hotkey", "F1", "mode", "hold", "holdKeys", ["a"], "repeatInterval", 86400001)
+        errors := ConfigValidator._ValidateModeFields("1", "hold", config)
+        found := false
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                found := true
+        }
+        this.assert.isTrue(found)
+    }
+
+    ; M19: seqInterval 超过上限（86400000ms=24小时）应产生验证错误
+    Test_M19_SeqInterval_ExceedMaxLimit_HasError() {
+        config := Map("hotkey", "F1", "mode", "enhanced_hybrid", "groups", [Map("type", "periodic", "pressKeys", ["a"], "intervals", [100])], "seqInterval", 86400001)
+        errors := ConfigValidator._ValidateModeFields("1", "enhanced_hybrid", config)
+        found := false
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                found := true
+        }
+        this.assert.isTrue(found)
+    }
+
+    ; M19: holdDuration 超过上限（86400000ms=24小时）应产生验证错误
+    Test_M19_HoldDuration_ExceedMaxLimit_HasError() {
+        config := Map("hotkey", "F1", "mode", "joystick_hold", "joyKeys", ["Joy1"], "holdDuration", 86400001)
+        errors := ConfigValidator._ValidateModeFields("1", "joystick_hold", config)
+        found := false
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                found := true
+        }
+        this.assert.isTrue(found)
+    }
 }
 
 class WebView2TempFileNamingTests extends AutoHotUnitSuite {
