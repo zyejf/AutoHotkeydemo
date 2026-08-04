@@ -86,3 +86,39 @@ describe('extractErrorMessage — 边界情况使用 fallback', () => {
     assert.equal(extractErrorMessage({}), '未知错误');
   });
 });
+
+// -----------------------------------------------------------------
+// 空 message 但有 kind 时保留 kind 信息（Minor #3 边界修复）
+// -----------------------------------------------------------------
+// 背景：tauri.js 的 invoke 错误捕获中，String(err.message ?? '') 在
+// err.message 为空字符串时得到 ''，extractErrorMessage 因 length > 0
+// 检查失败而走 fallback，丢失了 kind 信息。修复后 fallback 路径应
+// 包含 kind，避免完全丢失错误上下文。
+describe('extractErrorMessage — 空 message 但有 kind 时保留 kind 信息', () => {
+  test('空字符串 message + Config kind 返回 [Config]', () => {
+    assert.equal(
+      extractErrorMessage({ kind: 'Config', message: '' }),
+      '[Config]'
+    );
+  });
+
+  test('空字符串 message + Ipc kind 返回 [Ipc]', () => {
+    assert.equal(
+      extractErrorMessage({ kind: 'Ipc', message: '' }),
+      '[Ipc]'
+    );
+  });
+
+  test('缺少 message 属性但有 kind 时返回 [kind]', () => {
+    assert.equal(
+      extractErrorMessage({ kind: 'Internal' }),
+      '[Internal]'
+    );
+  });
+
+  test('有 kind 时不应返回 [object Object]', () => {
+    const result = extractErrorMessage({ kind: 'Config', message: '' });
+    assert.notEqual(result, '[object Object]');
+    assert.ok(!result.includes('[object Object]'));
+  });
+});

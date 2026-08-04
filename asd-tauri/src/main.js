@@ -4,11 +4,18 @@ import * as api from './api.js';
  * 从错误对象提取可读消息。
  * 兼容 AppError 结构化序列化 {kind, message}（I34 之后）与 Error 实例、字符串，
  * 避免 "+ e" 拼接得到 "[object Object]"（R2）。
+ *
+ * ⚠️ 同步说明：本函数与 e2e/helpers/error_utils.js 的 extractErrorMessage 逻辑一致，
+ * 需同步维护。两者运行环境不同（本函数运行于前端浏览器 WebView，extractErrorMessage
+ * 运行于 Node.js E2E 测试环境），且 main.js 不使用 ES module（无法 import），
+ * 故无法共享同一实现。修改任一处时必须同步更新另一处。
  */
-function errMsg(e) {
+function errMsg(e, defaultMsg) {
   if (e != null && typeof e.message === 'string' && e.message.length > 0) return e.message;
   if (typeof e === 'string' && e.length > 0) return e;
-  return '未知错误';
+  // 空 message 但有 kind 时保留 kind 信息（与 extractErrorMessage 的 buildKindFallback 保持同步，Minor #3）
+  if (e != null && typeof e === 'object' && typeof e.kind === 'string' && e.kind.length > 0) return '[' + e.kind + ']';
+  return defaultMsg || '未知错误';
 }
 
 var _safeStorage = {
@@ -275,7 +282,7 @@ function batchToggleSelected(activate) {
   var ids = Object.keys(_selectedGroups); if (ids.length === 0) return;
   api.batchToggleGroups(ids, activate).then(function(r) {
     showToast("批量操作完成", "success"); _selectedGroups = {}; updateBatchUI(); loadGroupsFromTauri();
-  }).catch(function(e) { showToast(e.message || "批量操作失败", "error"); });
+  }).catch(function(e) { showToast(errMsg(e, "批量操作失败"), "error"); });
 }
 
 function batchDeleteSelected() {
@@ -284,7 +291,7 @@ function batchDeleteSelected() {
     api.batchDeleteGroups(ids).then(function(r) {
       _fullConfig = null;
       showToast("批量删除完成", "success"); _selectedGroups = {}; updateBatchUI(); loadGroupsFromTauri(); refreshGroupList();
-    }).catch(function(e) { showToast(e.message || "批量删除失败", "error"); });
+    }).catch(function(e) { showToast(errMsg(e, "批量删除失败"), "error"); });
   });
 }
 
@@ -331,7 +338,7 @@ function compareConfigs() {
   api.compareConfigs(basePath, targetPath).then(function(r) {
     if (!r) { showToast("比较失败", "error"); return; }
     try { var result = typeof r === "string" ? JSON.parse(r) : r; if (result.error) { showToast(result.error, "error"); return; } var diffs = result.diffs || []; var el = document.getElementById("diffResult"); if (!el) return; if (diffs.length === 0) { el.innerHTML = '<div style="color:var(--success);">两个配置完全相同</div>'; return; } var html = ''; for (var i = 0; i < diffs.length; i++) { var d = diffs[i]; if (d.type === 'added') html += '<div style="color:var(--success);">+ 新增分组: '+escHtml(d.id)+'</div>'; else if (d.type === 'removed') html += '<div style="color:var(--danger);">- 删除分组: '+escHtml(d.id)+'</div>'; else if (d.type === 'changed') html += '<div style="color:var(--warning);">~ '+escHtml(d.id)+'.'+escHtml(d.field)+': '+escHtml(d.oldValue)+' → '+escHtml(d.newValue)+'</div>'; } el.innerHTML = html; } catch(ex) { showToast("解析结果失败", "error"); }
-  }).catch(function(e) { showToast(e.message || "比较失败", "error"); });
+  }).catch(function(e) { showToast(errMsg(e, "比较失败"), "error"); });
 }
 
 var _currentTheme = _safeStorage.get("ahk_theme", "dark");
@@ -726,7 +733,7 @@ function renderBackupList() {
   container.onclick = function(e) { var btn = e.target.closest('[data-action]'); if (!btn) return; var action = btn.getAttribute('data-action'); var backupName = btn.getAttribute('data-backup'); if (action === 'restore') restoreBackup(backupName); else if (action === 'delete') deleteBackup(backupName); };
 }
 
-function createBackup() { api.createBackup().then(function(result) { showToast("备份已创建","success"); loadBackupsFromTauri(); }).catch(function(e) { showToast(e.message || "备份失败","error"); }); }
+function createBackup() { api.createBackup().then(function(result) { showToast("备份已创建","success"); loadBackupsFromTauri(); }).catch(function(e) { showToast(errMsg(e, "备份失败"),"error"); }); }
 function restoreBackup(name) { confirmDialog("恢复备份", "恢复将覆盖当前所有配置，确定继续？", function() { api.restoreBackup(name).then(function() { _fullConfig = null; showToast("已恢复备份: "+name,"success"); loadGroupsFromTauri(); }).catch(function(e) { showToast(e.message || "恢复失败","error"); }); }); }
 function deleteBackup(name) { api.deleteBackup(name).then(function() { showToast("已删除备份: "+name,"success"); loadBackupsFromTauri(); }).catch(function(e) { showToast(e.message || "删除失败","error"); }); }
 
@@ -764,7 +771,7 @@ function confirmDialog(title, message, onConfirm) {
   overlay.addEventListener("click", function(e) { if (e.target === overlay) document.body.removeChild(overlay); });
 }
 
-function exportConfig() { api.exportConfig().then(function(result) { showToast("配置已导出","success"); }).catch(function(e) { showToast(e.message || "导出失败","error"); }); }
+function exportConfig() { api.exportConfig().then(function(result) { showToast("配置已导出","success"); }).catch(function(e) { showToast(errMsg(e, "导出失败"),"error"); }); }
 function importConfig() { document.getElementById("importFileInput").click(); }
 
 function emergencyStop() { api.emergencyRelease().then(function() { showToast("紧急停止已执行","success"); loadGroupsFromTauri(); }).catch(function(e) { showToast("紧急停止失败: "+errMsg(e),"error"); }); }
@@ -1052,7 +1059,7 @@ function stopRecording() {
 
 function exportRecording() {
   var mode = document.getElementById("exportMode").value; var dur = parseInt(document.getElementById("exportKeyPressDuration").value) || 15;
-  api.exportRecording(mode, dur).then(function(r) { showToast("导出功能开发中","warning"); }).catch(function(e) { showToast(e.message || "导出失败","error"); });
+  api.exportRecording(mode, dur).then(function(r) { showToast("导出功能开发中","warning"); }).catch(function(e) { showToast(errMsg(e, "导出失败"),"error"); });
 }
 
 function clearRecording() {
@@ -1104,7 +1111,7 @@ function stopValidation() {
     _isValidating = false; document.getElementById("valStatus").textContent = "已完成"; document.getElementById("valStatus").style.color = "#4CAF50";
     document.querySelector('[data-action="startValidation"]').disabled = false; document.querySelector('[data-action="stopValidation"]').disabled = true;
     showToast("验证完成，共 " + _valEvents.length + " 个事件");
-  }).catch(function(e) { resetValUI(); showToast(e.message || "停止验证失败","error"); });
+  }).catch(function(e) { resetValUI(); showToast(errMsg(e, "停止验证失败"),"error"); });
 }
 
 function resetValUI() {

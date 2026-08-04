@@ -11,11 +11,31 @@
 //   1. AppError 结构化对象 {kind, message}（I34 之后）
 //   2. Error 实例（message 属性）
 //   3. 字符串（旧格式或手动抛出）
-//   4. null/undefined/空对象（返回 fallback）
+//   4. message 为空但有 kind 的 AppError（返回 [kind]，Minor #3）
+//   5. null/undefined/空对象（返回 fallback）
 //
 // 单元测试：helpers/__tests__/error_utils.test.js（node:test）
 // 运行命令：node --test helpers/__tests__/error_utils.test.js
 // =================================================================
+
+/**
+ * 构建 fallback：当 AppError 的 message 为空时保留 kind 信息（Minor #3）。
+ *
+ * 背景：tauri.js 的 invoke 错误捕获中，errorObj.message = String(err.message ?? '')。
+ * 当 err.message 为空字符串时，extractErrorMessage 因 length > 0 检查失败而走 fallback，
+ * 丢失了 kind 信息。此函数构建包含 kind 的 fallback（如 "[Config]"），确保空 message
+ * 时错误类型不丢失。
+ *
+ * @param {unknown} err - 错误对象，可能是 {kind, message}、null、undefined 等
+ * @param {string} fallback - 无法提取 kind 时的默认消息
+ * @returns {string} `[kind]` 格式的消息，或 fallback
+ */
+export function buildKindFallback(err, fallback) {
+  if (err != null && typeof err === 'object' && typeof err.kind === 'string' && err.kind.length > 0) {
+    return '[' + err.kind + ']';
+  }
+  return fallback;
+}
 
 /**
  * 从多种错误形态提取可读消息。
@@ -33,6 +53,6 @@ export function extractErrorMessage(err, fallback = '未知错误') {
   if (typeof err === 'string' && err.length > 0) {
     return err;
   }
-  // 3. 其他形态（null/undefined/空对象/数字等）返回 fallback
-  return fallback;
+  // 3. AppError 结构化对象但 message 为空：保留 kind 信息避免完全丢失上下文（Minor #3）
+  return buildKindFallback(err, fallback);
 }
