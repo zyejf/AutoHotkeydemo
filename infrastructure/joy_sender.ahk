@@ -36,7 +36,9 @@ class JoySender extends IJoySender {
                 JoySender._vJoyDll := "vJoyInterface.dll"
                 return true
             }
-        } catch {
+        } catch as e {
+            ; best-effort: vJoy DLL 加载失败时尝试下一个路径
+            OutputDebug("ASD [WARN] JoySender._DetectVJoy: " e.Message " at line " e.Line)
         }
         try {
             hModule := DllCall("LoadLibrary", "Str", A_WinDir "\System32\vJoyInterface.dll", "Ptr")
@@ -44,7 +46,9 @@ class JoySender extends IJoySender {
                 JoySender._vJoyDll := A_WinDir "\System32\vJoyInterface.dll"
                 return true
             }
-        } catch {
+        } catch as e {
+            ; best-effort: vJoy DLL 加载失败时返回 false
+            OutputDebug("ASD [WARN] JoySender._DetectVJoy: " e.Message " at line " e.Line)
         }
         return false
     }

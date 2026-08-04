@@ -151,7 +151,9 @@ class SkillManager {
         for action, oldHk in this._controlHotkeyBindings {
             try {
                 Hotkey(oldHk, "Off")
-            } catch {
+            } catch as e {
+                ; best-effort: 关闭旧热键失败不影响新热键绑定
+                OutputDebug("ASD [WARN] SkillManager._BindControlHotkeys: " e.Message " at line " e.Line)
             }
         }
         this._controlHotkeyBindings.Clear()

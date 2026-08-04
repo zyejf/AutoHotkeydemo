@@ -471,7 +471,9 @@ class TrayManager {
 _DebugLog(msg) {
     try {
         FileAppend(A_Now " " msg "`n", "logs/debug.log", "UTF-8")
-    } catch {
+    } catch as e {
+        ; best-effort: 调试日志写入失败不影响主流程
+        OutputDebug("ASD [WARN] _DebugLog: " e.Message " at line " e.Line)
     }
     OutputDebug(A_Now " " msg)
 }

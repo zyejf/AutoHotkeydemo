@@ -874,7 +874,9 @@ class WebView2Manager extends IEventHook {
             try {
                 if KeyValidator.IsActive()
                     KeyValidator.Stop()
-            } catch {
+            } catch as e {
+                ; best-effort: KeyValidator 清理失败不影响错误返回
+                OutputDebug("ASD [WARN] WebView2Manager._BridgeStopValidation: " e.Message " at line " e.Line)
             }
             return "{}"
         }
@@ -1301,6 +1303,8 @@ _CopyProp(src, dst, key) {
         }
         if !(val is String && val = "")
             dst[key] := IsObject(val) ? deepclone(val) : val
-    } catch {
+    } catch as e {
+        ; best-effort: 深拷贝属性赋值失败时跳过该属性
+        OutputDebug("ASD [WARN] WebView2Manager._DeepCopyProp: " e.Message " at line " e.Line)
     }
 }

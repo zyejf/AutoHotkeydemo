@@ -46,7 +46,9 @@ _GetField(obj, key, defaultVal := "") {
                         return parsed.Has(key) ? parsed[key] : defaultVal
                     if IsObject(parsed) && HasProp(parsed, key)
                         return parsed.%key%
-                } catch {
+                } catch as e {
+                    ; best-effort: JSON 字符串解析失败时返回默认值
+                    OutputDebug("ASD [WARN] utils._GetField: " e.Message " at line " e.Line)
                 }
             }
         }

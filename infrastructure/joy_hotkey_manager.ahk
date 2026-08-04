@@ -25,6 +25,7 @@ class JoyHotkeyManager {
     static _joystickId := 1
     static _lastAxisState := Map()
     static _lastTriggerState := Map()
+    static _lastPollErrLog := 0  ; I11: 轮询错误限速日志时间戳（每秒最多一次）
     static AXIS_HIGH := 70
     static AXIS_LOW := 30
     static TRIGGER_THRESHOLD := 60
@@ -195,6 +196,11 @@ class JoyHotkeyManager {
             JoyHotkeyManager._PollAxes()
             JoyHotkeyManager._PollTriggers()
         } catch as e {
+            ; I11: 轮询方法限速日志（每秒最多一次）
+            if (A_TickCount - JoyHotkeyManager._lastPollErrLog >= 1000) {
+                JoyHotkeyManager._lastPollErrLog := A_TickCount
+                OutputDebug("ASD [WARN] JoyHotkeyManager._Poll: " e.Message " at line " e.Line)
+            }
         }
     }
 
@@ -213,6 +219,11 @@ class JoyHotkeyManager {
                     JoyHotkeyManager._TriggerPovCallback(newDir, true)
             }
         } catch as e {
+            ; I11: 轮询方法限速日志（每秒最多一次）
+            if (A_TickCount - JoyHotkeyManager._lastPollErrLog >= 1000) {
+                JoyHotkeyManager._lastPollErrLog := A_TickCount
+                OutputDebug("ASD [WARN] JoyHotkeyManager._PollPov: " e.Message " at line " e.Line)
+            }
         }
     }
 
@@ -238,6 +249,11 @@ class JoyHotkeyManager {
                 pos := Integer(val)
                 JoyHotkeyManager._CheckAxisState(axis, pos, "RIGHT", JoyHotkeyManager.AXIS_HIGH, "LEFT", JoyHotkeyManager.AXIS_LOW)
             } catch as e {
+                ; I11: 轮询方法限速日志（每秒最多一次）
+                if (A_TickCount - JoyHotkeyManager._lastPollErrLog >= 1000) {
+                    JoyHotkeyManager._lastPollErrLog := A_TickCount
+                    OutputDebug("ASD [WARN] JoyHotkeyManager._PollAxes: " e.Message " at line " e.Line)
+                }
             }
         }
     }
@@ -282,6 +298,11 @@ class JoyHotkeyManager {
                     JoyHotkeyManager._lastTriggerState[axis] := newState
                 }
             } catch as e {
+                ; I11: 轮询方法限速日志（每秒最多一次）
+                if (A_TickCount - JoyHotkeyManager._lastPollErrLog >= 1000) {
+                    JoyHotkeyManager._lastPollErrLog := A_TickCount
+                    OutputDebug("ASD [WARN] JoyHotkeyManager._PollTriggers: " e.Message " at line " e.Line)
+                }
             }
         }
     }

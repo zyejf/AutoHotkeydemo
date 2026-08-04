@@ -119,14 +119,18 @@ class IPCChannel {
                 }
                 try
                     FileDelete(tempPipe)
-                catch {
+                catch as e {
+                    ; best-effort: 临时管道文件清理失败不影响消息读取
+                    OutputDebug("ASD [WARN] IPCChannel.PollMessages: " e.Message " at line " e.Line)
                 }
             } else {
                 try {
                     content := FileRead(IPCChannel.inboundPipe, "UTF-8")
                     try
                         FileDelete(IPCChannel.inboundPipe)
-                    catch {
+                    catch as e {
+                        ; best-effort: 入站管道文件清理失败不影响消息读取
+                        OutputDebug("ASD [WARN] IPCChannel.PollMessages: " e.Message " at line " e.Line)
                     }
                 } catch {
                     return messages
@@ -181,7 +185,9 @@ class IPCChannel {
             if size > 1048576 {
                 FileDelete(pipePath)
             }
-        } catch {
+        } catch as e {
+            ; best-effort: 管道大小检查/清理失败不影响正常通信
+            OutputDebug("ASD [WARN] IPCChannel._EnforcePipeSize: " e.Message " at line " e.Line)
         }
     }
 }

@@ -275,20 +275,28 @@ class KeyRecorder {
         for btn in mouseButtons {
             try {
                 Hotkey("~*" btn " Down", this._MakeMouseEventHandler(btn, "down"), "On")
-            } catch {
+            } catch as e {
+                ; best-effort: 鼠标钩子热键注册失败不影响核心功能
+                OutputDebug("ASD [WARN] KeyRecorder._InstallMouseHooks: " e.Message " at line " e.Line)
             }
             try {
                 Hotkey("~*" btn " Up", this._MakeMouseEventHandler(btn, "up"), "On")
-            } catch {
+            } catch as e {
+                ; best-effort: 鼠标钩子热键注册失败不影响核心功能
+                OutputDebug("ASD [WARN] KeyRecorder._InstallMouseHooks: " e.Message " at line " e.Line)
             }
         }
         try {
             Hotkey("~WheelUp", this._MakeWheelHotkeyHandler("WheelUp"), "On")
-        } catch {
+        } catch as e {
+            ; best-effort: 滚轮热键注册失败不影响核心功能
+            OutputDebug("ASD [WARN] KeyRecorder._InstallMouseHooks: " e.Message " at line " e.Line)
         }
         try {
             Hotkey("~WheelDown", this._MakeWheelHotkeyHandler("WheelDown"), "On")
-        } catch {
+        } catch as e {
+            ; best-effort: 滚轮热键注册失败不影响核心功能
+            OutputDebug("ASD [WARN] KeyRecorder._InstallMouseHooks: " e.Message " at line " e.Line)
         }
         this._mouseHotkeys := true
     }
