@@ -5,6 +5,10 @@ import * as api from './api.js';
  * 兼容 AppError 结构化序列化 {kind, message}（I34 之后）与 Error 实例、字符串，
  * 避免 "+ e" 拼接得到 "[object Object]"（R2）。
  *
+ * @param {unknown} e - 错误对象，可能是 {kind, message}、Error 实例、字符串等
+ * @param {string} [defaultMsg] - 无法提取时的默认消息（对应 extractErrorMessage 的 fallback）
+ * @returns {string} 可读的错误消息：非空 message > 字符串 > [kind] > defaultMsg > '未知错误'
+ *
  * ⚠️ 同步说明：本函数与 e2e/helpers/error_utils.js 的 extractErrorMessage 逻辑一致，
  * 需同步维护。两者运行环境不同（本函数运行于前端浏览器 WebView，extractErrorMessage
  * 运行于 Node.js E2E 测试环境），且 main.js 不使用 ES module（无法 import），
@@ -734,8 +738,8 @@ function renderBackupList() {
 }
 
 function createBackup() { api.createBackup().then(function(result) { showToast("备份已创建","success"); loadBackupsFromTauri(); }).catch(function(e) { showToast(errMsg(e, "备份失败"),"error"); }); }
-function restoreBackup(name) { confirmDialog("恢复备份", "恢复将覆盖当前所有配置，确定继续？", function() { api.restoreBackup(name).then(function() { _fullConfig = null; showToast("已恢复备份: "+name,"success"); loadGroupsFromTauri(); }).catch(function(e) { showToast(e.message || "恢复失败","error"); }); }); }
-function deleteBackup(name) { api.deleteBackup(name).then(function() { showToast("已删除备份: "+name,"success"); loadBackupsFromTauri(); }).catch(function(e) { showToast(e.message || "删除失败","error"); }); }
+function restoreBackup(name) { confirmDialog("恢复备份", "恢复将覆盖当前所有配置，确定继续？", function() { api.restoreBackup(name).then(function() { _fullConfig = null; showToast("已恢复备份: "+name,"success"); loadGroupsFromTauri(); }).catch(function(e) { showToast(errMsg(e, "恢复失败"),"error"); }); }); }
+function deleteBackup(name) { api.deleteBackup(name).then(function() { showToast("已删除备份: "+name,"success"); loadBackupsFromTauri(); }).catch(function(e) { showToast(errMsg(e, "删除失败"),"error"); }); }
 
 var logCount = 0; var MAX_LOG_LINES = 200; var _autoScroll = true;
 function addLog(msg, level) {
@@ -781,9 +785,9 @@ function toggleAll() {
     _fullConfig = null;
     showToast("全局开关已切换","success");
     loadGroupsFromTauri();
-  }).catch(function(e) { showToast(e.message || "操作失败","error"); });
+  }).catch(function(e) { showToast(errMsg(e, "操作失败"),"error"); });
 }
-function hotReload() { api.hotReload().then(function() { _fullConfig = null; showToast("热重载完成","success"); loadGroupsFromTauri(); }).catch(function(e) { showToast(e.message || "热重载失败","error"); }); }
+function hotReload() { api.hotReload().then(function() { _fullConfig = null; showToast("热重载完成","success"); loadGroupsFromTauri(); }).catch(function(e) { showToast(errMsg(e, "热重载失败"),"error"); }); }
 
 function captureHotkey() {
   var d = document.getElementById('hotkeyDisp'); d.classList.add("capturing"); d.textContent = "按键中...";
@@ -1102,7 +1106,7 @@ function startValidation() {
   document.getElementById("valStatus").style.color = "#4CAF50"; document.getElementById("valReport").style.display = "none";
   document.getElementById("valEventList").innerHTML = ""; document.getElementById("valLiveStats").style.display = "none";
   document.querySelector('[data-action="startValidation"]').disabled = true; document.querySelector('[data-action="stopValidation"]').disabled = false;
-  api.startValidation(gid).then(function() {}).catch(function(e) { resetValUI(); showToast(e.message || "启动验证失败","error"); });
+  api.startValidation(gid).then(function() {}).catch(function(e) { resetValUI(); showToast(errMsg(e, "启动验证失败"),"error"); });
 }
 
 function stopValidation() {
