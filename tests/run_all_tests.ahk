@@ -31,6 +31,7 @@
 #Include "../presentation/group_editor.ahk"
 #Include "../presentation/gui_manager.ahk"
 #Include "../presentation/debug_panel.ahk"
+#Include "../presentation/webview2_manager.ahk"
 
 ; ============================================================
 ; AHK 执行器测试（asd-tauri/src-tauri/ahk_executor/）
@@ -2305,6 +2306,159 @@ class HealthCheckGetActiveCountCacheTests extends AutoHotUnitSuite {
     }
 }
 
+; =================================================================
+; 配置导入安全测试（簇 D: I13, I16, I17, I19, I20）
+; =================================================================
+
+class ConfigImportSecurityTests extends AutoHotUnitSuite {
+    beforeAll() {
+        ErrorSystem.Init()
+        ConfigStore.InitDefaults()
+        ConfigService.ConfigStore := ConfigStore
+        GroupService.ConfigStore := ConfigStore
+        GroupService.SkillManager := SkillManager
+        SkillManager.Logger := JSONLogger
+        SkillManager.Notifier := UIManager
+        SkillManager.ConfigStore := ConfigStore
+    }
+
+    ; I13: FileRead 应指定 UTF-8 编码，确保中文不乱码
+    Test_I13_FileRead_UTF8_ChineseNotGarbled() {
+        backupDir := A_ScriptDir "\backups"
+        if !InStr(FileExist(backupDir), "D")
+            DirCreate(backupDir)
+        baseFile := backupDir "\i13_base_" A_TickCount ".json"
+        targetFile := backupDir "\i13_target_" A_TickCount ".json"
+        try {
+            ; UTF-8-RAW 不带 BOM，不指定编码的 FileRead 会用系统 ANSI 读取导致中文乱码
+            baseJson := '{"GroupSettings":{"测试组":{"mode":"periodic","hotkey":"F1"}}}'
+            targetJson := '{"GroupSettings":{}}'
+            FileAppend(baseJson, baseFile, "UTF-8-RAW")
+            FileAppend(targetJson, targetFile, "UTF-8-RAW")
+            data := Map("basePath", baseFile, "targetPath", targetFile)
+            result := WebView2Manager._BridgeCompareConfigs(data)
+            parsed := JSONParser.Parse(result)
+            this.assert.isTrue(parsed is Map)
+            this.assert.isTrue(parsed.Has("diffs"))
+            diffs := parsed["diffs"]
+            foundChinese := false
+            for d in diffs {
+                if d.Has("id") && InStr(String(d["id"]), "测试组")
+                    foundChinese := true
+            }
+            this.assert.isTrue(foundChinese)
+        } finally {
+            if FileExist(baseFile)
+                FileDelete(baseFile)
+            if FileExist(targetFile)
+                FileDelete(targetFile)
+        }
+    }
+
+    ; I13: _BridgeCompareConfigs 中的 FileRead 必须指定 UTF-8 编码（静态分析）
+    Test_I13_FileRead_Specifies_UTF8() {
+        path := A_ScriptDir "\..\presentation\webview2_manager.ahk"
+        content := FileRead(path, "UTF-8")
+        methodStart := InStr(content, "static _BridgeCompareConfigs(data) {")
+        this.assert.isTrue(methodStart > 0)
+        methodRegion := SubStr(content, methodStart, 2000)
+        ; 修复前存在不带编码的 FileRead(absBase)/FileRead(absTarget)，修复后应带 "UTF-8"
+        hasBareRead := InStr(methodRegion, "FileRead(absBase)") > 0 || InStr(methodRegion, "FileRead(absTarget)") > 0
+        this.assert.isFalse(hasBareRead)
+    }
+
+    ; I16: JSONParser.Parse 后应验证类型，非 Map 输入应被明确拒绝
+    Test_I16_NonMapConfig_Rejected() {
+        backupDir := A_ScriptDir "\backups"
+        if !InStr(FileExist(backupDir), "D")
+            DirCreate(backupDir)
+        baseFile := backupDir "\i16_base_" A_TickCount ".json"
+        targetFile := backupDir "\i16_target_" A_TickCount ".json"
+        try {
+            ; base 是 JSON 数组（非对象），应被类型守护拒绝而非崩溃
+            FileAppend('[1, 2, 3]', baseFile, "UTF-8-RAW")
+            FileAppend('{"GroupSettings":{}}', targetFile, "UTF-8-RAW")
+            data := Map("basePath", baseFile, "targetPath", targetFile)
+            result := WebView2Manager._BridgeCompareConfigs(data)
+            parsed := JSONParser.Parse(result)
+            ; 修复后应返回明确的格式错误提示
+            this.assert.isTrue(parsed.Has("error"))
+            this.assert.isTrue(InStr(parsed["error"], "格式") > 0)
+        } finally {
+            if FileExist(baseFile)
+                FileDelete(baseFile)
+            if FileExist(targetFile)
+                FileDelete(targetFile)
+        }
+    }
+
+    ; I17: 分组数量上限检查，超过 1000 拒绝
+    Test_I17_GroupCountLimit_Rejected() {
+        ; 构造 1001 个分组的 JSON（空分组配置，避免实际导入）
+        jsonStr := '{"GroupSettings":{'
+        loop 1001 {
+            if A_Index > 1
+                jsonStr .= ','
+            jsonStr .= '"g' A_Index '":{}'
+        }
+        jsonStr .= '}}'
+        result := WebView2Manager._BridgeImportConfig(jsonStr)
+        parsed := JSONParser.Parse(result)
+        ; 修复后应返回数量超限错误
+        this.assert.isTrue(parsed.Has("error"))
+        this.assert.isTrue(InStr(parsed["error"], "上限") > 0)
+    }
+
+    ; I19: 批量删除 SaveConfig 失败时从快照恢复 ConfigStore 状态
+    Test_I19_BatchDelete_SaveFail_RestoresState() {
+        ConfigStore.SetGroupConfig("__i19_a", Map("hotkey", "F1", "mode", "periodic"))
+        ConfigStore.SetGroupConfig("__i19_b", Map("hotkey", "F2", "mode", "periodic"))
+        ; mock SaveConfig 返回 false（模拟保存失败）
+        savedSaveConfig := ConfigService.GetMethod("SaveConfig")
+        ConfigService.DefineProp("SaveConfig", {call: (*) => false})
+        try {
+            data := Map("ids", ["__i19_a", "__i19_b"])
+            WebView2Manager._BridgeBatchDeleteGroups(data)
+            ; 修复后：SaveConfig 失败时从快照恢复，分组应仍然存在
+            this.assert.isTrue(ConfigStore.HasGroup("__i19_a"))
+            this.assert.isTrue(ConfigStore.HasGroup("__i19_b"))
+        } finally {
+            if savedSaveConfig is Func
+                ConfigService.DefineProp("SaveConfig", {call: savedSaveConfig})
+            if ConfigStore.HasGroup("__i19_a")
+                ConfigStore.DeleteGroupConfig("__i19_a")
+            if ConfigStore.HasGroup("__i19_b")
+                ConfigStore.DeleteGroupConfig("__i19_b")
+        }
+    }
+
+    ; I20: 导入回滚失败时显式提示"配置已损坏"
+    Test_I20_Import_RollbackFail_ShowsCorrupted() {
+        ; 保存当前 ConfigStore 状态
+        preGs := ConfigStore.Get("GroupSettings")
+        ; mock GroupService.ImportGroups：模拟回滚失败（清空 ConfigStore 后抛异常）
+        savedImport := GroupService.GetMethod("ImportGroups")
+        GroupService.DefineProp("ImportGroups", {call: _I20MockImportFail})
+        try {
+            jsonStr := '{"GroupSettings":{"g1":{"mode":"periodic","hotkey":"F1","keys":["a"],"intervals":[50]}}}'
+            result := WebView2Manager._BridgeImportConfig(jsonStr)
+            parsed := JSONParser.Parse(result)
+            ; 修复后：回滚失败时返回"配置已损坏"
+            this.assert.isTrue(InStr(parsed["error"], "配置已损坏") > 0)
+        } finally {
+            if savedImport is Func
+                GroupService.DefineProp("ImportGroups", {call: savedImport})
+            ConfigStore.Set("GroupSettings", preGs)
+        }
+    }
+}
+
+; mock：模拟导入回滚失败 — 清空 GroupSettings 后抛异常
+_I20MockImportFail(*) {
+    ConfigStore.Set("GroupSettings", Map())
+    throw Error("模拟导入失败且回滚失败")
+}
+
 _MockSM(activeCount, timerCount) {
     mock := {}
     mock.EmergencyMode := false
@@ -2411,7 +2565,8 @@ testManager.RegisterSuite(
     IsValidKeyNameExpandedTests,
     AutoRefreshIncrementalTests,
     OnExitUITimerCleanupTests,
-    HealthCheckGetActiveCountCacheTests
+    HealthCheckGetActiveCountCacheTests,
+    ConfigImportSecurityTests
 )
 
 ; ============================================================

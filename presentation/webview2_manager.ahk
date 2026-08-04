@@ -1057,9 +1057,20 @@ class WebView2Manager extends IEventHook {
 
     static _BridgeImportConfig(jsonStr) {
         tempPath := ""
+        preImportGs := ""
         try {
             if StrLen(jsonStr) > 5242880
                 return JSONSerializer.Stringify(Map("success", false, "error", "导入数据过大(>5MB)"))
+            ; I17: 分组数量上限检查，防止超大配置导致性能问题或 OOM
+            preCheck := JSONParser.Parse(jsonStr)
+            if preCheck is Map && preCheck.Has("GroupSettings") {
+                preGs := preCheck["GroupSettings"]
+                if preGs is Map && preGs.Count > 1000
+                    return JSONSerializer.Stringify(Map("success", false, "error", "分组数量超过上限(1000)"))
+            }
+            ; I20: 导入前保存当前配置快照 + 强制备份
+            preImportGs := ConfigService.ConfigStore.Get("GroupSettings")
+            BackupService.CreateBackup(ConfigService.ConfigStore.Load(), "import")
             tempPath := A_Temp "\ahk_import_" A_Now "_" Random(1000, 9999) ".json"
             FileAppend(jsonStr, tempPath, "UTF-8")
             result := GroupService.ImportGroups(tempPath)
@@ -1069,6 +1080,19 @@ class WebView2Manager extends IEventHook {
         } catch as e {
             if tempPath != ""
                 try FileDelete(tempPath)
+            ; I20: 检测回滚失败 — 重新加载配置与导入前对比
+            if preImportGs != "" {
+                try {
+                    currentGs := ConfigService.ConfigStore.Get("GroupSettings")
+                    preCount := preImportGs is Map ? preImportGs.Count : 0
+                    curCount := currentGs is Map ? currentGs.Count : 0
+                    ; 导入前有分组但导入后为空，说明回滚失败
+                    if preCount > 0 && curCount = 0
+                        return JSONSerializer.Stringify(Map("success", false, "error", "配置已损坏，请从备份恢复"))
+                } catch {
+                    return JSONSerializer.Stringify(Map("success", false, "error", "配置已损坏，请从备份恢复"))
+                }
+            }
             return JSONSerializer.Stringify(Map("success", false, "error", e.Message))
         }
     }
@@ -1110,6 +1134,9 @@ class WebView2Manager extends IEventHook {
             if ids.Length = 0
                 return JSONSerializer.Stringify(Map("success", 0, "failed", 0))
 
+            ; I19: 删除前创建快照，失败时恢复 ConfigStore 状态
+            snapshot := deepclone(ConfigService.ConfigStore.Get("GroupSettings"))
+
             deletedIds := []
             for id in ids {
                 try {
@@ -1122,7 +1149,9 @@ class WebView2Manager extends IEventHook {
 
             saveResult := ConfigService.SaveConfig()
             if !saveResult {
-                ErrorSystem.LogError("BatchDeleteGroups: SaveConfig failed, rolling back", "WARNING", A_ThisFunc, A_LineNumber)
+                ErrorSystem.LogError("BatchDeleteGroups: SaveConfig failed, restoring snapshot", "WARNING", A_ThisFunc, A_LineNumber)
+                ; I19: 从快照恢复 ConfigStore 状态
+                ConfigService.ConfigStore.Set("GroupSettings", snapshot)
                 return JSONSerializer.Stringify(Map("success", 0, "failed", ids.Length, "error", "保存失败，已回滚"))
             }
 
@@ -1185,10 +1214,15 @@ class WebView2Manager extends IEventHook {
             if !FileExist(absTarget)
                 return JSONSerializer.Stringify(Map("error", "目标配置不存在"))
 
-            baseContent := FileRead(absBase)
-            targetContent := FileRead(absTarget)
+            baseContent := FileRead(absBase, "UTF-8")
+            targetContent := FileRead(absTarget, "UTF-8")
             baseConfig := JSONParser.Parse(baseContent)
             targetConfig := JSONParser.Parse(targetContent)
+            ; I16: 类型守护 — 非 Map 输入明确拒绝，避免后续 Has() 调用崩溃
+            if !(baseConfig is Map)
+                return JSONSerializer.Stringify(Map("error", "基准配置格式无效: 期望对象"))
+            if !(targetConfig is Map)
+                return JSONSerializer.Stringify(Map("error", "目标配置格式无效: 期望对象"))
 
             diffs := []
             baseGs := baseConfig.Has("GroupSettings") ? baseConfig["GroupSettings"] : Map()
