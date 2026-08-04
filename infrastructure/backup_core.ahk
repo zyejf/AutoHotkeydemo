@@ -14,6 +14,7 @@
 #Include "json_logger.ahk"
 #Include "json_serializer.ahk"
 #Include "json_parser.ahk"
+#Include "config_io.ahk"
 
 class BackupCore {
     static backupDir := "backups"
@@ -67,7 +68,7 @@ class BackupCore {
                 return Map("success", false, "error", "备份文件格式无效")
             }
 
-            exportResult := ExportConfigToFile(BackupCore.currentConfigPath, config)
+            exportResult := ConfigIO.ExportToFile(BackupCore.currentConfigPath, config)
             if !exportResult {
                 JSONLogger.Log("ERROR", "恢复备份写入失败",
                               Map("module", "BackupCore"))

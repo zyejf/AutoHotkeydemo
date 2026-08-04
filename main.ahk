@@ -27,6 +27,7 @@ InstallMouseHook()
 #Include "infrastructure\config_store.ahk"
 #Include "infrastructure\error_handler.ahk"
 #Include "infrastructure\error_system.ahk"
+#Include "infrastructure\config_io.ahk"
 #Include "infrastructure\backup_core.ahk"
 #Include "infrastructure\migration_logger.ahk"
 #Include "infrastructure\joy_sender.ahk"

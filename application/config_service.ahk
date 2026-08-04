@@ -402,61 +402,14 @@ class ConfigService {
 }
 
 ; =================================================================
-; 通用 IO 函数
+; 通用 IO 函数（委托基础设施层 ConfigIO，保持向后兼容）
+; 修复 I6: 配置 IO 逻辑已下沉到 infrastructure/config_io.ahk
 ; =================================================================
 
 ImportConfigFromFile(filePath) {
-    return ErrorHandler.SafeExecute(
-        () => JSONParser.LoadFile(filePath),
-        () => Map(
-            "version", "3.0",
-            "GroupSettings", Map(),
-            "CONTROL_HOTKEYS", Map(),
-            "HoldSettings", Map()
-        ),
-        ErrorHandler.CATEGORY_IO
-    )
+    return ConfigIO.LoadFromFile(filePath)
 }
 
 ExportConfigToFile(filePath, config) {
-    exportFn := () => _ExportConfigToFileInner(filePath, config)
-    return ErrorHandler.RetryWithPolicy(exportFn, 3, 200, ErrorHandler.CATEGORY_IO)
-}
-
-_ExportConfigToFileInner(filePath, config) {
-    if !InStr(FileExist(filePath), "A") {
-        dir := ""
-        SplitPath(filePath, , &dir)
-        if dir != "" && !InStr(FileExist(dir), "D")
-            DirCreate(dir)
-    }
-
-    jsonStr := JSONSerializer.Stringify(config)
-    tempPath := filePath ".tmp"
-    safetyPath := filePath ".safety"
-    try
-        FileDelete(tempPath)
-    catch {
-    }
-    FileAppend(jsonStr, tempPath, "UTF-8")
-    try
-        FileMove(filePath, safetyPath, 1)
-    catch {
-    }
-    try {
-        FileMove(tempPath, filePath)
-        try
-            FileDelete(safetyPath)
-        catch {
-        }
-    } catch as moveErr {
-        try
-            FileMove(safetyPath, filePath)
-        catch {
-        }
-        throw moveErr
-    }
-    JSONLogger.Log("DEBUG", "配置已保存: " filePath,
-                  Map("module", "ConfigIO"))
-    return true
+    return ConfigIO.ExportToFile(filePath, config)
 }

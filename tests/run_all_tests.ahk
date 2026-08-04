@@ -22,6 +22,7 @@
 #Include "../infrastructure/backup_core.ahk"
 #Include "../infrastructure/utils.ahk"
 #Include "../infrastructure/error_handler.ahk"
+#Include "../infrastructure/config_io.ahk"
 #Include "../infrastructure/ipc_channel.ahk"
 #Include "../application/config_service.ahk"
 #Include "../application/group_service.ahk"
@@ -1984,6 +1985,57 @@ class BackupServiceLayeringTests extends AutoHotUnitSuite {
     }
 }
 
+; ============================================================
+; ConfigIO 基础设施层分层测试（I6: BackupCore 不应调用应用层 ExportConfigToFile）
+; ============================================================
+
+class ConfigIOLayeringTests extends AutoHotUnitSuite {
+    ; 验证 ConfigIO 类存在且暴露配置 IO 方法
+    Test_ConfigIO_HasExportToFile() {
+        this.assert.isTrue(HasProp(ConfigIO, "ExportToFile"))
+    }
+
+    Test_ConfigIO_HasLoadFromFile() {
+        this.assert.isTrue(HasProp(ConfigIO, "LoadFromFile"))
+    }
+
+    ; 验证 ConfigIO.ExportToFile 写入文件成功
+    Test_ConfigIO_ExportToFile_WritesFile() {
+        testPath := A_ScriptDir "\..\test_configio_export_" A_TickCount ".json"
+        try {
+            config := Map("version", "3.0", "GroupSettings", Map())
+            result := ConfigIO.ExportToFile(testPath, config)
+            this.assert.isTrue(result)
+            this.assert.isTrue(FileExist(testPath) != "")
+        } finally {
+            if FileExist(testPath)
+                FileDelete(testPath)
+        }
+    }
+
+    ; 验证 ConfigIO.LoadFromFile 读取文件成功
+    Test_ConfigIO_LoadFromFile_ReadsFile() {
+        testPath := A_ScriptDir "\..\test_configio_load_" A_TickCount ".json"
+        try {
+            config := Map("version", "3.0", "GroupSettings", Map())
+            ConfigIO.ExportToFile(testPath, config)
+            loaded := ConfigIO.LoadFromFile(testPath)
+            this.assert.isTrue(loaded is Map)
+            this.assert.isTrue(loaded.Has("version"))
+        } finally {
+            if FileExist(testPath)
+                FileDelete(testPath)
+        }
+    }
+
+    ; 验证 BackupCore 不调用应用层函数 ExportConfigToFile（I6 反向依赖修复）
+    Test_BackupCore_NotCallExportConfigToFile() {
+        path := A_ScriptDir "\..\infrastructure\backup_core.ahk"
+        content := FileRead(path, "UTF-8")
+        this.assert.equal(InStr(content, "ExportConfigToFile"), 0)
+    }
+}
+
 class JSONLoggerModuleDefaultTests extends AutoHotUnitSuite {
     Test_BuildLogLine_ModuleEmpty_ShowsUnknown() {
         errorObj := JSONError("", "test message", 0, "", "")
@@ -2342,6 +2394,7 @@ testManager.RegisterSuite(
     CopyGroupIdGenerationTests,
     BackupSortAlgorithmTests,
     BackupServiceLayeringTests,
+    ConfigIOLayeringTests,
     JSONLoggerModuleDefaultTests,
     DebounceCacheTests,
     HealthCheckTimestampFormatTests,
