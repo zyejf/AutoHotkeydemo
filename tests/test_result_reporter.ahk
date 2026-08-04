@@ -35,8 +35,6 @@ class TestReporter {
     static startTime := 0
     static scenarioCount := 0
     static currentScenario := ""
-    static beforeEachHooks := []
-    static afterEachHooks := []
 
     ; =================================================================
     ; 生命周期
@@ -45,8 +43,6 @@ class TestReporter {
         TestReporter.results := []
         TestReporter.startTime := A_TickCount
         TestReporter.scenarioCount := 0
-        TestReporter.beforeEachHooks := []
-        TestReporter.afterEachHooks := []
         OutputDebug("`n========= " testName " =========`n")
     }
 
@@ -57,34 +53,6 @@ class TestReporter {
         TestReporter.currentScenario := name
         TestReporter.scenarioCount++
         OutputDebug("--- " name " ---")
-    }
-
-    ; =================================================================
-    ; Setup/Teardown 钩子（确保测试间状态隔离）
-    ; 用法: 在 BeginTest 后注册钩子，每个场景前自动调用 setup，后调用 teardown
-    ; =================================================================
-    static RegisterBeforeEach(hook) {
-        TestReporter.beforeEachHooks.Push(hook)
-    }
-
-    static RegisterAfterEach(hook) {
-        TestReporter.afterEachHooks.Push(hook)
-    }
-
-    static BeforeEach(name := "") {
-        ; 调用所有 beforeEach 钩子（setup），确保测试隔离
-        for h in TestReporter.beforeEachHooks {
-            try h()
-        }
-        if name != ""
-            TestReporter.Scenario(name)
-    }
-
-    static AfterEach() {
-        ; 调用所有 afterEach 钩子（teardown），清理状态
-        for h in TestReporter.afterEachHooks {
-            try h()
-        }
     }
 
     ; =================================================================

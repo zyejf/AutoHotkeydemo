@@ -123,7 +123,7 @@ TestReporter.AssertEqual(WebView2Manager.visible, false, "visible 初始为 fals
 ; ============================================================
 ; 场景 I: Bridge 方法连接领域服务（无GUI环境）
 ; ============================================================
-TestReporter.BeforeEach("Bridge 方法连接领域服务")
+TestReporter.Scenario("Bridge 方法连接领域服务")
 
 JSONLogger.Init()
 DebugLogger.Init()

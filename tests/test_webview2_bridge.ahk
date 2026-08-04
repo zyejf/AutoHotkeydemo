@@ -37,9 +37,6 @@ OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line 
 
 TestReporter.BeginTest("test_webview2_bridge.ahk")
 
-; 注册 setup 钩子：重置 ConfigStore，确保独立场景间状态隔离
-TestReporter.RegisterBeforeEach(() => ConfigStore.InitDefaults())
-
 ; ============================================================
 ; 初始化依赖
 ; ============================================================
