@@ -796,6 +796,9 @@ class SkillGroup {
                 if !this.HasProp("_releaseTimers")
                     this._releaseTimers := Map()
                 releaseTimer := () => (capturedThis._pendingReleases.Has(capturedKey) && capturedThis._pendingReleases[capturedKey] = capturedId ? (capturedThis._pendingReleases.Delete(capturedKey), capturedThis._releaseTimers.Delete(capturedKey), SendInput("{Blind}{" capturedReleaseKey " Up}")) : 0)
+                ; 覆盖前先取消旧定时器，避免悬挂（审查 Important #1）
+                if this._releaseTimers.Has(key)
+                    SetTimer(this._releaseTimers[key], 0)
                 this._releaseTimers[key] := releaseTimer
                 SetTimer(releaseTimer, -duration)
             }
