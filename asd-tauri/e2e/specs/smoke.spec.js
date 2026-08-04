@@ -10,7 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const binaryPath = resolve(__dirname, '../../target/debug/asd-tauri.exe');
 
 describe('Smoke Test', () => {
-  it('应用窗口能启动并关闭', async function () {
+  it('E2E-SMOKE-001: 应用窗口能启动并关闭', async function () {
     // binary 不存在时跳过，而非失败
     if (!existsSync(binaryPath)) {
       this.skip(`Binary not found at: ${binaryPath}`);

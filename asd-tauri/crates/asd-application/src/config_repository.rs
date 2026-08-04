@@ -64,6 +64,14 @@ fn cleanup_stale_temp_files(dir: &Path) {
 }
 
 impl ConfigRepository {
+    /// # Deprecated（M32）
+    ///
+    /// 此方法在配置文件解析失败或读取失败时返回 `Config::default()`，
+    /// 调用方无法区分"默认配置"和"加载失败回退到默认配置"。
+    ///
+    /// 推荐使用 [`load_from_file_checked`](Self::load_from_file_checked)，
+    /// 它返回 `Result<Config, ConfigLoadError>`，提供详细的错误信息。
+    #[deprecated(note = "使用 load_from_file_checked 获取错误信息")]
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Config {
         let path = path.as_ref();
         match fs::read_to_string(path) {
@@ -209,6 +217,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_load_from_file_valid_file() {
         let dir = std::env::temp_dir().join("asd_app_test_load_from_file");
         let _ = std::fs::remove_dir_all(&dir);
@@ -227,6 +236,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_load_from_file_missing_file_falls_back() {
         let path = std::path::PathBuf::from("/nonexistent/path/config.json");
         let loaded = ConfigRepository::load_from_file(&path);
@@ -234,6 +244,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_load_from_file_invalid_json_falls_back() {
         let dir = std::env::temp_dir().join("asd_app_test_load_invalid_json");
         let _ = std::fs::remove_dir_all(&dir);
@@ -365,6 +376,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_load_from_file_bom_stripped() {
         let dir = std::env::temp_dir().join("asd_app_test_bom");
         let _ = std::fs::remove_dir_all(&dir);

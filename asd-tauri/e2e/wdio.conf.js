@@ -242,9 +242,26 @@ export const config = {
   },
 
   // ----------------------------------------------------------------
+  // before: 每个 spec 文件执行前的全局钩子（M39）
+  // 检查 binary 存在性，不存在则跳过所有测试（不 fail）。
+  // AGENTS.md 强制规范："binary 缺失时所有测试 skip（不 fail）"。
+  // ----------------------------------------------------------------
+  before: function (capabilities, specs) {
+    if (!existsSync(binaryAbsPath)) {
+      // this.skip 在 Mocha 框架下可用于跳过当前 suite
+      this.skip(`Binary not found at: ${binaryAbsPath}`);
+    }
+  },
+
+  // ----------------------------------------------------------------
   // beforeTest: 全局 beforeEach 钩子，清理 reports/key_log.txt
   // ----------------------------------------------------------------
-  beforeTest: () => {
+  beforeTest: function () {
+    // M39 补充：before 钩子的 this.skip 在某些 WebDriverIO 版本中可能不生效，
+    // 此处作为兜底检查，确保 binary 缺失时测试一定被跳过
+    if (!existsSync(binaryAbsPath)) {
+      this.skip(`Binary not found at: ${binaryAbsPath}`);
+    }
     const keyLogPath = resolve(reportsDir, 'key_log.txt');
     try {
       if (existsSync(keyLogPath)) {

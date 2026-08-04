@@ -23,6 +23,12 @@ pub fn get_groups_impl(state: &AppState) -> Result<Vec<GroupSummary>, AppError> 
 
 /// `toggle_group` 的核心逻辑。
 pub fn toggle_group_impl(state: &AppState, group_id: &str) -> Result<GroupStatus, AppError> {
+    // M34: command 层输入验证，与 get_group_detail_impl 保持一致。
+    // service 层（group_service::toggle_group）也有相同验证，此处提前验证
+    // 确保一致的错误响应，避免依赖 service 层实现细节。
+    if group_id.trim().is_empty() {
+        return Err(AppError::Validation("分组 ID 不能为空".to_string()));
+    }
     asd_application::group_service::toggle_group(state, group_id)
 }
 
@@ -38,6 +44,12 @@ pub fn get_group_detail_impl(state: &AppState, group_id: &str) -> Result<SkillGr
 
 /// `delete_group` 的核心逻辑。
 pub fn delete_group_impl(state: &AppState, group_id: &str) -> Result<(), AppError> {
+    // M34: command 层输入验证，与 get_group_detail_impl 保持一致。
+    // service 层（group_service::delete_group）也有相同验证，此处提前验证
+    // 确保一致的错误响应，避免依赖 service 层实现细节。
+    if group_id.trim().is_empty() {
+        return Err(AppError::Validation("分组 ID 不能为空".to_string()));
+    }
     asd_application::group_service::delete_group(state, group_id)
 }
 

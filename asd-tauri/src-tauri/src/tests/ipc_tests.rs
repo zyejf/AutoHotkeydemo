@@ -205,6 +205,7 @@ async fn test_roundtrip_latency() {
 }
 
 #[test]
+#[serial]
 fn test_message_serialization_roundtrip() {
     let msg = IpcMessage::execute(42, vec!["Space".to_string()], 100);
     let json = serde_json::to_string(&msg).unwrap();
@@ -218,6 +219,7 @@ fn test_message_serialization_roundtrip() {
 }
 
 #[test]
+#[serial]
 fn test_seq_counter_monotonic() {
     use std::sync::atomic::{AtomicU64, Ordering};
     let counter = AtomicU64::new(1);
@@ -230,6 +232,7 @@ fn test_seq_counter_monotonic() {
 }
 
 #[test]
+#[serial]
 fn test_ipc_error_from_io() {
     let err = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "broken pipe");
     let ipc_err = IpcError::from(err);
@@ -241,6 +244,7 @@ fn test_ipc_error_from_io() {
 }
 
 #[test]
+#[serial]
 fn test_ipc_error_display() {
     let err = IpcError::ConnectionClosed;
     assert_eq!(format!("{err}"), "连接已关闭");
@@ -253,6 +257,7 @@ fn test_ipc_error_display() {
 }
 
 #[test]
+#[serial]
 fn test_hotkey_merger() {
     let mut merger = HotkeyMerger::new(100);
 
@@ -285,12 +290,14 @@ fn test_hotkey_merger() {
 }
 
 #[test]
+#[serial]
 fn test_hotkey_merger_default() {
     let merger = HotkeyMerger::default();
     assert_eq!(merger.merge_window(), Duration::from_millis(100));
 }
 
 #[test]
+#[serial]
 fn test_ipc_command_serialization() {
     let cmd = IpcCommand::ToggleGroup {
         group_id: "1".to_string(),
@@ -424,6 +431,7 @@ async fn test_is_connected() {
 }
 
 #[test]
+#[serial]
 fn test_shutdown_message() {
     let msg = IpcMessage::shutdown(42);
     assert_eq!(msg.r#type, "shutdown");
@@ -432,6 +440,7 @@ fn test_shutdown_message() {
 }
 
 #[test]
+#[serial]
 fn test_heartbeat_message() {
     let msg = IpcMessage::heartbeat(100);
     assert_eq!(msg.r#type, "heartbeat");
@@ -439,6 +448,7 @@ fn test_heartbeat_message() {
 }
 
 #[test]
+#[serial]
 fn test_hotkey_event_message() {
     let msg = IpcMessage::hotkey_event(1, "F1");
     assert_eq!(msg.r#type, "hotkey");

@@ -478,6 +478,7 @@ fn test_config_repository_load_save_roundtrip() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_config_repository_load_missing_file_fallback() {
     let path = std::path::PathBuf::from("/nonexistent/path/config.json");
     let loaded = ConfigRepository::load_from_file(&path);
@@ -485,6 +486,7 @@ fn test_config_repository_load_missing_file_fallback() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_config_repository_load_invalid_json_fallback() {
     let dir = std::env::temp_dir().join("asd_integration_test_invalid_json");
     let _ = std::fs::remove_dir_all(&dir);
@@ -537,6 +539,7 @@ fn test_config_repository_save_to_invalid_path() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_config_repository_bom_stripped() {
     let dir = std::env::temp_dir().join("asd_integration_test_bom");
     let _ = std::fs::remove_dir_all(&dir);

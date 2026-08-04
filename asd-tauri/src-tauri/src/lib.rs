@@ -213,6 +213,22 @@ fn spawn_watchdog(app_state: Arc<AppState>, watchdog: WatchdogArc) -> Arc<std::s
     shutting_down
 }
 
+/// 设置 IPC 回调（heartbeat / pipe_broken / post_connect / send_shutdown）。
+///
+/// # 设计决策：直接操作具体类型 `IpcManager`（M31）
+///
+/// AGENTS.md 规则要求"IPC 通信必须通过 `IpcSender` trait，禁止直接调用
+/// `IpcManager`"。本函数作为例外接受此妥协，原因如下：
+///
+/// - **初始化代码场景**：本函数仅在应用启动期间调用一次，用于注册回调。
+///   回调注册需要操作 `IpcManager` 的内部状态（`set_heartbeat_callback` 等），
+///   这些方法不属于 `IpcSender` trait 的职责范围。
+/// - **依赖反转过度抽象**：若为回调注册引入 trait 抽象，需定义单独的
+///   `IpcCallbackRegistrar` trait，仅用于此一处初始化调用，增加复杂度而无实际收益。
+/// - **运行时 IPC 通信仍通过 trait**：应用运行期间的命令发送（`send_command`）
+///   严格通过 `IpcSender` trait（`IpcBridge`）进行，符合 AGENTS.md 规则。
+///
+/// 约束边界：此例外仅限于初始化阶段的回调注册，不得扩展到运行时命令发送。
 fn setup_ipc_callbacks(
     app_state: &Arc<AppState>,
     ipc_manager: &IpcManager,
@@ -373,6 +389,21 @@ fn init_app_state(
         event_bridge,
     ));
     {
+        // M33 设计决策：使用 Arc::get_mut 设置 config_path。
+        //
+        // `AppState::new` 不接受 config_path 参数（签名已稳定，修改会影响
+        // asd-application 和 asd-test-harness 中的多个调用方），因此通过
+        // `set_config_path` 在构造后设置。
+        //
+        // 安全性：此处的 `Arc::get_mut` 仅在 `init_app_state` 中调用，且
+        // `app_state` 刚通过 `Arc::new` 创建，引用计数为 1，`get_mut` 必然
+        // 返回 `Some`。`expect` 的 panic 仅在以下重构场景下可能触发：
+        // - 若未来在 `Arc::new` 和 `Arc::get_mut` 之间克隆了 `app_state`
+        // - 若 `AppState::new` 内部存储了 `Arc` 的弱引用
+        //
+        // 替代方案（改动较大，未采纳）：将 `config_path` 作为 `AppState::new`
+        // 的参数传入，消除对 `Arc::get_mut` 的依赖。此方案需修改
+        // `AppState::new` 签名及所有调用方（含测试），作为已知技术债记录。
         let state_ref =
             Arc::get_mut(&mut app_state).expect("AppState should be uniquely held during setup");
         state_ref.set_config_path(config_path);
