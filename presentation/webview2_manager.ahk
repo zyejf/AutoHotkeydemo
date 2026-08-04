@@ -131,11 +131,10 @@ class WebView2Manager extends IEventHook {
             if currentKey = WebView2Manager._lastPushHash
                 return
             WebView2Manager._lastPushHash := currentKey
-            debugInfo := WebView2Manager._BridgeGetDebugInfo()
-            groupList := WebView2Manager._BridgeGetGroupList()
-            debugParsed := JSONParser.Parse(debugInfo)
-            groupParsed := JSONParser.Parse(groupList)
-            combined := Map("debug", debugParsed, "groups", groupParsed)
+            ; M15: 直接使用 _Internal 版本获取对象，避免重复序列化→解析→重新组合→序列化
+            debugObj := WebView2Manager._BridgeGetDebugInfoInternal()
+            groupArr := WebView2Manager._BridgeGetGroupListInternal()
+            combined := Map("debug", debugObj, "groups", groupArr)
             combinedJson := JSONSerializer.Stringify(combined)
             WebView2Manager.wv.PostWebMessageAsJson(combinedJson)
         } catch as e {
@@ -501,46 +500,51 @@ class WebView2Manager extends IEventHook {
             _CopyProp(group, target, prop)
     }
 
+    ; M15: 内部版本返回对象，避免 _PushStateUpdate 重复序列化/解析
+    static _BridgeGetGroupListInternal() {
+        _DebugLog("_BridgeGetGroupListInternal called")
+        groups := []
+        for id, group in SkillManager.Groups {
+            groupObj := Map()
+            groupObj["id"] := id
+            groupObj["name"] := group.name
+            groupObj["hotkey"] := group.hotkey
+            groupObj["mode"] := group.mode
+            groupObj["active"] := group.active
+            groupObj["keyPressDuration"] := group.keyPressDuration
+
+            WebView2Manager._SerializeGroupProperties(group, groupObj)
+
+            if HasProp(group, "groups") && group.groups.Length > 0 {
+                subGroups := []
+                for sg in group.groups {
+                    sgObj := Map()
+                    sgObj["type"] := sg is Map ? (sg.Has("type") ? sg["type"] : "") : (HasProp(sg, "type") ? sg.type : "")
+                    ; M4: 复用 _SerializeGroupProperties 替代 12 次 _CopyProp 重复调用
+                    WebView2Manager._SerializeGroupProperties(sg, sgObj)
+                    subGroups.Push(sgObj)
+                }
+                groupObj["groups"] := subGroups
+            }
+            groups.Push(groupObj)
+        }
+        ; M13: 使用通用 _SortByField 替代手动插入排序
+        if groups.Length > 1 {
+            for g in groups {
+                gid := g["id"]
+                g["_sortOrder"] := (SkillManager.Groups.Has(gid) && HasProp(SkillManager.Groups[gid], "_order"))
+                    ? SkillManager.Groups[gid]._order : 0
+            }
+            _SortByField(groups, "_sortOrder", false)
+            for g in groups
+                g.Delete("_sortOrder")
+        }
+        return groups
+    }
+
     static _BridgeGetGroupList() {
         try {
-            _DebugLog("_BridgeGetGroupList called")
-            groups := []
-            for id, group in SkillManager.Groups {
-                groupObj := Map()
-                groupObj["id"] := id
-                groupObj["name"] := group.name
-                groupObj["hotkey"] := group.hotkey
-                groupObj["mode"] := group.mode
-                groupObj["active"] := group.active
-                groupObj["keyPressDuration"] := group.keyPressDuration
-
-                WebView2Manager._SerializeGroupProperties(group, groupObj)
-
-                if HasProp(group, "groups") && group.groups.Length > 0 {
-                    subGroups := []
-                    for sg in group.groups {
-                        sgObj := Map()
-                        sgObj["type"] := sg is Map ? (sg.Has("type") ? sg["type"] : "") : (HasProp(sg, "type") ? sg.type : "")
-                        ; M4: 复用 _SerializeGroupProperties 替代 12 次 _CopyProp 重复调用
-                        WebView2Manager._SerializeGroupProperties(sg, sgObj)
-                        subGroups.Push(sgObj)
-                    }
-                    groupObj["groups"] := subGroups
-                }
-                groups.Push(groupObj)
-            }
-            ; M13: 使用通用 _SortByField 替代手动插入排序
-            if groups.Length > 1 {
-                for g in groups {
-                    gid := g["id"]
-                    g["_sortOrder"] := (SkillManager.Groups.Has(gid) && HasProp(SkillManager.Groups[gid], "_order"))
-                        ? SkillManager.Groups[gid]._order : 0
-                }
-                _SortByField(groups, "_sortOrder", false)
-                for g in groups
-                    g.Delete("_sortOrder")
-            }
-            return JSONSerializer.Stringify(groups)
+            return JSONSerializer.Stringify(WebView2Manager._BridgeGetGroupListInternal())
         } catch as e {
             return "[]"
         }
@@ -741,16 +745,21 @@ class WebView2Manager extends IEventHook {
         }
     }
 
+    ; M15: 内部版本返回对象，避免 _PushStateUpdate 重复序列化/解析
+    static _BridgeGetDebugInfoInternal() {
+        info := Map()
+        info["activeGroups"] := SkillManager.GetActiveCount()
+        info["totalGroups"] := SkillManager.Groups.Count
+        info["timers"] := SkillManager.GetTimerCount()
+        info["emergencyMode"] := SkillManager.EmergencyMode
+        info["holdModeEnabled"] := SkillManager.HoldModeEnabled
+        info["uptime"] := A_TickCount - WebView2Manager._startTick
+        return info
+    }
+
     static _BridgeGetDebugInfo() {
         try {
-            info := Map()
-            info["activeGroups"] := SkillManager.GetActiveCount()
-            info["totalGroups"] := SkillManager.Groups.Count
-            info["timers"] := SkillManager.GetTimerCount()
-            info["emergencyMode"] := SkillManager.EmergencyMode
-            info["holdModeEnabled"] := SkillManager.HoldModeEnabled
-            info["uptime"] := A_TickCount - WebView2Manager._startTick
-            return JSONSerializer.Stringify(info)
+            return JSONSerializer.Stringify(WebView2Manager._BridgeGetDebugInfoInternal())
         } catch as e {
             return "{}"
         }
@@ -1044,7 +1053,8 @@ class WebView2Manager extends IEventHook {
             ; I20: 导入前保存当前配置快照 + 强制备份
             preImportGs := ConfigService.ConfigStore.Get("GroupSettings")
             BackupService.CreateBackup(ConfigService.ConfigStore.Load(), "import")
-            tempPath := A_Temp "\ahk_import_" A_Now "_" Random(1000, 9999) ".json"
+            ; M16: 扩大临时文件随机空间，使用 A_MSec + Random(1,999999) 避免碰撞
+            tempPath := A_Temp "\ahk_import_" A_Now A_MSec "_" Random(1, 999999) ".json"
             FileAppend(jsonStr, tempPath, "UTF-8")
             result := GroupService.ImportGroups(tempPath)
             try FileDelete(tempPath)

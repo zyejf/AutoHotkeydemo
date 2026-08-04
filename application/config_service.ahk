@@ -41,7 +41,13 @@ class ConfigService {
                           Map("module", "ConfigService"))
             ErrorSystem.LogError(e.Message, "WARNING", A_ThisFunc, A_LineNumber)
 
-            try FileCopy(ConfigService.configPath, ConfigService.configPath ".bak", 1)
+            ; M18: FileCopy 添加 catch 块记录 WARNING 日志，不再静默吞掉异常
+            try
+                FileCopy(ConfigService.configPath, ConfigService.configPath ".bak", 1)
+            catch as e {
+                JSONLogger.Log("WARNING", "配置备份文件创建失败: " e.Message,
+                              Map("module", "ConfigService"))
+            }
 
             config := ConfigService._GetDefaultConfig()
             ConfigService._SaveToFile(config)

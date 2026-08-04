@@ -254,6 +254,9 @@ class ConfigValidator {
                 for vi, vv in hp {
                     if IsNumber(vv) && Number(vv) < 10
                         errors.Push(Map("type", "ERROR", "message", "分组" id " holdPattern[" vi "]=" vv " 过小，最小 10ms"))
+                    ; M19: 数值上限检查
+                    if IsNumber(vv) && Number(vv) > 86400000
+                        errors.Push(Map("type", "ERROR", "message", "分组" id " holdPattern[" vi "]=" vv " 过大，最大 86400000ms(24小时)"))
                 }
             }
         }
@@ -404,6 +407,9 @@ class ConfigValidator {
                     for vi, vv in intervals {
                         if IsNumber(vv) && Number(vv) < 10
                             errors.Push(Map("type", "ERROR", "message", "分组" id "子组" i " intervals[" vi "]=" vv " 过小，最小 10ms"))
+                        ; M19: 数值上限检查
+                        if IsNumber(vv) && Number(vv) > 86400000
+                            errors.Push(Map("type", "ERROR", "message", "分组" id "子组" i " intervals[" vi "]=" vv " 过大，最大 86400000ms(24小时)"))
                     }
                 }
             } else if grpType = "sequence" {
@@ -422,6 +428,9 @@ class ConfigValidator {
                     for vi, vv in delays {
                         if IsNumber(vv) && Number(vv) < 10
                             errors.Push(Map("type", "ERROR", "message", "分组" id "子组" i " delays[" vi "]=" vv " 过小，最小 10ms"))
+                        ; M19: 数值上限检查
+                        if IsNumber(vv) && Number(vv) > 86400000
+                            errors.Push(Map("type", "ERROR", "message", "分组" id "子组" i " delays[" vi "]=" vv " 过大，最大 86400000ms(24小时)"))
                     }
                 }
             }
@@ -448,6 +457,9 @@ class ConfigValidator {
             for i, v in valuesArr {
                 if IsNumber(v) && Number(v) < 10
                     errors.Push(Map("type", "ERROR", "message", "分组" id modeName " " valuesField "[" i "] 值 " v " 过小，最小 10ms"))
+                ; M19: 数值上限检查，防止超大数值导致定时器间隔错误
+                if IsNumber(v) && Number(v) > 86400000
+                    errors.Push(Map("type", "ERROR", "message", "分组" id modeName " " valuesField "[" i "] 值 " v " 过大，最大 86400000ms(24小时)"))
             }
         }
         return errors

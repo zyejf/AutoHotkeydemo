@@ -29,15 +29,25 @@ class IPCChannel {
         if IPCChannel.initialized
             return
 
-        IPCChannel.initialized := true
-
-        if !InStr(FileExist(IPCChannel.channelDir), "D")
-            DirCreate(IPCChannel.channelDir)
+        ; M17: 目录创建包裹 try-catch，失败时记录明确错误并返回
+        ; 不设置 initialized，允许下次 Init 重试
+        if !InStr(FileExist(IPCChannel.channelDir), "D") {
+            try
+                DirCreate(IPCChannel.channelDir)
+            catch as e {
+                JSONLogger.Log("ERROR", "IPC通道目录创建失败: " e.Message,
+                              Map("module", "IPCChannel"))
+                return
+            }
+        }
 
         IPCChannel.inboundPipe := IPCChannel.channelDir "\inbound.json"
         IPCChannel.outboundPipe := IPCChannel.channelDir "\outbound.json"
 
         OnMessage(IPCChannel.msgType, IPCChannel._OnReceived)
+
+        ; M17: initialized 标志移到所有初始化步骤成功后
+        IPCChannel.initialized := true
 
         JSONLogger.Log("DEBUG", "IPC通道已初始化",
                       Map("module", "IPCChannel"))

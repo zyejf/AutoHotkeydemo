@@ -2579,6 +2579,145 @@ class GuiAndTimerSpecTests extends AutoHotUnitSuite {
     }
 }
 
+; =================================================================
+; 簇 D 安全性与健壮性测试（M15-M19）
+; =================================================================
+
+class IPCChannelInitSafetyTests extends AutoHotUnitSuite {
+    ; M17: initialized 标志应在 DirCreate 成功后才设置，不应在目录创建前就标记为已初始化
+    Test_M17_Initialized_Set_After_DirCreate() {
+        path := A_ScriptDir "\..\infrastructure\ipc_channel.ahk"
+        content := FileRead(path, "UTF-8")
+        initStart := InStr(content, "static Init() {")
+        this.assert.isTrue(initStart > 0)
+        ; 截取 Init 方法区域（到下一个 static 方法为止）
+        nextMethod := InStr(content, "`n    static On(", false, initStart)
+        initRegion := SubStr(content, initStart, nextMethod - initStart)
+        dirCreatePos := InStr(initRegion, "DirCreate(")
+        initializedPos := InStr(initRegion, "initialized := true")
+        this.assert.isTrue(dirCreatePos > 0)
+        this.assert.isTrue(initializedPos > 0)
+        ; initialized 应在 DirCreate 之后
+        this.assert.isTrue(initializedPos > dirCreatePos)
+    }
+
+    ; M17: DirCreate 应被包裹在 try-catch 中，失败时记录明确错误
+    Test_M17_DirCreate_HasTryCatch() {
+        path := A_ScriptDir "\..\infrastructure\ipc_channel.ahk"
+        content := FileRead(path, "UTF-8")
+        initStart := InStr(content, "static Init() {")
+        nextMethod := InStr(content, "`n    static On(", false, initStart)
+        initRegion := SubStr(content, initStart, nextMethod - initStart)
+        hasTry := InStr(initRegion, "try") > 0
+        hasCatch := InStr(initRegion, "catch") > 0
+        this.assert.isTrue(hasTry)
+        this.assert.isTrue(hasCatch)
+    }
+}
+
+class ConfigServiceFileCopyCatchTests extends AutoHotUnitSuite {
+    ; M18: FileCopy 不应是裸 try 无 catch（try FileCopy(...) 模式应被消除）
+    Test_M18_FileCopy_NotBareTryWithoutCatch() {
+        path := A_ScriptDir "\..\application\config_service.ahk"
+        content := FileRead(path, "UTF-8")
+        ; "try FileCopy(" 是问题模式 — try 语句直接跟 FileCopy 调用，没有 catch
+        hasBareTryFileCopy := InStr(content, "try FileCopy(") > 0
+        this.assert.isFalse(hasBareTryFileCopy)
+    }
+}
+
+class ConfigValidatorNumericLimitTests extends AutoHotUnitSuite {
+    ; M19: intervals 超过上限（86400000ms=24小时）应产生验证错误
+    Test_M19_Intervals_ExceedMaxLimit_HasError() {
+        config := Map("hotkey", "F1", "mode", "periodic", "keys", ["a"], "intervals", [86400001])
+        errors := ConfigValidator._ValidateModeFields("1", "periodic", config)
+        found := false
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                found := true
+        }
+        this.assert.isTrue(found)
+    }
+
+    ; M19: delays 超过上限应产生验证错误
+    Test_M19_Delays_ExceedMaxLimit_HasError() {
+        config := Map("hotkey", "F1", "mode", "sequence", "keys", ["a"], "delays", [86400001])
+        errors := ConfigValidator._ValidateModeFields("1", "sequence", config)
+        found := false
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                found := true
+        }
+        this.assert.isTrue(found)
+    }
+
+    ; M19: 正常 intervals 不应报上限错误
+    Test_M19_Intervals_Normal_NoMaxError() {
+        config := Map("hotkey", "F1", "mode", "periodic", "keys", ["a"], "intervals", [100])
+        errors := ConfigValidator._ValidateModeFields("1", "periodic", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                this.assert.fail("正常 intervals 不应报过大错误")
+        }
+    }
+
+    ; M19: 恰好等于上限的值不应报错
+    Test_M19_Intervals_AtMaxLimit_NoError() {
+        config := Map("hotkey", "F1", "mode", "periodic", "keys", ["a"], "intervals", [86400000])
+        errors := ConfigValidator._ValidateModeFields("1", "periodic", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                this.assert.fail("恰好等于上限的 intervals 不应报过大错误")
+        }
+    }
+}
+
+class WebView2TempFileNamingTests extends AutoHotUnitSuite {
+    ; M16: 临时文件命名不应使用 Random(1000, 9999)（范围太小）
+    Test_M16_TempFile_NotUseSmallRandomRange() {
+        path := A_ScriptDir "\..\presentation\webview2_manager.ahk"
+        content := FileRead(path, "UTF-8")
+        hasSmallRandom := InStr(content, "Random(1000, 9999)") > 0
+        this.assert.isFalse(hasSmallRandom)
+    }
+
+    ; M16: 临时文件命名应包含 A_MSec 或更大的随机空间
+    Test_M16_TempFile_UsesLargerRandomSpace() {
+        path := A_ScriptDir "\..\presentation\webview2_manager.ahk"
+        content := FileRead(path, "UTF-8")
+        importStart := InStr(content, "static _BridgeImportConfig(jsonStr) {")
+        this.assert.isTrue(importStart > 0)
+        nextMethod := InStr(content, "`n    static _BridgeBatchToggleGroups(", false, importStart)
+        importRegion := SubStr(content, importStart, nextMethod - importStart)
+        hasLargeRandom := InStr(importRegion, "A_MSec") > 0 || InStr(importRegion, "Random(1, 999999)") > 0
+        this.assert.isTrue(hasLargeRandom)
+    }
+}
+
+class WebView2PushStateNoRedundantParseTests extends AutoHotUnitSuite {
+    ; M15: _PushStateUpdate 不应调用 JSONParser.Parse（避免重复解析刚序列化的 JSON）
+    Test_M15_PushState_NoRedundantParse() {
+        path := A_ScriptDir "\..\presentation\webview2_manager.ahk"
+        content := FileRead(path, "UTF-8")
+        pushStart := InStr(content, "static _PushStateUpdate() {")
+        this.assert.isTrue(pushStart > 0)
+        nextMethod := InStr(content, "`n    static OnEvent(", false, pushStart)
+        pushRegion := SubStr(content, pushStart, nextMethod - pushStart)
+        hasParse := InStr(pushRegion, "JSONParser.Parse") > 0
+        this.assert.isFalse(hasParse)
+    }
+
+    ; M15: 应存在 _Internal 版本的 Bridge 方法返回对象
+    Test_M15_HasInternalBridgeMethods() {
+        path := A_ScriptDir "\..\presentation\webview2_manager.ahk"
+        content := FileRead(path, "UTF-8")
+        hasDebugInternal := InStr(content, "_BridgeGetDebugInfoInternal") > 0
+        hasGroupInternal := InStr(content, "_BridgeGetGroupListInternal") > 0
+        this.assert.isTrue(hasDebugInternal)
+        this.assert.isTrue(hasGroupInternal)
+    }
+}
+
 ; 创建静默报告器
 reporter := SilentReporter(A_ScriptDir "\test_results.log")
 
@@ -2678,7 +2817,12 @@ testManager.RegisterSuite(
     OnExitUITimerCleanupTests,
     HealthCheckGetActiveCountCacheTests,
     ConfigImportSecurityTests,
-    GuiAndTimerSpecTests
+    GuiAndTimerSpecTests,
+    IPCChannelInitSafetyTests,
+    ConfigServiceFileCopyCatchTests,
+    ConfigValidatorNumericLimitTests,
+    WebView2TempFileNamingTests,
+    WebView2PushStateNoRedundantParseTests
 )
 
 ; ============================================================
