@@ -49,6 +49,7 @@ InstallMouseHook()
 ; =================================================================
 #Include "application\group_service.ahk"
 #Include "application\config_service.ahk"
+#Include "application\backup_service.ahk"
 
 ; =================================================================
 ; 第 4 步: 加载表现层

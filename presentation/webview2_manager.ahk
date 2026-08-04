@@ -713,7 +713,7 @@ class WebView2Manager extends IEventHook {
     static _BridgeCreateBackup() {
         try {
             config := ConfigService.ConfigStore.Load()
-            result := BackupCore.CreateBackup(config)
+            result := BackupService.CreateBackup(config)
             if result.Has("success") && result["success"]
                 return result["file"]
             return ""
@@ -726,8 +726,8 @@ class WebView2Manager extends IEventHook {
         try {
             if backupName = "" || InStr(backupName, "\") || InStr(backupName, "/") || InStr(backupName, "..")
                 return false
-            backupPath := BackupCore.backupDir "\" backupName
-            result := BackupCore.RestoreBackup(backupPath)
+            backupPath := BackupService.backupDir "\" backupName
+            result := BackupService.RestoreBackup(backupPath)
             if result.Has("success") && result["success"] {
                 ConfigService.LoadConfig()
                 SkillManager._BindControlHotkeys()
@@ -746,8 +746,8 @@ class WebView2Manager extends IEventHook {
         try {
             if backupName = "" || InStr(backupName, "\") || InStr(backupName, "/") || InStr(backupName, "..")
                 return false
-            backupPath := BackupCore.backupDir "\" backupName
-            return BackupCore.DeleteBackup(backupPath)
+            backupPath := BackupService.backupDir "\" backupName
+            return BackupService.DeleteBackup(backupPath)
         } catch as e {
             return false
         }
@@ -755,7 +755,7 @@ class WebView2Manager extends IEventHook {
 
     static _BridgeListBackups() {
         try {
-            backups := BackupCore.ListBackups()
+            backups := BackupService.ListBackups()
             result := []
             for bk in backups {
                 obj := Map()
@@ -1136,7 +1136,7 @@ class WebView2Manager extends IEventHook {
                 }
             }
 
-            BackupCore.RecordConfigChange(ConfigService.ConfigStore.Load())
+            BackupService.RecordConfigChange(ConfigService.ConfigStore.Load())
             return JSONSerializer.Stringify(Map("success", success, "failed", ids.Length - success))
         } catch as e {
             return JSONSerializer.Stringify(Map("success", 0, "failed", 0, "error", e.Message))
@@ -1145,7 +1145,7 @@ class WebView2Manager extends IEventHook {
 
     static _BridgeGetBackupList() {
         try {
-            backups := BackupCore.ListBackups()
+            backups := BackupService.ListBackups()
             result := []
             for b in backups {
                 m := Map()

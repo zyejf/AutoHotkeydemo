@@ -15,7 +15,7 @@
 #Include "../lib/ahk2_lib/deepclone.ahk"
 #Include "../application/config_service.ahk"
 #Include "../infrastructure/config_store.ahk"
-#Include "../infrastructure/backup_core.ahk"
+#Include "../application/backup_service.ahk"
 #Include "../infrastructure/error_handler.ahk"
 #Include "../infrastructure/error_system.ahk"
 #Include "group_editor.ahk"
@@ -235,7 +235,7 @@ class GUIManager {
         config := ConfigService.ConfigStore.Load()
         groupConfig := ConfigService.ConfigStore.GetGroupConfig(id)
         backupLabel := "group_" id
-        result := BackupCore.CreateBackup(config, backupLabel)
+        result := BackupService.CreateBackup(config, backupLabel)
     }
 
     static _CopyGroup(id) {

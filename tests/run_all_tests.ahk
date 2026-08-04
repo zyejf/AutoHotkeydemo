@@ -25,6 +25,7 @@
 #Include "../infrastructure/ipc_channel.ahk"
 #Include "../application/config_service.ahk"
 #Include "../application/group_service.ahk"
+#Include "../application/backup_service.ahk"
 #Include "../presentation/ui_manager.ahk"
 #Include "../presentation/group_editor.ahk"
 #Include "../presentation/gui_manager.ahk"
@@ -1918,6 +1919,71 @@ class BackupSortAlgorithmTests extends AutoHotUnitSuite {
     }
 }
 
+; ============================================================
+; BackupService 应用层分层测试（I1: 表现层不应直接调用 BackupCore）
+; ============================================================
+
+class BackupServiceLayeringTests extends AutoHotUnitSuite {
+    ; 验证 BackupService 类存在且暴露备份 API
+    Test_BackupService_HasListBackups() {
+        this.assert.isTrue(HasProp(BackupService, "ListBackups"))
+    }
+
+    Test_BackupService_HasRestoreBackup() {
+        this.assert.isTrue(HasProp(BackupService, "RestoreBackup"))
+    }
+
+    Test_BackupService_HasDeleteBackup() {
+        this.assert.isTrue(HasProp(BackupService, "DeleteBackup"))
+    }
+
+    Test_BackupService_HasCreateBackup() {
+        this.assert.isTrue(HasProp(BackupService, "CreateBackup"))
+    }
+
+    Test_BackupService_HasRecordConfigChange() {
+        this.assert.isTrue(HasProp(BackupService, "RecordConfigChange"))
+    }
+
+    ; 验证 BackupService.ListBackups 委托 BackupCore 返回 Array
+    Test_BackupService_ListBackups_Delegates() {
+        result := BackupService.ListBackups()
+        this.assert.isTrue(result is Array)
+    }
+
+    ; 验证 BackupService.CreateBackup 委托 BackupCore 返回 Map
+    Test_BackupService_CreateBackup_Delegates() {
+        config := Map("test", "value")
+        result := BackupService.CreateBackup(config, "test")
+        this.assert.isTrue(result is Map)
+        this.assert.isTrue(result.Has("success"))
+    }
+
+    ; 验证 BackupService 暴露 backupDir 属性（表现层需要构建备份路径）
+    Test_BackupService_HasBackupDir() {
+        this.assert.isTrue(BackupService.backupDir != "")
+    }
+
+    ; 验证表现层不直接调用 BackupCore（DDD 分层原则）
+    Test_Presentation_BackupUI_NotCallBackupCore() {
+        path := A_ScriptDir "\..\presentation\backup_ui.ahk"
+        content := FileRead(path, "UTF-8")
+        this.assert.equal(InStr(content, "BackupCore."), 0)
+    }
+
+    Test_Presentation_GUIManager_NotCallBackupCore() {
+        path := A_ScriptDir "\..\presentation\gui_manager.ahk"
+        content := FileRead(path, "UTF-8")
+        this.assert.equal(InStr(content, "BackupCore."), 0)
+    }
+
+    Test_Presentation_WebView2Manager_NotCallBackupCore() {
+        path := A_ScriptDir "\..\presentation\webview2_manager.ahk"
+        content := FileRead(path, "UTF-8")
+        this.assert.equal(InStr(content, "BackupCore."), 0)
+    }
+}
+
 class JSONLoggerModuleDefaultTests extends AutoHotUnitSuite {
     Test_BuildLogLine_ModuleEmpty_ShowsUnknown() {
         errorObj := JSONError("", "test message", 0, "", "")
@@ -2275,6 +2341,7 @@ testManager.RegisterSuite(
     ToggleDebounceReturnTests,
     CopyGroupIdGenerationTests,
     BackupSortAlgorithmTests,
+    BackupServiceLayeringTests,
     JSONLoggerModuleDefaultTests,
     DebounceCacheTests,
     HealthCheckTimestampFormatTests,

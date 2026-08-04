@@ -2,7 +2,7 @@
 ; 表现层 - 备份管理器 GUI
 ; 版本: 3.0
 ; 说明: 管理配置备份的图形界面
-;       依赖基础设施层的 BackupCore
+;       依赖应用层的 BackupService
 ; =================================================================
 
 #Requires AutoHotkey v2.0
@@ -11,7 +11,7 @@
 #Warn Unreachable, OutputDebug
 #Warn LocalSameAsGlobal, Off
 
-#Include "../infrastructure/backup_core.ahk"
+#Include "../application/backup_service.ahk"
 #Include "../application/config_service.ahk"
 #Include "../infrastructure/error_system.ahk"
 
@@ -58,7 +58,7 @@ class BackupUI {
             LV := BackupUI.controls["LV"]
             LV.Delete()
 
-            backups := BackupCore.ListBackups()
+            backups := BackupService.ListBackups()
             for b in backups {
                 timeFormatted := FormatTime(b["time"], "yyyy-MM-dd HH:mm:ss")
                 sizeKB := Round(b["size"] / 1024, 1) " KB"
@@ -83,7 +83,7 @@ class BackupUI {
             }
 
             backupFile := LV.GetText(selected, 1)
-            backups := BackupCore.ListBackups()
+            backups := BackupService.ListBackups()
             backupPath := ""
             for b in backups {
                 if b["file"] = backupFile {
@@ -97,7 +97,7 @@ class BackupUI {
                 return
             }
 
-            result2 := BackupCore.RestoreBackup(backupPath)
+            result2 := BackupService.RestoreBackup(backupPath)
             if result2["success"] {
                 try {
                     ConfigService.LoadConfig()
@@ -123,7 +123,7 @@ class BackupUI {
             }
 
             backupFile := LV.GetText(selected, 1)
-            backups := BackupCore.ListBackups()
+            backups := BackupService.ListBackups()
             backupPath := ""
             for b in backups {
                 if b["file"] = backupFile {
@@ -139,7 +139,7 @@ class BackupUI {
 
             result := MsgBox("确定要删除备份 '" backupFile "' 吗？", "确认删除", "YesNo Icon?")
             if result = "Yes" {
-                BackupCore.DeleteBackup(backupPath)
+                BackupService.DeleteBackup(backupPath)
                 BackupUI._RefreshList()
             }
         } catch as e {
@@ -150,7 +150,7 @@ class BackupUI {
     static _CreateBackup() {
         try {
             config := ConfigService.ConfigStore.Load()
-            result := BackupCore.CreateBackup(config)
+            result := BackupService.CreateBackup(config)
             if result["success"] {
                 BackupUI._RefreshList()
                 MsgBox("备份已创建: " result["file"], "备份成功", "Iconi")
