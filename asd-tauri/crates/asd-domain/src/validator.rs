@@ -182,7 +182,7 @@ impl ConfigValidator {
 
     fn validate_cross_fields(group_id: &str, group: &GroupConfig, result: &mut ValidationResult) {
         if group.mode == "hold"
-            && (group.hold_keys.is_none() || group.hold_keys.as_ref().is_none_or(|k| k.is_empty()))
+            && group.hold_keys.as_ref().is_none_or(|k| k.is_empty())
         {
             result.add_warning(&format!("[{}] hold 模式建议设置 holdKeys", group_id));
         }

@@ -222,9 +222,8 @@ fn test_skill_group_from_config_to_manager() {
     assert_eq!(group.mode, "periodic");
     assert!(!group.active);
 
-    let ipc_sender = Arc::new(MockIpcSender::new());
     let groups_map: HashMap<String, SkillGroup> = groups.into_iter().collect();
-    let mut mgr = SkillManager::new(groups_map, ipc_sender);
+    let mut mgr = SkillManager::new(groups_map);
 
     mgr.activate("1").unwrap();
     assert!(mgr.get_group("1").unwrap().active);

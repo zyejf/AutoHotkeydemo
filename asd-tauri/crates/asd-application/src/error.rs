@@ -14,6 +14,8 @@ pub enum AppError {
     Validation(String),
     #[error("内部错误: {0}")]
     Internal(String),
+    #[error("IO 错误: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 impl AppError {
@@ -25,6 +27,7 @@ impl AppError {
             AppError::GroupNotFound(_) => "GroupNotFound",
             AppError::Validation(_) => "Validation",
             AppError::Internal(_) => "Internal",
+            AppError::Io(_) => "Io",
         }
     }
 
@@ -36,6 +39,8 @@ impl AppError {
             AppError::GroupNotFound(m) => m,
             AppError::Validation(m) => m,
             AppError::Internal(m) => m,
+            // io::Error 无法直接返回 &str，序列化时通过 Serialize 实现处理
+            AppError::Io(_) => "",
         }
     }
 }
@@ -48,7 +53,12 @@ impl Serialize for AppError {
         use serde::ser::SerializeStruct;
         let mut state = serializer.serialize_struct("AppError", 2)?;
         state.serialize_field("kind", self.kind_str())?;
-        state.serialize_field("message", self.message())?;
+        // Io 变体存储的是 std::io::Error，无法通过 message() 返回 &str，
+        // 此处使用 to_string() 序列化完整错误消息
+        match self {
+            AppError::Io(e) => state.serialize_field("message", &e.to_string())?,
+            _ => state.serialize_field("message", self.message())?,
+        }
         state.end()
     }
 }
@@ -81,6 +91,7 @@ mod tests {
             (AppError::GroupNotFound("g".to_string()), "GroupNotFound"),
             (AppError::Validation("v".to_string()), "Validation"),
             (AppError::Internal("x".to_string()), "Internal"),
+            (AppError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "io")), "Io"),
         ];
         for (err, expected_kind) in &cases {
             let json = serde_json::to_string(&err).unwrap();
@@ -117,6 +128,18 @@ mod tests {
     }
 
     #[test]
+    fn test_app_error_from_io_error() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "拒绝访问");
+        let app_err: AppError = io_err.into();
+        assert!(matches!(app_err, AppError::Io(_)));
+        // 验证序列化保留 ErrorKind 信息（通过 kind 字段）
+        let json = serde_json::to_string(&app_err).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["kind"], "Io");
+        assert!(parsed["message"].as_str().unwrap().contains("拒绝访问"));
+    }
+
+    #[test]
     fn test_app_error_variants() {
         let variants = vec![
             AppError::Config("c".to_string()),
@@ -124,6 +147,7 @@ mod tests {
             AppError::GroupNotFound("g".to_string()),
             AppError::Validation("v".to_string()),
             AppError::Internal("x".to_string()),
+            AppError::Io(std::io::Error::new(std::io::ErrorKind::Other, "io")),
         ];
         for v in &variants {
             let json = serde_json::to_string(v).unwrap();

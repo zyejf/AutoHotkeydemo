@@ -86,7 +86,6 @@ pub struct AppState {
     pub recording_mode: RwLock<Option<String>>,
     pub validation_in_progress: AtomicBool,
     pub watchdog_state: RwLock<WatchdogState>,
-    #[allow(dead_code)]
     watchdog: Arc<dyn ProcessWatcher>,
     event_emitter: Arc<dyn EventEmitter>,
     config_path: RwLock<Option<PathBuf>>,
@@ -142,7 +141,8 @@ impl AppState {
     ///
     /// 注意：此方法使用 `store` 直接写入，绕过了命令层的 `compare_exchange` 保护。
     /// 仅用于测试代码。生产代码应使用 `system_cmd::emergency_release`/`clear_emergency`。
-    pub fn set_emergency_mode(&self, enabled: bool) {
+    #[cfg(test)]
+    pub(crate) fn set_emergency_mode(&self, enabled: bool) {
         self.emergency_mode
             .store(enabled, std::sync::atomic::Ordering::SeqCst);
     }
@@ -156,7 +156,8 @@ impl AppState {
     ///
     /// 注意：此方法使用 `store` 直接写入，绕过了命令层的 `compare_exchange` 保护。
     /// 仅用于测试代码。生产代码应使用 `system_cmd::toggle_hold_mode`。
-    pub fn set_hold_mode_enabled(&self, enabled: bool) {
+    #[cfg(test)]
+    pub(crate) fn set_hold_mode_enabled(&self, enabled: bool) {
         self.hold_mode_enabled
             .store(enabled, std::sync::atomic::Ordering::SeqCst);
     }

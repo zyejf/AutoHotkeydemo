@@ -7,7 +7,7 @@ use crate::time_format::format_datetime;
 use asd_ipc_protocol::IpcCommand;
 use serde::{Deserialize, Serialize};
 
-use asd_domain::config::VALID_MODES;
+use asd_domain::config::{PERIODIC_MODES, SEQUENCE_MODES, VALID_MODES};
 
 fn extract_ipc_error(response: &asd_ipc_protocol::IpcMessage) -> AppError {
     let error_msg = response
@@ -247,8 +247,8 @@ fn validate_recording_data(mode: &str, keys: &[String], intervals: &[u64], delay
         return Err(AppError::Validation("按键序列中不能包含空字符串".to_string()));
     }
 
-    let needs_intervals = ["periodic", "enhanced_periodic", "joystick_periodic"].contains(&mode);
-    let needs_delays = ["sequence", "enhanced_sequence", "joystick_sequence"].contains(&mode);
+    let needs_intervals = PERIODIC_MODES.contains(&mode);
+    let needs_delays = SEQUENCE_MODES.contains(&mode);
 
     if needs_intervals && intervals.is_empty() {
         return Err(AppError::Validation("periodic 模式需要至少一个间隔".to_string()));

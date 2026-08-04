@@ -2,7 +2,6 @@ use asd_domain::models::SkillGroup;
 use asd_domain::traits::IpcSender;
 use asd_ipc_protocol::IpcCommand;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 #[deprecated(
     since = "3.1.0",
@@ -11,17 +10,14 @@ use std::sync::Arc;
 pub struct SkillManager {
     groups: HashMap<String, SkillGroup>,
     hotkey_registry: HashMap<String, String>,
-    #[allow(dead_code)]
-    ipc_sender: Arc<dyn IpcSender>,
 }
 
 #[allow(deprecated)]
 impl SkillManager {
-    pub fn new(groups: HashMap<String, SkillGroup>, ipc_sender: Arc<dyn IpcSender>) -> Self {
+    pub fn new(groups: HashMap<String, SkillGroup>) -> Self {
         Self {
             groups,
             hotkey_registry: HashMap::new(),
-            ipc_sender,
         }
     }
 
@@ -180,11 +176,10 @@ mod tests {
     }
 
     fn make_manager() -> SkillManager {
-        let ipc_sender = Arc::new(MockIpcSender);
         let mut groups = HashMap::new();
         groups.insert("1".to_string(), make_skill_group("1", "periodic"));
         groups.insert("2".to_string(), make_skill_group("2", "sequence"));
-        SkillManager::new(groups, ipc_sender)
+        SkillManager::new(groups)
     }
 
     #[test]

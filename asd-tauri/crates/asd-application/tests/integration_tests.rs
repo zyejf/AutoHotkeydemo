@@ -139,12 +139,11 @@ fn make_test_state() -> Arc<AppState> {
 
 #[test]
 fn test_skill_manager_lifecycle() {
-    let ipc_sender = Arc::new(MockIpcSender::new());
     let mut groups = HashMap::new();
     groups.insert("1".to_string(), make_skill_group("1", "periodic"));
     groups.insert("2".to_string(), make_skill_group("2", "sequence"));
 
-    let mut mgr = SkillManager::new(groups, ipc_sender);
+    let mut mgr = SkillManager::new(groups);
 
     assert!(!mgr.get_group("1").unwrap().active);
     assert!(mgr.get_active_groups().is_empty());
@@ -162,11 +161,10 @@ fn test_skill_manager_lifecycle() {
 
 #[test]
 fn test_skill_manager_toggle() {
-    let ipc_sender = Arc::new(MockIpcSender::new());
     let mut groups = HashMap::new();
     groups.insert("1".to_string(), make_skill_group("1", "periodic"));
 
-    let mut mgr = SkillManager::new(groups, ipc_sender);
+    let mut mgr = SkillManager::new(groups);
 
     let result = mgr.toggle("1").unwrap();
     assert!(result);
@@ -179,11 +177,10 @@ fn test_skill_manager_toggle() {
 
 #[test]
 fn test_skill_manager_reload() {
-    let ipc_sender = Arc::new(MockIpcSender::new());
     let mut groups = HashMap::new();
     groups.insert("1".to_string(), make_skill_group("1", "periodic"));
 
-    let mut mgr = SkillManager::new(groups, ipc_sender);
+    let mut mgr = SkillManager::new(groups);
     mgr.activate("1").unwrap();
     assert!(mgr.get_hotkey_group("F1").is_some());
 
@@ -198,11 +195,10 @@ fn test_skill_manager_reload() {
 
 #[test]
 fn test_skill_manager_hotkey_registry() {
-    let ipc_sender = Arc::new(MockIpcSender::new());
     let mut groups = HashMap::new();
     groups.insert("1".to_string(), make_skill_group("1", "periodic"));
 
-    let mut mgr = SkillManager::new(groups, ipc_sender);
+    let mut mgr = SkillManager::new(groups);
 
     mgr.register_hotkey("F10", "10").unwrap();
     assert_eq!(mgr.get_hotkey_group("F10"), Some("10"));
@@ -219,9 +215,8 @@ fn test_skill_manager_hotkey_registry() {
 
 #[test]
 fn test_skill_manager_nonexistent_group() {
-    let ipc_sender = Arc::new(MockIpcSender::new());
     let groups = HashMap::new();
-    let mut mgr = SkillManager::new(groups, ipc_sender);
+    let mut mgr = SkillManager::new(groups);
 
     assert!(mgr.activate("999").is_err());
     assert!(mgr.deactivate("999").is_err());
@@ -268,30 +263,6 @@ fn test_app_state_creation_and_groups() {
 
     let group2 = state.get_group("2").unwrap();
     assert_eq!(group2.mode, "sequence");
-}
-
-#[test]
-fn test_app_state_emergency_mode() {
-    let state = make_test_state();
-    assert!(!state.is_emergency_mode());
-
-    state.set_emergency_mode(true);
-    assert!(state.is_emergency_mode());
-
-    state.set_emergency_mode(false);
-    assert!(!state.is_emergency_mode());
-}
-
-#[test]
-fn test_app_state_hold_mode() {
-    let state = make_test_state();
-    assert!(!state.is_hold_mode_enabled());
-
-    state.set_hold_mode_enabled(true);
-    assert!(state.is_hold_mode_enabled());
-
-    state.set_hold_mode_enabled(false);
-    assert!(!state.is_hold_mode_enabled());
 }
 
 #[test]
@@ -642,13 +613,12 @@ fn test_multiple_groups_concurrent_operations() {
 
 #[test]
 fn test_skill_manager_multiple_groups() {
-    let ipc_sender = Arc::new(MockIpcSender::new());
     let mut groups = HashMap::new();
     groups.insert("1".to_string(), make_skill_group("1", "periodic"));
     groups.insert("2".to_string(), make_skill_group("2", "sequence"));
     groups.insert("3".to_string(), make_skill_group("3", "hold"));
 
-    let mut mgr = SkillManager::new(groups, ipc_sender);
+    let mut mgr = SkillManager::new(groups);
 
     mgr.activate("1").unwrap();
     mgr.activate("2").unwrap();

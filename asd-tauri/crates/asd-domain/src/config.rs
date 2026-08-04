@@ -7,6 +7,12 @@ pub const VALID_MODES: &[&str] = &[
     "joystick_periodic", "joystick_sequence", "joystick_hold",
 ];
 
+/// 需要 intervals 字段的模式列表（periodic 类模式）
+pub const PERIODIC_MODES: &[&str] = &["periodic", "enhanced_periodic", "joystick_periodic"];
+
+/// 需要 delays 字段的模式列表（sequence 类模式）
+pub const SEQUENCE_MODES: &[&str] = &["sequence", "enhanced_sequence", "joystick_sequence"];
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     #[serde(rename = "CONTROL_HOTKEYS")]
