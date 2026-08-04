@@ -49,6 +49,9 @@ LoadTestDependencies()
 
 TestReporter.BeginTest("test_application.ahk")
 
+; 注册 setup 钩子：重置依赖状态，确保独立场景间状态隔离
+TestReporter.RegisterBeforeEach(() => LoadTestDependencies())
+
 ; =================================================================
 ; 场景A: GroupService.CreateGroup 正常创建分组
 ; =================================================================
@@ -143,7 +146,7 @@ TestReporter.AssertEqual(migratedGroup["pressKeys"][1], "Space",
 ; =================================================================
 ; 场景I: ConfigService.MigrateConfig 清理 type 字段
 ; =================================================================
-TestReporter.Scenario("场景I: ConfigService.MigrateConfig 清理 type 字段")
+TestReporter.BeforeEach("场景I: ConfigService.MigrateConfig 清理 type 字段")
 configWithType := Map(
     "GroupSettings", Map(
         "2", Map(

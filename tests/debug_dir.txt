@@ -1,2 +1,0 @@
-﻿ScriptDir=D:\1demo\AutoHotkeydemo\tests
-Now=20260519211914

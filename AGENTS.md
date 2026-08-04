@@ -250,6 +250,11 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
 - 查看调试日志（实时）: `Get-Content logs\debug.log -Tail 20 -Wait`
 - 查看应用日志: `Get-Content logs\app.log -Tail 10`
 - 过滤错误日志: `Select-String -Path logs\app.log -Pattern '"level":"ERROR"'`
+- **tests/ 目录结构**（v4.1 整理）：
+  - 根目录保留 22 个核心文件：`AutoHotUnit.ahk`、`run_all_tests.ahk`、`run_tests.ahk`、`run_tests.ps1`、`test_result_reporter.ahk`、`test_joy_hotkey_manager_ahu.ahk` + 15 个核心测试文件（`test_application`/`test_presentation`/`test_webview2_bridge`/`test_error_system`/`test_domain`/`test_infrastructure`/`test_boundary`/`test_error_captor`/`test_integration_error_system`/`test_joystick`/`test_joy_hotkey_manager`/`test_key_recorder`/`test_key_test_integration`/`test_key_validator`）+ `config.json` + `TEST_STRATEGY.md`
+  - `tests/archive/`：归档了 39 个调试/原型/旧版本文件（HTML 原型 `test_html_*`、WebView2 原型 `test_wv2_*`/`test_webview2_proto`、编号测试 `test_*_c*`、full 旧版本 `test_*_full`、bug 复现脚本 `run_bug_repro`/`test_bug_reproduction`、基准 `benchmark_hotpath` 等），不参与 `run_all_tests.ahk` 运行
+  - `tests/test_ahk_executor/`：AHK 执行器测试（57 套件，详见下方）
+  - 删除了 25 个 `.txt`/`.log` 调试输出文件（stderr/stdout 重定向、`bug_repro_results`、`debug_output`、`test_results.log` 等）
 
 #### Rust/Tauri 测试
 

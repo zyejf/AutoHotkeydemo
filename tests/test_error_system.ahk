@@ -246,12 +246,38 @@ _PrintSummary() {
 }
 
 ; =================================================================
+; Setup/Teardown 钩子（确保测试间状态隔离）
+; =================================================================
+_SetupTest() {
+    ; 记录当前错误计数作为基线，确保测试通过增量计算隔离
+    global g_errorBaseline := ErrorSystem.GetErrorCount()
+}
+
+_TeardownTest() {
+    ; 清理测试产生的临时状态（ErrorSystem 计数保留用于增量计算）
+}
+
+; =================================================================
 ; 主程序
 ; =================================================================
+_SetupTest()
 TestRuntimeErrors()
+_TeardownTest()
+
+_SetupTest()
 TestErrorLevels()
+_TeardownTest()
+
+_SetupTest()
 TestLogFormat()
+_TeardownTest()
+
+_SetupTest()
 TestNoPopup()
+_TeardownTest()
+
+_SetupTest()
 TestManualLogging()
+_TeardownTest()
 
 _PrintSummary()
