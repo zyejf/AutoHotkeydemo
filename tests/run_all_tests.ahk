@@ -46,6 +46,8 @@
 ; ============================================================
 #Include "test_joy_hotkey_manager_ahu.ahk"
 
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+
 class SilentReporter {
     failures := []
     passed := 0

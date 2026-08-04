@@ -12,11 +12,11 @@
 
 | Crate | 类型 | 文件路径 | 测试数 | 覆盖范围 |
 |-------|------|---------|-------|---------|
-| asd-domain | 单元 | crates/asd-domain/src/config.rs | 31 | Config / GroupConfig / ModeData / ControlHotkeys 序列化与默认值 |
+| asd-domain | 单元 | crates/asd-domain/src/config.rs | 35 | Config / GroupConfig / ModeData / ControlHotkeys 序列化与默认值 |
 | asd-domain | 单元 | crates/asd-domain/src/validator.rs | 48 | ConfigValidator 配置验证规则（按键、间隔、模式、热键） |
 | asd-domain | 单元 | crates/asd-domain/src/models.rs | 3 | SkillGroup 领域模型构造与字段访问 |
 | asd-domain | 集成 | crates/asd-domain/tests/integration_tests.rs | 43 | 跨模块配置解析与验证集成 |
-| **小计** | — | — | **125** | — |
+| **小计** | — | — | **129** | — |
 
 ## asd-ipc-protocol
 
@@ -39,12 +39,12 @@
 
 | Crate | 类型 | 文件路径 | 测试数 | 覆盖范围 |
 |-------|------|---------|-------|---------|
-| asd-application | 单元 | crates/asd-application/src/state.rs | 35 | AppState 状态管理与 trait object 装配 |
+| asd-application | 单元 | crates/asd-application/src/state.rs | 36 | AppState 状态管理与 trait object 装配 |
 | asd-application | 单元 | crates/asd-application/src/scheduler.rs | 17 | SkillManager 调度逻辑（Arc<dyn IpcSender>） |
-| asd-application | 单元 | crates/asd-application/src/config_repository.rs | 15 | ConfigRepository 文件 I/O 与序列化 |
+| asd-application | 单元 | crates/asd-application/src/config_repository.rs | 24 | ConfigRepository 文件 I/O 与序列化 |
 | asd-application | 单元 | crates/asd-application/src/time_format.rs | 4 | 时间格式化工具 |
-| asd-application | 单元 | crates/asd-application/src/error.rs | 3 | AppError 错误类型 |
-| **单元小计** | — | — | **74** | — |
+| asd-application | 单元 | crates/asd-application/src/error.rs | 5 | AppError 错误类型 |
+| **单元小计** | — | — | **86** | — |
 
 ### 集成测试
 
@@ -96,7 +96,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | Crate | 类型 | 文件路径 | 测试数 | 覆盖范围 |
 |-------|------|---------|-------|---------|
 | asd-tauri | 集成 | src-tauri/tests/test_manifest_feature_removed.rs | 1 | 验证 test-manifest feature 已从 Cargo.toml 移除 |
-| **总计** | — | — | **154** | — |
+| **总计** | — | — | **217** | — |
 
 ## 基准测试
 
@@ -143,11 +143,11 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 | 类别 | 测试数 |
 |------|-------|
-| Rust 测试函数（`#[test]` + `#[tokio::test]`） | 525（asd-domain 125 + asd-ipc-protocol 71 + asd-application 175 + asd-test-harness 0 + asd-tauri 154） |
+| Rust 测试函数（`#[test]` + `#[tokio::test]`） | 609（asd-domain 129 + asd-ipc-protocol 72 + asd-application 187 + asd-test-harness 4 + asd-tauri 217） |
 | AHK 执行器测试 | 57 套件 / 467 测试 |
 | 基准测试 | 7 个 criterion bench |
 | 模糊测试 | 5 个 fuzz target |
-| **Rust + AHK 总计** | **525+ 测试函数 + 467 AHK 测试** |
+| **Rust + AHK 总计** | **609 测试函数 + 467 AHK 测试** |
 
 文档统计标称值与实际计数的误差 ≤ 5%，符合 spec 要求。
 
