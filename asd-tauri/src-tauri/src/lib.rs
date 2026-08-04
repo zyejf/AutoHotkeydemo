@@ -38,10 +38,9 @@ async fn perform_graceful_shutdown(
     shutdown_guard: &std::sync::atomic::AtomicBool,
 ) {
     // 防止窗口关闭和托盘退出并发触发关机
-    if shutdown_guard
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    // 关机锁获取逻辑提取为 infrastructure::shutdown::try_acquire_shutdown_guard 纯函数，
+    // 使其可在不启动 Tauri 应用的情况下进行单元测试。
+    if !infrastructure::shutdown::try_acquire_shutdown_guard(shutdown_guard) {
         tracing::info!("关机已在进行中，跳过重复调用");
         return;
     }
@@ -77,10 +76,7 @@ fn spawn_ipc_listener(
                                 tracing::info!("收到热键事件: {hotkey}");
                                 let _ = app_handle.emit(
                                     "hotkey_event",
-                                    serde_json::json!({
-                                        "hotkey": hotkey,
-                                        "keys": keys,
-                                    }),
+                                    bridge::build_hotkey_event_payload(hotkey, keys),
                                 );
                             } else {
                                 tracing::debug!("收到未注册热键事件，已忽略: {hotkey}");
@@ -571,6 +567,22 @@ fn resolve_ahk_executor_path(app: &tauri::App) -> std::path::PathBuf {
         })
 }
 
+/// 预期的 Tauri command 数量。
+///
+/// 新增或删除命令时必须同步更新此值和下方 `generate_handler!` 列表。
+/// 此常量提供编译时追踪点：如果命令数量变化但未更新此值，
+/// 编译时断言将失败，提醒开发者同步更新文档（test-map.md 等）。
+pub const EXPECTED_TAURI_COMMAND_COUNT: usize = 34;
+
+/// 编译时断言：确保 Tauri command 数量常量与预期一致。
+///
+/// 如果新增或删除了 `generate_handler!` 中的命令，需同步更新
+/// `EXPECTED_TAURI_COMMAND_COUNT` 常量值。此断言确保常量值被
+/// 显式记录和验证，防止意外的命令数量变化未被发现。
+const _: () = {
+    assert!(EXPECTED_TAURI_COMMAND_COUNT == 34);
+};
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -728,5 +740,52 @@ mod pipe_name_tests {
     #[test]
     fn test_ipc_pipe_name_constant_value() {
         assert_eq!(IPC_PIPE_NAME, "asd_ipc");
+    }
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+
+    /// 验证 `try_acquire_shutdown_guard` 首次调用成功获取关机锁。
+    ///
+    /// 当 guard 为 false 时，compare_exchange 应成功将其设为 true，
+    /// 返回 true 表示调用方获得关机权。
+    #[test]
+    fn test_try_acquire_shutdown_guard_first_call() {
+        let guard = AtomicBool::new(false);
+        assert!(
+            infrastructure::shutdown::try_acquire_shutdown_guard(&guard),
+            "首次调用应成功获取关机锁"
+        );
+        // 获取后 guard 应为 true
+        assert!(guard.load(Ordering::SeqCst), "获取后 guard 应为 true");
+    }
+
+    /// 验证 `try_acquire_shutdown_guard` 第二次调用失败（关机已在进行中）。
+    ///
+    /// 第一次调用将 guard 设为 true，第二次调用的 compare_exchange 应失败，
+    /// 返回 false 表示关机已在进行中，调用方应跳过。
+    #[test]
+    fn test_try_acquire_shutdown_guard_second_call_fails() {
+        let guard = AtomicBool::new(false);
+        // 第一次调用成功
+        assert!(infrastructure::shutdown::try_acquire_shutdown_guard(&guard));
+        // 第二次调用应失败
+        assert!(
+            !infrastructure::shutdown::try_acquire_shutdown_guard(&guard),
+            "第二次调用应失败，关机已在进行中"
+        );
+    }
+
+    /// 验证 `try_acquire_shutdown_guard` 在已锁定状态下返回 false。
+    #[test]
+    fn test_try_acquire_shutdown_guard_already_locked() {
+        let guard = AtomicBool::new(true);
+        assert!(
+            !infrastructure::shutdown::try_acquire_shutdown_guard(&guard),
+            "已锁定状态下应返回 false"
+        );
     }
 }

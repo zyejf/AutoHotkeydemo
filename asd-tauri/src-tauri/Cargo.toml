@@ -48,10 +48,6 @@ criterion = "0.5"
 asd-test-harness = { path = "../crates/asd-test-harness" }
 serial_test = "3"
 
-[[test]]
-name = "manifest_helper"
-path = "tests/manifest_helper.rs"
-
 [[bench]]
 name = "benchmarks"
 harness = false

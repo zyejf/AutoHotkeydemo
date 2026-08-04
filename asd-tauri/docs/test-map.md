@@ -80,21 +80,23 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | asd-tauri | 单元 | src-tauri/src/infrastructure/ipc.rs | 35 | IpcManager named pipe 通信 |
 | asd-tauri | 单元 | src-tauri/src/infrastructure/watchdog.rs | 21 | ProcessWatchdog + WatchdogRunner 进程管理 |
 | asd-tauri | 集成 | src-tauri/src/tests/ipc_tests.rs | 26 | IPC 边界条件与错误处理 |
-| asd-tauri | 集成 | src-tauri/src/tests/watchdog_integration_tests.rs | 14 | ProcessWatchdog 跨平台集成（`#![cfg(windows)]` gating） |
+| asd-tauri | 集成 | src-tauri/src/tests/bridge_tests.rs | 13 | IpcBridge / TauriEventBridge / WatchdogBridge trait 实现 + build_hotkey_event_payload 纯函数 |
+| asd-tauri | 集成 | src-tauri/src/tests/watchdog_integration_tests.rs | 17 | ProcessWatchdog 跨平台集成（`#![cfg(windows)]` gating） |
 | asd-tauri | 集成 | src-tauri/src/tests/config_compat_tests.rs | 11 | Rust Config 与 AHK config.json 格式兼容性 |
 | asd-tauri | 单元 | src-tauri/src/commands/config_cmd.rs | 7 | config_cmd Tauri 命令 |
 | asd-tauri | 单元 | src-tauri/src/commands/system_cmd.rs | 6 | get_system_status / emergency_release / toggle_hold_mode 命令 |
 | asd-tauri | 单元 | src-tauri/src/commands/hotkey_cmd.rs | 6 | register_hotkey / unregister_hotkey / list_hotkeys 命令 |
 | asd-tauri | 单元 | src-tauri/src/commands/group_cmd.rs | 4 | group_cmd Tauri 命令 |
 | asd-tauri | 单元 | src-tauri/src/commands/recording_cmd.rs | 3 | recording_cmd Tauri 命令 |
-| **小计** | — | — | **133** | — |
+| asd-tauri | 单元 | src-tauri/src/lib.rs | 4 | IPC_PIPE_NAME 常量验证 + try_acquire_shutdown_guard 关机锁纯函数 |
+| **小计** | — | — | **153** | — |
 
-### Manifest 集成测试
+### 集成测试（`tests/` 目录）
 
 | Crate | 类型 | 文件路径 | 测试数 | 覆盖范围 |
 |-------|------|---------|-------|---------|
-| asd-tauri | 集成 | src-tauri/tests/manifest_helper.rs | 1 | `test_manifest_helper_smoke` — tauri.conf.json manifest 加载冒烟测试 |
-| **总计** | — | — | **134** | — |
+| asd-tauri | 集成 | src-tauri/tests/test_manifest_feature_removed.rs | 1 | 验证 test-manifest feature 已从 Cargo.toml 移除 |
+| **总计** | — | — | **154** | — |
 
 ## 基准测试
 
@@ -141,13 +143,13 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 | 类别 | 测试数 |
 |------|-------|
-| Rust 测试函数（`#[test]` + `#[tokio::test]`） | 505（asd-domain 125 + asd-ipc-protocol 71 + asd-application 175 + asd-test-harness 0 + asd-tauri 134） |
+| Rust 测试函数（`#[test]` + `#[tokio::test]`） | 525（asd-domain 125 + asd-ipc-protocol 71 + asd-application 175 + asd-test-harness 0 + asd-tauri 154） |
 | AHK 执行器测试 | 57 套件 / 467 测试 |
 | 基准测试 | 7 个 criterion bench |
 | 模糊测试 | 5 个 fuzz target |
-| **Rust + AHK 总计** | **505+ 测试函数 + 467 AHK 测试** |
+| **Rust + AHK 总计** | **525+ 测试函数 + 467 AHK 测试** |
 
-文档统计标称值「506+」与实际 505 的误差 ≤ 5%，符合 spec 要求。
+文档统计标称值与实际计数的误差 ≤ 5%，符合 spec 要求。
 
 ---
 

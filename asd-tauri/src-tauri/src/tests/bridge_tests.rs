@@ -334,3 +334,54 @@ async fn test_event_emitter_trait_contract() {
     assert_eq!(events[0].0, "test_event");
     assert_eq!(events[0].1, payload);
 }
+
+// =================================================================
+// build_hotkey_event_payload 纯函数测试
+// =================================================================
+
+/// 验证 `build_hotkey_event_payload` 能正确构造热键事件 payload。
+///
+/// 从 hotkey 和 keys 构造 `{ "hotkey": ..., "keys": [...] }` JSON 结构，
+/// 用于 `spawn_ipc_listener` 中向前端 emit hotkey_event 事件。
+#[test]
+fn test_build_hotkey_event_payload_basic() {
+    let hotkey = "F1";
+    let keys = vec!["F1".to_string()];
+    let payload = crate::bridge::build_hotkey_event_payload(hotkey, &keys);
+
+    assert_eq!(payload["hotkey"], "F1", "hotkey 字段应为 F1");
+    assert_eq!(
+        payload["keys"],
+        serde_json::json!(["F1"]),
+        "keys 字段应包含 F1"
+    );
+}
+
+/// 验证 `build_hotkey_event_payload` 支持多键组合。
+#[test]
+fn test_build_hotkey_event_payload_multi_keys() {
+    let hotkey = "Ctrl+Shift+A";
+    let keys = vec![
+        "Ctrl".to_string(),
+        "Shift".to_string(),
+        "A".to_string(),
+    ];
+    let payload = crate::bridge::build_hotkey_event_payload(hotkey, &keys);
+
+    assert_eq!(payload["hotkey"], "Ctrl+Shift+A");
+    assert_eq!(
+        payload["keys"],
+        serde_json::json!(["Ctrl", "Shift", "A"])
+    );
+}
+
+/// 验证 `build_hotkey_event_payload` 在空 keys 时仍返回有效 JSON。
+#[test]
+fn test_build_hotkey_event_payload_empty_keys() {
+    let hotkey = "F2";
+    let keys: Vec<String> = vec![];
+    let payload = crate::bridge::build_hotkey_event_payload(hotkey, &keys);
+
+    assert_eq!(payload["hotkey"], "F2");
+    assert_eq!(payload["keys"], serde_json::json!([]));
+}

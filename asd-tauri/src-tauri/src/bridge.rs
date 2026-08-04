@@ -154,6 +154,20 @@ impl EventEmitter for TauriEventBridge {
     }
 }
 
+/// 构造热键事件的 emit payload。
+///
+/// 从 hotkey 和 keys 构造 `{ "hotkey": ..., "keys": [...] }` JSON 结构。
+/// 提取为独立纯函数以便单元测试，无需依赖 `tauri::AppHandle`。
+///
+/// 此函数被 `spawn_ipc_listener` 调用，将 AHK 子进程上报的热键事件
+/// 转换为前端可消费的 JSON payload。
+pub fn build_hotkey_event_payload(hotkey: &str, keys: &[String]) -> serde_json::Value {
+    serde_json::json!({
+        "hotkey": hotkey,
+        "keys": keys,
+    })
+}
+
 /// 进程监控桥接器，实现 `ProcessWatcher` trait，通过 `ProcessWatchdog` 查询 AHK 子进程状态。
 ///
 /// # block_in_place 使用说明（已知妥协 #2）
