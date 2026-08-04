@@ -263,6 +263,32 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
 - 新增固件须在本节登记说明
 - 与 Rust/Tauri 的 `asd-tauri/tests/fixtures/` 保持对等的管理规范
 
+#### AHK v2 测试模式统一规范
+
+**强制规范：新增测试必须使用 AutoHotUnitSuite 模式。**
+
+AHK v2 测试历史上存在 4 种不统一的测试模式，统一规范如下：
+
+| 模式 | 状态 | 使用文件 | 迁移计划 |
+|------|------|---------|---------|
+| AutoHotUnitSuite | ✅ 推荐模式 | `run_all_tests.ahk`（80 套件）、`run_tests.ahk`、`test_joy_hotkey_manager_ahu.ahk`、`test_ahk_executor/*.ahk`（5 文件） | 新测试必须使用此模式 |
+| TestReporter 场景式 | ⚠️ 保留（已稳定） | `test_application.ahk`、`test_domain.ahk`、`test_infrastructure.ahk`、`test_presentation.ahk`、`test_boundary.ahk`、`test_error_captor.ahk`、`test_integration_error_system.ahk`、`test_key_recorder.ahk`、`test_key_test_integration.ahk`、`test_key_validator.ahk`、`test_result_reporter.ahk`、`test_webview2_bridge.ahk`（共 12 文件） | 后续逐步迁移，当前保留 |
+| JoyTestRunner 自定义 | ⚠️ 保留（已稳定） | `test_joystick.ahk` | 后续迁移，当前保留 |
+| 函数式全局变量 | ⚠️ 保留（已稳定） | `test_error_system.ahk` | 后续迁移，当前保留 |
+
+**AutoHotUnitSuite 标准模板要求：**
+- 测试类必须 `extends AutoHotUnitSuite`
+- 测试方法以 `Test_` 前缀命名
+- 使用 `this.assert.isTrue()` / `this.assert.isFalse()` / `this.assert.fail()` 断言
+- 通过 `run_all_tests.ahk` 的 `testManager.RegisterSuite()` 注册运行
+- 例外：测试 ErrorSystem 自身的测试文件可保留 `OnError(ErrorSystem_HandleError, -1)` 模式（见 `test_error_system.ahk` 注释说明）
+
+**迁移优先级：**
+1. 新测试：必须使用 AutoHotUnitSuite
+2. 函数式全局变量模式（`test_error_system.ahk`）：优先级低，因 OnError 特殊性，迁移需保留 ErrorSystem 回调
+3. TestReporter 场景式模式（12 文件）：逐步迁移，每个文件独立评估风险
+4. JoyTestRunner 模式（`test_joystick.ahk`）：最后迁移，需完全重写
+
 #### Rust/Tauri 测试
 
 ```bash
