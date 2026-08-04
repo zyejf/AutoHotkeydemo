@@ -4,6 +4,8 @@
 #Warn Unreachable, OutputDebug
 #Warn LocalSameAsGlobal, Off
 
+#Include "utils.ahk"
+
 class MigrationLogger {
     static _logFile := A_ScriptDir "\logs\migrations.log"
     static _entries := []

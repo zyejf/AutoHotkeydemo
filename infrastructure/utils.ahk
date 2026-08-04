@@ -10,6 +10,8 @@
 #Warn Unreachable, OutputDebug
 #Warn LocalSameAsGlobal, Off
 
+#Include "json_parser.ahk"
+
 StrJoin(sep, parts*) {
     result := ""
     for part in parts {
