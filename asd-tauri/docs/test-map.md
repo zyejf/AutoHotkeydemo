@@ -58,7 +58,7 @@
 | asd-application | 端到端 | crates/asd-application/tests/e2e_dataflow_tests.rs | 4 | 端到端数据流（Command → Bridge → AppState → Scheduler） |
 | asd-application | 集成 | crates/asd-application/tests/concurrency_tests.rs | 4 | AppState 并发安全（Arc<Mutex> 验证） |
 | **集成小计** | — | — | **101** | — |
-| **总计** | — | — | **175** | — |
+| **总计** | — | — | **187** | — |
 
 ## asd-test-harness
 

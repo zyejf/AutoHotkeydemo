@@ -20,9 +20,6 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 | `config.json`                 | 运行时配置文件                                   |
 | `presentation/app_ui.html`    | WebView2 现代化 GUI 界面（HTML/CSS/JS）         |
 | `presentation/webview2_manager.ahk` | WebView2 表现层管理器 + AHK-JS Bridge    |
-| `equipment_recognizer.ahk`    | 装备属性识别模块（含OCR，外围模块）                      |
-| `ocr.ahk`                     | OCR 封装模块（外围模块）                            |
-| `joystick_tester.ahk`         | 摇杆测试器模块（外围模块）                            |
 
 ### Rust/Tauri 部分（asd-tauri/）
 
@@ -31,7 +28,7 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 | `asd-tauri/Cargo.toml` | Workspace root（resolver = "2"，5 members） |
 | `asd-tauri/crates/asd-domain/src/config.rs` | Config, GroupConfig, ModeData, WatchdogStateEnum |
 | `asd-tauri/crates/asd-domain/src/models.rs` | SkillGroup 领域模型 |
-| `asd-tauri/crates/asd-domain/src/validator.rs` | ConfigValidator（213 tests） |
+| `asd-tauri/crates/asd-domain/src/validator.rs` | ConfigValidator（48 tests） |
 | `asd-tauri/crates/asd-domain/src/traits.rs` | IpcSender, EventEmitter, ProcessWatcher trait |
 | `asd-tauri/crates/asd-ipc-protocol/src/command.rs` | IpcCommand（13 variants） |
 | `asd-tauri/crates/asd-ipc-protocol/src/message.rs` | IpcMessage + constructors |
@@ -92,7 +89,7 @@ asd-tauri/
 │   ├── asd-domain/         (纯逻辑 crate — 领域模型 + trait + 验证)
 │   │   ├── src/config.rs   (Config, GroupConfig, ModeData, WatchdogStateEnum)
 │   │   ├── src/models.rs   (SkillGroup)
-│   │   ├── src/validator.rs (ConfigValidator, 213 tests)
+│   │   ├── src/validator.rs (ConfigValidator, 48 tests)
 │   │   └── src/traits.rs   (IpcSender, EventEmitter, ProcessWatcher)
 │   ├── asd-ipc-protocol/   (纯逻辑 crate — IPC 协议定义)
 │   │   ├── src/command.rs  (IpcCommand, 13 variants)
@@ -332,13 +329,12 @@ cd asd-tauri/src-tauri/fuzz && cargo +nightly fuzz run fuzz_config_deserialize
   npm install
   npm test
   ```
-- **测试报告**：`docs/e2e-test-report.md`（运行后生成）
-- **测试用例清单**：`docs/e2e-test-checklist.md`
-- **已知问题清单**：`docs/e2e-known-issues.md`
+- **测试报告**：`asd-tauri/e2e/docs/e2e-test-report.md`（运行后生成）
+- **已知问题清单**：`asd-tauri/e2e/docs/e2e-known-issues.md`
 - **强制规范**：
   - 所有 E2E 测试文件使用 ESM 语法（`import/export`）
   - 测试用例编号格式：`E2E-<SUITE>-NNN`（如 `E2E-CFG-001`）
-  - 失败用例必须调用 `appendKnownIssue` 记录到 `docs/e2e-known-issues.md`
+  - 失败用例必须调用 `appendKnownIssue` 记录到 `asd-tauri/e2e/docs/e2e-known-issues.md`
   - binary 缺失时所有测试 skip（不 fail）
   - 不直接修改用户真实 `config.json`，使用 `backupUserConfig`/`restoreUserConfig`
 
