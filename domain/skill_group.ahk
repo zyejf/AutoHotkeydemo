@@ -82,6 +82,13 @@ class SkillGroup {
             this._groupTriggerTimes := Map()
             this._seqSteps := Map()
             this._lastSeqRuns := Map()
+            ; M11: 预初始化所有可能的 Map 属性，消除 Dispose 中的 HasProp 检查
+            this._pendingReleases := Map()
+            this._releaseTimers := Map()
+            this._activeHolds := Map()
+            this._subGroupMouse := Map()
+            this._seqIntervals := Map()
+            this._skippedHoldKeys := Map()
 
             if !ModeRegistry.HasMode(this.mode)
                 throw ValueError("无效的执行模式: " this.mode)
@@ -701,11 +708,10 @@ class SkillGroup {
         try {
             this.active := false
             ; I12: 取消所有待处理的释放定时器，防止 Dispose 后定时器仍触发
-            if this.HasProp("_releaseTimers") && this._releaseTimers is Map {
-                for k, timerRef in this._releaseTimers
-                    SetTimer(timerRef, 0)
-                this._releaseTimers.Clear()
-            }
+            ; M11: _releaseTimers 已在 __New 预初始化为 Map，无需 HasProp 检查
+            for k, timerRef in this._releaseTimers
+                SetTimer(timerRef, 0)
+            this._releaseTimers.Clear()
             this._ReleaseAllKeys()
             this._heldKeys.Clear()
             this._lastTriggerTimes.Clear()
@@ -719,16 +725,12 @@ class SkillGroup {
             this._holdRepeatPhase := ""
             this._executionCount := 0
             this._startTime := 0
-            if this.HasProp("_pendingReleases")
-                this._pendingReleases.Clear()
-            if this.HasProp("_activeHolds") && this._activeHolds is Map
-                this._activeHolds.Clear()
-            if this.HasProp("_subGroupMouse") && this._subGroupMouse is Map
-                this._subGroupMouse.Clear()
-            if this.HasProp("_seqIntervals") && this._seqIntervals is Map
-                this._seqIntervals.Clear()
-            if this.HasProp("_skippedHoldKeys") && this._skippedHoldKeys is Map
-                this._skippedHoldKeys.Clear()
+            ; M11: 以下 Map 属性均在 __New 中预初始化，直接 Clear 即可
+            this._pendingReleases.Clear()
+            this._activeHolds.Clear()
+            this._subGroupMouse.Clear()
+            this._seqIntervals.Clear()
+            this._skippedHoldKeys.Clear()
         } catch as e {
             ErrorSystem.LogError(e.Message, "ERROR", A_ThisFunc, A_LineNumber)
         }

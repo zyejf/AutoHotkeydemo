@@ -158,68 +158,61 @@ class ConfigStore {
         if !(groupSettings is Map)
             return
 
+        ; M7: 数据驱动 — mode → 需修复的顶层字段，消除重复 case 分支
+        modeFieldMap := Map(
+            "periodic", "keys",
+            "sequence", "keys",
+            "enhanced_periodic", "pressKeys",
+            "enhanced_sequence", "pressKeys",
+            "hold", "holdKeys",
+            "joystick_periodic", "joyKeys",
+            "joystick_sequence", "joyKeys",
+            "joystick_hold", "joyKeys"
+        )
+
         for id, config in groupSettings {
             if !(config is Map)
                 continue
 
             mode := config.Has("mode") ? config["mode"] : ""
 
-            switch mode {
-                case "periodic":
-                    if config.Has("keys") && config["keys"] is Array && config["keys"].Length = 0 {
-                        defaults := this._GetDefaultGroup(id)
-                        if defaults is Map && defaults.Has("keys")
-                            config["keys"] := defaults["keys"]
-                    }
-                case "sequence":
-                    if config.Has("keys") && config["keys"] is Array && config["keys"].Length = 0 {
-                        defaults := this._GetDefaultGroup(id)
-                        if defaults is Map && defaults.Has("keys")
-                            config["keys"] := defaults["keys"]
-                    }
-                case "enhanced_periodic":
-                    if config.Has("pressKeys") && config["pressKeys"] is Array && config["pressKeys"].Length = 0 {
-                        defaults := this._GetDefaultGroup(id)
-                        if defaults is Map && defaults.Has("pressKeys")
-                            config["pressKeys"] := defaults["pressKeys"]
-                    }
-                case "enhanced_sequence":
-                    if config.Has("pressKeys") && config["pressKeys"] is Array && config["pressKeys"].Length = 0 {
-                        defaults := this._GetDefaultGroup(id)
-                        if defaults is Map && defaults.Has("pressKeys")
-                            config["pressKeys"] := defaults["pressKeys"]
-                    }
-                case "enhanced_hybrid", "hybrid":
-                    if config.Has("groups") && config["groups"] is Array {
-                        defaults := this._GetDefaultGroup(id)
-                        if defaults is Map && defaults.Has("groups") && defaults["groups"] is Array {
-                            for i, grp in config["groups"] {
-                                if !(grp is Map)
-                                    continue
-                                if grp.Has("pressKeys") && grp["pressKeys"] is Array && grp["pressKeys"].Length = 0 {
-                                    if i <= defaults["groups"].Length && defaults["groups"][i] is Map && defaults["groups"][i].Has("pressKeys")
-                                        grp["pressKeys"] := defaults["groups"][i]["pressKeys"]
-                                }
-                                if grp.Has("keys") && grp["keys"] is Array && grp["keys"].Length = 0 {
-                                    if i <= defaults["groups"].Length && defaults["groups"][i] is Map && defaults["groups"][i].Has("keys")
-                                        grp["keys"] := defaults["groups"][i]["keys"]
-                                }
-                            }
+            ; 简单模式：单字段修复
+            if modeFieldMap.Has(mode) {
+                ConfigStore._RepairArrayField(config, id, modeFieldMap[mode])
+                continue
+            }
+
+            ; 混合模式：嵌套子组修复
+            if mode = "hybrid" || mode = "enhanced_hybrid" {
+                if config.Has("groups") && config["groups"] is Array {
+                    defaults := ConfigStore._GetDefaultGroup(id)
+                    if defaults is Map && defaults.Has("groups") && defaults["groups"] is Array {
+                        for i, grp in config["groups"] {
+                            if !(grp is Map)
+                                continue
+                            ConfigStore._RepairSubgroupField(grp, defaults, i, "pressKeys")
+                            ConfigStore._RepairSubgroupField(grp, defaults, i, "keys")
                         }
                     }
-                case "hold":
-                    if config.Has("holdKeys") && config["holdKeys"] is Array && config["holdKeys"].Length = 0 {
-                        defaults := this._GetDefaultGroup(id)
-                        if defaults is Map && defaults.Has("holdKeys")
-                            config["holdKeys"] := defaults["holdKeys"]
-                    }
-                case "joystick_periodic", "joystick_sequence", "joystick_hold":
-                    if config.Has("joyKeys") && config["joyKeys"] is Array && config["joyKeys"].Length = 0 {
-                        defaults := this._GetDefaultGroup(id)
-                        if defaults is Map && defaults.Has("joyKeys")
-                            config["joyKeys"] := defaults["joyKeys"]
-                    }
+                }
             }
+        }
+    }
+
+    ; M7: 修复顶层空数组字段（从默认配置填充）
+    static _RepairArrayField(config, id, field) {
+        if config.Has(field) && config[field] is Array && config[field].Length = 0 {
+            defaults := ConfigStore._GetDefaultGroup(id)
+            if defaults is Map && defaults.Has(field)
+                config[field] := defaults[field]
+        }
+    }
+
+    ; M7: 修复子组空数组字段（从默认配置对应位置填充）
+    static _RepairSubgroupField(grp, defaults, idx, field) {
+        if grp.Has(field) && grp[field] is Array && grp[field].Length = 0 {
+            if idx <= defaults["groups"].Length && defaults["groups"][idx] is Map && defaults["groups"][idx].Has(field)
+                grp[field] := defaults["groups"][idx][field]
         }
     }
 
@@ -293,7 +286,7 @@ class ConfigStore {
 
     static _BuildDefaultControlHotkeys() {
         return Map(
-            "emergency", "f12",
+            "emergency", "F12",
             "toggleAll", "^1",
             "showStatus", "^0",
             "toggleHoldMode", "^h",

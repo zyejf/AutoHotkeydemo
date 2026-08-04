@@ -107,6 +107,25 @@ class ConfigService {
     }
 
     ; =================================================================
+    ; 等待定时器排空（M6 代码重复消除）
+    ; HotReload 与 _Rollback 共用的等待逻辑，带超时保护
+    ; =================================================================
+    static _WaitForTimersDrain(timeoutMs := 500) {
+        waitStart := A_TickCount
+        loop {
+            try {
+                if ConfigService.SkillManager.GetTimerCount() <= 0
+                    break
+            } catch {
+                break
+            }
+            if (A_TickCount - waitStart) >= timeoutMs
+                break
+            Sleep(10)
+        }
+    }
+
+    ; =================================================================
     ; 热重载（带回滚保护）
     ; =================================================================
     static HotReload() {
@@ -136,18 +155,7 @@ class ConfigService {
             ConfigService.SkillManager.Emergency()
 
             try {
-                waitStart := A_TickCount
-                loop {
-                    try {
-                        if ConfigService.SkillManager.GetTimerCount() <= 0
-                            break
-                    } catch {
-                        break
-                    }
-                    if (A_TickCount - waitStart) >= 500
-                        break
-                    Sleep(10)
-                }
+                ConfigService._WaitForTimersDrain()
 
                 ConfigService.ConfigStore.Save(config)
 
@@ -194,18 +202,7 @@ class ConfigService {
             ConfigService.SkillManager.Emergency()
 
             try {
-                waitStart := A_TickCount
-                loop {
-                    try {
-                        if ConfigService.SkillManager.GetTimerCount() <= 0
-                            break
-                    } catch {
-                        break
-                    }
-                    if (A_TickCount - waitStart) >= 500
-                        break
-                    Sleep(10)
-                }
+                ConfigService._WaitForTimersDrain()
 
                 ConfigService.ConfigStore.Save(config)
 

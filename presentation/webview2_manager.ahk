@@ -126,12 +126,13 @@ class WebView2Manager extends IEventHook {
             return
         }
         try {
-            debugInfo := WebView2Manager._BridgeGetDebugInfo()
-            groupList := WebView2Manager._BridgeGetGroupList()
-            currentKey := debugInfo . groupList
+            ; M8: 轻量状态指纹替代 O(n) JSON 拼接，避免哈希碰撞与不必要的序列化开销
+            currentKey := SkillManager.GetActiveCount() "|" SkillManager.Groups.Count "|" SkillManager.GetTimerCount() "|" SkillManager.EmergencyMode "|" SkillManager.HoldModeEnabled
             if currentKey = WebView2Manager._lastPushHash
                 return
             WebView2Manager._lastPushHash := currentKey
+            debugInfo := WebView2Manager._BridgeGetDebugInfo()
+            groupList := WebView2Manager._BridgeGetGroupList()
             debugParsed := JSONParser.Parse(debugInfo)
             groupParsed := JSONParser.Parse(groupList)
             combined := Map("debug", debugParsed, "groups", groupParsed)
@@ -143,30 +144,25 @@ class WebView2Manager extends IEventHook {
     }
 
     static OnEvent(event, data) {
+        ; M5: 合并重复 case，提取 _ScheduleDebouncedPush 辅助方法
         switch event {
-            case "onActivate", "onDeactivate", "onStateChange", "onConfigChange":
-                if WebView2Manager.visible && WebView2Manager.wv {
-                    WebView2Manager._lastPushHash := ""
-                    if WebView2Manager._eventDebounceTimer {
-                        SetTimer(WebView2Manager._eventDebounceTimer, 0)
-                        WebView2Manager._eventDebounceTimer := 0
-                    }
-                    debounceFn := () => WebView2Manager._PushStateUpdate()
-                    WebView2Manager._eventDebounceTimer := debounceFn
-                    SetTimer(debounceFn, -50)
-                }
-            case "onError":
-                if WebView2Manager.visible && WebView2Manager.wv {
-                    WebView2Manager._lastPushHash := ""
-                    if WebView2Manager._eventDebounceTimer {
-                        SetTimer(WebView2Manager._eventDebounceTimer, 0)
-                        WebView2Manager._eventDebounceTimer := 0
-                    }
-                    debounceFn := () => WebView2Manager._PushStateUpdate()
-                    WebView2Manager._eventDebounceTimer := debounceFn
-                    SetTimer(debounceFn, -50)
-                }
+            case "onActivate", "onDeactivate", "onStateChange", "onConfigChange", "onError":
+                WebView2Manager._ScheduleDebouncedPush()
         }
+    }
+
+    ; M5: 防抖推送调度（OnEvent 各 case 共用逻辑）
+    static _ScheduleDebouncedPush() {
+        if !(WebView2Manager.visible && WebView2Manager.wv)
+            return
+        WebView2Manager._lastPushHash := ""
+        if WebView2Manager._eventDebounceTimer {
+            SetTimer(WebView2Manager._eventDebounceTimer, 0)
+            WebView2Manager._eventDebounceTimer := 0
+        }
+        debounceFn := () => WebView2Manager._PushStateUpdate()
+        WebView2Manager._eventDebounceTimer := debounceFn
+        SetTimer(debounceFn, -50)
     }
 
     ; =================================================================
@@ -340,14 +336,16 @@ class WebView2Manager extends IEventHook {
             } else if result is Float {
                 responseObj["result"] := result
             } else if Type(result) = "String" {
-                isJson := InStr(result, "{") = 1 || InStr(result, "[") = 1
-                if isJson {
-                    try {
-                        parsed := JSONParser.Parse(result)
-                        responseObj["result"] := parsed
-                    } catch {
-                        responseObj["result"] := result
-                    }
+                ; M10: 移除脆弱的首字符 JSON 检测，改用 try-parse 验证
+                ; 仅当解析结果为 Map/Array 时才视为 JSON 序列化结果（JSONSerializer.Stringify 的输出）
+                parsedJson := ""
+                try {
+                    parsedJson := JSONParser.Parse(result)
+                } catch {
+                    parsedJson := ""
+                }
+                if parsedJson is Map || parsedJson is Array {
+                    responseObj["result"] := parsedJson
                 } else if result = "true" {
                     responseObj["result"] := true
                 } else if result = "false" {
@@ -495,14 +493,12 @@ class WebView2Manager extends IEventHook {
     }
 
     static _SerializeGroupProperties(group, target) {
+        ; M4: 统一属性列表（含 holdPattern/holdTriggers），用 _CopyProp 兼容 Map 与 Object
         props := ["pressKeys", "keys", "holdKeys", "intervals", "delays", "pressDelays",
-                  "holdMode", "holdDuration", "autoRepeat", "repeatInterval", "seqInterval"]
+                  "holdMode", "holdDuration", "autoRepeat", "repeatInterval", "seqInterval",
+                  "holdPattern", "holdTriggers"]
         for prop in props
             _CopyProp(group, target, prop)
-        if group.HasProp("holdPattern")
-            target["holdPattern"] := deepclone(group.holdPattern)
-        if group.HasProp("holdTriggers")
-            target["holdTriggers"] := deepclone(group.holdTriggers)
     }
 
     static _BridgeGetGroupList() {
@@ -525,49 +521,24 @@ class WebView2Manager extends IEventHook {
                     for sg in group.groups {
                         sgObj := Map()
                         sgObj["type"] := sg is Map ? (sg.Has("type") ? sg["type"] : "") : (HasProp(sg, "type") ? sg.type : "")
-                            _CopyProp(sg, sgObj, "pressKeys")
-                            _CopyProp(sg, sgObj, "keys")
-                            _CopyProp(sg, sgObj, "holdKeys")
-                            _CopyProp(sg, sgObj, "intervals")
-                            _CopyProp(sg, sgObj, "delays")
-                            _CopyProp(sg, sgObj, "pressDelays")
-                            _CopyProp(sg, sgObj, "seqInterval")
-                            _CopyProp(sg, sgObj, "holdMode")
-                            _CopyProp(sg, sgObj, "holdDuration")
-                            _CopyProp(sg, sgObj, "holdPattern")
-                            _CopyProp(sg, sgObj, "holdTriggers")
-                            _CopyProp(sg, sgObj, "autoRepeat")
-                            _CopyProp(sg, sgObj, "repeatInterval")
+                        ; M4: 复用 _SerializeGroupProperties 替代 12 次 _CopyProp 重复调用
+                        WebView2Manager._SerializeGroupProperties(sg, sgObj)
                         subGroups.Push(sgObj)
                     }
                     groupObj["groups"] := subGroups
                 }
                 groups.Push(groupObj)
             }
-            n := groups.Length
-            if n > 1 {
-                orderCache := Map()
+            ; M13: 使用通用 _SortByField 替代手动插入排序
+            if groups.Length > 1 {
                 for g in groups {
                     gid := g["id"]
-                    if SkillManager.Groups.Has(gid) && HasProp(SkillManager.Groups[gid], "_order")
-                        orderCache[gid] := SkillManager.Groups[gid]._order
-                    else
-                        orderCache[gid] := 0
+                    g["_sortOrder"] := (SkillManager.Groups.Has(gid) && HasProp(SkillManager.Groups[gid], "_order"))
+                        ? SkillManager.Groups[gid]._order : 0
                 }
-                Loop n - 1 {
-                    i := A_Index + 1
-                    key := groups[i]
-                    keyOrder := orderCache[key["id"]]
-                    j := i - 1
-                    while j >= 1 {
-                        prevOrder := orderCache[groups[j]["id"]]
-                        if prevOrder <= keyOrder
-                            break
-                        groups[j + 1] := groups[j]
-                        j--
-                    }
-                    groups[j + 1] := key
-                }
+                _SortByField(groups, "_sortOrder", false)
+                for g in groups
+                    g.Delete("_sortOrder")
             }
             return JSONSerializer.Stringify(groups)
         } catch as e {

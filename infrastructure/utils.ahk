@@ -60,6 +60,37 @@ _GetField(obj, key, defaultVal := "") {
     }
 }
 
+; =================================================================
+; 通用插入排序：按指定字段对数组元素排序（M13 代码重复消除）
+; 兼容 Map（obj[key]）与 Object（obj.%key%）两种访问方式
+; descending=true 降序（默认，大值在前），descending=false 升序（小值在前）
+; =================================================================
+_SortByField(arr, key, descending := true) {
+    n := arr.Length
+    if n <= 1
+        return arr
+    Loop n - 1 {
+        i := A_Index + 1
+        cur := arr[i]
+        curVal := _GetProp(cur, key, 0)
+        j := i - 1
+        while j >= 1 {
+            prevVal := _GetProp(arr[j], key, 0)
+            if descending {
+                if prevVal >= curVal
+                    break
+            } else {
+                if prevVal <= curVal
+                    break
+            }
+            arr[j + 1] := arr[j]
+            j--
+        }
+        arr[j + 1] := cur
+    }
+    return arr
+}
+
 class LogRotator {
     static Rotate(logFile, keepCount := 5) {
         try {
@@ -95,17 +126,8 @@ class LogRotator {
             if backups.Length <= keepCount
                 return
 
-            n := backups.Length
-            loop n - 1 {
-                i := A_Index + 1
-                key := backups[i]
-                j := i - 1
-                while j >= 1 && backups[j].time < key.time {
-                    backups[j + 1] := backups[j]
-                    j--
-                }
-                backups[j + 1] := key
-            }
+            ; M13: 调用通用 _SortByField 替代手动插入排序（降序：新文件在前）
+            _SortByField(backups, "time", true)
 
             deleteCount := backups.Length - keepCount
             loop deleteCount {

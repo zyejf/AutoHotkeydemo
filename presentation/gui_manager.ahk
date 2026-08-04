@@ -61,10 +61,10 @@ class GUIManager {
             _DebugLog("GUIManager.Show: showing gui")
             GUIManager.gui.Show("w600 h500")
             _DebugLog("GUIManager.Show: DONE")
-          } catch as e {
-              _DebugLog("GUIManager.Show ERROR: " e.Message)
-              MsgBox("显示主界面失败: " e.Message, "错误", "Icon!")
-          }
+        } catch as e {
+            _DebugLog("GUIManager.Show ERROR: " e.Message)
+            MsgBox("显示主界面失败: " e.Message, "错误", "Icon!")
+        }
     }
 
     static _BuildMainGUI() {
