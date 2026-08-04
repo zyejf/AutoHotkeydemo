@@ -49,23 +49,27 @@ class ConfigIO {
         safetyPath := filePath ".safety"
         try
             FileDelete(tempPath)
-        catch {
+        catch as e {
+            OutputDebug("ASD [WARN] ConfigIO._WriteFileInner: FileDelete(tempPath) 失败: " e.Message " at line " e.Line)
         }
         FileAppend(jsonStr, tempPath, "UTF-8")
         try
             FileMove(filePath, safetyPath, 1)
-        catch {
+        catch as e {
+            OutputDebug("ASD [WARN] ConfigIO._WriteFileInner: FileMove(filePath→safetyPath) 失败: " e.Message " at line " e.Line)
         }
         try {
             FileMove(tempPath, filePath)
             try
                 FileDelete(safetyPath)
-            catch {
+            catch as e {
+                OutputDebug("ASD [WARN] ConfigIO._WriteFileInner: FileDelete(safetyPath) 失败: " e.Message " at line " e.Line)
             }
         } catch as moveErr {
             try
                 FileMove(safetyPath, filePath)
-            catch {
+            catch as e {
+                OutputDebug("ASD [WARN] ConfigIO._WriteFileInner: FileMove(safetyPath→filePath) 回滚失败: " e.Message " at line " e.Line)
             }
             throw moveErr
         }
