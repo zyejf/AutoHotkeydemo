@@ -827,6 +827,11 @@ impl WatchdogRunner {
 mod tests {
     use super::*;
 
+    /// 静态 Mutex 确保所有修改全局 panic hook 的测试不会并行运行（R3 测试隔离）。
+    /// `register_panic_hook` 与 `build_panic_hook_closure` 测试均通过 `take_hook`/`set_hook`
+    /// 修改全局 hook，必须串行执行以避免竞态。
+    static PANIC_HOOK_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_watchdog_state_enum_serialization() {
         let state = WatchdogStateEnum::Running;
@@ -1060,6 +1065,9 @@ mod tests {
     /// 多次调用不应 panic（使用 Once 保证幂等）。
     #[test]
     fn test_register_panic_hook_is_idempotent() {
+        // 获取 PANIC_HOOK_GUARD 锁，确保与 test_build_panic_hook_closure_calls_cleanup_on_panic
+        // 互斥运行，避免全局 panic hook 的 take_hook/set_hook 竞态（R3 测试隔离）。
+        let _guard = PANIC_HOOK_GUARD.lock().unwrap();
         register_panic_hook();
         register_panic_hook(); // 第二次调用应无副作用
     }
@@ -1112,10 +1120,10 @@ mod tests {
     #[test]
     fn test_build_panic_hook_closure_calls_cleanup_on_panic() {
         use std::sync::atomic::{AtomicBool, Ordering};
-        use std::sync::{Arc, Mutex};
+        use std::sync::Arc;
 
-        // 静态 Mutex 确保不与其他修改 panic hook 的测试并行
-        static PANIC_HOOK_GUARD: Mutex<()> = Mutex::new(());
+        // 获取模块级 PANIC_HOOK_GUARD 锁，确保与 test_register_panic_hook_is_idempotent
+        // 互斥运行，避免全局 panic hook 的 take_hook/set_hook 竞态（R3 测试隔离）。
         let _guard = PANIC_HOOK_GUARD.lock().unwrap();
 
         let cleanup_called = Arc::new(AtomicBool::new(false));
