@@ -1049,7 +1049,7 @@ function startRecording() {
 }
 
 function pauseRecording() {
-  api.pauseRecording().then(function() { showToast("暂停/继续功能开发中","warning"); }).catch(function(e) { showToast(e.message, "error"); });
+  api.pauseRecording().then(function() { showToast("暂停/继续功能开发中","warning"); }).catch(function(e) { showToast(errMsg(e, "暂停录制失败"), "error"); });
 }
 
 function stopRecording() {
