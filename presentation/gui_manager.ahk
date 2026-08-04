@@ -76,7 +76,8 @@ class GUIManager {
             ["ID", "热键", "模式", "状态"])
 
         GUIManager.controls["GroupLV"].OnEvent("DoubleClick", (*) => GUIManager._EditSelected())
-        GUIManager.controls["GroupLV"].OnEvent("ContextMenu", GUIManager._ShowContextMenu)
+        ; I5: OnEvent 静态方法引用必须用闭包包装，不能直接传递
+        GUIManager.controls["GroupLV"].OnEvent("ContextMenu", (LV, item, isRightClick, *) => GUIManager._ShowContextMenu(LV, item, isRightClick))
 
         btnAdd := GUIManager.gui.Add("Button", "x15 y355 w100 h35", "添加分组")
         btnAdd.OnEvent("Click", (*) => (_DebugLog("btnAdd clicked"), GroupEditor.Open("", true)))

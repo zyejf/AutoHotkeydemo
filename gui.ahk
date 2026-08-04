@@ -883,7 +883,8 @@ static _AddNewGroup() {
     
     static _OpenConfigFile() {
         if FileExist("config.json")
-            Run("notepad.exe config.json")
+            ; I14: 路径用双引号包围，防止含空格路径出错
+            Run('notepad.exe "config.json"')
         else
             MsgBox("配置文件不存在，请先保存配置", "提示", "Iconi")
     }
@@ -902,7 +903,8 @@ static _AddNewGroup() {
     static _ShowErrorLog() {
         logFile := JSONLogger.logFile
         if FileExist(logFile)
-            Run("notepad.exe " logFile)
+            ; I14: 路径用双引号包围，防止含空格路径出错
+            Run('notepad.exe "' logFile '"')
         else
             MsgBox("日志文件不存在", "提示", "Iconi")
     }

@@ -700,6 +700,12 @@ class SkillGroup {
     Dispose() {
         try {
             this.active := false
+            ; I12: 取消所有待处理的释放定时器，防止 Dispose 后定时器仍触发
+            if this.HasProp("_releaseTimers") && this._releaseTimers is Map {
+                for k, timerRef in this._releaseTimers
+                    SetTimer(timerRef, 0)
+                this._releaseTimers.Clear()
+            }
             this._ReleaseAllKeys()
             this._heldKeys.Clear()
             this._lastTriggerTimes.Clear()
@@ -786,7 +792,12 @@ class SkillGroup {
                 capturedKey := key
                 capturedReleaseKey := releaseKey
                 capturedId := releaseId
-                SetTimer(() => (capturedThis._pendingReleases.Has(capturedKey) && capturedThis._pendingReleases[capturedKey] = capturedId ? (capturedThis._pendingReleases.Delete(capturedKey), SendInput("{Blind}{" capturedReleaseKey " Up}")) : 0), -duration)
+                ; I12: 定时器引用存入 _releaseTimers Map，确保可取消
+                if !this.HasProp("_releaseTimers")
+                    this._releaseTimers := Map()
+                releaseTimer := () => (capturedThis._pendingReleases.Has(capturedKey) && capturedThis._pendingReleases[capturedKey] = capturedId ? (capturedThis._pendingReleases.Delete(capturedKey), capturedThis._releaseTimers.Delete(capturedKey), SendInput("{Blind}{" capturedReleaseKey " Up}")) : 0)
+                this._releaseTimers[key] := releaseTimer
+                SetTimer(releaseTimer, -duration)
             }
             this._lastSend[key] := A_TickCount
 

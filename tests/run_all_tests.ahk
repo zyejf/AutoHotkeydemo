@@ -2468,6 +2468,117 @@ _MockSM(activeCount, timerCount) {
     return mock
 }
 
+; =================================================================
+; 簇 F - GUI 与定时器规范测试（I5, I12, I14）
+; =================================================================
+
+class GuiAndTimerSpecTests extends AutoHotUnitSuite {
+    ; ============================================================
+    ; I5: OnEvent 静态方法引用需要闭包包装
+    ; 问题：gui.OnEvent("Size", ClassName._OnResize) 不能直接传递静态方法引用
+    ; 修复：使用闭包包装 (a,b,c,d) => ClassName._OnResize(a,b,c,d)
+    ; ============================================================
+
+    Test_I5_ContextMenu_OnEvent_NotDirectMethodRef() {
+        ; 静态分析：OnEvent("ContextMenu", ...) 不应直接传递 GUIManager._ShowContextMenu
+        path := A_ScriptDir "\..\presentation\gui_manager.ahk"
+        content := FileRead(path, "UTF-8")
+        ; 修复前：OnEvent("ContextMenu", GUIManager._ShowContextMenu) — 直接传递静态方法引用
+        hasDirectRef := InStr(content, 'OnEvent("ContextMenu", GUIManager._ShowContextMenu)') > 0
+        this.assert.isFalse(hasDirectRef)
+    }
+
+    Test_I5_ContextMenu_OnEvent_UsesClosureWrap() {
+        ; 静态分析：OnEvent("ContextMenu", ...) 应使用闭包包装传递参数
+        path := A_ScriptDir "\..\presentation\gui_manager.ahk"
+        content := FileRead(path, "UTF-8")
+        ; 修复后：OnEvent("ContextMenu", (...) => GUIManager._ShowContextMenu(...))
+        hasClosureWrap := RegExMatch(content, 'OnEvent\("ContextMenu",\s*\([^)]*\)\s*=>\s*GUIManager\._ShowContextMenu') > 0
+        this.assert.isTrue(hasClosureWrap)
+    }
+
+    ; ============================================================
+    ; I12: 定时器引用存入 _releaseTimers Map，可取消
+    ; 问题：_SendKey 中复杂单行闭包 SetTimer 未存储引用，无法取消
+    ; 修复：将定时器引用存入 _releaseTimers Map，Dispose 时可取消
+    ; ============================================================
+
+    Test_I12_SendKey_StoresReleaseTimerInMap() {
+        ; 行为测试：_SendKey 后定时器引用应存储在 _releaseTimers Map 中
+        sg := SkillGroup("i12_timer_test", Map(
+            "hotkey", "F1", "mode", "periodic",
+            "keys", ["a"], "intervals", [50],
+            "keyPressDuration", 100
+        ))
+        sg._lastSend.Clear()
+        sg._SendKey("a", false)
+        ; 修复后：定时器引用应存储在 _releaseTimers Map 中
+        this.assert.isTrue(sg.HasProp("_releaseTimers"))
+        this.assert.isTrue(sg._releaseTimers is Map)
+        this.assert.isTrue(sg._releaseTimers.Has("a"))
+        ; 取消定时器，验证可取消
+        SetTimer(sg._releaseTimers["a"], 0)
+        ; 清理按键状态
+        try SendInput("{Blind}{a Up}")
+    }
+
+    Test_I12_Dispose_ClearsReleaseTimers() {
+        ; 行为测试：Dispose 后应取消并清理所有释放定时器
+        sg := SkillGroup("i12_dispose_test", Map(
+            "hotkey", "F1", "mode", "periodic",
+            "keys", ["a"], "intervals", [50],
+            "keyPressDuration", 100
+        ))
+        sg._lastSend.Clear()
+        sg._SendKey("a", false)
+        ; 确认定时器已存储
+        this.assert.isTrue(sg._releaseTimers.Has("a"))
+        ; Dispose 应取消定时器并清理
+        sg.Dispose()
+        ; 清理按键状态（Dispose 的 _ReleaseAllKeys 应已释放，但保险起见）
+        try SendInput("{Blind}{a Up}")
+        ; 修复后：_releaseTimers 应不再包含该键
+        this.assert.isFalse(sg._releaseTimers.Has("a"))
+    }
+
+    ; ============================================================
+    ; I14: Run 路径加引号转义
+    ; 问题：Run("notepad.exe " logFile) 路径未加引号，含空格路径会出错
+    ; 修复：Run('notepad.exe "' logFile '"') 路径用双引号包围
+    ; ============================================================
+
+    Test_I14_OpenConfigFile_UsesQuotedPath() {
+        ; 静态分析：_OpenConfigFile 中 Run 应使用引号包围路径
+        path := A_ScriptDir "\..\gui.ahk"
+        content := FileRead(path, "UTF-8")
+        ; 修复前：Run("notepad.exe config.json") — 路径未加引号
+        hasUnquotedConfig := InStr(content, 'Run("notepad.exe config.json")') > 0
+        this.assert.isFalse(hasUnquotedConfig)
+    }
+
+    Test_I14_ShowErrorLog_NotUnquotedConcat() {
+        ; 静态分析：_ShowErrorLog 中 Run 不应使用未加引号的字符串拼接
+        path := A_ScriptDir "\..\gui.ahk"
+        content := FileRead(path, "UTF-8")
+        ; 修复前：Run("notepad.exe " logFile) — logFile 未加引号
+        hasUnquotedLog := InStr(content, 'Run("notepad.exe " logFile)') > 0
+        this.assert.isFalse(hasUnquotedLog)
+    }
+
+    Test_I14_ShowErrorLog_PathSurroundedByQuotes() {
+        ; 静态分析：_ShowErrorLog 方法区域内 Run 应使用单引号字符串包围路径
+        path := A_ScriptDir "\..\gui.ahk"
+        content := FileRead(path, "UTF-8")
+        methodStart := InStr(content, "static _ShowErrorLog() {")
+        this.assert.isTrue(methodStart > 0)
+        methodRegion := SubStr(content, methodStart, 500)
+        ; 修复后应使用单引号字符串: Run('notepad.exe "' logFile '"')
+        ; 修复前使用双引号字符串: Run("notepad.exe " logFile)
+        hasSingleQuoteRun := InStr(methodRegion, "Run('notepad.exe") > 0
+        this.assert.isTrue(hasSingleQuoteRun)
+    }
+}
+
 ; 创建静默报告器
 reporter := SilentReporter(A_ScriptDir "\test_results.log")
 
@@ -2566,7 +2677,8 @@ testManager.RegisterSuite(
     AutoRefreshIncrementalTests,
     OnExitUITimerCleanupTests,
     HealthCheckGetActiveCountCacheTests,
-    ConfigImportSecurityTests
+    ConfigImportSecurityTests,
+    GuiAndTimerSpecTests
 )
 
 ; ============================================================
