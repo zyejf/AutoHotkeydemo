@@ -1,6 +1,14 @@
 ; =================================================================
 ; layering_security_suites.ahk - 分层测试、配置导入安全、簇 D/F 测试套件
 ; 本文件通过 run_all_tests.ahk 的 #Include 加载，不可独立运行
+;
+; Minor-3 脆弱性说明：
+; 本文件中部分测试采用静态分析（FileRead + InStr 搜索源码文本）方式验证
+; 代码约束（如分层依赖、编码规范、安全模式消除等）。此类测试对源码格式
+; 改动敏感——若被检源码的字符串格式变化（如空格、引号、换行），测试可能
+; 误判。这些测试检查的是"代码模式存在/不存在"，难以通过行为测试替代，
+; 因为它们验证的是架构约束而非运行时行为。修改被检源码时应同步检查这些
+; 测试是否需要更新。
 ; =================================================================
 #Requires AutoHotkey v2.0
 #ErrorStdOut "UTF-8"
@@ -698,6 +706,15 @@ class IPCChannelInitSafetyTests extends AutoHotUnitSuite {
         this.assert.isTrue(hasTry)
         this.assert.isTrue(hasCatch)
     }
+
+    ; Minor-2: Init 已初始化时再次调用应返回 true
+    ; 注：无法测试首次初始化路径，因为 OnMessage 注册在测试环境中会抛出
+    ; "Invalid callback function" 异常，故仅测试已初始化的快速返回路径
+    Test_M17_Init_ReturnsTrue_WhenAlreadyInitialized() {
+        IPCChannel.initialized := true
+        result := IPCChannel.Init()
+        this.assert.isTrue(result)
+    }
 }
 
 class ConfigServiceFileCopyCatchTests extends AutoHotUnitSuite {
@@ -791,6 +808,154 @@ class ConfigValidatorNumericLimitTests extends AutoHotUnitSuite {
         }
         this.assert.isTrue(found)
     }
+
+    ; ============================================================
+    ; Minor-4: 补充 6 个字段的边界测试（Normal=1000, AtMaxLimit=86400000）
+    ; ============================================================
+
+    ; M19: 正常 delays 不应报上限错误
+    Test_M19_Delays_Normal_NoMaxError() {
+        config := Map("hotkey", "F1", "mode", "sequence", "keys", ["a"], "delays", [1000])
+        errors := ConfigValidator._ValidateModeFields("1", "sequence", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                this.assert.fail("正常 delays 不应报过大错误")
+        }
+    }
+
+    ; M19: 恰好等于上限的 delays 不应报错
+    Test_M19_Delays_AtMaxLimit_NoError() {
+        config := Map("hotkey", "F1", "mode", "sequence", "keys", ["a"], "delays", [86400000])
+        errors := ConfigValidator._ValidateModeFields("1", "sequence", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                this.assert.fail("恰好等于上限的 delays 不应报过大错误")
+        }
+    }
+
+    ; M19: pressDelays 超过上限应产生验证错误
+    Test_M19_PressDelays_ExceedMaxLimit_HasError() {
+        config := Map("hotkey", "F1", "mode", "enhanced_sequence", "pressKeys", ["a"], "pressDelays", [86400001])
+        errors := ConfigValidator._ValidateModeFields("1", "enhanced_sequence", config)
+        found := false
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                found := true
+        }
+        this.assert.isTrue(found)
+    }
+
+    ; M19: 正常 pressDelays 不应报上限错误
+    Test_M19_PressDelays_Normal_NoMaxError() {
+        config := Map("hotkey", "F1", "mode", "enhanced_sequence", "pressKeys", ["a"], "pressDelays", [1000])
+        errors := ConfigValidator._ValidateModeFields("1", "enhanced_sequence", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                this.assert.fail("正常 pressDelays 不应报过大错误")
+        }
+    }
+
+    ; M19: 恰好等于上限的 pressDelays 不应报错
+    Test_M19_PressDelays_AtMaxLimit_NoError() {
+        config := Map("hotkey", "F1", "mode", "enhanced_sequence", "pressKeys", ["a"], "pressDelays", [86400000])
+        errors := ConfigValidator._ValidateModeFields("1", "enhanced_sequence", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                this.assert.fail("恰好等于上限的 pressDelays 不应报过大错误")
+        }
+    }
+
+    ; M19: holdPattern 超过上限应产生验证错误
+    Test_M19_HoldPattern_ExceedMaxLimit_HasError() {
+        config := Map("hotkey", "F1", "mode", "periodic", "keys", ["a"], "intervals", [100], "holdPattern", [86400001, 86400001])
+        errors := ConfigValidator._ValidateModeFields("1", "periodic", config)
+        found := false
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                found := true
+        }
+        this.assert.isTrue(found)
+    }
+
+    ; M19: 正常 holdPattern 不应报上限错误
+    Test_M19_HoldPattern_Normal_NoMaxError() {
+        config := Map("hotkey", "F1", "mode", "periodic", "keys", ["a"], "intervals", [100], "holdPattern", [1000, 1000])
+        errors := ConfigValidator._ValidateModeFields("1", "periodic", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                this.assert.fail("正常 holdPattern 不应报过大错误")
+        }
+    }
+
+    ; M19: 恰好等于上限的 holdPattern 不应报错
+    Test_M19_HoldPattern_AtMaxLimit_NoError() {
+        config := Map("hotkey", "F1", "mode", "periodic", "keys", ["a"], "intervals", [100], "holdPattern", [86400000, 86400000])
+        errors := ConfigValidator._ValidateModeFields("1", "periodic", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                this.assert.fail("恰好等于上限的 holdPattern 不应报过大错误")
+        }
+    }
+
+    ; M19: 正常 repeatInterval 不应报上限错误
+    Test_M19_RepeatInterval_Normal_NoMaxError() {
+        config := Map("hotkey", "F1", "mode", "hold", "holdKeys", ["a"], "repeatInterval", 1000)
+        errors := ConfigValidator._ValidateModeFields("1", "hold", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                this.assert.fail("正常 repeatInterval 不应报过大错误")
+        }
+    }
+
+    ; M19: 恰好等于上限的 repeatInterval 不应报错
+    Test_M19_RepeatInterval_AtMaxLimit_NoError() {
+        config := Map("hotkey", "F1", "mode", "hold", "holdKeys", ["a"], "repeatInterval", 86400000)
+        errors := ConfigValidator._ValidateModeFields("1", "hold", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                this.assert.fail("恰好等于上限的 repeatInterval 不应报过大错误")
+        }
+    }
+
+    ; M19: 正常 seqInterval 不应报上限错误
+    Test_M19_SeqInterval_Normal_NoMaxError() {
+        config := Map("hotkey", "F1", "mode", "enhanced_hybrid", "groups", [Map("type", "periodic", "pressKeys", ["a"], "intervals", [100])], "seqInterval", 1000)
+        errors := ConfigValidator._ValidateModeFields("1", "enhanced_hybrid", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                this.assert.fail("正常 seqInterval 不应报过大错误")
+        }
+    }
+
+    ; M19: 恰好等于上限的 seqInterval 不应报错
+    Test_M19_SeqInterval_AtMaxLimit_NoError() {
+        config := Map("hotkey", "F1", "mode", "enhanced_hybrid", "groups", [Map("type", "periodic", "pressKeys", ["a"], "intervals", [100])], "seqInterval", 86400000)
+        errors := ConfigValidator._ValidateModeFields("1", "enhanced_hybrid", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                this.assert.fail("恰好等于上限的 seqInterval 不应报过大错误")
+        }
+    }
+
+    ; M19: 正常 holdDuration 不应报上限错误
+    Test_M19_HoldDuration_Normal_NoMaxError() {
+        config := Map("hotkey", "F1", "mode", "joystick_hold", "joyKeys", ["Joy1"], "holdDuration", 1000)
+        errors := ConfigValidator._ValidateModeFields("1", "joystick_hold", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                this.assert.fail("正常 holdDuration 不应报过大错误")
+        }
+    }
+
+    ; M19: 恰好等于上限的 holdDuration 不应报错
+    Test_M19_HoldDuration_AtMaxLimit_NoError() {
+        config := Map("hotkey", "F1", "mode", "joystick_hold", "joyKeys", ["Joy1"], "holdDuration", 86400000)
+        errors := ConfigValidator._ValidateModeFields("1", "joystick_hold", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "过大") > 0
+                this.assert.fail("恰好等于上限的 holdDuration 不应报过大错误")
+        }
+    }
 }
 
 class WebView2TempFileNamingTests extends AutoHotUnitSuite {
@@ -836,5 +1001,69 @@ class WebView2PushStateNoRedundantParseTests extends AutoHotUnitSuite {
         hasGroupInternal := InStr(content, "_BridgeGetGroupListInternal") > 0
         this.assert.isTrue(hasDebugInternal)
         this.assert.isTrue(hasGroupInternal)
+    }
+}
+
+; ============================================================
+; Minor-5: fixture 文件使用测试
+; 确保 tests/fixtures/ 下的固件文件被测试实际引用，而非闲置
+; ============================================================
+
+class FixtureUsageTests extends AutoHotUnitSuite {
+    ; Minor-5: sample_config.json 应可被正确解析为 Map，覆盖 7 种执行模式
+    Test_Fixture_SampleConfig_ParsesSuccessfully() {
+        path := A_ScriptDir "\fixtures\sample_config.json"
+        content := FileRead(path, "UTF-8")
+        config := JSONParser.Parse(content)
+        this.assert.isTrue(config is Map)
+        this.assert.isTrue(config.Has("GroupSettings"))
+        gs := config["GroupSettings"]
+        this.assert.isTrue(gs is Map)
+        ; 验证覆盖 7 种执行模式
+        this.assert.isTrue(gs.Has("periodic_sample"))
+        this.assert.isTrue(gs.Has("sequence_sample"))
+        this.assert.isTrue(gs.Has("hold_sample"))
+        this.assert.isTrue(gs.Has("enhanced_periodic_sample"))
+        this.assert.isTrue(gs.Has("enhanced_sequence_sample"))
+        this.assert.isTrue(gs.Has("enhanced_hybrid_sample"))
+        this.assert.isTrue(gs.Has("hybrid_sample"))
+    }
+
+    ; Minor-5: sample_config.json 应通过 ConfigValidator 验证（无 ERROR 级别错误）
+    Test_Fixture_SampleConfig_PassesValidation() {
+        path := A_ScriptDir "\fixtures\sample_config.json"
+        content := FileRead(path, "UTF-8")
+        config := JSONParser.Parse(content)
+        errors := ConfigValidator.Validate(config)
+        for err in errors {
+            if err is Map && err.Has("type") && err["type"] = "ERROR"
+                this.assert.fail("sample_config.json 不应包含 ERROR 级别验证错误: " err["message"])
+        }
+    }
+
+    ; Minor-5: import_test_data.json 应可被正确解析，包含预期测试场景
+    Test_Fixture_ImportTestData_ParsesSuccessfully() {
+        path := A_ScriptDir "\fixtures\import_test_data.json"
+        content := FileRead(path, "UTF-8")
+        data := JSONParser.Parse(content)
+        this.assert.isTrue(data is Map)
+        this.assert.isTrue(data.Has("cases"))
+        cases := data["cases"]
+        this.assert.isTrue(cases is Map)
+        ; 验证包含预期的测试场景
+        this.assert.isTrue(cases.Has("single_periodic_group"))
+        this.assert.isTrue(cases.Has("empty_group_settings"))
+        this.assert.isTrue(cases.Has("non_map_config"))
+    }
+
+    ; Minor-5: import_test_data.json 中的 single_periodic_group json 可被解析为 Map
+    Test_Fixture_ImportTestData_SingleGroupJson_Parses() {
+        path := A_ScriptDir "\fixtures\import_test_data.json"
+        content := FileRead(path, "UTF-8")
+        data := JSONParser.Parse(content)
+        singleJson := data["cases"]["single_periodic_group"]["json"]
+        parsed := JSONParser.Parse(singleJson)
+        this.assert.isTrue(parsed is Map)
+        this.assert.isTrue(parsed.Has("GroupSettings"))
     }
 }

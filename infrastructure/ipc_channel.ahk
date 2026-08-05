@@ -27,17 +27,18 @@ class IPCChannel {
 
     static Init() {
         if IPCChannel.initialized
-            return
+            return true
 
         ; M17: 目录创建包裹 try-catch，失败时记录明确错误并返回
         ; 不设置 initialized，允许下次 Init 重试
+        ; Minor-2: 失败时返回 false，成功时返回 true
         if !InStr(FileExist(IPCChannel.channelDir), "D") {
             try
                 DirCreate(IPCChannel.channelDir)
-            catch as e {
-                JSONLogger.Log("ERROR", "IPC通道目录创建失败: " e.Message,
+            catch as ex {
+                JSONLogger.Log("ERROR", "IPC通道目录创建失败: " ex.Message,
                               Map("module", "IPCChannel"))
-                return
+                return false
             }
         }
 
@@ -51,6 +52,7 @@ class IPCChannel {
 
         JSONLogger.Log("DEBUG", "IPC通道已初始化",
                       Map("module", "IPCChannel"))
+        return true
     }
 
     ; 注册消息监听器
@@ -129,18 +131,18 @@ class IPCChannel {
                 }
                 try
                     FileDelete(tempPipe)
-                catch as e {
+                catch as ex {
                     ; best-effort: 临时管道文件清理失败不影响消息读取
-                    OutputDebug("ASD [WARN] IPCChannel.PollMessages: " e.Message " at line " e.Line)
+                    OutputDebug("ASD [WARN] IPCChannel.PollMessages: " ex.Message " at line " ex.Line)
                 }
             } else {
                 try {
                     content := FileRead(IPCChannel.inboundPipe, "UTF-8")
                     try
                         FileDelete(IPCChannel.inboundPipe)
-                    catch as e {
+                    catch as ex {
                         ; best-effort: 入站管道文件清理失败不影响消息读取
-                        OutputDebug("ASD [WARN] IPCChannel.PollMessages: " e.Message " at line " e.Line)
+                        OutputDebug("ASD [WARN] IPCChannel.PollMessages: " ex.Message " at line " ex.Line)
                     }
                 } catch {
                     return messages

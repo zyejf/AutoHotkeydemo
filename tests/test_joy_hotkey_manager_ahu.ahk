@@ -314,6 +314,11 @@ class JoyHotkeyReviewFixTests extends AutoHotUnitSuite {
         _ResetJoyHotkeyState()
     }
 
+    ; Minor-3 脆弱性说明：以下 Test_Source_* 测试通过 FileRead + InStr 搜索源码
+    ; 文本验证代码约束（#Include 存在性、日志级别、方法调用等）。这些测试对
+    ; 源码格式改动敏感，属于已知脆弱性。它们检查的是"代码模式存在/不存在"，
+    ; 难以通过行为测试完全替代。修改被检源码时应同步检查这些测试。
+
     ; I4: 日志级别不应使用 INFO，应为 DEBUG（AGENTS.md 规定：ERROR/WARNING/DEBUG）
     Test_Source_NoInfoLogLevel() {
         src := FileRead(A_ScriptDir "\..\infrastructure\joy_hotkey_manager.ahk", "UTF-8")

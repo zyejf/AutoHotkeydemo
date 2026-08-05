@@ -44,8 +44,8 @@ class ConfigService {
             ; M18: FileCopy 添加 catch 块记录 WARNING 日志，不再静默吞掉异常
             try
                 FileCopy(ConfigService.configPath, ConfigService.configPath ".bak", 1)
-            catch as e {
-                JSONLogger.Log("WARNING", "配置备份文件创建失败: " e.Message,
+            catch as ex {
+                JSONLogger.Log("WARNING", "配置备份文件创建失败: " ex.Message,
                               Map("module", "ConfigService"))
             }
 
@@ -90,8 +90,8 @@ class ConfigService {
                 JSONLogger.Log("WARNING", "保存前配置验证问题 " errors.Length " 个",
                               Map("module", "ConfigService"))
                 hasErrors := false
-                for e in errors {
-                    if e is Map && e.Has("type") && e["type"] = "ERROR" {
+                for err in errors {
+                    if err is Map && err.Has("type") && err["type"] = "ERROR" {
                         hasErrors := true
                         break
                     }

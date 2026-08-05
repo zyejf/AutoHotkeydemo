@@ -161,7 +161,8 @@ testManager.RegisterSuite(
     ConfigServiceFileCopyCatchTests,
     ConfigValidatorNumericLimitTests,
     WebView2TempFileNamingTests,
-    WebView2PushStateNoRedundantParseTests
+    WebView2PushStateNoRedundantParseTests,
+    FixtureUsageTests
 )
 
 ; ============================================================
