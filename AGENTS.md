@@ -132,7 +132,7 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
 | 2 | **I/O 泄漏修复** | Config 的 I/O 方法从 domain 层移到 application 层的 ConfigRepository，确保 domain crate 无文件 I/O。 |
 | 3 | **Miri 兼容** | asd-domain, asd-ipc-protocol, asd-application 可通过 Miri 验证（0 UB），不含 unsafe 代码。 |
 | 4 | **AHK 子进程隔离** | AHK 执行器（asd_executor.exe）作为子进程由 Rust 主进程管理，通过 interprocess named pipe 通信。 |
-| 5 | **测试覆盖** | 506+ 个测试（截至 2026-06-27 统计，asd-domain 125 + asd-ipc-protocol 71 + asd-application 175 + asd-test-harness 0 + asd-tauri 134）。纯逻辑 crate 覆盖率 96.57%。另有 57 套件 / 244 个 Test_ 方法（AHK 执行器测试，口径为 `tests/test_ahk_executor/*.ahk` 中 `Test_` 方法数）、7 个 criterion bench、5 个 fuzz target。详细分布见 `asd-tauri/docs/test-map.md`。 |
+| 5 | **测试覆盖** | Rust 592 个测试（asd-domain 129 + asd-ipc-protocol 72 + asd-application 186 + asd-test-harness 3 + asd-tauri 202，含 16 ignored）+ AHK v2 581 个测试 + AHK 执行器 57 套件/244 个 Test_ 方法 + E2E 53 用例/9 suite（截至 2026-08-04 统计）。纯逻辑 crate 覆盖率 96.57%。另有 7 个 criterion bench、5 个 fuzz target。详细分布见 `asd-tauri/docs/test-map.md`。 |
 | 6 | **进程清理与 panic hook 补偿** | watchdog.rs 的 `cleanup_stale_executor_processes` 仅清理项目专用的 `asd_executor.exe`，**绝不**清理 `AutoHotkey64.exe` 等通用进程名，避免误杀用户其他 AHK 脚本（R1 安全约束）。`build_panic_hook_closure` 纯函数将 panic hook 的构建逻辑与全局 `set_hook` 注册分离，使测试可验证 hook 行为（先 cleanup 后 original_hook）而不污染全局 `Once` 状态（R3 可测试性）。JobObject 失败时，`register_panic_hook` 作为补偿机制确保主进程崩溃时子进程被清理（I36）。 |
 
 #### Rust/Tauri 已知架构妥协
