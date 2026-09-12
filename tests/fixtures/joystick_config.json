@@ -1,0 +1,43 @@
+{
+  "_comment": "AHK v2 测试 joystick 配置固件 - 覆盖 joystick_periodic / joystick_sequence / joystick_hold 三种摇杆模式",
+  "_usage": "测试中通过 FileRead(A_ScriptDir '\\fixtures\\joystick_config.json', 'UTF-8') 加载，再用 JSONParser.Parse 解析",
+  "CONTROL_HOTKEYS": {
+    "emergency": "f12",
+    "releaseAllHolds": "^r",
+    "showStatus": "^0",
+    "toggleAll": "^1",
+    "toggleHoldMode": "^h"
+  },
+  "GroupSettings": {
+    "joystick_periodic_sample": {
+      "hotkey": "Joy1",
+      "mode": "joystick_periodic",
+      "joyKeys": ["Joy1", "Joy2"],
+      "joyIntervals": [100, 100],
+      "joySendMethod": "auto",
+      "joyKeyDuration": 50
+    },
+    "joystick_sequence_sample": {
+      "hotkey": "Joy2",
+      "mode": "joystick_sequence",
+      "joyKeys": ["Joy1", "Joy2", "Joy3"],
+      "joyDelays": [100, 100, 100],
+      "joySendMethod": "auto",
+      "joyKeyDuration": 50
+    },
+    "joystick_hold_sample": {
+      "hotkey": "Joy3",
+      "mode": "joystick_hold",
+      "joyKeys": ["Joy1"],
+      "joySendMethod": "auto",
+      "joyKeyDuration": 50
+    }
+  },
+  "HoldSettings": {
+    "allowOverlap": false,
+    "checkInterval": 50,
+    "debounceDelay": 20,
+    "pressSpeed": 80,
+    "releaseOnEmergency": true
+  }
+}

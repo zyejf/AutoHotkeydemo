@@ -175,3 +175,11 @@
 - **实际**: E2E 环境无法可靠模拟真实键盘按下，key_record_event 未触发
 - **影响**: key_record_event 转发链路无法完整验证
 - **建议**: 在手动测试环境按下按键验证
+## ISSUE-017 [HIGH]
+
+- **复现步骤:** 运行 cd asd-tauri/e2e 后执行 npm test
+- **预期:** WebDriver 会话成功建立，9 个 suite / 53 个用例正常运行
+- **实际:** session not created: This version of Microsoft Edge WebDriver only supports Microsoft Edge version 149. Current browser version is 151.0.4129.93。全部 9 个 spec 在创建 WebDriver 会话阶段失败（Spec Files: 0 passed, 9 failed, 9 total）
+- **影响:** E2E 全部用例无法运行（WebDriver 会话建立失败，未进入任何测试用例）
+- **建议:** 更新 e2e/drivers/msedgedriver.exe 至与 WebView2 Runtime 151.0.4129.93 匹配的版本（从 https://msedgedriver.microsoft.com/ 下载对应 Edge 版本）
+

@@ -1,4 +1,4 @@
-﻿#requires -Version 5.1
+#requires -Version 5.1
 <#
     .SYNOPSIS
         ASD-Tauri 测试运行器，支持快速/完整模式、覆盖率、JUnit XML 报告与结果分析。
@@ -479,7 +479,7 @@ if ($JUnit) {
 $domainCargo = @("-p", "asd-domain")
 $ipcCargo    = @("-p", "asd-ipc-protocol")
 $appCargo    = @("-p", "asd-application")
-$tauriCargo  = @("-p", "asd-tauri", "--lib", "--features", "test-manifest")
+$tauriCargo  = @("-p", "asd-tauri", "--lib")
 
 # 测试 harness 参数（-- 之后传给测试二进制）
 # Full 模式包含 --include-ignored 以运行 #[ignore] 标记的 watchdog 集成测试

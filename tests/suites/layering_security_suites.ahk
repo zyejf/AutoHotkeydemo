@@ -502,6 +502,24 @@ class ConfigImportSecurityTests extends AutoHotUnitSuite {
         this.assert.isTrue(InStr(parsed["error"], "上限") > 0)
     }
 
+    ; T3-08+T6-12: _BridgeImportConfig 应对同一份导入 JSON 仅解析一次
+    Test_T3_08_ImportParsesOnce() {
+        path := A_ScriptDir "\..\presentation\webview2_manager.ahk"
+        content := FileRead(path, "UTF-8")
+        importStart := InStr(content, "static _BridgeImportConfig(jsonStr) {")
+        this.assert.isTrue(importStart > 0)
+        nextMethod := InStr(content, "`n    static _BridgeBatchToggleGroups(", false, importStart)
+        importRegion := SubStr(content, importStart, nextMethod - importStart)
+        needle := "JSONParser.Parse("
+        parseCount := 0
+        pos := 1
+        while (pos := InStr(importRegion, needle, false, pos)) {
+            parseCount += 1
+            pos += StrLen(needle)
+        }
+        this.assert.equal(parseCount, 1)
+    }
+
     ; I19: 批量删除 SaveConfig 失败时从快照恢复 ConfigStore 状态
     Test_I19_BatchDelete_SaveFail_RestoresState() {
         ConfigStore.SetGroupConfig("__i19_a", Map("hotkey", "F1", "mode", "periodic"))
@@ -967,16 +985,16 @@ class WebView2TempFileNamingTests extends AutoHotUnitSuite {
         this.assert.isFalse(hasSmallRandom)
     }
 
-    ; M16: 临时文件命名应包含 A_MSec 或更大的随机空间
-    Test_M16_TempFile_UsesLargerRandomSpace() {
+    ; M16 → T3-08+T6-12: 复用解析结果后不再写临时文件，导入走内存 Map 直传
+    Test_M16_TempFile_NoTempFileRoundTrip() {
         path := A_ScriptDir "\..\presentation\webview2_manager.ahk"
         content := FileRead(path, "UTF-8")
         importStart := InStr(content, "static _BridgeImportConfig(jsonStr) {")
         this.assert.isTrue(importStart > 0)
         nextMethod := InStr(content, "`n    static _BridgeBatchToggleGroups(", false, importStart)
         importRegion := SubStr(content, importStart, nextMethod - importStart)
-        hasLargeRandom := InStr(importRegion, "A_MSec") > 0 || InStr(importRegion, "Random(1, 999999)") > 0
-        this.assert.isTrue(hasLargeRandom)
+        hasTempAppend := InStr(importRegion, "FileAppend(jsonStr, tempPath") > 0
+        this.assert.isFalse(hasTempAppend)
     }
 }
 

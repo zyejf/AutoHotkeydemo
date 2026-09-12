@@ -212,6 +212,25 @@ class SenderStartPeriodicTests extends AutoHotUnitSuite {
         Sender._StopGroup("__test_periodic_5")
         this.assert.isFalse(Sender._timers.Has("__test_periodic_5"))
     }
+
+    Test_StartPeriodic_RepeatedStart_OnlyOneTimer() {
+        Sender.EmergencyRelease()
+        Sender.StartPeriodic("__test_periodic_6", ["F1"], [100], 15)
+        Sender.StartPeriodic("__test_periodic_6", ["F1"], [100], 15)
+        this.assert.isTrue(Sender._timers.Has("__test_periodic_6"))
+        this.assert.equal(Sender._timers.Count, 1)
+        Sender._StopGroup("__test_periodic_6")
+    }
+
+    Test_StopGroup_CancelsReleaseTimers() {
+        Sender.EmergencyRelease()
+        Sender.StartPeriodic("__test_release", ["F1"], [100], 15)
+        Sender._ScheduleRelease("__test_release", "F1", 15)
+        this.assert.isTrue(Sender._releaseTimers.Has("__test_release"))
+        this.assert.isTrue(Sender._releaseTimers["__test_release"].Has("F1"))
+        Sender._StopGroup("__test_release")
+        this.assert.isFalse(Sender._releaseTimers.Has("__test_release"))
+    }
 }
 
 ; =================================================================
@@ -390,5 +409,45 @@ class SenderInitTests extends AutoHotUnitSuite {
         } catch as e {
             this.assert.fail("Init 不应抛出异常: " e.Message)
         }
+    }
+}
+
+; =================================================================
+; 测试套件：Sender._reportKeyEvents 逐键上报开关
+; 说明：直接测试 _ReportKeyEvent 可测试切片，避免 SendInput 真实按键副作用
+; =================================================================
+
+class SenderReportKeyEventsTests extends AutoHotUnitSuite {
+    afterAll() {
+        Sender._reportKeyEvents := false
+        Sender._keyEventSender := ""
+    }
+
+    Test_ReportKeyEvent_SkipsReporting_WhenNotReporting() {
+        Sender._reportKeyEvents := false
+        calls := 0
+        Sender._keyEventSender := (msg) => (calls++, true)
+        try {
+            Sender._ReportKeyEvent("a", "down")
+        } finally {
+            Sender._keyEventSender := ""
+            Sender._reportKeyEvents := false
+        }
+        this.assert.equal(calls, 0)
+    }
+
+    Test_ReportKeyEvent_Reports_WhenReporting() {
+        Sender._reportKeyEvents := true
+        captured := Map()
+        Sender._keyEventSender := (msg) => (captured["last"] := msg, true)
+        try {
+            Sender._ReportKeyEvent("a", "down")
+        } finally {
+            Sender._keyEventSender := ""
+            Sender._reportKeyEvents := false
+        }
+        this.assert.isTrue(captured.Has("last"))
+        this.assert.equal(captured["last"]["type"], "key_send_event")
+        this.assert.equal(captured["last"]["data"]["state"], "down")
     }
 }

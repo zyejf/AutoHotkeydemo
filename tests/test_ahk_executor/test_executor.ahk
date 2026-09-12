@@ -353,3 +353,44 @@ class CommandDispatcherValidationTests extends AutoHotUnitSuite {
         this.assert.equal(CommandDispatcher._validationGroupId, "")
     }
 }
+
+; =================================================================
+; 测试套件：录制/验证状态与 Sender._reportKeyEvents 联动
+; =================================================================
+
+class CommandDispatcherReportFlagTests extends AutoHotUnitSuite {
+    afterAll() {
+        CommandDispatcher._recordState := "idle"
+        CommandDispatcher._recordedKeys := []
+        CommandDispatcher._validationGroupId := ""
+        Sender._reportKeyEvents := false
+    }
+
+    Test_StartRecording_SetsReportFlag() {
+        CommandDispatcher._recordState := "idle"
+        Sender._reportKeyEvents := false
+        CommandDispatcher._HandleStartRecording(Map("groupId", "g1", "mode", "periodic"), 20001)
+        this.assert.isTrue(Sender._reportKeyEvents)
+    }
+
+    Test_StopRecording_ClearsReportFlag() {
+        CommandDispatcher._recordState := "recording"
+        Sender._reportKeyEvents := true
+        CommandDispatcher._HandleStopRecording(20002)
+        this.assert.isFalse(Sender._reportKeyEvents)
+    }
+
+    Test_StartValidation_SetsReportFlag() {
+        CommandDispatcher._validationGroupId := ""
+        Sender._reportKeyEvents := false
+        CommandDispatcher._HandleStartValidation(Map("groupId", "g1"), 20003)
+        this.assert.isTrue(Sender._reportKeyEvents)
+    }
+
+    Test_StopValidation_ClearsReportFlag() {
+        CommandDispatcher._validationGroupId := "g1"
+        Sender._reportKeyEvents := true
+        CommandDispatcher._HandleStopValidation(20004)
+        this.assert.isFalse(Sender._reportKeyEvents)
+    }
+}

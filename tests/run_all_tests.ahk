@@ -162,7 +162,9 @@ testManager.RegisterSuite(
     ConfigValidatorNumericLimitTests,
     WebView2TempFileNamingTests,
     WebView2PushStateNoRedundantParseTests,
-    FixtureUsageTests
+    FixtureUsageTests,
+    JoystickExecutorInjectionTimerTests,
+    LogRateLimitTests
 )
 
 ; ============================================================
@@ -178,6 +180,7 @@ testManager.RegisterSuite(
     CommandDispatcherDispatchUnknownTests,
     CommandDispatcherRecordKeyTests,
     CommandDispatcherValidationTests,
+    CommandDispatcherReportFlagTests,
     IPCConstTests,
     MiniJsonParseObjectTests,
     MiniJsonParseArrayTests,
@@ -208,6 +211,7 @@ testManager.RegisterSuite(
     SenderEmergencyReleaseTests,
     SenderShutdownTests,
     SenderInitTests,
+    SenderReportKeyEventsTests,
     JoystickAllowedKeysTests,
     JoystickValidateKeyTests,
     JoystickIsButtonTests,

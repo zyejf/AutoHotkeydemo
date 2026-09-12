@@ -8,30 +8,24 @@
 // 容差: 间隔 ±20ms，次数 ±2 次
 // =================================================================
 import { expect } from 'chai';
-import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { invoke, startApp, closeApp } from '../helpers/tauri.js';
-import {
-  backupUserConfig,
-  restoreUserConfig,
-  loadTestConfig,
-  saveTestConfig,
-} from '../helpers/config.js';
+import { invoke } from '../helpers/tauri.js';
 import {
   startKeyReceiver,
   stopKeyReceiver,
   readKeyLog,
   clearKeyLog,
 } from '../helpers/key_receiver.js';
-import { appendResult, appendKnownIssue } from '../helpers/report.js';
+import { appendKnownIssue } from '../helpers/report.js';
+import {
+  registerStandardLifecycle,
+  resolveBinaryPath,
+  DEFAULT_FAILURE_SEVERITY,
+} from '../helpers/spec-hooks.js';
 
 const execAsync = promisify(exec);
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const binaryPath = resolve(__dirname, '../../target/debug/asd-tauri.exe');
+const binaryPath = resolveBinaryPath(import.meta.url);
 
 const KEY_RECEIVER_TITLE = 'E2E Key Receiver';
 const ALL_GROUP_IDS = [
@@ -43,10 +37,6 @@ const ALL_GROUP_IDS = [
   'test-enhanced-sequence',
   'test-enhanced-hybrid',
 ];
-
-let binaryAvailable = false;
-let appStarted = false;
-let keyReceiverChild = null;
 
 // ----------------------------------------------------------------
 // 辅助函数
@@ -144,7 +134,7 @@ function skipOnEmptyLog(testCtx, entries, caseId, modeDesc) {
   if (entries.length === 0) {
     appendKnownIssue(
       `ISSUE-${caseId}-IPC`,
-      'HIGH',
+      DEFAULT_FAILURE_SEVERITY,
       `启动分组并等待按键执行（${modeDesc}）`,
       `key_log.txt 应包含 ${modeDesc} 按键事件`,
       '未捕获到任何按键事件，可能是 AHK 子进程未启动或 IPC 通信失败',
@@ -173,78 +163,29 @@ function assertIntervalsNear(intervals, expected, tolerance, label) {
 // ----------------------------------------------------------------
 
 describe('7 种执行模式 E2E 测试', () => {
-  before(async function () {
-    this.timeout(60000);
-    if (!existsSync(binaryPath)) {
-      // binary 不存在，跳过所有测试（不 fail）
-      return;
-    }
-    binaryAvailable = true;
-    await startApp(browser);
-    appStarted = true;
-    // 备份用户配置并写入测试配置（所有分组 active=false）
-    backupUserConfig();
-    const testConfig = loadTestConfig();
-    await saveTestConfig(browser, testConfig);
-    // 启动 key_receiver 子进程
-    keyReceiverChild = await startKeyReceiver();
-  });
-
-  beforeEach(function () {
-    if (!binaryAvailable) {
-      this.skip('Binary not found, skipping all modes E2E tests');
-    }
-  });
-
-  afterEach(function () {
-    const test = this.currentTest;
-    if (!test) return;
-    const suiteName = test.parent?.title || '7 种执行模式 E2E 测试';
-    const testName = `${suiteName} > ${test.title}`;
-    const status =
-      test.state === 'passed' ? 'PASS' : test.state === 'failed' ? 'FAIL' : 'SKIP';
-    const duration = test.duration || 0;
-    const errorMsg = test.err ? test.err.message || String(test.err) : '';
-    appendResult(testName, status, duration, errorMsg);
-    if (test.state === 'failed') {
-      const caseId = test.title.match(/E2E-MODE-\d+/)?.[0] || test.title;
-      appendKnownIssue(
-        `ISSUE-${caseId}`,
-        'HIGH',
-        `执行测试用例 ${test.title}`,
-        '测试应通过',
-        errorMsg,
-        `E2E 测试失败: ${test.title}`,
-        '检查相关模式实现与测试断言',
-        caseId
-      );
-    }
-  });
-
-  after(async function () {
-    if (keyReceiverChild) {
-      stopKeyReceiver(keyReceiverChild);
-    }
-    if (appStarted) {
-      try {
-        // 确保所有分组停止
-        for (const id of ALL_GROUP_IDS) {
-          await ensureGroupStopped(browser, id);
+  registerStandardLifecycle({
+    suiteLabel: '7 种执行模式 E2E 测试',
+    binaryPath,
+    suggestion: '检查相关模式实现与测试断言',
+    beforeExtra: async ({ state }) => {
+      // 启动 key_receiver 子进程
+      state.keyReceiverChild = await startKeyReceiver();
+    },
+    afterExtra: async ({ browser, state }) => {
+      if (state.keyReceiverChild) {
+        stopKeyReceiver(state.keyReceiverChild);
+      }
+      if (state.appStarted) {
+        try {
+          // 确保所有分组停止
+          for (const id of ALL_GROUP_IDS) {
+            await ensureGroupStopped(browser, id);
+          }
+        } catch {
+          // 忽略
         }
-      } catch {
-        // 忽略
       }
-      try {
-        restoreUserConfig();
-      } catch {
-        // 忽略
-      }
-      try {
-        await closeApp(browser);
-      } catch {
-        // 忽略
-      }
-    }
+    },
   });
 
   // ----------------------------------------------------------------

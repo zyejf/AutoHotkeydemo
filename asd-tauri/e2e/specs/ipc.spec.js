@@ -24,22 +24,17 @@
 // - 测试不直接读取 Rust 日志，通过 get_executor_status 间接验证
 // =================================================================
 import { expect } from 'chai';
-import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
-import { invoke, startApp, closeApp } from '../helpers/tauri.js';
+import { invoke } from '../helpers/tauri.js';
+import { loadTestConfig, saveTestConfig } from '../helpers/config.js';
+import { appendKnownIssue } from '../helpers/report.js';
 import {
-  backupUserConfig,
-  restoreUserConfig,
-  loadTestConfig,
-  saveTestConfig,
-} from '../helpers/config.js';
-import { appendResult, appendKnownIssue } from '../helpers/report.js';
+  registerStandardLifecycle,
+  resolveBinaryPath,
+  DEFAULT_FAILURE_SEVERITY,
+} from '../helpers/spec-hooks.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const binaryPath = resolve(__dirname, '../../target/debug/asd-tauri.exe');
+const binaryPath = resolveBinaryPath(import.meta.url);
 
 // 测试使用的分组 ID（与 fixtures/test_config.json 一致）
 const TEST_GROUP_ID = 'test-periodic';
@@ -50,103 +45,43 @@ const VALID_WATCHDOG_STATES = [
   'Hung', 'Restarting', 'Recovering', 'Failed',
 ];
 
-// 全局状态：binary 是否可用、应用是否已启动
-let binaryAvailable = false;
-let appStarted = false;
-
 describe('Rust↔AHK IPC 通信 E2E 测试', () => {
-  before(async function () {
-    this.timeout(60000);
-    if (!existsSync(binaryPath)) {
-      // binary 不存在，跳过所有测试（不 fail）
-      return;
-    }
-    binaryAvailable = true;
-    await startApp(browser);
-    appStarted = true;
-    // 备份用户配置（同步操作）
-    backupUserConfig();
-    // 写入测试配置作为初始状态（所有分组 active=false）
-    const testConfig = loadTestConfig();
-    await saveTestConfig(browser, testConfig);
-  });
-
-  beforeEach(function () {
-    if (!binaryAvailable) {
-      this.skip('Binary not found, skipping all IPC E2E tests');
-    }
-  });
-
-  afterEach(async function () {
-    const test = this.currentTest;
-    if (!test) return;
-    const suiteName = test.parent?.title || 'Rust↔AHK IPC 通信 E2E 测试';
-    const testName = `${suiteName} > ${test.title}`;
-    const status =
-      test.state === 'passed' ? 'PASS' : test.state === 'failed' ? 'FAIL' : 'SKIP';
-    const duration = test.duration || 0;
-    const errorMsg = test.err
-      ? test.err.message || String(test.err)
-      : '';
-    appendResult(testName, status, duration, errorMsg);
-    if (test.state === 'failed') {
-      const caseId = test.title.match(/E2E-IPC-\d+/)?.[0] || test.title;
-      appendKnownIssue(
-        `ISSUE-${caseId}`,
-        'HIGH',
-        `执行测试用例 ${test.title}`,
-        '测试应通过',
-        errorMsg,
-        `E2E 测试失败: ${test.title}`,
-        '检查 IPC 通信链路、watchdog 状态机与 AHK 子进程，或确认 E2E 环境是否支持 AHK 子进程',
-        caseId
-      );
-    }
-    // 清理状态：每个测试结束后停止所有分组并清除事件监听器
-    try {
-      await invoke(browser, 'toggle_all', { active: false });
-    } catch {
-      // 忽略清理错误
-    }
-    try {
-      await invoke(browser, 'stop_recording', {});
-    } catch {
-      // 忽略清理错误
-    }
-    try {
-      await invoke(browser, 'clear_emergency', {});
-    } catch {
-      // 忽略清理错误
-    }
-    // 清理前端事件监听器
-    try {
-      await browser.execute(() => {
-        if (window.__e2e_unsubscribers) {
-          for (const unsub of window.__e2e_unsubscribers) {
-            try { unsub(); } catch { /* ignore */ }
+  registerStandardLifecycle({
+    suiteLabel: 'Rust↔AHK IPC 通信 E2E 测试',
+    binaryPath,
+    suggestion: '检查 IPC 通信链路、watchdog 状态机与 AHK 子进程，或确认 E2E 环境是否支持 AHK 子进程',
+    afterEachCleanup: async () => {
+      // 清理状态：每个测试结束后停止所有分组并清除事件监听器
+      try {
+        await invoke(browser, 'toggle_all', { active: false });
+      } catch {
+        // 忽略清理错误
+      }
+      try {
+        await invoke(browser, 'stop_recording', {});
+      } catch {
+        // 忽略清理错误
+      }
+      try {
+        await invoke(browser, 'clear_emergency', {});
+      } catch {
+        // 忽略清理错误
+      }
+      // 清理前端事件监听器
+      try {
+        await browser.execute(() => {
+          if (window.__e2e_unsubscribers) {
+            for (const unsub of window.__e2e_unsubscribers) {
+              try { unsub(); } catch { /* ignore */ }
+            }
+            window.__e2e_unsubscribers = [];
           }
-          window.__e2e_unsubscribers = [];
-        }
-        window.__e2e_events = [];
-      });
-    } catch {
-      // 忽略清理错误
-    }
-  });
-
-  after(async function () {
-    if (appStarted) {
-      try {
-        restoreUserConfig();
+          window.__e2e_events = [];
+        });
       } catch {
-        // 忽略恢复错误，不阻塞
+        // 忽略清理错误
       }
-      try {
-        await closeApp(browser);
-      } catch {
-        // 忽略关闭错误
-      }
-    }
+    },
   });
 
   // ----------------------------------------------------------------
@@ -612,7 +547,7 @@ describe('Rust↔AHK IPC 通信 E2E 测试', () => {
         // 可能原因：进程 kill 失败、watchdog 未运行、状态查询异常
         appendKnownIssue(
           'ISSUE-E2E-IPC-007-NO-DETECT',
-          'HIGH',
+          DEFAULT_FAILURE_SEVERITY,
           `kill asd_executor.exe 后等待 ${maxWaitMs / 1000}s，watchdog 未检测到子进程退出（initial=${initialStatus}/${initialRestartCount}, final=${finalStatus}/${finalRestartCount}, killed=${killed}, killError=${killError?.message || 'none'})`,
           'watchdog 应在 1s 内检测到子进程退出，状态转为 Restarting，restart_count 递增',
           `watchdog 状态未变化或 restart_count 未增加（final: ${finalStatus}/${finalRestartCount}）`,

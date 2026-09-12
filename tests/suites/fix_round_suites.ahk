@@ -660,3 +660,109 @@ class BackupSortAlgorithmTests extends AutoHotUnitSuite {
         this.assert.isTrue(sorted[3]["file"] = "a.json")
     }
 }
+
+; =================================================================
+; JoystickExecutor 注入检查 + 释放定时器（T3-06 / T6-02）领域层测试
+; =================================================================
+class JoystickExecutorInjectionTimerTests extends AutoHotUnitSuite {
+    afterAll() {
+        JoystickExecutor.SetJoySender(MockJoySender())
+    }
+
+    Test_EnsureSenderReady_WithoutInjection_ReturnsFalse() {
+        JoystickExecutor.SetJoySender("")
+        this.assert.isFalse(JoystickExecutor._EnsureSenderReady())
+    }
+
+    Test_EnsureSenderReady_WithInjection_ReturnsTrue() {
+        JoystickExecutor.SetJoySender(MockJoySender())
+        this.assert.isTrue(JoystickExecutor._EnsureSenderReady())
+    }
+
+    Test_Execute_WithoutInjection_ReturnsEarlyNoThrow() {
+        JoystickExecutor.SetJoySender("")
+        group := SkillGroup("__joy_noinj", Map(
+            "mode", "joystick_periodic",
+            "joyKeys", ["Joy1"],
+            "joyIntervals", [100]
+        ))
+        result := -1
+        try
+            result := ModeRegistry.GetExecutor("joystick_periodic").Execute(group)
+        catch as e
+            this.assert.fail("未注入时 Execute 不应抛异常: " e.Message)
+        this.assert.isTrue(result >= 0)
+        group.Dispose()
+    }
+
+    Test_ReleaseTimers_CancelledOnStop() {
+        JoystickExecutor.SetJoySender(MockJoySender())
+        group := SkillGroup("__joy_rel", Map(
+            "mode", "joystick_periodic",
+            "joyKeys", ["Joy1"],
+            "joyIntervals", [100]
+        ))
+        JoystickExecutor._ScheduleRelease(group, "Joy1", "direct", 15)
+        this.assert.isTrue(JoystickExecutor._releaseTimers.Has("__joy_rel"))
+        this.assert.isTrue(JoystickExecutor._releaseTimers["__joy_rel"].Has("Joy1"))
+        JoystickExecutor._CancelReleaseTimers(group)
+        this.assert.isFalse(JoystickExecutor._releaseTimers.Has("__joy_rel"))
+        group.Dispose()
+    }
+}
+
+; =================================================================
+; G2 日志限速验证测试（计划 §3.2 G2：T3-05 + T6-03）
+; 验证 ErrorSystem / JSONLogger 同源限速 ≤1 次/秒，且含 suppressedCount
+; =================================================================
+class LogRateLimitTests extends AutoHotUnitSuite {
+    Test_SharedRateLimitConstant_Is1000() {
+        this.assert.equal(LOG_RATE_LIMIT_MS, 1000)
+    }
+
+    Test_ErrorSystem_SameSource_Suppressed() {
+        ErrorSystem.Init()
+        ErrorSystem._rateLastTime := Map()
+        ErrorSystem._rateSuppressed := Map()
+        src := "__rl_err_src"
+        ErrorSystem.LogError("限速1", "ERROR", src, 1)
+        ErrorSystem.LogError("限速2", "ERROR", src, 1)
+        ErrorSystem.LogError("限速3", "ERROR", src, 1)
+        this.assert.isTrue(ErrorSystem._rateLastTime.Has(src))
+        this.assert.equal(ErrorSystem._rateSuppressed[src], 2)
+    }
+
+    Test_JSONLogger_SameSource_Suppressed() {
+        JSONLogger.Init()
+        JSONLogger._rateLastTime := Map()
+        JSONLogger._rateSuppressed := Map()
+        JSONLogger.Log("ERROR", "限速1", Map("module", "__rl_json"))
+        JSONLogger.Log("ERROR", "限速2", Map("module", "__rl_json"))
+        JSONLogger.Log("ERROR", "限速3", Map("module", "__rl_json"))
+        src := "__rl_json:generic"
+        this.assert.isTrue(JSONLogger._rateLastTime.Has(src))
+        this.assert.equal(JSONLogger._rateSuppressed[src], 2)
+    }
+
+    Test_ErrorSystem_SuppressedCount_FlushedOnNextWrite() {
+        ErrorSystem.Init()
+        origFile := ErrorSystem.logFile
+        tmpFile := A_ScriptDir "\__rl_err_tmp.log"
+        if FileExist(tmpFile)
+            FileDelete(tmpFile)
+        ErrorSystem.logFile := tmpFile
+        ErrorSystem._rateLastTime := Map()
+        ErrorSystem._rateSuppressed := Map()
+        src := "__rl_err_src2"
+        ; 预置窗口外 + 已抑制 5 次，触发下一次写入携带 suppressedCount
+        ErrorSystem._rateLastTime[src] := A_TickCount - (LOG_RATE_LIMIT_MS + 500)
+        ErrorSystem._rateSuppressed[src] := 5
+        ErrorSystem.LogError("限速", "ERROR", src, 1)
+        content := FileExist(tmpFile) ? FileRead(tmpFile, "UTF-8") : ""
+        this.assert.isTrue(InStr(content, "suppressedCount") > 0)
+        this.assert.isTrue(InStr(content, '"suppressedCount": 5') > 0)
+        if FileExist(tmpFile)
+            FileDelete(tmpFile)
+        ErrorSystem.logFile := origFile
+    }
+}

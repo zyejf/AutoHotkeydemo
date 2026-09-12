@@ -21,99 +21,29 @@
 // - 5 个命令均无参数，Tauri v2 camelCase 规则不适用。
 // =================================================================
 import { expect } from 'chai';
-import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { invoke, startApp, closeApp } from '../helpers/tauri.js';
-import {
-  backupUserConfig,
-  restoreUserConfig,
-  loadTestConfig,
-  saveTestConfig,
-} from '../helpers/config.js';
-import { appendResult, appendKnownIssue } from '../helpers/report.js';
+import { invoke } from '../helpers/tauri.js';
+import { loadTestConfig, saveTestConfig } from '../helpers/config.js';
+import { registerStandardLifecycle, resolveBinaryPath } from '../helpers/spec-hooks.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const binaryPath = resolve(__dirname, '../../target/debug/asd-tauri.exe');
+const binaryPath = resolveBinaryPath(import.meta.url);
 
 // 测试使用的分组 ID（与 fixtures/test_config.json 一致）
 const TEST_GROUP_ID = 'test-periodic';
 
-// 全局状态：binary 是否可用、应用是否已启动
-let binaryAvailable = false;
-let appStarted = false;
-
 describe('system_cmd E2E 测试', () => {
-  before(async function () {
-    this.timeout(60000);
-    if (!existsSync(binaryPath)) {
-      // binary 不存在，跳过所有测试（不 fail）
-      return;
-    }
-    binaryAvailable = true;
-    await startApp(browser);
-    appStarted = true;
-    // 备份用户配置（同步操作）
-    backupUserConfig();
-    // 写入测试配置作为初始状态（所有分组 active=false）
-    const testConfig = loadTestConfig();
-    await saveTestConfig(browser, testConfig);
-  });
-
-  beforeEach(function () {
-    if (!binaryAvailable) {
-      this.skip('Binary not found, skipping all system_cmd E2E tests');
-    }
-  });
-
-  afterEach(async function () {
-    const test = this.currentTest;
-    if (!test) return;
-    const suiteName = test.parent?.title || 'system_cmd E2E 测试';
-    const testName = `${suiteName} > ${test.title}`;
-    const status =
-      test.state === 'passed' ? 'PASS' : test.state === 'failed' ? 'FAIL' : 'SKIP';
-    const duration = test.duration || 0;
-    const errorMsg = test.err
-      ? test.err.message || String(test.err)
-      : '';
-    appendResult(testName, status, duration, errorMsg);
-    if (test.state === 'failed') {
-      const caseId = test.title.match(/E2E-SYS-\d+/)?.[0] || test.title;
-      appendKnownIssue(
-        `ISSUE-${caseId}`,
-        'HIGH',
-        `执行测试用例 ${test.title}`,
-        '测试应通过',
-        errorMsg,
-        `E2E 测试失败: ${test.title}`,
-        '检查相关 Tauri 命令实现与测试断言，或确认 E2E 环境是否支持 AHK 子进程',
-        caseId
-      );
-    }
-    // 清理紧急模式状态：每个测试结束后尝试 clear_emergency，避免标志泄漏
-    // 忽略错误（clear_emergency 总是返回 Ok，但 invoke 本身可能因应用关闭等失败）
-    try {
-      await invoke(browser, 'clear_emergency', {});
-    } catch {
-      // 忽略清理错误
-    }
-  });
-
-  after(async function () {
-    if (appStarted) {
+  registerStandardLifecycle({
+    suiteLabel: 'system_cmd E2E 测试',
+    binaryPath,
+    suggestion: '检查相关 Tauri 命令实现与测试断言，或确认 E2E 环境是否支持 AHK 子进程',
+    afterEachCleanup: async () => {
+      // 清理紧急模式状态：每个测试结束后尝试 clear_emergency，避免标志泄漏
+      // 忽略错误（clear_emergency 总是返回 Ok，但 invoke 本身可能因应用关闭等失败）
       try {
-        restoreUserConfig();
+        await invoke(browser, 'clear_emergency', {});
       } catch {
-        // 忽略恢复错误，不阻塞
+        // 忽略清理错误
       }
-      try {
-        await closeApp(browser);
-      } catch {
-        // 忽略关闭错误
-      }
-    }
+    },
   });
 
   // ----------------------------------------------------------------

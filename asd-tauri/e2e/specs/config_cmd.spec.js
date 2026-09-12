@@ -8,90 +8,19 @@
 // =================================================================
 import { expect } from 'chai';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { invoke, getConfig, saveConfig, startApp, closeApp } from '../helpers/tauri.js';
-import {
-  backupUserConfig,
-  restoreUserConfig,
-  loadTestConfig,
-  saveTestConfig,
-  validateConfig,
-} from '../helpers/config.js';
-import { appendResult, appendKnownIssue } from '../helpers/report.js';
+import { invoke, getConfig, saveConfig } from '../helpers/tauri.js';
+import { loadTestConfig, validateConfig } from '../helpers/config.js';
+import { registerStandardLifecycle, resolveBinaryPath } from '../helpers/spec-hooks.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const binaryPath = resolve(__dirname, '../../target/debug/asd-tauri.exe');
-
-// 全局状态：binary 是否可用、应用是否已启动
-let binaryAvailable = false;
-let appStarted = false;
+const binaryPath = resolveBinaryPath(import.meta.url);
 
 describe('config_cmd E2E 测试', () => {
-  before(async function () {
-    this.timeout(60000);
-    if (!existsSync(binaryPath)) {
-      // binary 不存在，跳过所有测试（不 fail）
-      return;
-    }
-    binaryAvailable = true;
-    await startApp(browser);
-    appStarted = true;
-    // 备份用户配置（同步操作）
-    backupUserConfig();
-    // 写入测试配置作为初始状态
-    const testConfig = loadTestConfig();
-    await saveTestConfig(browser, testConfig);
-  });
-
-  beforeEach(function () {
-    if (!binaryAvailable) {
-      this.skip('Binary not found, skipping all config_cmd E2E tests');
-    }
-  });
-
-  afterEach(function () {
-    const test = this.currentTest;
-    if (!test) return;
-    const suiteName = test.parent?.title || 'config_cmd E2E 测试';
-    const testName = `${suiteName} > ${test.title}`;
-    const status =
-      test.state === 'passed' ? 'PASS' : test.state === 'failed' ? 'FAIL' : 'SKIP';
-    const duration = test.duration || 0;
-    const errorMsg = test.err
-      ? test.err.message || String(test.err)
-      : '';
-    appendResult(testName, status, duration, errorMsg);
-    if (test.state === 'failed') {
-      const caseId = test.title.match(/E2E-CFG-\d+/)?.[0] || test.title;
-      appendKnownIssue(
-        `ISSUE-${caseId}`,
-        'HIGH',
-        `执行测试用例 ${test.title}`,
-        '测试应通过',
-        errorMsg,
-        `E2E 测试失败: ${test.title}`,
-        '检查相关 Tauri 命令实现与测试断言',
-        caseId
-      );
-    }
-  });
-
-  after(async function () {
-    if (appStarted) {
-      try {
-        restoreUserConfig();
-      } catch {
-        // 忽略恢复错误，不阻塞
-      }
-      try {
-        await closeApp(browser);
-      } catch {
-        // 忽略关闭错误
-      }
-    }
+  registerStandardLifecycle({
+    suiteLabel: 'config_cmd E2E 测试',
+    binaryPath,
+    suggestion: '检查相关 Tauri 命令实现与测试断言',
   });
 
   // ----------------------------------------------------------------

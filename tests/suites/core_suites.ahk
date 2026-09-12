@@ -398,6 +398,85 @@ class ConfigValidatorTests extends AutoHotUnitSuite {
             }
         }
     }
+
+    ; G1/T3-01: ValidateGroupOnly 补热键格式校验（Create/Update 分组入口缺口）
+
+    Test_ValidateGroupOnly_InvalidHotkey_Rejected() {
+        config := Map("hotkey", "xyz123", "mode", "periodic", "keys", ["a"], "intervals", [50])
+        errors := ConfigValidator.ValidateGroupOnly("1", config)
+        found := false
+        for err in errors {
+            if err is Map && InStr(err["message"], "热键格式无效")
+                found := true
+        }
+        this.assert.isTrue(found)
+    }
+
+    Test_ValidateGroupOnly_ValidHotkey_Accepted() {
+        config := Map("hotkey", "F1", "mode", "periodic", "keys", ["a"], "intervals", [50])
+        errors := ConfigValidator.ValidateGroupOnly("1", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "热键格式无效")
+                this.assert.fail("F1 是合法热键，不应报格式无效错误")
+        }
+    }
+
+    ; G1/T3-02: _ValidateModeFields 按键名合法性校验
+
+    Test_ValidateModeFields_InvalidKeyName_Rejected() {
+        config := Map("hotkey", "F1", "mode", "periodic", "keys", ["NotAKey"], "intervals", [50])
+        errors := ConfigValidator._ValidateModeFields("1", "periodic", config)
+        found := false
+        for err in errors {
+            if err is Map && InStr(err["message"], "非法按键名")
+                found := true
+        }
+        this.assert.isTrue(found)
+    }
+
+    Test_ValidateModeFields_ValidKeyName_Accepted() {
+        config := Map("hotkey", "F1", "mode", "periodic", "keys", ["Space", "1"], "intervals", [50, 50])
+        errors := ConfigValidator._ValidateModeFields("1", "periodic", config)
+        for err in errors {
+            if err is Map && InStr(err["message"], "非法按键名")
+                this.assert.fail("合法按键名不应报非法按键名错误")
+        }
+    }
+
+    Test_ValidateModeFields_InvalidJoyKey_Rejected() {
+        config := Map("hotkey", "F1", "mode", "joystick_periodic", "joyKeys", ["NotAJoyKey"], "intervals", [50])
+        errors := ConfigValidator._ValidateModeFields("1", "joystick_periodic", config)
+        found := false
+        for err in errors {
+            if err is Map && InStr(err["message"], "非法按键名")
+                found := true
+        }
+        this.assert.isTrue(found)
+    }
+
+    ; G1/T3-03: _ValidateHotkeys 控制热键格式校验
+
+    Test_ValidateHotkeys_InvalidFormat_Rejected() {
+        hotkeys := Map("emergency", "garbage", "toggleAll", "^1", "showStatus", "^0", "toggleHoldMode", "^h", "releaseAllHolds", "^r")
+        errors := ConfigValidator._ValidateHotkeys(hotkeys)
+        found := false
+        for err in errors {
+            if err is Map && err.Has("type") && err["type"] = "ERROR" && InStr(err["message"], "格式无效")
+                found := true
+        }
+        this.assert.isTrue(found)
+    }
+
+    Test_ValidateHotkeys_EmptyValue_Warning() {
+        hotkeys := Map("emergency", "", "toggleAll", "^1", "showStatus", "^0", "toggleHoldMode", "^h", "releaseAllHolds", "^r")
+        errors := ConfigValidator._ValidateHotkeys(hotkeys)
+        found := false
+        for err in errors {
+            if err is Map && err.Has("type") && err["type"] = "WARNING" && InStr(err["message"], "值为空")
+                found := true
+        }
+        this.assert.isTrue(found)
+    }
 }
 
 ; ============================================================

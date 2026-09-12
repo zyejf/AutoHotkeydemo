@@ -21,6 +21,15 @@
 OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
 
 ; =================================================================
+; joystick fixture 加载（T8-06：模式名从 fixture 派生，避免硬编码可复用测试数据）
+; =================================================================
+
+_JoystickFixtureMode(sample) {
+    config := JSONParser.Parse(FileRead(A_ScriptDir "\fixtures\joystick_config.json", "UTF-8"))
+    return config["GroupSettings"][sample]["mode"]
+}
+
+; =================================================================
 ; 测试套件：Joystick.ALLOWED_JOY_KEYS 按键白名单
 ; =================================================================
 
@@ -460,7 +469,7 @@ class JoystickStartPeriodicTests extends AutoHotUnitSuite {
         Joystick.EmergencyRelease()
         Joystick.StartPeriodic("__test_joy_p_2", ["Joy1"], [100], "direct", 15)
         state := Joystick._activeGroups["__test_joy_p_2"]
-        this.assert.equal(state["mode"], "joystick_periodic")
+        this.assert.equal(state["mode"], _JoystickFixtureMode("joystick_periodic_sample"))
         Joystick.StopGroup("__test_joy_p_2")
     }
 
@@ -470,6 +479,40 @@ class JoystickStartPeriodicTests extends AutoHotUnitSuite {
         state := Joystick._activeGroups["__test_joy_p_3"]
         this.assert.equal(state["joyKeys"].Length, 2)
         Joystick.StopGroup("__test_joy_p_3")
+    }
+
+    Test_StartPeriodic_RepeatedStart_OnlyOneTimer() {
+        Joystick.EmergencyRelease()
+        Joystick.StartPeriodic("__test_joy_p_4", ["Joy1"], [100], "direct", 15)
+        Joystick.StartPeriodic("__test_joy_p_4", ["Joy1"], [100], "direct", 15)
+        this.assert.isTrue(Joystick._timers.Has("__test_joy_p_4"))
+        this.assert.equal(Joystick._timers.Count, 1)
+        Joystick.StopGroup("__test_joy_p_4")
+    }
+
+    Test_StopGroup_CancelsReleaseTimers() {
+        Joystick.EmergencyRelease()
+        Joystick.StartPeriodic("__test_joy_rel", ["Joy1"], [100], "direct", 15)
+        Joystick._ScheduleRelease("__test_joy_rel", "Joy1", "direct", 15)
+        this.assert.isTrue(Joystick._releaseTimers.Has("__test_joy_rel"))
+        this.assert.isTrue(Joystick._releaseTimers["__test_joy_rel"].Has("Joy1"))
+        Joystick.StopGroup("__test_joy_rel")
+        this.assert.isFalse(Joystick._releaseTimers.Has("__test_joy_rel"))
+    }
+
+    Test_VJoyRefCountStableDuringGroupLifetime() {
+        Joystick.EmergencyRelease()
+        if !Joystick.IsVJoyAvailable() {
+            this.assert.isTrue(true)  ; vJoy 驱动不可用，跳过引用计数断言
+            return
+        }
+        Joystick.StartPeriodic("__test_joy_ref", ["Joy1"], [100], "vjoy", 15)
+        this.assert.equal(Joystick._vJoyRefCount, 1)
+        Joystick._ExecutePeriodic("__test_joy_ref")
+        Joystick._ExecutePeriodic("__test_joy_ref")
+        this.assert.equal(Joystick._vJoyRefCount, 1)
+        Joystick.StopGroup("__test_joy_ref")
+        this.assert.equal(Joystick._vJoyRefCount, 0)
     }
 }
 
@@ -486,7 +529,7 @@ class JoystickStartSequenceTests extends AutoHotUnitSuite {
         Joystick.EmergencyRelease()
         Joystick.StartSequence("__test_joy_s_1", ["Joy1", "Joy2"], [100, 100], "direct", 15)
         state := Joystick._activeGroups["__test_joy_s_1"]
-        this.assert.equal(state["mode"], "joystick_sequence")
+        this.assert.equal(state["mode"], _JoystickFixtureMode("joystick_sequence_sample"))
         Joystick.StopGroup("__test_joy_s_1")
     }
 
@@ -513,7 +556,7 @@ class JoystickStartHoldTests extends AutoHotUnitSuite {
         Joystick.StartHold("__test_joy_h_1", ["Joy1"], "direct")
         if Joystick._activeGroups.Has("__test_joy_h_1") {
             state := Joystick._activeGroups["__test_joy_h_1"]
-            this.assert.equal(state["mode"], "joystick_hold")
+            this.assert.equal(state["mode"], _JoystickFixtureMode("joystick_hold_sample"))
         } else {
             this.assert.isTrue(true)
         }
