@@ -34,7 +34,6 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 | `asd-tauri/crates/asd-ipc-protocol/src/message.rs` | IpcMessage + constructors |
 | `asd-tauri/crates/asd-ipc-protocol/src/error.rs` | IpcError |
 | `asd-tauri/crates/asd-ipc-protocol/src/hotkey_merger.rs` | HotkeyMerger |
-| `asd-tauri/crates/asd-application/src/scheduler.rs` | SkillManager（Arc\<dyn IpcSender\>） |
 | `asd-tauri/crates/asd-application/src/state.rs` | AppState + trait objects |
 | `asd-tauri/crates/asd-application/src/config_repository.rs` | ConfigRepository（file I/O） |
 | `asd-tauri/crates/asd-application/src/error.rs` | AppError |
@@ -49,7 +48,7 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 | `asd-tauri/src-tauri/src/infrastructure/logging.rs` | tracing 日志初始化 |
 | `asd-tauri/src-tauri/src/infrastructure/shutdown.rs` | 关机锁 `try_acquire_shutdown_guard` 纯函数 |
 | `asd-tauri/src-tauri/src/commands/` | config_cmd, group_cmd, hotkey_cmd, recording_cmd, system_cmd |
-| `asd-tauri/src-tauri/src/tests/` | ipc_tests, config_compat_tests, bridge_tests, watchdog_integration_tests |
+| `asd-tauri/src-tauri/src/tests/` | ipc_tests, config_compat_tests, bridge_tests, command_contract_tests, watchdog_integration_tests, mod |
 | `asd-tauri/src-tauri/ahk_executor/` | AHK 子进程执行器（executor.ahk, ipc_client.ahk, hotkey_hook.ahk 等） |
 | `asd-tauri/src/main.js` | Vite 前端入口 |
 | `asd-tauri/src/api.js` | 前端 API 封装（Tauri invoke） |
@@ -100,8 +99,7 @@ asd-tauri/
 │   │   ├── src/message.rs  (IpcMessage + constructors)
 │   │   ├── src/error.rs    (IpcError)
 │   │   └── src/hotkey_merger.rs (HotkeyMerger)
-│   ├── asd-application/    (应用逻辑 crate — 调度 + 状态 + 配置仓库 + 服务层)
-│   │   ├── src/scheduler.rs (SkillManager, Arc<dyn IpcSender>)
+│   ├── asd-application/    (应用逻辑 crate — 状态 + 配置仓库 + 服务层)
 │   │   ├── src/state.rs     (AppState, trait objects)
 │   │   ├── src/config_repository.rs (ConfigRepository, file I/O)
 │   │   ├── src/backup_service.rs    (BackupService)
@@ -109,7 +107,7 @@ asd-tauri/
 │   │   ├── src/recording_service.rs (RecordingService)
 │   │   ├── src/time_format.rs       (时间格式化)
 │   │   ├── src/error.rs     (AppError)
-│   │   └── tests/           (backup/group/recording/cross_crate/e2e_dataflow/concurrency)
+│   │   └── tests/           (backup/group/recording/cross_crate/e2e_dataflow/concurrency/integration)
 │   └── asd-test-harness/   (测试支持 crate — 测试固件 + mock 工具)
 │       └── src/lib.rs      (TestHarness, 测试辅助)
 └── src-tauri/              (表现层 + 基础设施 — Tauri 主 crate)
@@ -117,7 +115,7 @@ asd-tauri/
     ├── src/bridge.rs        (IpcBridge, TauriEventBridge, WatchdogBridge)
     ├── src/infrastructure/  (IpcManager, ProcessWatchdog, Logging, Shutdown)
     ├── src/commands/        (config_cmd, group_cmd, hotkey_cmd, recording_cmd, system_cmd)
-    ├── src/tests/           (ipc_tests, config_compat_tests, bridge_tests, watchdog_integration_tests)
+    ├── src/tests/           (ipc_tests, config_compat_tests, bridge_tests, command_contract_tests, watchdog_integration_tests, mod)
     ├── ahk_executor/        (AHK 子进程执行器)
     ├── benches/             (criterion 基准测试)
     └── fuzz/                (cargo-fuzz 模糊测试)
@@ -258,10 +256,10 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
 - 查看应用日志: `Get-Content logs\app.log -Tail 10`
 - 过滤错误日志: `Select-String -Path logs\app.log -Pattern '"level":"ERROR"'`
 - **tests/ 目录结构**（v4.1 整理）：
-  - 根目录保留 13 个核心文件 = 10 个 `test_*.ahk`（`test_error_system`/`test_integration_error_system`/`test_joy_hotkey_manager`/`test_joy_hotkey_manager_ahu`/`test_joystick`/`test_key_recorder`/`test_key_test_integration`/`test_key_validator`/`test_result_reporter`/`test_webview2_bridge`）+ 3 个框架/入口文件（`AutoHotUnit.ahk`、`run_all_tests.ahk`、`run_tests.ahk`、`run_tests.ps1`）
+  - 根目录保留 14 个核心文件 = 10 个 `test_*.ahk`（`test_error_system`/`test_integration_error_system`/`test_joy_hotkey_manager`/`test_joy_hotkey_manager_ahu`/`test_joystick`/`test_key_recorder`/`test_key_test_integration`/`test_key_validator`/`test_result_reporter`/`test_webview2_bridge`）+ 4 个框架/入口文件（`AutoHotUnit.ahk`、`run_all_tests.ahk`、`run_tests.ahk`、`run_tests.ps1`）
   - `tests/archive/`：归档了 41 个调试/原型/旧版本/废弃测试文件（HTML 原型 `test_html_*`、WebView2 原型 `test_wv2_*`/`test_webview2_proto`、编号测试 `test_*_c*`、full 旧版本 `test_*_full`、bug 复现脚本 `run_bug_repro`/`test_bug_reproduction`、基准 `benchmark_hotpath`、以及 2026-09-12 归档的 6 个上一代断言式测试 `test_domain`/`test_application`/`test_infrastructure`/`test_presentation`/`test_boundary`/`test_error_captor` 等），不参与 `run_all_tests.ahk` 运行
   - `tests/suites/`：内联测试套件（`core_suites`/`base_suites`/`fix_round_suites`/`layering_security_suites`），由 `run_all_tests.ahk` 加载
-  - `tests/test_ahk_executor/`：AHK 执行器测试（57 套件，详见下方）
+  - `tests/test_ahk_executor/`：AHK 执行器测试（59 套件，详见 test-map.md）
   - `tests/fixtures/`：AHK v2 测试固件目录（v4.1 新增），存放可复用的测试数据文件（如 `sample_config.json` 标准配置样本覆盖 7 种模式、`import_test_data.json` 导入测试场景数据）
   - 删除了 25 个 `.txt`/`.log` 调试输出文件（stderr/stdout 重定向、`bug_repro_results`、`debug_output`、`test_results.log` 等）
 
@@ -282,7 +280,7 @@ AHK v2 测试历史上存在 4 种不统一的测试模式，统一规范如下�
 
 | 模式 | 状态 | 使用文件 | 迁移计划 |
 |------|------|---------|---------|
-| AutoHotUnitSuite | ✅ 推荐模式 | `run_all_tests.ahk`（80 套件）、`run_tests.ahk`、`test_joy_hotkey_manager_ahu.ahk`、`test_ahk_executor/*.ahk`（5 文件） | 新测试必须使用此模式 |
+| AutoHotUnitSuite | ✅ 推荐模式 | `run_all_tests.ahk`（160 套件）、`run_tests.ahk`、`test_joy_hotkey_manager_ahu.ahk`、`test_ahk_executor/*.ahk`（5 文件，59 套件） | 新测试必须使用此模式 |
 | TestReporter 场景式 | 📦 已归档（2026-09-12） | 原 `test_application.ahk`、`test_domain.ahk`、`test_infrastructure.ahk`、`test_presentation.ahk`、`test_boundary.ahk`、`test_error_captor.ahk`（共 6 文件）已移入 `tests/archive/`——它们不含 `Test_` 方法，从未被 `run_all_tests.ahk` 加载。仍保留于根目录的：`test_integration_error_system.ahk`、`test_key_recorder.ahk`、`test_key_test_integration.ahk`、`test_key_validator.ahk`、`test_result_reporter.ahk`、`test_webview2_bridge.ahk` | 保留者后续逐步迁移 |
 | JoyTestRunner 自定义 | ⚠️ 保留（已稳定） | `test_joystick.ahk` | 后续迁移，当前保留 |
 | 函数式全局变量 | ⚠️ 保留（已稳定） | `test_error_system.ahk` | 后续迁移，当前保留 |
@@ -682,11 +680,17 @@ exit $proc.ExitCode
 - **状态管理**: 使用 `Arc<AppState>` 共享状态，trait objects 实现依赖反转
   ```rust
   pub struct AppState {
-      pub scheduler: SkillManager,
-      pub config_repo: ConfigRepository,
-      pub ipc_sender: Arc<dyn IpcSender>,
-      pub event_emitter: Arc<dyn EventEmitter>,
-      pub process_watcher: Arc<dyn ProcessWatcher>,
+      config_state: RwLock<ConfigState>,
+      ipc_sender: Arc<dyn IpcSender>,
+      pub(crate) active_hotkeys: RwLock<HashMap<String, String>>,
+      pub emergency_mode: AtomicBool,
+      pub hold_mode_enabled: AtomicBool,
+      pub recording_mode: RwLock<Option<String>>,
+      pub validation_in_progress: AtomicBool,
+      pub watchdog_state: RwLock<WatchdogState>,
+      watchdog: Arc<dyn ProcessWatcher>,
+      event_emitter: Arc<dyn EventEmitter>,
+      config_path: RwLock<Option<PathBuf>>,
   }
   ```
 - **Tauri Command**: 使用 `#[tauri::command]` 宏，返回 `Result<T, AppError>`
@@ -1309,6 +1313,40 @@ pub struct Config {
 4. **Config 序列化兼容性**: Rust 的 Config 结构体必须与 AHK 的 config.json 格式兼容（字段名、嵌套结构），否则 `config_compat_tests` 会失败
 5. **Named pipe 路径**: interprocess named pipe 名称必须与 AHK 执行器中的管道名称一致
 6. **ProcessWatchdog 超时**: AHK 子进程心跳超时时间需要与 AHK 端心跳间隔匹配
+
+## 图谱式开发流程（摘要）
+
+> **完整规范**：[`docs/graph-driven-workflow.md`](docs/graph-driven-workflow.md) — 本文件是**架构权威**，该规范是**流程权威**。
+
+图谱式开发 = 先把代码真实依赖抽成图（节点 = 文件/crate，边 = 真实的 `#Include` / `use` / `import`），再基于图上的**四类靶点**做决策与审查：
+
+| 靶点 | 含义 | 审查动作 |
+|------|------|---------|
+| **环** | A↔B 互相依赖（Tarjan 强连通分量） | 必须打破或记录架构决策 |
+| **逆向边** | 内层依赖外层（如 infrastructure → domain） | 必须登记到本文件妥协表 |
+| **孤点** | 无入边也无出边 | 删除 / 归档 / 确认合理 |
+| **契约断点** | 跨进程同名契约不一致（IPC variant、命令名、配置字段） | 双向核对 |
+
+**核心命令**：
+
+```bash
+python .review-analysis/build_graph.py      # 建图 → .review-analysis/graph-raw.json
+python .review-analysis/gen_graph_html.py   # 渲染 → docs/review/<date>/graph/
+```
+
+**分层 depth 语义**（数值越小越内层，依赖方向恒由大 → 小）：
+`infrastructure 0` → `domain 1` → `application 2` → `presentation 3` → `entry 4` → `executor 5` → `tests 6` → `other 7`
+其中 `entry` / `tests` / `executor` / `other` 豁免分层约束。
+> ⚠️ 分层常量（`LAYER_META` / `LAYER_EXEMPT`）在 **`gen_graph_html.py`**，不在 `build_graph.py`。
+
+**开发流程要点**：变更前建基线 → 查影响面 → 变更后过**四闸门**（① 图谱无新环 ② fmt + clippy 零告警 ③ 测试通过且已登记 `test-map.md` ④ 文档已同步）。
+
+**详细文档**：
+- [`docs/graph-driven-workflow.md`](docs/graph-driven-workflow.md) — 目录结构 / 依赖图 / 链路追踪 / 开发流程 / 审查提交 / 同步机制
+- [`docs/module-adjacency.md`](docs/module-adjacency.md) — 逐模块入边出边邻接表
+- [`docs/graph-sync-checklist.md`](docs/graph-sync-checklist.md) — 可勾选的同步清单
+
+> **数字权威**：本文件不持有测试数字，一切测试统计以 [`asd-tauri/docs/test-map.md`](asd-tauri/docs/test-map.md) 为**唯一权威**。
 
 ## 重要提醒
 

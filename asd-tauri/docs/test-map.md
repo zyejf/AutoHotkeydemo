@@ -4,10 +4,15 @@
 
 > **唯一权威来源**：本文档是测试统计的**单一权威来源**。AGENTS.md 为架构/执行模式/依赖的唯一权威；TESTING.md、developer-guide.md、migration-guide.md 仅引用本文档、不自行复制测试数字。
 
-统计口径（截至 2026-08-20，实测）：
+统计口径（截至 2026-09-13，实测）：
 - Rust：`#[test]` + `#[tokio::test]` 属性数（`cargo test --workspace` 实测）
 - AHK 执行器：`Test_` 方法数（`tests/test_ahk_executor/*.ahk` 中以 `Test_` 开头的方法定义数）
 - 运行用例：AHK v2 完整套件（`tests/run_all_tests.ahk` 汇总）与 E2E（WebDriverIO 用例数）
+
+> **口径差异提示**：同一文件可能因计数方式不同而得出不同数字，两者均有效、不得互相「纠正」。
+> - `watchdog_integration_tests.rs`：`#[test]` 属性数 = **14**（本文档口径）；`fn` 定义数 = **17**（`TESTING.md` 口径）。
+> - 套件数：`test_executor.ahk` 的 `Test_` 方法分布在不同 `class ... extends AutoHotUnitSuite` 中，套件数按类计。
+> - AHK 完整套件汇总：runner 除 `Test_` 方法外还执行 `Setup`/`Teardown` 生命周期钩子，故实跑总数（616）略高于静态 `Test_` 计数（614）。
 
 自洽关系：**小计 = 明细之和 = 汇总 = 各 crate 总计相加**。
 
@@ -83,18 +88,19 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 | Crate | 类型 | 文件路径 | 测试数 | 覆盖范围 |
 |-------|------|---------|-------|---------|
-| asd-tauri | 单元 | src-tauri/src/infrastructure/ipc.rs | 45 | IpcManager named pipe 通信 |
-| asd-tauri | 单元 | src-tauri/src/infrastructure/watchdog.rs | 29 | ProcessWatchdog + WatchdogRunner 进程管理 |
+| asd-tauri | 单元 | src-tauri/src/infrastructure/ipc.rs | 52 | IpcManager named pipe 通信 |
+| asd-tauri | 单元 | src-tauri/src/infrastructure/watchdog.rs | 32 | ProcessWatchdog + WatchdogRunner 进程管理 |
 | asd-tauri | 集成 | src-tauri/src/tests/ipc_tests.rs | 26 | IPC 边界条件与错误处理 |
-| asd-tauri | 集成 | src-tauri/src/tests/bridge_tests.rs | 13 | IpcBridge / TauriEventBridge / WatchdogBridge trait 实现 + build_hotkey_event_payload 纯函数（1 个 `#[ignore]`） |
-| asd-tauri | 集成 | src-tauri/src/tests/watchdog_integration_tests.rs | 17 | ProcessWatchdog 跨平台集成（`#![cfg(windows)]` gating，15 个 `#[ignore]` 需 `--ignored` 手动运行） |
+| asd-tauri | 集成 | src-tauri/src/tests/bridge_tests.rs | 4 | IpcBridge / TauriEventBridge / WatchdogBridge trait 实现 + build_hotkey_event_payload 纯函数（1 个 `#[ignore]`） |
+| asd-tauri | 集成 | src-tauri/src/tests/watchdog_integration_tests.rs | 14 | ProcessWatchdog 跨平台集成（`#![cfg(windows)]` gating，15 个 `#[ignore]` 需 `--ignored` 手动运行；本行按 `#[test]` 属性数计，`fn` 数为 17，见文首口径差异提示） |
 | asd-tauri | 集成 | src-tauri/src/tests/config_compat_tests.rs | 11 | Rust Config 与 AHK config.json 格式兼容性 |
+| asd-tauri | 集成 | src-tauri/src/tests/command_contract_tests.rs | 3 | Tauri 命令契约守护（命令名/签名与前端 api.js 调用一致性） |
 | asd-tauri | 单元 | src-tauri/src/commands/config_cmd.rs | 29 | config_cmd Tauri 命令 |
 | asd-tauri | 单元 | src-tauri/src/commands/system_cmd.rs | 6 | get_system_status / emergency_release / toggle_hold_mode 命令 |
 | asd-tauri | 单元 | src-tauri/src/commands/hotkey_cmd.rs | 6 | register_hotkey / unregister_hotkey / list_hotkeys 命令 |
 | asd-tauri | 单元 | src-tauri/src/commands/group_cmd.rs | 20 | group_cmd Tauri 命令 |
 | asd-tauri | 单元 | src-tauri/src/commands/recording_cmd.rs | 21 | recording_cmd Tauri 命令 |
-| asd-tauri | 单元 | src-tauri/src/lib.rs | 7 | IPC_PIPE_NAME 常量验证 + try_acquire_shutdown_guard 关机锁纯函数 |
+| asd-tauri | 单元 | src-tauri/src/lib.rs | 6 | IPC_PIPE_NAME 常量验证 + try_acquire_shutdown_guard 关机锁纯函数 |
 | **小计** | — | — | **230** | — |
 
 ### 集成测试（`tests/` 目录）
@@ -126,12 +132,12 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 | Crate | 类型 | 文件路径 | 套件数 / Test_ 方法数 | 覆盖范围 |
 |-------|------|---------|-------|---------|
-| AHK | 单元 | tests/test_ahk_executor/test_executor.ahk | 9 / 46 | executor.ahk CommandDispatcher._GetStr/_GetInt/_GetBool/_GetArr/_GetMap、MergeModeConfig、Dispatch unknown、RecordKey、Validation |
+| AHK | 单元 | tests/test_ahk_executor/test_executor.ahk | 10 / 46 | executor.ahk CommandDispatcher._GetStr/_GetInt/_GetBool/_GetArr/_GetMap、MergeModeConfig、Dispatch unknown、RecordKey、Validation、ReportFlag |
 | AHK | 单元 | tests/test_ahk_executor/test_ipc_client.ahk | 12 / 64 | ipc_client.ahk IPCConst、MiniJson 解析/序列化/往返/布尔标记、IpcClient 初始状态/序列号/断连接收/认证 token/去重 |
 | AHK | 单元 | tests/test_ahk_executor/test_hotkey_hook.ahk | 7 / 28 | hotkey_hook.ahk Normalize、RegistrationState、Register/Unregister error、UnregisterAll、Init、Callback |
-| AHK | 单元 | tests/test_ahk_executor/test_sender.ahk | 11 / 42 | sender.ahk AllowedKeys、ValidateKey、ToggleGroup、StartPeriodic/Sequence/Enhanced/Hold、HoldModeToggle、EmergencyRelease、Shutdown、Init |
+| AHK | 单元 | tests/test_ahk_executor/test_sender.ahk | 12 / 42 | sender.ahk AllowedKeys、ValidateKey、ToggleGroup、StartPeriodic/Sequence/Enhanced/Hold、HoldModeToggle、EmergencyRelease、Shutdown、Init、ReportKeyEvents |
 | AHK | 单元 | tests/test_ahk_executor/test_joystick.ahk | 18 / 75 | joystick.ahk AllowedKeys、ValidateKey、IsButton/IsPov/IsAxis、GetButtonNum/GetPovDirection/GetAxisInfo、AxisToVJoyId、PovDirectionToValue、ResolveMethod、IsVJoyAvailable、StopGroup、EmergencyRelease、Init、StartPeriodic/Sequence/Hold |
-| **总计** | — | — | **57 套件 / 255 个 Test_ 方法** | — |
+| **总计** | — | — | **59 套件 / 255 个 Test_ 方法** | — |
 
 注：AHK 测试文件位于项目根目录的 `tests/test_ahk_executor/`，非 `asd-tauri/tests/`。被测脚本位于 `asd-tauri/src-tauri/ahk_executor/`。
 
@@ -150,14 +156,14 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 | 类别 | 统计 |
 |------|------|
-| Rust 测试函数（`#[test]` + `#[tokio::test]` 属性数） | 624（asd-domain 132 + asd-ipc-protocol 72 + asd-application 186 + asd-test-harness 3 + asd-tauri 231；其中 `#[ignore]` 16 个） |
-| AHK 执行器测试（`Test_` 方法数） | 57 套件 / 255 个 `Test_` 方法 |
-| AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 607 个用例（通过 607 / 失败 0） |
+| Rust 测试函数（`#[test]` + `#[tokio::test]` 属性数） | 601（asd-domain 132 + asd-ipc-protocol 72 + asd-application 163 + asd-test-harness 3 + asd-tauri 231；其中 `#[ignore]` 16 个） |
+| AHK 执行器测试（`Test_` 方法数） | 59 套件 / 255 个 `Test_` 方法（`tests/test_ahk_executor/` 5 文件；不含 `test_joy_hotkey_manager_ahu.ahk` 的 7 套件） |
+| AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 616 个用例（通过 616 / 失败 0） |
 | 基准测试 | 7 个 criterion bench |
 | 模糊测试 | 5 个 fuzz target |
 | E2E 测试 | 9 suite / 53 用例 |
 
-自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 132 + 72 + 186 + 3 + 231 = 624。
+自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 132 + 72 + 163 + 3 + 231 = 601。
 
 > **备注（T8-07† 处置）**：`docs/review/2026-08-20/task-8-tests.md` 分报告《总结》自报「发现总数 7（Important 3 + Minor 4）」，但正文仅列 T8-01~T8-06 共 6 条（其中 Minor 3 条：T8-04/T8-05/T8-06）。已核实第 4 条 Minor 无正文，属该报告自报计数笔误（正文实际为 Important 3 + Minor 3 = 6 条），无遗漏问题，占位 `T8-07†` 予以关闭。
 
@@ -215,7 +221,6 @@ cd asd-tauri/e2e && npm test
 | 文档 | 路径 | 用途 |
 |------|------|------|
 | E2E 测试报告 | docs/e2e-test-report.md | 53 个用例的状态总览（PENDING/PASS/FAIL） |
-| E2E 测试 Checklist | docs/e2e-test-checklist.md | 每个用例的前置条件、步骤、预期结果 |
 | E2E 已知问题 | docs/e2e-known-issues.md | 10 个已知问题与修复建议 |
 
 ---

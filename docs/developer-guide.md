@@ -68,12 +68,12 @@ asd-tauri/
 │   │       error.rs        # IpcError
 │   │       hotkey_merger.rs# HotkeyMerger
 │   │       lib.rs
-│   ├── asd-application/    # 应用层 —— 调度 + 状态 + 配置仓库 + 服务
+│   ├── asd-application/    # 应用层 —— 状态 + 配置仓库 + 服务
 │   │   └── src/
-│   │       scheduler.rs    # SkillManager（Arc<dyn IpcSender>）
-│   │       state.rs        # AppState（trait objects）
+│   │       state.rs        # AppState（RwLock + AtomicBool，trait objects）
 │   │       config_repository.rs # ConfigRepository（文件 I/O）
 │   │       group_service.rs / recording_service.rs / backup_service.rs
+│   │       time_format.rs  # 时间格式化
 │   │       error.rs        # AppError
 │   │       lib.rs
 │   └── asd-test-harness/   # 测试支持 crate —— 测试固件 + mock 工具
@@ -85,7 +85,7 @@ asd-tauri/
     │   bridge.rs           # IpcBridge / TauriEventBridge / WatchdogBridge（trait 实现）
     │   infrastructure/     # ipc.rs / watchdog.rs / logging.rs
     │   commands/           # config_cmd / group_cmd / hotkey_cmd / recording_cmd / system_cmd
-    │   tests/              # ipc_tests / config_compat_tests
+    │   tests/              # ipc_tests / config_compat_tests / bridge_tests / command_contract_tests / watchdog_integration_tests / mod
     ├── ahk_executor/       # AHK 子进程源码
     ├── benches/            # criterion 基准测试
     └── fuzz/               # cargo-fuzz 模糊测试
@@ -154,7 +154,7 @@ src/
                    |      +-----------+------------+
                    |                  |
           +--------v------------------v--------+
-          |         asd-application             |  (调度/状态/配置仓库/服务)
+          |         asd-application             |  (状态/配置仓库/备份/分组/录制服务)
           +----------------+--------------------+
                            |
           +----------------v--------------------+
@@ -171,6 +171,12 @@ src/
 `src-tauri(commands/bridge/infrastructure)` → `asd-application` → `asd-domain` → `asd-ipc-protocol`
 
 `asd-test-harness` 仅作为 `src-tauri` 的 dev-dependency 用于测试。
+
+> **📖 延伸阅读**：本节的 ASCII 框图是**概览版**（面向快速浏览）。
+> **依赖关系的权威分层版**（含 Mermaid 图、分层 depth 语义、AHK 反向边白名单、图谱脚本链说明）见
+> [`docs/graph-driven-workflow.md`](./graph-driven-workflow.md) §2。
+> 逐文件的入边/出边清单见 [`docs/module-adjacency.md`](./module-adjacency.md)。
+> 若本节与上述文档不一致，**以图谱规范为准**。
 
 ---
 

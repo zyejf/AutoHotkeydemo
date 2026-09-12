@@ -2,10 +2,10 @@
 
 本文件是 ASD-Tauri 项目测试体系的统一入口，覆盖测试分类、命名规范、运行命令、覆盖率生成、CI 流程、测试数据管理与结果分析。
 
-测试规模（截至 2026-08-20，以 [`docs/test-map.md`](./docs/test-map.md) 为唯一权威来源，本文档不复制数字）：
+测试规模（截至 2026-09-13，以 [`docs/test-map.md`](./docs/test-map.md) 为唯一权威来源，本文档不复制数字）：
 - Rust 测试函数：`#[test]` + `#[tokio::test]` 属性数（详见 test-map.md「汇总」）
-- AHK 执行器测试：57 套件 / 255 个 `Test_` 方法
-- AHK v2 完整测试套件：607 个用例（`tests/run_all_tests.ahk` 汇总）
+- AHK 执行器测试：套件数与 `Test_` 方法数（详见 test-map.md「汇总」）
+- AHK v2 完整测试套件：`tests/run_all_tests.ahk` 汇总（详见 test-map.md「汇总」；口径为 `Test_` 方法 + runner 执行的 `Setup`/`Teardown` 钩子）
 - 基准测试：7 个 criterion bench
 - 模糊测试：5 个 fuzz target
 
@@ -114,7 +114,7 @@ Rust 集成测试文件遵循 `{scope}_{type}_tests.rs` 约定：
 主 crate 内联集成测试位于 `src-tauri/src/tests/`，通过 `mod.rs` 聚合：
 - `ipc_tests.rs`（26 测试）：IPC 边界条件
 - `bridge_tests.rs`：IpcBridge / TauriEventBridge / WatchdogBridge trait 实现
-- `watchdog_integration_tests.rs`（17 测试，`#![cfg(windows)]` gating，含 15 个 `#[ignore]`）：ProcessWatchdog 跨平台
+- `watchdog_integration_tests.rs`（17 个 `fn`，`#![cfg(windows)]` gating，含 15 个 `#[ignore]`）：ProcessWatchdog 跨平台。**口径提示**：本行按 `fn` 数计；`test-map.md` 按 `#[test]` 属性数计为 14，两者均有效。
 - `config_compat_tests.rs`（11 测试）：Rust Config 与 AHK config.json 格式兼容性
 
 AHK 测试文件命名：`test_<module>.ahk`，对应被测的 `ahk_executor/<module>.ahk`。

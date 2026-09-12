@@ -1,6 +1,6 @@
 # AHK v2 -> Rust/Tauri 迁移指南
 
-> 版本: 1.0 | 最后更新: 2026-05-29
+> 版本: 1.1 | 最后更新: 2026-09-13
 >
 > 本文档面向从 AutoHotkey v2 架构迁移到 Rust/Tauri 混合架构的开发者，提供完整的接口映射、IPC 协议规范和配置兼容性说明。
 
@@ -38,7 +38,7 @@ asd.exe (Tauri 主进程)
   +-- Rust Workspace (asd-tauri/, 5 crates)
   |   +-- asd-domain/         (Config, Models, Validator, Traits)
   |   +-- asd-ipc-protocol/   (IpcCommand, IpcMessage, IpcError, HotkeyMerger)
-  |   +-- asd-application/    (AppState, SkillManager, ConfigRepository)
+  |   +-- asd-application/    (AppState, ConfigRepository, services)
   |   +-- asd-test-harness/   (测试固件 + Mock 工具)
   |   +-- src-tauri/          (34 Tauri Commands, IpcManager, Watchdog, Logging)
   +-- WebView2 UI (HTML/JS/CSS)
@@ -539,14 +539,14 @@ Rust 侧使用 `serde_json` 反序列化，完全兼容现有 `config.json` 格�
 
 ### 5.2 功能差异
 
-| 功能 | AHK v2 | Rust/Tauri | 说明 |
+| 功能 | AHK v2 原接口 | Rust/Tauri IPC action | 状态 |
 |---|---|---|---|
-| 批量操作 | `BatchToggleGroups` | `stubNotImplemented` | 待实现 |
-| 备份管理 | `CreateBackup/RestoreBackup` | `stubNotImplemented` | 待实现 |
-| 配置导入导出 | `ExportConfig/ImportConfig` | `stubNotImplemented` | 待实现 |
-| 分组排序 | `ReorderGroups` | `stubNotImplemented` | 待实现 |
-| 分组删除 | `DeleteGroup` | `stubNotImplemented` | 待实现 |
-| 配置热重载 | `HotReload` | `stubNotImplemented` | 待实现 |
+| 批量操作 | `BatchToggleGroups` | `batch_toggle`（`group_cmd.rs`） | ✅ 已实现 |
+| 备份管理 | `CreateBackup` / `RestoreBackup` | `create_backup` / `restore_backup`（`config_cmd.rs`） | ✅ 已实现 |
+| 配置导入导出 | `ExportConfig` / `ImportConfig` | `export_config` / `import_config`（`config_cmd.rs`） | ✅ 已实现 |
+| 分组排序 | `ReorderGroups` | `reorder_groups`（`group_cmd.rs`） | ✅ 已实现 |
+| 分组删除 | `DeleteGroup` | `delete_group`（`group_cmd.rs`） | ✅ 已实现 |
+| 配置热重载 | `HotReload` | `hot_reload`（`config_cmd.rs`） | ✅ 已实现 |
 
 ### 5.3 性能差异
 

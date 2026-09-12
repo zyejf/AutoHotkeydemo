@@ -39,7 +39,7 @@
 |-------|------|
 | `asd-domain` | 领域层 crate（Config, SkillGroup, Validator, traits） |
 | `asd-ipc-protocol` | IPC 协议 crate（IpcCommand, IpcMessage, HotkeyMerger） |
-| `asd-application` | 应用层 crate（SkillManager, AppState, ConfigRepository） |
+| `asd-application` | 应用层 crate（AppState, ConfigRepository, 各服务） |
 | `asd-tauri` | Tauri 主 crate（commands, bridge, infrastructure） |
 | `asd-test-harness` | 测试工具 crate |
 | `ahk` | AHK v2 脚本（main.ahk, domain/, infrastructure/, application/, presentation/） |
