@@ -53,7 +53,7 @@ jobs:
         run: cargo test -p asd-application 2>&1 | cargo junit-report --output test-results/asd-application.xml || true
       - name: Test asd-tauri
         shell: bash
-        run: cargo test -p asd-tauri --lib --features test-manifest 2>&1 | cargo junit-report --output test-results/asd-tauri.xml || true
+        run: cargo test -p asd-tauri --lib 2>&1 | cargo junit-report --output test-results/asd-tauri.xml || true
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
