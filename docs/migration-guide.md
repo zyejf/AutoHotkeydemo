@@ -34,12 +34,13 @@ asd.ahk (主入口)
 **迁移后（Rust/Tauri + AHK 子进程）**：
 
 ```
-asd.exe (Tauri 主进程, ~5-8MB)
-  +-- Rust Backend
-  |   +-- domain/          (Config, Models, Validator)
-  |   +-- infrastructure/  (IpcManager, Watchdog, Logging)
-  |   +-- application/     (AppState, ConfigService, GroupService, Scheduler)
-  |   +-- commands/        (13 个 Tauri Commands)
+asd.exe (Tauri 主进程)
+  +-- Rust Workspace (asd-tauri/, 5 crates)
+  |   +-- asd-domain/         (Config, Models, Validator, Traits)
+  |   +-- asd-ipc-protocol/   (IpcCommand, IpcMessage, IpcError, HotkeyMerger)
+  |   +-- asd-application/    (AppState, SkillManager, ConfigRepository)
+  |   +-- asd-test-harness/   (测试固件 + Mock 工具)
+  |   +-- src-tauri/          (34 Tauri Commands, IpcManager, Watchdog, Logging)
   +-- WebView2 UI (HTML/JS/CSS)
       +-- api.js           (invoke() 调用 Tauri Commands)
 
@@ -163,7 +164,7 @@ const status = await invoke('toggle_group', { groupId: '1' });
 | 原 AHK 全局变量 | 新 Rust AppState 字段 | 类型 | 说明 |
 |---|---|---|---|
 | `global GroupSettings` (Map) | `AppState.config` | `RwLock<Config>` | 配置数据，含 `group_settings` |
-| `SkillManager._groups` (Map) | `AppState.groups` | `RwLock<HashMap<String, SkillGroup>>` | 技能分组运行时状态 |
+| `SkillManager._groups` (Map) | `AppState.config_state.groups` | `RwLock<ConfigState>`（内 `groups: IndexMap<String, SkillGroup>`） | 技能分组运行时状态（保留分组顺序） |
 | `SkillManager._activeHotkeys` (Map) | `AppState.active_hotkeys` | `RwLock<HashMap<String, String>>` | 热键注册表 (groupId -> hotkey) |
 | `SkillManager._emergencyMode` | `AppState.emergency_mode` | `AtomicBool` | 紧急模式标志 |
 | `SkillManager._holdModeEnabled` | `AppState.hold_mode_enabled` | `AtomicBool` | 长按模式开关 |
@@ -300,10 +301,14 @@ Rust 侧定义的 IPC 命令枚举，通过 `#[serde(tag = "action")]` 序列化
 | `UnregisterHotkey { hotkey }` | `unregister_hotkey` | `{hotkey}` | 注销热键 |
 | `StartRecording { group_id, mode }` | `start_recording` | `{groupId, mode}` | 开始录制 |
 | `StopRecording` | `stop_recording` | 无 | 停止录制 |
+| `PauseRecording` | `pause_recording` | 无 | 暂停录制 |
+| `ResumeRecording` | `resume_recording` | 无 | 恢复录制 |
 | `EmergencyRelease` | `emergency_release` | 无 | 紧急释放 |
 | `Ping` | `ping` | 无 | 心跳检测 |
 | `Shutdown` | `shutdown` | 无 | 关机指令 |
 | `HoldModeToggle { enabled }` | `hold_mode_toggle` | `{enabled}` | 长按模式切换 |
+| `StartValidation { group_id }` | `start_validation` | `{groupId}` | 开始校验 |
+| `StopValidation` | `stop_validation` | 无 | 停止校验 |
 
 ### 3.5 seq/ack_seq 确认机制
 
@@ -417,7 +422,7 @@ AHK 内置精简 JSON 解析器（`MiniJson` 类），支持 IPC 协议所需的
 
 Rust 侧使用 `serde_json` 反序列化，完全兼容现有 `config.json` 格式。关键兼容性措施：
 
-1. **BOM 处理**：`Config::load_from_file()` 自动去除 UTF-8 BOM（`\u{feff}`）
+1. **BOM 处理**：`ConfigRepository::load_from_file()`（推荐 `load_from_file_checked()`）自动去除 UTF-8 BOM（`\u{feff}`）
 2. **字段重命名**：使用 `#[serde(rename = "...")]` 映射 camelCase JSON 字段到 snake_case Rust 字段
 3. **可选字段**：使用 `Option<T>` + `#[serde(default)]` + `#[serde(skip_serializing_if = "Option::is_none")]`
 4. **缺失字段**：反序列化时缺失的可选字段自动填充为 `None` 或默认值
@@ -514,7 +519,7 @@ Rust 侧使用 `serde_json` 反序列化，完全兼容现有 `config.json` 格�
 | JSON 字段 | Rust 字段 | 类型 | 必需 |
 |---|---|---|---|
 | `CONTROL_HOTKEYS` | `control_hotkeys` | `ControlHotkeys` | 是 |
-| `GroupSettings` | `group_settings` | `HashMap<String, GroupConfig>` | 是 |
+| `GroupSettings` | `group_settings` | `IndexMap<String, GroupConfig>` | 是 |
 | `HoldSettings` | `hold_settings` | `Option<HoldSettings>` | 否 |
 | `lastModified` | `last_modified` | `Option<String>` | 否 |
 | `version` | `version` | `Option<String>` | 否 |
@@ -559,6 +564,6 @@ Rust 侧使用 `serde_json` 反序列化，完全兼容现有 `config.json` 格�
 3. **RwLock 跨 await**：`RwLockReadGuard` 不是 `Send`，不能跨 `.await` 持有。必须先收集数据再跨 await（参考 `setup_ipc_callbacks` 中的 `active_group_ids` 收集模式）
 4. **windows crate 双版本**：项目使用 `windows` 0.62.2，Tauri 依赖链使用 `windows` 0.61.x，两者类型完全隔离，无互传场景
 5. **AHK 子进程模式**：支持编译模式（`asd_executor.exe`）和便携模式（`AutoHotkey64.exe executor.ahk`），优先使用编译模式
-6. **config.json 写入**：Rust 侧 `Config::save()` 使用 `serde_json::to_string_pretty()` 格式化输出，与 AHK 侧输出格式可能略有差异（缩进/排序），但语义完全一致
+6. **config.json 写入**：Rust 侧 `ConfigRepository::save_to_path()` 使用 `serde_json::to_string_pretty()` 格式化输出并原子写入（先写临时文件再重命名），与 AHK 侧输出格式可能略有差异（缩进/排序），但语义完全一致
 7. **未知 mode 值**：Rust 侧反序列化遇到未知 mode 会返回错误（`unknown mode: xxx`），不会静默忽略。这是与 AHK 侧的行为差异（AHK 侧可能忽略未知模式）
 8. **HoldSettings 缺失**：`HoldSettings` 为 `Option<HoldSettings>`，缺失时 Rust 侧使用 `None`，不影响运行

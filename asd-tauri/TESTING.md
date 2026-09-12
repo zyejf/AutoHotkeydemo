@@ -2,11 +2,12 @@
 
 本文件是 ASD-Tauri 项目测试体系的统一入口，覆盖测试分类、命名规范、运行命令、覆盖率生成、CI 流程、测试数据管理与结果分析。
 
-测试规模（截至 2026-06-27）：
-- Rust 测试函数：506+ 个（`#[test]` + `#[tokio::test]`）
-- AHK 执行器测试：57 套件 / 467 测试
+测试规模（截至 2026-08-20，以 [`docs/test-map.md`](./docs/test-map.md) 为唯一权威来源，本文档不复制数字）：
+- Rust 测试函数：`#[test]` + `#[tokio::test]` 属性数（详见 test-map.md「汇总」）
+- AHK 执行器测试：57 套件 / 255 个 `Test_` 方法
+- AHK v2 完整测试套件：607 个用例（`tests/run_all_tests.ahk` 汇总）
 - 基准测试：7 个 criterion bench
-- 模糊测试：3 个 fuzz target
+- 模糊测试：5 个 fuzz target
 
 详细的按文件测试分布见 [`docs/test-map.md`](./docs/test-map.md)。
 
@@ -30,7 +31,7 @@ ASD-Tauri 项目将测试划分为六类，每类有独立的目录约定、运�
 - **目录约定**：
   - crate 内集成测试：`crates/<crate>/tests/<scope>_<type>_tests.rs`
   - 主 crate 集成测试：`src-tauri/src/tests/<scope>_<type>_tests.rs`（通过 `mod.rs` 聚合，由 `--lib` 一起运行）
-  - 主 crate manifest 集成测试：`src-tauri/tests/manifest_helper.rs`
+  - 主 crate manifest 集成测试：`src-tauri/tests/test_manifest_feature_removed.rs`
 - **典型示例**：`crates/asd-application/tests/concurrency_tests.rs`、`src-tauri/src/tests/ipc_tests.rs`。
 
 ### 1.3 端到端测试
@@ -55,8 +56,10 @@ ASD-Tauri 项目将测试划分为六类，每类有独立的目录约定、运�
   ```bash
   cd src-tauri/fuzz
   cargo +nightly fuzz run fuzz_config_deserialize -- -max_total_time=600
+  cargo +nightly fuzz run fuzz_hotkey_merger -- -max_total_time=600
   cargo +nightly fuzz run fuzz_ipc_command -- -max_total_time=600
   cargo +nightly fuzz run fuzz_ipc_json -- -max_total_time=600
+  cargo +nightly fuzz run fuzz_ipc_message_parse -- -max_total_time=600
   ```
 - **目录约定**：`src-tauri/fuzz/fuzz_targets/<name>.rs`。
 - **CI 调度**：每周日 00:00 UTC cron 运行各 target 10 分钟，崩溃时上传 artifact。
@@ -76,7 +79,7 @@ ASD-Tauri 项目将测试划分为六类，每类有独立的目录约定、运�
   - `test_hotkey_hook.ahk`（7 套件）：`Normalize`、`RegistrationState`、`Register/Unregister error`、`UnregisterAll`、`Init`、`Callback`
   - `test_sender.ahk`（11 套件）：`AllowedKeys`、`ValidateKey`、`ToggleGroup`、`StartPeriodic/Sequence/Enhanced/Hold`、`HoldModeToggle`、`EmergencyRelease`、`Shutdown`、`Init`
   - `test_joystick.ahk`（18 套件）：`AllowedKeys`、`ValidateKey`、`IsButton/IsPov/IsAxis`、`GetButtonNum/GetPovDirection/GetAxisInfo`、`AxisToVJoyId`、`PovDirectionToValue`、`ResolveMethod`、`IsVJoyAvailable`、`StopGroup`、`EmergencyRelease`、`Init`、`StartPeriodic/Sequence/Hold`
-- **总计**：57 套件，467 测试。
+- **总计**：57 套件，255 个 `Test_` 方法（口径为 `tests/test_ahk_executor/*.ahk` 中以 `Test_` 开头的方法定义数）。
 - **强制规范**：所有 AHK 测试文件必须包含 `#ErrorStdOut "UTF-8"` + `#Warn VarUnset, OutputDebug` + `#Warn Unreachable, OutputDebug` + `OnError` 回调，详见 [AGENTS.md](../AGENTS.md) 的「错误与警告接管机制」节。
 
 ---
@@ -106,12 +109,12 @@ Rust 集成测试文件遵循 `{scope}_{type}_tests.rs` 约定：
 | `{scope}_integration_tests.rs` | crate 级集成测试 | `integration_tests.rs` |
 | `{scope}_boundary_tests.rs` | 边界条件测试 | `ipc_tests.rs`、`bridge_tests.rs` |
 | `{scope}_compat_tests.rs` | 兼容性测试 | `config_compat_tests.rs` |
-| `manifest_helper.rs` | 主 crate manifest 集成测试（位于 `src-tauri/tests/`，由 cargo 自动发现） | — |
+| `test_manifest_feature_removed.rs` | 主 crate manifest 集成测试（位于 `src-tauri/tests/`，由 cargo 自动发现，验证废弃 feature 已从 Cargo.toml 移除） | — |
 
 主 crate 内联集成测试位于 `src-tauri/src/tests/`，通过 `mod.rs` 聚合：
 - `ipc_tests.rs`（26 测试）：IPC 边界条件
 - `bridge_tests.rs`：IpcBridge / TauriEventBridge / WatchdogBridge trait 实现
-- `watchdog_integration_tests.rs`（14 测试，`#![cfg(windows)]` gating）：ProcessWatchdog 跨平台
+- `watchdog_integration_tests.rs`（17 测试，`#![cfg(windows)]` gating，含 15 个 `#[ignore]`）：ProcessWatchdog 跨平台
 - `config_compat_tests.rs`（11 测试）：Rust Config 与 AHK config.json 格式兼容性
 
 AHK 测试文件命名：`test_<module>.ahk`，对应被测的 `ahk_executor/<module>.ahk`。
@@ -128,30 +131,25 @@ AHK 测试套件类名使用 PascalCase + `Tests` 后缀，描述被测对象：
 
 ## 3. 运行命令矩阵
 
-下表列出各 crate 的测试运行命令、feature flag 与预期测试数（基于 2026-06-27 统计，误差 ≤ 5%）。
+下表列出各 crate 的测试运行命令。测试数量统一以 [`docs/test-map.md`](./docs/test-map.md) 为唯一权威来源，本表不复制数字以免漂移。
 
-| Crate | 类型 | 命令 | Feature flag | 预期测试数 |
-|-------|------|------|--------------|-----------|
-| asd-domain | 单元 + 集成 | `cargo test -p asd-domain` | 无 | 125 |
-| asd-ipc-protocol | 单元 + 集成 | `cargo test -p asd-ipc-protocol` | 无 | 71 |
-| asd-application | 单元 | `cargo test -p asd-application --lib` | 无 | 74 |
-| asd-application | 集成 | `cargo test -p asd-application --tests` | 无 | 101 |
-| asd-application | 全部 | `cargo test -p asd-application` | 无 | 175 |
-| asd-test-harness | — | `cargo test -p asd-test-harness` | 无 | 0（工具 crate，无自测） |
-| asd-tauri | 主 crate 单元 + 内联集成 | `cargo test -p asd-tauri --lib --features test-manifest` | `test-manifest` | 133 |
-| asd-tauri | manifest 集成 | `cargo test -p asd-tauri --test manifest_helper --features test-manifest` | `test-manifest` | 1 |
-| asd-tauri | 全部 | `cargo test -p asd-tauri --features test-manifest` | `test-manifest` | 134 |
-| 全 workspace | 全部 | `cargo test --workspace --features asd-tauri/test-manifest` | `test-manifest` | 505+ |
-| asd-tauri | 基准 | `cd src-tauri && cargo bench` | 无 | 7 个 bench |
-| asd-tauri | 模糊 | `cd src-tauri/fuzz && cargo +nightly fuzz run <target>` | nightly | 3 个 target |
-| asd-domain | Miri | `cargo +nightly miri test -p asd-domain` | nightly + miri | 0 UB |
-| asd-ipc-protocol | Miri | `cargo +nightly miri test -p asd-ipc-protocol` | nightly + miri | 0 UB |
-| asd-application | Miri | `cargo +nightly miri test -p asd-application -- --skip config_repository --skip save_config --skip load_from` | nightly + miri | 0 UB |
-| AHK 执行器 | 单元 | `& "D:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" tests\run_all_tests.ahk` | 无 | 57 套件 / 467 测试 |
+| Crate | 类型 | 命令 | 预期结果 |
+|-------|------|------|-----------|
+| asd-domain | 单元 + 集成 | `cargo test -p asd-domain` | 见 test-map.md |
+| asd-ipc-protocol | 单元 + 集成 | `cargo test -p asd-ipc-protocol` | 见 test-map.md |
+| asd-application | 全部 | `cargo test -p asd-application` | 见 test-map.md |
+| asd-test-harness | 单元 | `cargo test -p asd-test-harness` | 见 test-map.md |
+| asd-tauri | 全部 | `cargo test -p asd-tauri` | 见 test-map.md |
+| 全 workspace | 全部 | `cargo test --workspace` | 见 test-map.md |
+| asd-tauri | 基准 | `cd src-tauri && cargo bench` | 7 个 bench |
+| asd-tauri | 模糊 | `cd src-tauri/fuzz && cargo +nightly fuzz run <target>` | 5 个 target |
+| asd-domain | Miri | `cargo +nightly miri test -p asd-domain` | 0 UB |
+| asd-ipc-protocol | Miri | `cargo +nightly miri test -p asd-ipc-protocol` | 0 UB |
+| asd-application | Miri | `cargo +nightly miri test -p asd-application -- --skip config_repository --skip save_config --skip load_from` | 0 UB |
+| AHK 执行器 | 单元 | `& "D:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" tests\run_all_tests.ahk` | 57 套件 / 255 个 Test_ 方法 |
 
 **关键提示**：
-- 主 crate 测试必须带 `--features test-manifest`，否则 `tauri::generate_handler!` 宏展开所需的 manifest 不可用，部分测试会被跳过。
-- `cargo test --workspace` 不会自动启用 `test-manifest`，需要 `cargo test --workspace --features asd-tauri/test-manifest` 或单独运行主 crate。
+- 测试数量统计以 [`docs/test-map.md`](./docs/test-map.md) 为唯一权威来源，本文档仅引用、不自行复制数字。
 - Miri 验证需跳过 `config_repository`、`save_config`、`load_from`（涉及文件 I/O，Miri 不支持）。
 
 ---
@@ -231,7 +229,7 @@ CI 配置位于 [`asd-tauri/.github/workflows/ci.yml`](./.github/workflows/ci.ym
   7. `cargo test -p asd-domain`
   8. `cargo test -p asd-ipc-protocol`
   9. `cargo test -p asd-application`
-  10. `cargo test -p asd-tauri --lib --features test-manifest`
+  10. `cargo test -p asd-tauri --lib`
 
 ### 5.2 coverage job
 
@@ -250,7 +248,7 @@ CI 配置位于 [`asd-tauri/.github/workflows/ci.yml`](./.github/workflows/ci.ym
 
 - **触发**：cron `0 0 * * 0`（每周日 00:00 UTC）
 - **运行环境**：`ubuntu-latest`，`nightly` toolchain
-- **范围**：3 个 fuzz target 各运行 10 分钟（`-max_total_time=600`）
+- **范围**：5 个 fuzz target 各运行 10 分钟（`-max_total_time=600`）
 - **失败处理**：崩溃时上传 artifact，创建 issue
 
 ### 5.5 bench job（Task 8 新增）
@@ -318,14 +316,14 @@ const TEST_CONFIG: &str = include_str!("D:/1demo/AutoHotkeydemo/asd-tauri/tests/
 **方式一：cargo nightly 原生支持**
 
 ```bash
-cargo test --workspace --features asd-tauri/test-manifest -- --format junit -Z unstable-options > test-results/junit.xml
+cargo test --workspace -- --format junit -Z unstable-options > test-results/junit.xml
 ```
 
 **方式二：cargo-junit-report（回退方案，stable 兼容）**
 
 ```bash
 cargo install cargo-junit-report
-cargo test --workspace --features asd-tauri/test-manifest -- -Z unstable-options --format json > test-results/raw.json
+cargo test --workspace -- -Z unstable-options --format json > test-results/raw.json
 cargo junit-report --input test-results/raw.json --output test-results/junit.xml
 ```
 

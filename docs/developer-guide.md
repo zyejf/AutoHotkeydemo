@@ -1,6 +1,6 @@
 # ASD-Tauri 开发者文档
 
-> 版本: 1.0 | 最后更新: 2026-05-29
+> 版本: 1.1 | 最后更新: 2026-08-20
 >
 > 本文档面向参与 ASD-Tauri 项目开发的工程师，提供项目结构说明、IPC 协议规范、调试策略和构建/发布工作流。
 >
@@ -26,7 +26,7 @@ asd-tauri/
   dist/                  # Vite 构建产物（前端静态资源）
   public/                # 前端公共资源
   src/                   # 前端源码
-    api.js               # Tauri invoke() 封装层（13 个已实现 + 19 个 stub）
+    api.js               # Tauri invoke() 封装层（34 个 invoke 调用 + 5 个事件监听）
     main.js              # 前端入口
     style.css            # 全局样式
   src-tauri/             # Tauri/Rust 后端
@@ -46,49 +46,66 @@ asd-tauri/
   package.json           # Node.js 依赖配置
 ```
 
-### 1.2 Rust 源码结构 (`src-tauri/src/`)
+### 1.2 Rust 源码结构（5-Crate Workspace）
+
+Rust 部分采用 5-crate workspace 架构（`asd-tauri/Cargo.toml`，`resolver = "2"`）：
 
 ```
-src/
-  lib.rs                 # 主入口：Tauri Builder、IPC 初始化、Watchdog 启动、系统托盘、优雅关机
-  main.rs                # 二进制入口（调用 lib.rs）
+asd-tauri/
+├── Cargo.toml              # workspace root（5 members）
+├── crates/                 # 纯逻辑 crate（无 tauri/tokio/interprocess/windows 依赖）
+│   ├── asd-domain/         # 领域层 —— 模型 + trait + 验证
+│   │   └── src/
+│   │       config.rs       # Config、GroupConfig、ModeData（10 种模式）、自定义 serde
+│   │       models.rs       # SkillGroup 领域模型
+│   │       validator.rs    # ConfigValidator：10 模式校验、重复热键检测、跨字段校验
+│   │       traits.rs       # IpcSender / EventEmitter / ProcessWatcher trait 定义
+│   │       lib.rs
+│   ├── asd-ipc-protocol/   # IPC 协议 —— 命令 / 消息 / 错误
+│   │   └── src/
+│   │       command.rs      # IpcCommand（13 变体）
+│   │       message.rs      # IpcMessage（9 字段）+ 10 种工厂方法
+│   │       error.rs        # IpcError
+│   │       hotkey_merger.rs# HotkeyMerger
+│   │       lib.rs
+│   ├── asd-application/    # 应用层 —— 调度 + 状态 + 配置仓库 + 服务
+│   │   └── src/
+│   │       scheduler.rs    # SkillManager（Arc<dyn IpcSender>）
+│   │       state.rs        # AppState（trait objects）
+│   │       config_repository.rs # ConfigRepository（文件 I/O）
+│   │       group_service.rs / recording_service.rs / backup_service.rs
+│   │       error.rs        # AppError
+│   │       lib.rs
+│   └── asd-test-harness/   # 测试支持 crate —— 测试固件 + mock 工具
+│       └── src/lib.rs      # TestHarness
+└── src-tauri/              # 表现层 + 基础设施 —— Tauri 主 crate
+    ├── src/
+    │   lib.rs              # 34 个 Tauri commands + 应用初始化
+    │   main.rs             # 二进制入口（调用 lib.rs）
+    │   bridge.rs           # IpcBridge / TauriEventBridge / WatchdogBridge（trait 实现）
+    │   infrastructure/     # ipc.rs / watchdog.rs / logging.rs
+    │   commands/           # config_cmd / group_cmd / hotkey_cmd / recording_cmd / system_cmd
+    │   tests/              # ipc_tests / config_compat_tests
+    ├── ahk_executor/       # AHK 子进程源码
+    ├── benches/            # criterion 基准测试
+    └── fuzz/               # cargo-fuzz 模糊测试
+```
 
-  domain/                # 领域层 -- 纯业务逻辑，无外部依赖
-    mod.rs
-    config.rs            # Config、GroupConfig、ModeData（10 种模式）、自定义 serde
-    models.rs            # SkillGroup、IpcCommand（9 变体）、IpcMessage（8 种工厂方法）
-    validator.rs         # ConfigValidator：10 模式校验、重复热键检测、跨字段校验
+Crate 依赖关系（`asd-domain` 仅依赖 `asd-ipc-protocol` 的数据结构类型，纯逻辑 crate 可通过 Miri 验证 0 UB）：
 
-  infrastructure/        # 基础设施层 -- 外部交互
-    mod.rs
-    ipc.rs               # IpcManager（Named Pipe 服务端）、HotkeyMerger、IpcError
-    watchdog.rs          # ProcessWatchdog（7 状态机）、JobObjectGuard、WatchdogRunner
-    logging.rs           # tracing 初始化（文件 + 控制台双输出）
-
-  application/           # 应用层 -- 状态管理与调度
-    mod.rs
-    state.rs             # AppState（中央状态）、AppError（6 变体）、WatchdogState
-    scheduler.rs         # SkillManager：toggle/activate/deactivate、IPC 命令发送
-
-  commands/              # 表现层 -- Tauri Command 入口
-    mod.rs
-    config_cmd.rs        # get_config、save_config、validate_config
-    group_cmd.rs         # get_groups、toggle_group、get_group_detail
-    hotkey_cmd.rs        # register_hotkey、unregister_hotkey
-    recording_cmd.rs     # start_recording、stop_recording
-    system_cmd.rs        # get_executor_status、emergency_release、toggle_hold_mode
-
-  tests/                 # 集成测试
-    mod.rs
-    config_compat_tests.rs  # 配置兼容性测试
-    ipc_tests.rs            # IPC 通信测试
+```
+asd-domain ──→ asd-ipc-protocol
+asd-application ──→ asd-domain ──→ asd-ipc-protocol
+asd-test-harness ──→ asd-application ──→ asd-domain ──→ asd-ipc-protocol
+src-tauri ──→ asd-application ──→ asd-domain ──→ asd-ipc-protocol
+         └──→ asd-test-harness（dev-dependency，仅测试用）
 ```
 
 ### 1.3 AHK 子进程结构 (`src-tauri/ahk_executor/`)
 
 ```
 ahk_executor/
-  executor.ahk           # 主入口：CommandDispatcher（7 个 action handler）、初始化流程
+  executor.ahk           # 主入口：CommandDispatcher（11 个 action handler）、初始化流程
   ipc_client.ahk         # IpcClient：Named Pipe 客户端、MiniJson 解析器、心跳检查
   hotkey_hook.ahk        # HotkeyHook：热键注册/注销、IPC 热键事件上报
   sender.ahk             # Sender：按键发送（periodic/sequence/hold/hybrid/enhanced 模式）
@@ -101,45 +118,59 @@ ahk_executor/
 
 ```
 src/
-  api.js                 # API 层：13 个 invoke() 调用 + 16 个 stub + 3 个事件监听
+  api.js                 # API 层：34 个 invoke() 调用 + 5 个事件监听
   main.js                # 前端入口
   style.css              # 全局样式
 ```
 
-[api.js](file:///d:/1demo/AutoHotkeydemo/asd-tauri/src/api.js) 中的函数分为三类：
+[api.js](file:///d:/1demo/AutoHotkeydemo/asd-tauri/src/api.js) 中的函数分为两类，共 34 个 `invoke()` 调用，与 [lib.rs](file:///d:/1demo/AutoHotkeydemo/asd-tauri/src-tauri/src/lib.rs) 注册的 34 个 Tauri commands 一一对应：
 
 | 类别 | 数量 | 说明 |
 |---|---|---|
-| 已实现的 invoke() | 13 | `getGroups`、`toggleGroup`、`getGroupDetail`、`saveConfig`、`getConfig`、`validateConfig`、`emergencyRelease`、`getExecutorStatus`、`toggleHoldMode`、`registerHotkey`、`unregisterHotkey`、`startRecording`、`stopRecording` |
-| Stub（未实现） | 19 | `batchToggleGroups`、`batchDeleteGroups`、`deleteGroup`、`hotReload`、`createBackup`、`restoreBackup`、`deleteBackup`、`listBackups`、`compareConfigs`、`exportConfig`、`importConfig`、`reorderGroups`、`pauseRecording`、`resumeRecording`、`exportRecording`、`importRecording`、`startValidation`、`stopValidation`、`toggleAll` |
-| 事件监听 | 3 | `onStatusUpdate`、`onHotkeyEvent`、`onExecutorStatus` |
+| invoke() 调用 | 34 | config/backup 11 + group 8 + hotkey 2 + recording 8 + system 5（详见附录 E） |
+| 事件监听 | 5 | `onStatusUpdate`、`onHotkeyEvent`、`onExecutorStatus`、`onKeyRecordEvent`、`onKeySendEvent` |
 
 ### 1.5 依赖关系图
 
 ```
-                    +-----------+
-                    |  main.rs  |  (二进制入口)
-                    +-----+-----+
-                          |
-                    +-----v-----+
-                    |   lib.rs   |  (Tauri Builder + 初始化)
-                    +-----+-----+
-                          |
-          +---------------+---------------+
-          |               |               |
-    +-----v-----+   +-----v-----+   +-----v-----+
-    | commands/ |   |application|   |infrastruct|
-    | (5 文件)   |   | (2 文件)   |   | (3 文件)   |
-    +-----+-----+   +-----+-----+   +-----+-----+
-          |               |               |
-          +---------------+---------------+
-                          |
-                    +-----v-----+
-                    |  domain/  |  (3 文件，纯业务逻辑)
-                    +-----------+
+                    +----------------+
+                    |     main.rs    |  (二进制入口)
+                    +-------+--------+
+                            |
+                    +-------v--------+
+                    |     lib.rs     |  (Tauri Builder + 初始化 + 34 commands)
+                    +-------+--------+
+                            |
+                   +--------+---------+
+                   |                  |
+          +--------v---------+   +----v----------------+
+          |    commands/     |   |  bridge.rs          |
+          |   (5 模块)        |   |  (Ipc/Event/Watchdog)|
+          +--------+---------+   +----+----------------+
+                   |                  |
+                   |      +-----------v------------+
+                   |      |     infrastructure/     |
+                   |      |   (ipc/watchdog/logging)|
+                   |      +-----------+------------+
+                   |                  |
+          +--------v------------------v--------+
+          |         asd-application             |  (调度/状态/配置仓库/服务)
+          +----------------+--------------------+
+                           |
+          +----------------v--------------------+
+          |           asd-domain                |  (模型 + trait + 验证)
+          +----------------+--------------------+
+                           |
+          +----------------v--------------------+
+          |        asd-ipc-protocol             |  (IpcCommand/IpcMessage/IpcError)
+          +--------------------------------------+
 ```
 
-依赖方向：`commands/` -> `application/` -> `domain/` + `infrastructure/` -> `domain/`
+依赖方向（自顶向下）：
+
+`src-tauri(commands/bridge/infrastructure)` → `asd-application` → `asd-domain` → `asd-ipc-protocol`
+
+`asd-test-harness` 仅作为 `src-tauri` 的 dev-dependency 用于测试。
 
 ---
 
@@ -221,19 +252,25 @@ pub struct IpcMessage {
 
 #### 2.3.3 IpcCommand 枚举
 
-Rust 侧通过 `#[serde(tag = "action")]` 序列化 IpcCommand：
+Rust 侧通过 `#[serde(tag = "action")]` 序列化 IpcCommand，共 13 个变体：
 
 | IpcCommand 变体 | action 值 | data 字段 |
 |---|---|---|
-| `ToggleGroup { group_id, active }` | `toggle_group` | `{groupId, active}` |
+| `ToggleGroup { group_id, active, mode, key_press_duration, hold_keys, hold_mode, mode_data }` | `toggle_group` | `{groupId, active, ...}` |
 | `RegisterHotkey { hotkey, group_id }` | `register_hotkey` | `{hotkey, groupId}` |
 | `UnregisterHotkey { hotkey }` | `unregister_hotkey` | `{hotkey}` |
 | `StartRecording { group_id, mode }` | `start_recording` | `{groupId, mode}` |
 | `StopRecording` | `stop_recording` | 无 |
+| `PauseRecording` | `pause_recording` | 无 |
+| `ResumeRecording` | `resume_recording` | 无 |
 | `EmergencyRelease` | `emergency_release` | 无 |
 | `Ping` | `ping` | 无 |
 | `Shutdown` | `shutdown` | 无 |
 | `HoldModeToggle { enabled }` | `hold_mode_toggle` | `{enabled}` |
+| `StartValidation { group_id }` | `start_validation` | `{groupId}` |
+| `StopValidation` | `stop_validation` | 无 |
+
+> **说明**：`Ping` 与 `Shutdown` 在 Rust 侧不通过 `IpcMessage::command()` 发送，而是经由 `IpcMessage::ping(seq)` / `IpcMessage::shutdown(seq)` 直接发送（`type` 字段路由），AHK 执行器在 `ipc_client.ahk` 按 `type` 字段路由至 `_HandlePing` / `_HandleShutdown`。
 
 ### 2.4 消息示例
 
@@ -729,14 +766,14 @@ cargo test test_ipc_command_all_variants -- --nocapture
 
 #### 测试覆盖范围
 
-| 模块 | 测试文件 | 测试数量 | 覆盖内容 |
-|---|---|---|---|
-| domain/config.rs | 内联 `#[cfg(test)]` | 20+ | 10 模式反序列化、roundtrip、缺失字段、未知模式、可选字段跳过 |
-| domain/models.rs | 内联 `#[cfg(test)]` | 12+ | SkillGroup 构造、IpcCommand 9 变体 roundtrip、IpcMessage 工厂方法 |
-| domain/validator.rs | 内联 `#[cfg(test)]` | 25+ | 10 模式校验、重复热键、跨字段、mode_data 类型不匹配 |
-| infrastructure/ipc.rs | 内联 `#[cfg(test)]` | 20+ | HotkeyMerger、IpcMessage 构造、IpcError 转换、shutting_down 标志 |
-| infrastructure/watchdog.rs | 内联 `#[cfg(test)]` | 10+ | 状态机、心跳、退避、WM_CLOSE |
-| application/state.rs | 内联 `#[cfg(test)]` | 10+ | AppState 构造、分组操作、AppError 序列化 |
+| Crate | 测试文件 | 覆盖内容 |
+|---|---|---|
+| asd-domain | 内联 `#[cfg(test)]` + `tests/` | 模式反序列化/roundtrip、校验、SkillGroup、trait |
+| asd-ipc-protocol | 内联 `#[cfg(test)]` + `tests/` | IpcCommand 13 变体 roundtrip、IpcMessage 工厂方法、HotkeyMerger |
+| asd-application | 内联 `#[cfg(test)]` + `tests/` | 调度、状态、配置仓库、服务、并发 |
+| asd-tauri (src-tauri) | 内联 `#[cfg(test)]` + `src/tests/` | IPC 通信、配置兼容、优雅关机 |
+
+> **口径说明**：具体测试数量以 [test-map.md](../asd-tauri/docs/test-map.md) 为准（单一权威来源），此处不复制数字以免漂移。
 
 #### AHK 语法检查
 
@@ -947,7 +984,7 @@ for id in active_group_ids {
 
 ## 附录 D：配置 serde 策略详解
 
-[config.rs](file:///d:/1demo/AutoHotkeydemo/asd-tauri/src-tauri/src/domain/config.rs) 采用**方案 B（自定义 Deserialize + 手动 Serialize）**处理 10 种执行模式的 GroupConfig：
+[config.rs](file:///d:/1demo/AutoHotkeydemo/asd-tauri/crates/asd-domain/src/config.rs) 采用**方案 B（自定义 Deserialize + 手动 Serialize）**处理 10 种执行模式的 GroupConfig：
 
 ### 反序列化流程
 
@@ -974,20 +1011,41 @@ for id in active_group_ids {
 
 ## 附录 E：Tauri Command 注册清单
 
-[lib.rs](file:///d:/1demo/AutoHotkeydemo/asd-tauri/src-tauri/src/lib.rs#L363-L377) 中注册的 13 个 Tauri Command：
+[lib.rs](file:///d:/1demo/AutoHotkeydemo/asd-tauri/src-tauri/src/lib.rs) 中注册的 34 个 Tauri Command（`generate_handler!` 与 `EXPECTED_TAURI_COMMAND_COUNT == 34` 编译时断言保持一致）：
 
 | Command | 源文件 | 参数 | 返回类型 |
 |---|---|---|---|
-| `get_config` | [config_cmd.rs](file:///d:/1demo/AutoHotkeydemo/asd-tauri/src-tauri/src/commands/config_cmd.rs) | 无 | `Config` |
+| `get_config` | [config_cmd.rs](file:///d:/1demo/AutoHotkeydemo/asd-tauri/src-tauri/src/commands/config_cmd.rs) | 无 | `Result<Config, AppError>` |
 | `save_config` | config_cmd.rs | `{ config: Config }` | `Result<(), AppError>` |
-| `validate_config` | config_cmd.rs | `{ config: Config }` | `ValidationResult` |
-| `get_groups` | [group_cmd.rs](file:///d:/1demo/AutoHotkeydemo/asd-tauri/src-tauri/src/commands/group_cmd.rs) | 无 | `Vec<GroupSummary>` |
+| `validate_config` | config_cmd.rs | `{ config: Config }` | `Result<ValidationResult, AppError>` |
+| `list_backups` | config_cmd.rs | 无 | `Result<Vec<BackupInfo>, AppError>` |
+| `create_backup` | config_cmd.rs | 无 | `Result<String, AppError>` |
+| `restore_backup` | config_cmd.rs | `{ filename: String }` | `Result<(), AppError>` |
+| `delete_backup` | config_cmd.rs | `{ filename: String }` | `Result<(), AppError>` |
+| `hot_reload` | config_cmd.rs | 无 | `Result<Config, AppError>` |
+| `export_config` | config_cmd.rs | `{ path: String }` | `Result<(), AppError>` |
+| `import_config` | config_cmd.rs | `{ path: String }` | `Result<(), AppError>` |
+| `compare_configs` | config_cmd.rs | `{ backupFilename: String }` | `Result<ConfigDiff, AppError>` |
+| `get_groups` | [group_cmd.rs](file:///d:/1demo/AutoHotkeydemo/asd-tauri/src-tauri/src/commands/group_cmd.rs) | 无 | `Result<Vec<GroupSummary>, AppError>` |
 | `toggle_group` | group_cmd.rs | `{ groupId: String }` | `Result<GroupStatus, AppError>` |
 | `get_group_detail` | group_cmd.rs | `{ groupId: String }` | `Result<SkillGroup, AppError>` |
+| `delete_group` | group_cmd.rs | `{ groupId: String }` | `Result<(), AppError>` |
+| `toggle_all` | group_cmd.rs | `{ active: bool }` | `Result<BatchToggleResult, AppError>` |
+| `batch_toggle_groups` | group_cmd.rs | `{ groupIds: Vec<String>, active: bool }` | `Result<BatchToggleResult, AppError>` |
+| `batch_delete_groups` | group_cmd.rs | `{ groupIds: Vec<String> }` | `Result<BatchDeleteResult, AppError>` |
+| `reorder_groups` | group_cmd.rs | `{ groupIds: Vec<String> }` | `Result<ReorderResult, AppError>` |
 | `register_hotkey` | [hotkey_cmd.rs](file:///d:/1demo/AutoHotkeydemo/asd-tauri/src-tauri/src/commands/hotkey_cmd.rs) | `{ hotkey: String, groupId: String }` | `Result<(), AppError>` |
 | `unregister_hotkey` | hotkey_cmd.rs | `{ hotkey: String }` | `Result<(), AppError>` |
 | `start_recording` | [recording_cmd.rs](file:///d:/1demo/AutoHotkeydemo/asd-tauri/src-tauri/src/commands/recording_cmd.rs) | `{ groupId: String, mode: String }` | `Result<(), AppError>` |
 | `stop_recording` | recording_cmd.rs | 无 | `Result<RecordingResult, AppError>` |
-| `get_executor_status` | [system_cmd.rs](file:///d:/1demo/AutoHotkeydemo/asd-tauri/src-tauri/src/commands/system_cmd.rs) | 无 | `WatchdogState` |
+| `pause_recording` | recording_cmd.rs | 无 | `Result<u64, AppError>` |
+| `resume_recording` | recording_cmd.rs | 无 | `Result<u64, AppError>` |
+| `export_recording` | recording_cmd.rs | `{ path, keys, intervals, delays, mode }` | `Result<(), AppError>` |
+| `import_recording` | recording_cmd.rs | `{ path: String }` | `Result<ImportedRecording, AppError>` |
+| `start_validation` | recording_cmd.rs | `{ groupId: String }` | `Result<u64, AppError>` |
+| `stop_validation` | recording_cmd.rs | 无 | `Result<u64, AppError>` |
+| `get_executor_status` | [system_cmd.rs](file:///d:/1demo/AutoHotkeydemo/asd-tauri/src-tauri/src/commands/system_cmd.rs) | 无 | `Result<WatchdogState, AppError>` |
 | `emergency_release` | system_cmd.rs | 无 | `Result<(), AppError>` |
+| `clear_emergency` | system_cmd.rs | 无 | `Result<(), AppError>` |
 | `toggle_hold_mode` | system_cmd.rs | 无 | `Result<bool, AppError>` |
+| `reset_watchdog` | system_cmd.rs | 无 | `Result<(), AppError>` |

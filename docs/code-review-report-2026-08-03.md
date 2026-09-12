@@ -8,6 +8,13 @@
 
 ---
 
+> **⚠️ 勘误（2026-08-20 补充）**：本报告为 2026-08-03 的历史快照，其中部分论断已于 2026-08-04 后修复，**请勿作为现状引用**：
+> 1. §1.1「Rust/Tauri 4-crate workspace」：现为 **5-crate workspace**（新增 `asd-test-harness`）。
+> 2. §1.1「AGENTS.md 的 IpcCommand 示例变体名全错、执行模式表少 3 项、workspace 成员数错误、Tauri commands 数量过期」：均已修正（现为 13 变体 / 10 模式 / 5 members / 34 commands）。
+> 3. §1.3 C8「Cargo.toml 定义 test-manifest feature」：该 feature 已移除，相关文档说法已清理。
+
+---
+
 ## 一、执行摘要
 
 ### 1.1 总体评估

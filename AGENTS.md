@@ -1,4 +1,4 @@
-<!-- Generated: 2026-03-24T20:45:00+08:00 | Updated: 2026-05-30T12:00:00+08:00 -->
+<!-- Generated: 2026-03-24T20:45:00+08:00 | Updated: 2026-08-20T00:00:00+08:00 -->
 
 # ASD 技能管理器 v4.0
 
@@ -28,7 +28,7 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 | `asd-tauri/Cargo.toml` | Workspace root（resolver = "2"，5 members） |
 | `asd-tauri/crates/asd-domain/src/config.rs` | Config, GroupConfig, ModeData, WatchdogStateEnum |
 | `asd-tauri/crates/asd-domain/src/models.rs` | SkillGroup 领域模型 |
-| `asd-tauri/crates/asd-domain/src/validator.rs` | ConfigValidator（48 tests） |
+| `asd-tauri/crates/asd-domain/src/validator.rs` | ConfigValidator |
 | `asd-tauri/crates/asd-domain/src/traits.rs` | IpcSender, EventEmitter, ProcessWatcher trait |
 | `asd-tauri/crates/asd-ipc-protocol/src/command.rs` | IpcCommand（13 variants） |
 | `asd-tauri/crates/asd-ipc-protocol/src/message.rs` | IpcMessage + constructors |
@@ -38,13 +38,18 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 | `asd-tauri/crates/asd-application/src/state.rs` | AppState + trait objects |
 | `asd-tauri/crates/asd-application/src/config_repository.rs` | ConfigRepository（file I/O） |
 | `asd-tauri/crates/asd-application/src/error.rs` | AppError |
+| `asd-tauri/crates/asd-application/src/backup_service.rs` | BackupService（备份创建与恢复） |
+| `asd-tauri/crates/asd-application/src/group_service.rs` | GroupService（分组增删改查） |
+| `asd-tauri/crates/asd-application/src/recording_service.rs` | RecordingService（按键录制） |
+| `asd-tauri/crates/asd-application/src/time_format.rs` | 时间格式化工具 |
 | `asd-tauri/src-tauri/src/lib.rs` | 34 Tauri commands + 应用初始化 |
 | `asd-tauri/src-tauri/src/bridge.rs` | IpcBridge, TauriEventBridge, WatchdogBridge（trait 实现） |
 | `asd-tauri/src-tauri/src/infrastructure/ipc.rs` | IpcManager（interprocess 通信） |
 | `asd-tauri/src-tauri/src/infrastructure/watchdog.rs` | ProcessWatchdog + WatchdogRunner |
 | `asd-tauri/src-tauri/src/infrastructure/logging.rs` | tracing 日志初始化 |
+| `asd-tauri/src-tauri/src/infrastructure/shutdown.rs` | 关机锁 `try_acquire_shutdown_guard` 纯函数 |
 | `asd-tauri/src-tauri/src/commands/` | config_cmd, group_cmd, hotkey_cmd, recording_cmd, system_cmd |
-| `asd-tauri/src-tauri/src/tests/` | ipc_tests, config_compat_tests |
+| `asd-tauri/src-tauri/src/tests/` | ipc_tests, config_compat_tests, bridge_tests, watchdog_integration_tests |
 | `asd-tauri/src-tauri/ahk_executor/` | AHK 子进程执行器（executor.ahk, ipc_client.ahk, hotkey_hook.ahk 等） |
 | `asd-tauri/src/main.js` | Vite 前端入口 |
 | `asd-tauri/src/api.js` | 前端 API 封装（Tauri invoke） |
@@ -55,9 +60,9 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 
 | Layer            | Directory          | Modules                                     |
 | ---------------- | ------------------ | ------------------------------------------- |
-| 领域层 (domain)     | `domain/`          | `interfaces`, `skill_group`, `skill_manager`, `mode_registry` |
-| 基础设施层 (infra)    | `infrastructure/`  | `config_store`, `json_parser`, `json_serializer`, `config_validator`, `debug_logger`, `json_logger`, `error_system`, `error_handler`, `backup_core`, `utils`, `ipc_channel`, `joy_hotkey_manager` |
-| 应用层 (application) | `application/`     | `group_service`, `config_service`           |
+| 领域层 (domain)     | `domain/`          | `interfaces`, `joystick_input`, `joystick_executor`, `key_recorder`, `key_validator`, `skill_group`, `skill_manager`, `mode_registry` |
+| 基础设施层 (infra)    | `infrastructure/`  | `config_store`, `json_parser`, `json_serializer`, `config_validator`, `debug_logger`, `json_logger`, `error_system`, `error_handler`, `backup_core`, `utils`, `ipc_channel`, `joy_hotkey_manager`, `config_io`, `joy_sender`, `migration_logger` |
+| 应用层 (application) | `application/`     | `group_service`, `config_service`, `backup_service` |
 | 表现层 (presentation) | `presentation/`    | `webview2_manager`, `ui_manager`, `gui_manager`, `group_editor`, `backup_ui`, `debug_panel` |
 | 测试层 (tests)       | `tests/`           | `test_domain`, `test_infrastructure`, `test_application`, `test_presentation`, `test_webview2_bridge`, `test_boundary`, `test_error_captor`, `test_error_system`, `test_integration_error_system`, `test_result_reporter`, `run_all_tests`, `run_tests`, `AutoHotUnit`, `run_tests.ps1` |
 
@@ -67,9 +72,8 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 
 | # | 妥协 | 影响文件 | 说明 | 约束边界 |
 |---|------|---------|------|---------|
-| 1 | **DDD 层依赖违规** | `domain/mode_registry.ahk` → `infrastructure/error_system.ahk` | 领域层直接依赖基础设施层的 `ErrorSystem`。在严格 DDD 中领域层应通过接口使用日志服务，但 AHK v2 无 DI 容器，通过接口注入会导致过度复杂化。 | 仅允许 `domain/` 引用 `infrastructure/error_system.ahk` 的 `LogError` 方法。禁止领域层引用 `infrastructure/` 中的其他模块。此外，允许 `infrastructure/joy_hotkey_manager.ahk` 引用 `domain/joystick_input.ahk` 的纯工具函数（`JoystickInput` 类，无副作用、无状态），以消除代码重复（A1 修复：删除冗余的 `infrastructure/joystick_input_utils.ahk`，该文件曾为避免反向依赖而复制 `JoystickInput` 的全部方法）。 |
+| 1 | **DDD 层依赖违规** | `domain/mode_registry.ahk` → `infrastructure/error_system.ahk` | 领域层直接依赖基础设施层的 `ErrorSystem`。在严格 DDD 中领域层应通过接口使用日志服务，但 AHK v2 无 DI 容器，通过接口注入会导致过度复杂化。 | 仅允许 `domain/` 引用 `infrastructure/error_system.ahk` 的 `LogError` 方法。禁止领域层引用 `infrastructure/` 中的其他模块。此外，允许 `infrastructure/joy_hotkey_manager.ahk` 引用 `domain/joystick_input.ahk` 的纯工具函数（`JoystickInput` 类，无副作用、无状态），以消除代码重复（A1 修复：删除冗余的 `infrastructure/joystick_input_utils.ahk`，该文件曾为避免反向依赖而复制 `JoystickInput` 的全部方法）。同样允许 `infrastructure/joy_sender.ahk` 反向 `#Include "../domain/interfaces.ahk"`（`JoySender` 实现 `IJoySender` 抽象接口，依赖倒置）；该引用仅用于类型继承、无副作用无状态，仅限「domain 定义接口 / joy_sender 实现接口」这一边界。 |
 | 2 | **`BackupCore` 隐式依赖** | `application/config_service.ahk` → `infrastructure/backup_core.ahk` | 应用层通过全局 `BackupCore` 类名隐式引用基础设施层模块。应通过显式 `#Include` 或接口抽象化。 | `ConfigService` 内部仅通过 `BackupCore.CreateBackup()` 静态方法调用，不直接访问其内部状态。未来若引入 DI 机制应重构为接口注入。 |
-| 3 | **领域层依赖 IPC 协议层** | `domain/traits.rs` → `asd-ipc-protocol` | 领域层 `IpcSender` trait 的方法签名直接使用 `IpcCommand` 和 `IpcMessage` 类型。严格 DDD 中领域层不应依赖基础设施通信协议。 | 仅允许 `domain/traits.rs` 引用 `asd-ipc-protocol` 的 `IpcCommand` 和 `IpcMessage` 类型。禁止领域层引用 `asd-ipc-protocol` 的其他类型或直接构造 IPC 命令。未来应将 `IpcSender` trait 迁移至应用层，领域层定义纯领域命令接口。 |
 
 #### AHK 内部工具函数迁移
 
@@ -89,26 +93,31 @@ asd-tauri/
 │   ├── asd-domain/         (纯逻辑 crate — 领域模型 + trait + 验证)
 │   │   ├── src/config.rs   (Config, GroupConfig, ModeData, WatchdogStateEnum)
 │   │   ├── src/models.rs   (SkillGroup)
-│   │   ├── src/validator.rs (ConfigValidator, 48 tests)
+│   │   ├── src/validator.rs (ConfigValidator)
 │   │   └── src/traits.rs   (IpcSender, EventEmitter, ProcessWatcher)
 │   ├── asd-ipc-protocol/   (纯逻辑 crate — IPC 协议定义)
 │   │   ├── src/command.rs  (IpcCommand, 13 variants)
 │   │   ├── src/message.rs  (IpcMessage + constructors)
 │   │   ├── src/error.rs    (IpcError)
 │   │   └── src/hotkey_merger.rs (HotkeyMerger)
-│   ├── asd-application/    (应用逻辑 crate — 调度 + 状态 + 配置仓库)
+│   ├── asd-application/    (应用逻辑 crate — 调度 + 状态 + 配置仓库 + 服务层)
 │   │   ├── src/scheduler.rs (SkillManager, Arc<dyn IpcSender>)
 │   │   ├── src/state.rs     (AppState, trait objects)
 │   │   ├── src/config_repository.rs (ConfigRepository, file I/O)
-│   │   └── src/error.rs     (AppError)
+│   │   ├── src/backup_service.rs    (BackupService)
+│   │   ├── src/group_service.rs     (GroupService)
+│   │   ├── src/recording_service.rs (RecordingService)
+│   │   ├── src/time_format.rs       (时间格式化)
+│   │   ├── src/error.rs     (AppError)
+│   │   └── tests/           (backup/group/recording/cross_crate/e2e_dataflow/concurrency)
 │   └── asd-test-harness/   (测试支持 crate — 测试固件 + mock 工具)
 │       └── src/lib.rs      (TestHarness, 测试辅助)
 └── src-tauri/              (表现层 + 基础设施 — Tauri 主 crate)
     ├── src/lib.rs           (34 Tauri commands)
     ├── src/bridge.rs        (IpcBridge, TauriEventBridge, WatchdogBridge)
-    ├── src/infrastructure/  (IpcManager, ProcessWatchdog, Logging)
+    ├── src/infrastructure/  (IpcManager, ProcessWatchdog, Logging, Shutdown)
     ├── src/commands/        (config_cmd, group_cmd, hotkey_cmd, recording_cmd, system_cmd)
-    ├── src/tests/           (ipc_tests, config_compat_tests)
+    ├── src/tests/           (ipc_tests, config_compat_tests, bridge_tests, watchdog_integration_tests)
     ├── ahk_executor/        (AHK 子进程执行器)
     ├── benches/             (criterion 基准测试)
     └── fuzz/                (cargo-fuzz 模糊测试)
@@ -132,14 +141,14 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
 | 2 | **I/O 泄漏修复** | Config 的 I/O 方法从 domain 层移到 application 层的 ConfigRepository，确保 domain crate 无文件 I/O。 |
 | 3 | **Miri 兼容** | asd-domain, asd-ipc-protocol, asd-application 可通过 Miri 验证（0 UB），不含 unsafe 代码。 |
 | 4 | **AHK 子进程隔离** | AHK 执行器（asd_executor.exe）作为子进程由 Rust 主进程管理，通过 interprocess named pipe 通信。 |
-| 5 | **测试覆盖** | Rust 592 个测试（asd-domain 129 + asd-ipc-protocol 72 + asd-application 186 + asd-test-harness 3 + asd-tauri 202，含 16 ignored）+ AHK v2 581 个测试 + AHK 执行器 57 套件/244 个 Test_ 方法 + E2E 53 用例/9 suite（截至 2026-08-04 统计）。纯逻辑 crate 覆盖率 96.57%。另有 7 个 criterion bench、5 个 fuzz target。详细分布见 `asd-tauri/docs/test-map.md`。 |
+| 5 | **测试覆盖** | Rust 624 个测试函数（`#[test]` + `#[tokio::test]`，含 16 个 `#[ignore]`）+ AHK v2 607 个用例 + AHK 执行器 57 套件/255 个 `Test_` 方法 + E2E 53 用例/9 suite（截至 2026-08-20 统计，数量与分布以 `asd-tauri/docs/test-map.md` 为唯一权威）。纯逻辑 crate 覆盖率 96.57%。另有 7 个 criterion bench、5 个 fuzz target。 |
 | 6 | **进程清理与 panic hook 补偿** | watchdog.rs 的 `cleanup_stale_executor_processes` 仅清理项目专用的 `asd_executor.exe`，**绝不**清理 `AutoHotkey64.exe` 等通用进程名，避免误杀用户其他 AHK 脚本（R1 安全约束）。`build_panic_hook_closure` 纯函数将 panic hook 的构建逻辑与全局 `set_hook` 注册分离，使测试可验证 hook 行为（先 cleanup 后 original_hook）而不污染全局 `Once` 状态（R3 可测试性）。JobObject 失败时，`register_panic_hook` 作为补偿机制确保主进程崩溃时子进程被清理（I36）。 |
 
 #### Rust/Tauri 已知架构妥协
 
 | # | 妥协 | 影响文件 | 说明 | 约束边界 |
 |---|------|---------|------|---------|
-| 1 | **asd-domain 依赖 asd-ipc-protocol** | `crates/asd-domain/Cargo.toml` | 领域层 crate 依赖 IPC 协议 crate 的 IpcCommand/IpcMessage 类型。严格 DDD 中领域层不应知道通信协议。 | asd-domain 仅使用 IpcCommand/IpcMessage 的数据结构（serde 序列化），不包含任何 IPC 传输逻辑。trait 定义（IpcSender）的参数类型引用 IpcCommand 是合理的抽象。 |
+| 1 | **asd-domain 依赖 asd-ipc-protocol** | `crates/asd-domain/Cargo.toml`、`crates/asd-domain/src/traits.rs` | 领域层 crate 依赖 IPC 协议 crate 的 IpcCommand/IpcMessage 类型。严格 DDD 中领域层不应知道通信协议。 | asd-domain 仅使用 IpcCommand/IpcMessage 的数据结构（serde 序列化），不包含任何 IPC 传输逻辑。仅允许 `src/traits.rs` 引用 IpcCommand/IpcMessage 类型，禁止领域层引用 asd-ipc-protocol 的其他类型或直接构造 IPC 命令。trait 定义（IpcSender）的参数类型引用 IpcCommand 是合理的抽象；未来应将其迁移至应用层，领域层定义纯领域命令接口。 |
 | 2 | **bridge.rs 中 blocking_lock** | `src-tauri/src/bridge.rs` | IpcBridge 和 WatchdogBridge 使用 `blocking_lock()` 实现 trait 的同步方法。 | 仅在已知不会死锁的短临界区使用；未来可考虑将 trait 改为 async。 |
 
 ## Subdirectories
@@ -228,9 +237,10 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
   - `interprocess`（IPC 传输）
   - `windows`（Win32 API）
   - 任何涉及文件 I/O 的 crate（`std::fs` 除外，仅在 asd-application 的 ConfigRepository 中使用）
+- **测试豁免**：`#[cfg(test)]` 单元测试模块与 `tests/` 集成测试目录允许直接使用 `std::fs` 构造/清理测试固件（临时目录、临时配置文件），以消解与「无文件 I/O」规则的张力；该豁免仅作用于测试代码，不改变生产代码的运行行为。
 - **⚠️ 强制：新增 trait 方法必须提供默认实现**，避免破坏现有实现者
 - **⚠️ 强制：src-tauri 中的 Tauri command 函数必须使用 `#[tauri::command]` 宏标注**
-- **⚠️ 强制：IPC 通信必须通过 `IpcSender` trait**，禁止直接调用 `IpcManager`
+- **⚠️ 强制：IPC 通信必须通过 `IpcSender` trait**，禁止直接调用 `IpcManager`。例外（仅限表现层/基础设施接线边界，M31 同款）：`src-tauri/src/lib.rs` 的 IPC 生命周期函数——心跳 `spawn_heartbeat_ping`、监听/接受循环 `spawn_ipc_accept_loop`、关机序列 `perform_graceful_shutdown`/`spawn_ipc_listener`、回调接线 `setup_ipc_callbacks`——可直接操作 `IpcManager`/`IpcManagerArc` 完成连接建立、心跳、监听与关机，因此类逻辑本身即 IPC 基础设施的接线与生命周期管理；该例外不扩展到任何应用层命令发送（命令仍必须经 `IpcSender` trait）。
 - 使用 `thiserror` 定义错误类型，禁止手动实现 `std::error::Error`
 - 使用 `tracing` 而非 `log` 进行日志记录
 - 测试必须通过 `cargo test` 运行
@@ -248,7 +258,7 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
 - 查看应用日志: `Get-Content logs\app.log -Tail 10`
 - 过滤错误日志: `Select-String -Path logs\app.log -Pattern '"level":"ERROR"'`
 - **tests/ 目录结构**（v4.1 整理）：
-  - 根目录保留 22 个核心文件：`AutoHotUnit.ahk`、`run_all_tests.ahk`、`run_tests.ahk`、`run_tests.ps1`、`test_result_reporter.ahk`、`test_joy_hotkey_manager_ahu.ahk` + 15 个核心测试文件（`test_application`/`test_presentation`/`test_webview2_bridge`/`test_error_system`/`test_domain`/`test_infrastructure`/`test_boundary`/`test_error_captor`/`test_integration_error_system`/`test_joystick`/`test_joy_hotkey_manager`/`test_key_recorder`/`test_key_test_integration`/`test_key_validator`）+ `config.json` + `TEST_STRATEGY.md`
+  - 根目录保留 22 个核心文件 = 16 个 `test_*.ahk`（`test_application`/`test_boundary`/`test_domain`/`test_error_captor`/`test_error_system`/`test_infrastructure`/`test_integration_error_system`/`test_joy_hotkey_manager`/`test_joy_hotkey_manager_ahu`/`test_joystick`/`test_key_recorder`/`test_key_test_integration`/`test_key_validator`/`test_presentation`/`test_result_reporter`/`test_webview2_bridge`）+ 6 个框架/配置文件（`AutoHotUnit.ahk`、`run_all_tests.ahk`、`run_tests.ahk`、`run_tests.ps1`、`config.json`、`TEST_STRATEGY.md`）
   - `tests/archive/`：归档了 39 个调试/原型/旧版本文件（HTML 原型 `test_html_*`、WebView2 原型 `test_wv2_*`/`test_webview2_proto`、编号测试 `test_*_c*`、full 旧版本 `test_*_full`、bug 复现脚本 `run_bug_repro`/`test_bug_reproduction`、基准 `benchmark_hotpath` 等），不参与 `run_all_tests.ahk` 运行
   - `tests/test_ahk_executor/`：AHK 执行器测试（57 套件，详见下方）
   - `tests/fixtures/`：AHK v2 测试固件目录（v4.1 新增），存放可复用的测试数据文件（如 `sample_config.json` 标准配置样本覆盖 7 种模式、`import_test_data.json` 导入测试场景数据）
@@ -337,7 +347,7 @@ cd asd-tauri/src-tauri/fuzz && cargo +nightly fuzz run fuzz_config_deserialize
   - `test_hotkey_hook.ahk`（7 套件）：hotkey_hook.ahk 热键规范化、注册/注销、回调
   - `test_sender.ahk`（11 套件）：sender.ahk 按键发送、模式切换、紧急释放
   - `test_joystick.ahk`（18 套件）：joystick.ahk 摇杆输入读取、VJoy 映射、模式启动
-- 总计：57 套件，244 个 Test_ 方法（口径为 `tests/test_ahk_executor/*.ahk` 中以 `Test_` 开头的方法数）
+- 总计：57 套件，255 个 Test_ 方法（口径为 `tests/test_ahk_executor/*.ahk` 中以 `Test_` 开头的方法数）
 - 强制规范：所有 AHK 测试文件必须包含 `#ErrorStdOut "UTF-8"` + `#Warn VarUnset, OutputDebug` + `#Warn Unreachable, OutputDebug` + `OnError` 回调（详见「错误与警告接管机制」节）
 - 详细指南：参见 `asd-tauri/TESTING.md` 第 1.6 节
 
@@ -352,7 +362,7 @@ cd asd-tauri/src-tauri/fuzz && cargo +nightly fuzz run fuzz_config_deserialize
   - `hotkey_cmd.spec.js`（3）：2 个 hotkey_cmd 命令 + 热键触发
   - `recording_cmd.spec.js`（5）：4 个 recording_cmd 命令 + 状态机
   - `system_cmd.spec.js`（5）：5 个 system_cmd 命令
-  - `modes.spec.js`（7）：7 种执行模式
+  - `modes.spec.js`（7）：7 种执行模式（E2E 覆盖；系统能力共 10 种，`joystick_*` 三种未纳入 E2E）
   - `ipc.spec.js`（7）：Rust↔AHK IPC 通信
   - `key_send.spec.js`（5）：AHK 执行器按键验证
 - **前置条件**：
@@ -1217,12 +1227,17 @@ pub enum IpcCommand {
     StopValidation,
 }
 
-// IpcMessage 消息结构
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// IpcMessage 消息结构（9 字段，完整定义见 asd-tauri/crates/asd-ipc-protocol/src/message.rs）
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct IpcMessage {
-    pub seq: u64,
+    pub id: Option<String>,
     pub r#type: String,
+    pub seq: u64,
+    pub ack_seq: Option<u64>,
+    pub action: Option<String>,
     pub keys: Option<Vec<String>>,
+    pub delay: Option<u64>,
+    pub status: Option<String>,
     pub data: Option<serde_json::Value>,
 }
 
@@ -1251,6 +1266,8 @@ pub struct Config {
 | `joystick_sequence` | 摇杆序列  | `pressKeys`, `delays`（可选 `joystickId`） |
 | `joystick_hold`     | 摇杆长按  | `holdDuration` 可选、`autoRepeat` 可选、`repeatInterval` 可选（可选 `joystickId`，支持无限持续） |
 
+> **执行模式口径**：上表为系统能力（共 10 种）。E2E 覆盖其中 7 种（`modes.spec.js`），`joystick_periodic` / `joystick_sequence` / `joystick_hold` 三种未纳入 E2E。两口径分别标注，不混用。
+
 ## 常见问题
 
 ### 日志文件位置
@@ -1264,7 +1281,7 @@ pub struct Config {
 #### Rust/Tauri
 
 - Rust 日志: 由 `tracing-appender` 管理，输出到标准位置
-- Tauri 日志: `%APPDATA%/com.asd.skillmanager/logs/`
+- Tauri 日志: `%APPDATA%/com.asd.tauri/logs/`
 
 ### 常见错误
 
