@@ -104,3 +104,7 @@ _cr1_test_out.txt
 _cr2_out.txt
 _cr2_stderr.txt
 syntax_check.err
+
+# 图谱分析中间产物（生成脚本保留，原始数据可复现）
+.review-analysis/graph-raw.json
+.review-analysis/ahk-includes.json
