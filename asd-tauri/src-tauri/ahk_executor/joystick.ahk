@@ -42,6 +42,9 @@ class Joystick {
     ; 定时器引用: groupId => timerRef
     static _timers := Map()
 
+    ; 释放定时器引用: groupId => (key => timerRef)，用于停止时取消滞后 up（T6-02）
+    static _releaseTimers := Map()
+
     ; 按住的按键: groupId => [keys]
     static _heldJoyKeys := Map()
 
@@ -66,7 +69,21 @@ class Joystick {
 
     ; 启动手柄周期性模式
     static StartPeriodic(groupId, joyKeys, joyIntervals, sendMethod := "auto", keyDuration := 15) {
+        ; T6-04 幂等保护：若组已活跃则先彻底停掉旧的（含 vJoy Relinquish + 定时器取消）
+        if Joystick._activeGroups.Has(groupId)
+            Joystick.StopGroup(groupId)
+
         resolved := Joystick._ResolveMethod(sendMethod)
+
+        ; T6-07: 组级 vJoy 生命周期 — 组启动时 Acquire 一次
+        if resolved = "vjoy" {
+            try
+                Joystick._VJoyOpen()
+            catch as e {
+                OutputDebug("Joystick: vJoy Acquire 失败，降级为 direct: " e.Message)
+                resolved := "direct"
+            }
+        }
 
         Joystick._activeGroups[groupId] := Map(
             "mode", "joystick_periodic",
@@ -86,7 +103,21 @@ class Joystick {
 
     ; 启动手柄序列模式
     static StartSequence(groupId, joyKeys, joyDelays, sendMethod := "auto", keyDuration := 15) {
+        ; T6-04 幂等保护：若组已活跃则先彻底停掉旧的（含 vJoy Relinquish + 定时器取消）
+        if Joystick._activeGroups.Has(groupId)
+            Joystick.StopGroup(groupId)
+
         resolved := Joystick._ResolveMethod(sendMethod)
+
+        ; T6-07: 组级 vJoy 生命周期 — 组启动时 Acquire 一次
+        if resolved = "vjoy" {
+            try
+                Joystick._VJoyOpen()
+            catch as e {
+                OutputDebug("Joystick: vJoy Acquire 失败，降级为 direct: " e.Message)
+                resolved := "direct"
+            }
+        }
 
         Joystick._activeGroups[groupId] := Map(
             "mode", "joystick_sequence",
@@ -107,7 +138,21 @@ class Joystick {
 
     ; 启动手柄 Hold 模式
     static StartHold(groupId, joyKeys, sendMethod := "auto") {
+        ; T6-04 幂等保护：若组已活跃则先彻底停掉旧的（含 vJoy Relinquish + 定时器取消）
+        if Joystick._activeGroups.Has(groupId)
+            Joystick.StopGroup(groupId)
+
         resolved := Joystick._ResolveMethod(sendMethod)
+
+        ; T6-07: 组级 vJoy 生命周期 — 组启动时 Acquire 一次
+        if resolved = "vjoy" {
+            try
+                Joystick._VJoyOpen()
+            catch as e {
+                OutputDebug("Joystick: vJoy Acquire 失败，降级为 direct: " e.Message)
+                resolved := "direct"
+            }
+        }
 
         Joystick._activeGroups[groupId] := Map(
             "mode", "joystick_hold",
@@ -128,20 +173,28 @@ class Joystick {
         if !Joystick._activeGroups.Has(groupId)
             return
 
+        state := Joystick._activeGroups[groupId]
+
         ; 停止定时器
         if Joystick._timers.Has(groupId) {
             SetTimer(Joystick._timers[groupId], 0)
             Joystick._timers.Delete(groupId)
         }
 
+        ; T6-02: 取消该组的释放定时器，消除停止后滞后 up
+        Joystick._CancelReleaseTimers(groupId)
+
         ; 释放 hold 按键
         if Joystick._heldJoyKeys.Has(groupId) {
-            state := Joystick._activeGroups[groupId]
-            method := state["sendMethod"]
+            method := state.Has("sendMethod") ? state["sendMethod"] : "auto"
             for k in Joystick._heldJoyKeys[groupId]
                 Joystick._SendJoyKey(k, "up", method)
             Joystick._heldJoyKeys.Delete(groupId)
         }
+
+        ; T6-07: 组级 vJoy 生命周期 — 组停止时 Relinquish 一次
+        if state.Has("sendMethod") && state["sendMethod"] = "vjoy"
+            Joystick._VJoyClose()
 
         Joystick._activeGroups.Delete(groupId)
         OutputDebug("Joystick: 已停止 groupId=" groupId)
@@ -150,7 +203,7 @@ class Joystick {
     ; 紧急释放所有手柄按键
     static EmergencyRelease() {
         for groupId, state in Joystick._activeGroups {
-            method := state["sendMethod"]
+            method := state.Has("sendMethod") ? state["sendMethod"] : "auto"
             if state.Has("joyKeys") {
                 for k in state["joyKeys"]
                     Joystick._SendJoyKey(k, "up", method)
@@ -158,9 +211,15 @@ class Joystick {
             if Joystick._timers.Has(groupId) {
                 SetTimer(Joystick._timers[groupId], 0)
             }
+            ; T6-02: 取消该组的释放定时器
+            Joystick._CancelReleaseTimers(groupId)
+            ; T6-07: 组级 vJoy 生命周期 — 紧急释放时 Relinquish
+            if method = "vjoy"
+                Joystick._VJoyClose()
         }
         Joystick._activeGroups := Map()
         Joystick._timers := Map()
+        Joystick._releaseTimers := Map()
         Joystick._heldJoyKeys := Map()
         OutputDebug("Joystick: 紧急释放完成")
     }
@@ -200,7 +259,7 @@ class Joystick {
                 capturedKey := k
                 capturedMethod := sendMethod
                 Joystick._SendJoyKey(capturedKey, "down", capturedMethod)
-                SetTimer(((ck, cm) => () => Joystick._SendJoyKey(ck, "up", cm))(capturedKey, capturedMethod), -keyDuration)
+                Joystick._ScheduleRelease(groupId, capturedKey, capturedMethod, keyDuration)
                 triggerTimes[i] := triggerTimes[i] + interval
                 if triggerTimes[i] < now - interval
                     triggerTimes[i] := now
@@ -250,7 +309,7 @@ class Joystick {
         capturedKey := k
         capturedMethod := sendMethod
         Joystick._SendJoyKey(capturedKey, "down", capturedMethod)
-        SetTimer(((ck, cm) => () => Joystick._SendJoyKey(ck, "up", cm))(capturedKey, capturedMethod), -keyDuration)
+        Joystick._ScheduleRelease(groupId, capturedKey, capturedMethod, keyDuration)
 
         state["currentStep"] := Mod(step, joyKeys.Length) + 1
         nextDelay := state["currentStep"] <= joyDelays.Length ? joyDelays[state["currentStep"]] : 100
@@ -362,36 +421,24 @@ class Joystick {
             OutputDebug("Joystick: vJoy 按键编号超出范围 btnNum=" btnNum)
             return
         }
-        Joystick._VJoyOpen()
-        try {
-            DllCall(Joystick._vJoyDll "\SetBtn", "UInt", state ? 1 : 0, "UInt", Joystick._vJoyDeviceId, "UChar", btnNum)
-        } finally {
-            Joystick._VJoyClose()
-        }
+        ; T6-07: 依赖组级已 Acquire，直接设置按键，不再每次 open/close
+        DllCall(Joystick._vJoyDll "\SetBtn", "UInt", state ? 1 : 0, "UInt", Joystick._vJoyDeviceId, "UChar", btnNum)
     }
 
     static _VJoySetAxis(axis, value) {
-        Joystick._VJoyOpen()
-        try {
-            axisId := Joystick._AxisToVJoyId(axis)
-            scaledVal := Round(value * 327.67)
-            if scaledVal < 0
-                scaledVal := 0
-            if scaledVal > 32767
-                scaledVal := 32767
-            DllCall(Joystick._vJoyDll "\SetAxis", "Int", scaledVal, "UInt", Joystick._vJoyDeviceId, "UInt", axisId)
-        } finally {
-            Joystick._VJoyClose()
-        }
+        ; T6-07: 依赖组级已 Acquire，直接设置轴，不再每次 open/close
+        axisId := Joystick._AxisToVJoyId(axis)
+        scaledVal := Round(value * 327.67)
+        if scaledVal < 0
+            scaledVal := 0
+        if scaledVal > 32767
+            scaledVal := 32767
+        DllCall(Joystick._vJoyDll "\SetAxis", "Int", scaledVal, "UInt", Joystick._vJoyDeviceId, "UInt", axisId)
     }
 
     static _VJoySetPov(povVal) {
-        Joystick._VJoyOpen()
-        try {
-            DllCall(Joystick._vJoyDll "\SetContPov", "UInt", povVal < 0 ? 0xFFFFFFFF : povVal, "UInt", Joystick._vJoyDeviceId, "UInt", 1)
-        } finally {
-            Joystick._VJoyClose()
-        }
+        ; T6-07: 依赖组级已 Acquire，直接设置 POV，不再每次 open/close
+        DllCall(Joystick._vJoyDll "\SetContPov", "UInt", povVal < 0 ? 0xFFFFFFFF : povVal, "UInt", Joystick._vJoyDeviceId, "UInt", 1)
     }
 
     static _DirectSendBtn(btnNum, state) {
@@ -402,6 +449,39 @@ class Joystick {
         idx := Joystick._vJoyDeviceId
         action := state = "down" ? "Down" : "Up"
         SendInput("{Blind}{" idx "Joy" btnNum " " action "}")
+    }
+
+    ; =================================================================
+    ; 释放定时器纳管（T6-02）
+    ; 将逐键 up 一次性定时器登记进 _releaseTimers，分组停止时统一取消
+    ; =================================================================
+
+    static _ScheduleRelease(groupId, key, method, kpd) {
+        if !Joystick._releaseTimers.Has(groupId)
+            Joystick._releaseTimers[groupId] := Map()
+        groupTimers := Joystick._releaseTimers[groupId]
+        if groupTimers.Has(key)
+            SetTimer(groupTimers[key], 0)
+        timerFn := ((g, kk, mm) => () => Joystick._OnReleaseKey(g, kk, mm))(groupId, key, method)
+        groupTimers[key] := timerFn
+        SetTimer(timerFn, -kpd)
+    }
+
+    static _OnReleaseKey(groupId, key, method) {
+        Joystick._SendJoyKey(key, "up", method)
+        if Joystick._releaseTimers.Has(groupId) {
+            groupTimers := Joystick._releaseTimers[groupId]
+            if groupTimers.Has(key)
+                groupTimers.Delete(key)
+        }
+    }
+
+    static _CancelReleaseTimers(groupId) {
+        if !Joystick._releaseTimers.Has(groupId)
+            return
+        for key, timerRef in Joystick._releaseTimers[groupId]
+            SetTimer(timerRef, 0)
+        Joystick._releaseTimers.Delete(groupId)
     }
 
     ; =================================================================
@@ -433,24 +513,31 @@ class Joystick {
     }
 
     static _IsAxis(key) {
-        axes := ["JoyX", "JoyY", "JoyZ", "JoyR", "JoyU", "JoyV"]
-        for a in axes {
-            if key = a
-                return true
+        ; T6-07: 静态缓存轴名集合，避免每次 down/up 重建数组
+        static axisSet := ""
+        if axisSet = "" {
+            axisSet := Map(
+                "JoyX", true, "JoyY", true, "JoyZ", true,
+                "JoyR", true, "JoyU", true, "JoyV", true
+            )
         }
-        return false
+        return axisSet.Has(key)
     }
 
     static _GetAxisInfo(key) {
-        m := Map(
-            "JoyX", Map("axis", "JoyX", "id", 0x30),
-            "JoyY", Map("axis", "JoyY", "id", 0x31),
-            "JoyZ", Map("axis", "JoyZ", "id", 0x32),
-            "JoyR", Map("axis", "JoyR", "id", 0x33),
-            "JoyU", Map("axis", "JoyU", "id", 0x34),
-            "JoyV", Map("axis", "JoyV", "id", 0x35)
-        )
-        return m.Has(key) ? m[key] : Map("axis", "JoyX", "id", 0x30)
+        ; T6-07: 静态缓存轴信息表，避免每次 down/up 重建 6 个子 Map
+        static axisMap := ""
+        if axisMap = "" {
+            axisMap := Map(
+                "JoyX", Map("axis", "JoyX", "id", 0x30),
+                "JoyY", Map("axis", "JoyY", "id", 0x31),
+                "JoyZ", Map("axis", "JoyZ", "id", 0x32),
+                "JoyR", Map("axis", "JoyR", "id", 0x33),
+                "JoyU", Map("axis", "JoyU", "id", 0x34),
+                "JoyV", Map("axis", "JoyV", "id", 0x35)
+            )
+        }
+        return axisMap.Has(key) ? axisMap[key] : Map("axis", "JoyX", "id", 0x30)
     }
 
     static _AxisToVJoyId(axis) {

@@ -410,6 +410,9 @@ class IpcClient {
     static _lastPingTime := 0
     static _heartbeatTimer := 0
 
+    ; 写失败降级日志限速
+    static _lastWriteFailLogTime := 0
+
     ; 消息循环
     static _pollTimer := 0
     static _readBuffer := ""
@@ -809,8 +812,12 @@ class IpcClient {
             "Ptr", 0)
 
         if !ok || bytesWritten != bytesToWrite {
-            OutputDebug("IpcClient: 写入失败 ok=" ok " written=" bytesWritten "/" bytesToWrite)
-            IpcClient._HandleDisconnect("WriteFile 失败")
+            ; 写失败降级跳过：仅限速记录 DEBUG，不断连（管道短暂忙场景不应对度反应）
+            now := A_TickCount
+            if now - IpcClient._lastWriteFailLogTime >= 1000 {
+                IpcClient._lastWriteFailLogTime := now
+                OutputDebug("IpcClient: 写入失败（降级跳过） ok=" ok " written=" bytesWritten "/" bytesToWrite)
+            }
             return false
         }
 

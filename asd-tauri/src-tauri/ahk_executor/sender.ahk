@@ -21,11 +21,20 @@ class Sender {
     ; 定时器引用: groupId => timerRef
     static _timers := Map()
 
+    ; 释放定时器引用: groupId => (key => timerRef)，用于停止时取消滞后 up（T6-02）
+    static _releaseTimers := Map()
+
     ; Hold 模式按住的键: groupId => [keys]
     static _heldKeys := Map()
 
     ; Hold 模式状态
     static _holdModeEnabled := true
+
+    ; 逐键 key_send_event IPC 上报开关（仅在录制/验证模式由 CommandDispatcher 置 true）
+    static _reportKeyEvents := false
+
+    ; 逐键事件发送函数注入点（默认为空=使用 IpcClient._SendMsg；测试可注入 mock 避免真实 IPC）
+    static _keyEventSender := ""
 
     ; 按键白名单
     static ALLOWED_KEYS := Map(
@@ -98,6 +107,12 @@ class Sender {
         }
         Sender._heldKeys := Map()
 
+        ; T6-02: 清空所有残留释放定时器（_StopGroup 已处理活跃组，此处兜底）
+        for groupId, groupTimers in Sender._releaseTimers
+            for k, timerRef in groupTimers
+                SetTimer(timerRef, 0)
+        Sender._releaseTimers := Map()
+
         OutputDebug("Sender: 紧急释放完成")
     }
 
@@ -155,6 +170,9 @@ class Sender {
             Sender._timers.Delete(groupId)
         }
 
+        ; T6-02: 取消该组的释放定时器，消除停止后滞后 up
+        Sender._CancelReleaseTimers(groupId)
+
         ; 释放 hold 按键
         if Sender._heldKeys.Has(groupId) {
             for k in Sender._heldKeys[groupId]
@@ -176,6 +194,11 @@ class Sender {
 
     ; 启动周期性按键执行
     static StartPeriodic(groupId, keys, intervals, keyPressDuration := 15) {
+        ; T6-04 幂等保护：若已存在执行定时器则先取消，避免重复激活导致双倍发键
+        if Sender._timers.Has(groupId) {
+            SetTimer(Sender._timers[groupId], 0)
+            Sender._timers.Delete(groupId)
+        }
         if !Sender._activeGroups.Has(groupId)
             Sender._StartGroup(groupId)
 
@@ -195,6 +218,11 @@ class Sender {
 
     ; 启动序列按键执行
     static StartSequence(groupId, keys, delays, keyPressDuration := 15, seqInterval := 0) {
+        ; T6-04 幂等保护：若已存在执行定时器则先取消，避免重复激活导致双倍发键
+        if Sender._timers.Has(groupId) {
+            SetTimer(Sender._timers[groupId], 0)
+            Sender._timers.Delete(groupId)
+        }
         if !Sender._activeGroups.Has(groupId)
             Sender._StartGroup(groupId)
 
@@ -288,6 +316,11 @@ class Sender {
 
     ; 启动混合模式
     static StartHybrid(groupId, groups, keyPressDuration := 15) {
+        ; T6-04 幂等保护：若已存在执行定时器则先取消，避免重复激活导致双倍发键
+        if Sender._timers.Has(groupId) {
+            SetTimer(Sender._timers[groupId], 0)
+            Sender._timers.Delete(groupId)
+        }
         if !Sender._activeGroups.Has(groupId)
             Sender._StartGroup(groupId)
 
@@ -344,7 +377,7 @@ class Sender {
             if elapsed >= threshold {
                 capturedKey := k
                 Sender._SendKeyDown(capturedKey)
-                SetTimer(((ck) => () => Sender._SendKeyUp(ck))(capturedKey), -kpd)
+                Sender._ScheduleRelease(groupId, capturedKey, kpd)
                 triggerTimes[i] := triggerTimes[i] + interval
                 if triggerTimes[i] < now - interval
                     triggerTimes[i] := now
@@ -391,7 +424,7 @@ class Sender {
 
         k := keys[step]
         Sender._SendKeyDown(k)
-        SetTimer(((ck) => () => Sender._SendKeyUp(ck))(k), -kpd)
+        Sender._ScheduleRelease(groupId, k, kpd)
 
         state["currentStep"] := Mod(step, keys.Length) + 1
         nextDelay := state["currentStep"] <= delays.Length ? delays[state["currentStep"]] : 100
@@ -441,7 +474,7 @@ class Sender {
                         threshold := interval - Max(1, Round(interval * 0.05))
                         if elapsed >= threshold {
                             Sender._SendKeyDown(k)
-                            SetTimer(((ck) => () => Sender._SendKeyUp(ck))(k), -kpd)
+                            Sender._ScheduleRelease(groupId, k, kpd)
                             triggerTimes[triggerKey] := now
                             minRemaining := 1
                         } else {
@@ -461,7 +494,7 @@ class Sender {
                     if now >= nextTime {
                         k := grpKeys[step]
                         Sender._SendKeyDown(k)
-                        SetTimer(((ck) => () => Sender._SendKeyUp(ck))(k), -kpd)
+                        Sender._ScheduleRelease(groupId, k, kpd)
                         triggerTimes[stepKey] := Mod(step, grpKeys.Length) + 1
                         nextStep := triggerTimes[stepKey]
                         nextDelay := nextStep <= grpDelays.Length ? grpDelays[nextStep] : 100
@@ -494,30 +527,76 @@ class Sender {
     static _SendKeyDown(key) {
         if !Sender._ValidateKey(key)
             return
-        try {
+        try
             SendInput("{Blind}{" key " Down}")
-            IpcClient._SendMsg(Map(
-                "type", "key_send_event",
-                "seq", IpcClient._NextSeq(),
-                "data", Map("key", key, "state", "down", "device", "keyboard")
-            ))
-        } catch as e {
+        catch as e
             OutputDebug("Sender: 按键按下失败 key=" key " err=" e.Message)
-        }
+        Sender._ReportKeyEvent(key, "down")
     }
 
     static _SendKeyUp(key) {
         if !Sender._ValidateKey(key)
             return
-        try {
+        try
             SendInput("{Blind}{" key " Up}")
-            IpcClient._SendMsg(Map(
+        catch as e
+            OutputDebug("Sender: 按键释放失败 key=" key " err=" e.Message)
+        Sender._ReportKeyEvent(key, "up")
+    }
+
+    ; =================================================================
+    ; 释放定时器纳管（T6-02）
+    ; 将逐键 up 一次性定时器登记进 _releaseTimers，分组停止时统一取消，
+    ; 消除「停止后滞后发一次 up」的问题
+    ; =================================================================
+
+    static _ScheduleRelease(groupId, key, kpd) {
+        if !Sender._releaseTimers.Has(groupId)
+            Sender._releaseTimers[groupId] := Map()
+        groupTimers := Sender._releaseTimers[groupId]
+        ; 覆盖前先取消旧释放定时器，避免同键悬挂
+        if groupTimers.Has(key)
+            SetTimer(groupTimers[key], 0)
+        timerFn := ((g, kk) => () => Sender._OnReleaseKey(g, kk))(groupId, key)
+        groupTimers[key] := timerFn
+        SetTimer(timerFn, -kpd)
+    }
+
+    static _OnReleaseKey(groupId, key) {
+        Sender._SendKeyUp(key)
+        if Sender._releaseTimers.Has(groupId) {
+            groupTimers := Sender._releaseTimers[groupId]
+            if groupTimers.Has(key)
+                groupTimers.Delete(key)
+        }
+    }
+
+    static _CancelReleaseTimers(groupId) {
+        if !Sender._releaseTimers.Has(groupId)
+            return
+        for key, timerRef in Sender._releaseTimers[groupId]
+            SetTimer(timerRef, 0)
+        Sender._releaseTimers.Delete(groupId)
+    }
+
+    ; 仅在录制/验证模式（_reportKeyEvents=true）时上报逐键 key_send_event；
+    ; SendInput 始终执行，本方法只负责 IPC 上报的可测试切片
+    static _ReportKeyEvent(key, state) {
+        if !Sender._reportKeyEvents
+            return false
+        try {
+            msg := Map(
                 "type", "key_send_event",
                 "seq", IpcClient._NextSeq(),
-                "data", Map("key", key, "state", "up", "device", "keyboard")
-            ))
+                "data", Map("key", key, "state", state, "device", "keyboard")
+            )
+            sendFn := Sender._keyEventSender
+            if sendFn = ""
+                return IpcClient._SendMsg(msg)
+            return sendFn(msg)
         } catch as e {
-            OutputDebug("Sender: 按键释放失败 key=" key " err=" e.Message)
+            OutputDebug("Sender: 按键上报失败 key=" key " err=" e.Message)
+            return false
         }
     }
 }
