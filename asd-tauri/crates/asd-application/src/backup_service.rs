@@ -59,11 +59,14 @@ fn validate_config_with_context(
 ) -> Result<(), AppError> {
     let validation = ConfigValidator::validate_config(config);
     if !validation.is_valid() {
-        let error_msgs: Vec<String> = validation.errors.iter()
+        let error_msgs: Vec<String> = validation
+            .errors
+            .iter()
             .map(|e| format!("分组 {} 字段 {}: {}", e.group_id, e.field, e.message))
             .collect();
         return Err(AppError::Validation(format!(
-            "{context}配置验证失败: {}", error_msgs.join("; ")
+            "{context}配置验证失败: {}",
+            error_msgs.join("; ")
         )));
     }
     for warning in &validation.warnings {
@@ -181,7 +184,9 @@ pub fn create_backup(state: &AppState) -> Result<String, AppError> {
 
 pub fn restore_backup(state: &AppState, filename: &str) -> Result<(), AppError> {
     if !filename.starts_with("backup_") {
-        return Err(AppError::Validation("只能恢复备份文件（文件名须以 backup_ 开头）".to_string()));
+        return Err(AppError::Validation(
+            "只能恢复备份文件（文件名须以 backup_ 开头）".to_string(),
+        ));
     }
 
     let backup_dir = get_backup_dir(state)?;
@@ -215,7 +220,9 @@ pub fn restore_backup(state: &AppState, filename: &str) -> Result<(), AppError> 
 
 pub fn delete_backup(state: &AppState, filename: &str) -> Result<(), AppError> {
     if !filename.starts_with("backup_") {
-        return Err(AppError::Validation("只能删除备份文件（文件名须以 backup_ 开头）".to_string()));
+        return Err(AppError::Validation(
+            "只能删除备份文件（文件名须以 backup_ 开头）".to_string(),
+        ));
     }
 
     let backup_dir = get_backup_dir(state)?;
@@ -310,8 +317,7 @@ pub fn import_config(state: &AppState, path: &str) -> Result<(), AppError> {
     validate_file_path(path)?;
 
     // I26: 通过 ConfigRepository 委托文件 I/O（含 BOM 剥离）
-    let cleaned = ConfigRepository::read_file_to_string(path)
-        .map_err(AppError::Config)?;
+    let cleaned = ConfigRepository::read_file_to_string(path).map_err(AppError::Config)?;
 
     let imported_config: Config = serde_json::from_str(&cleaned)
         .map_err(|e| AppError::Config(format!("解析配置失败: {e}")))?;

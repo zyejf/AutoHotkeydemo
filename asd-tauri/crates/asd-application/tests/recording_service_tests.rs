@@ -65,7 +65,8 @@ fn test_export_import_recording() {
     let delays: Vec<u64> = vec![];
     let mode = "periodic";
 
-    let export_result = recording_service::export_recording(path_str, &keys, &intervals, &delays, mode);
+    let export_result =
+        recording_service::export_recording(path_str, &keys, &intervals, &delays, mode);
     assert!(export_result.is_ok(), "导出录制应成功: {:?}", export_result);
 
     let import_result = recording_service::import_recording(path_str);
@@ -151,10 +152,7 @@ fn test_start_recording_ipc_failure_rollback() {
 
     // 调用 start_recording，IPC 应失败
     let result = recording_service::start_recording(&state, "1", "periodic");
-    assert!(
-        result.is_err(),
-        "IPC 失败时 start_recording 应返回错误"
-    );
+    assert!(result.is_err(), "IPC 失败时 start_recording 应返回错误");
     assert!(
         matches!(result, Err(AppError::Ipc(_))),
         "应返回 Ipc 错误，实际: {:?}",

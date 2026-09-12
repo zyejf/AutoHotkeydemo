@@ -13,13 +13,14 @@ use tokio::sync::Mutex;
 /// `IpcSender` trait 的方法签名为同步（`fn send_command(&self, ...) -> Result<...>`），
 /// 但底层 `IpcManager` 使用 `tokio::sync::Mutex` 和 async 方法。
 /// 为在同步方法中调用 async 代码，使用 `tokio::task::block_in_place` +
-/// `Handle::current().block_on()` 模式。
+/// `tauri::async_runtime::block_on()` 模式（T5-03）。
 ///
 /// **安全性分析**：
 /// - `block_in_place` 将当前工作线程转为阻塞模式，允许其他工作线程继续执行
+/// - `tauri::async_runtime::block_on` 使用 Tauri 全局异步运行时执行，
+///   不依赖调用线程是否已处于 `Handle::current()` 可用的运行时上下文
 /// - 临界区极短（仅 `lock().await` + `send_command().await`），不会长时间阻塞
 /// - 不在 `block_on` 内再次获取同一锁，无死锁风险
-/// - 调用方在 Tauri command 的 async 上下文中调用，`block_in_place` 不会 panic
 ///
 /// **已知风险**：如果未来在 `block_on` 内引入需要同一工作线程的操作，
 /// 可能导致死锁。修改时需确保 `block_on` 内的所有操作不依赖当前工作线程。
@@ -29,10 +30,7 @@ pub struct IpcBridge {
 }
 
 impl IpcBridge {
-    pub fn new(
-        outbound: IpcOutboundSender,
-        ipc_manager: Arc<Mutex<Option<IpcManager>>>,
-    ) -> Self {
+    pub fn new(outbound: IpcOutboundSender, ipc_manager: Arc<Mutex<Option<IpcManager>>>) -> Self {
         Self {
             outbound,
             ipc_manager,
@@ -44,7 +42,7 @@ impl IpcSender for IpcBridge {
     fn send_command(&self, cmd: IpcCommand) -> Result<u64, String> {
         let ipc_manager = self.ipc_manager.clone();
         tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async move {
+            tauri::async_runtime::block_on(async move {
                 let mgr = {
                     let manager = ipc_manager.lock().await;
                     manager.clone()
@@ -73,7 +71,7 @@ impl IpcSender for IpcBridge {
     ) -> Result<IpcMessage, String> {
         let ipc_manager = self.ipc_manager.clone();
         tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async move {
+            tauri::async_runtime::block_on(async move {
                 let mgr = {
                     let manager = ipc_manager.lock().await;
                     manager.clone()
@@ -97,12 +95,16 @@ impl IpcSender for IpcBridge {
                         // 所有错误响应统一转换为 Err，避免调用方遗漏错误检查。
                         // 错误来源包括：pipe_broken（管道断裂）、pending 超时清理等。
                         if msg.is_error() {
-                            let error_str = msg.data.as_ref()
+                            let error_str = msg
+                                .data
+                                .as_ref()
                                 .and_then(|d| d.get("error"))
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("未知错误");
                             if error_str == "pipe_broken" {
-                                tracing::warn!("IPC 管道断裂，收到 pipe_broken 错误响应 (seq={seq})");
+                                tracing::warn!(
+                                    "IPC 管道断裂，收到 pipe_broken 错误响应 (seq={seq})"
+                                );
                                 return Err("IPC 管道断裂，请等待重连".to_string());
                             }
                             return Err(format!("IPC 错误响应: {error_str}"));
@@ -174,7 +176,7 @@ pub fn build_hotkey_event_payload(hotkey: &str, keys: &[String]) -> serde_json::
 ///
 /// 与 `IpcBridge` 相同的模式：`ProcessWatcher` trait 方法为同步，
 /// 底层 `ProcessWatchdog` 使用 `tokio::sync::Mutex` 保护。
-/// 使用 `block_in_place` + `block_on` 在同步方法中获取 async 锁。
+/// 使用 `block_in_place` + `tauri::async_runtime::block_on` 在同步方法中获取 async 锁。
 ///
 /// **锁顺序**：仅获取 `watchdog` 锁，不嵌套获取 `ipc_manager` 锁。
 /// 与 `setup_ipc_and_watchdog` 中的锁顺序（ipc_manager → watchdog）一致，
@@ -193,9 +195,9 @@ impl ProcessWatcher for WatchdogBridge {
     fn state(&self) -> WatchdogStateEnum {
         let watchdog = self.watchdog.clone();
         tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async move {
+            tauri::async_runtime::block_on(async move {
                 let guard = watchdog.lock().await;
-                guard.state().clone()
+                guard.state()
             })
         })
     }
@@ -203,7 +205,7 @@ impl ProcessWatcher for WatchdogBridge {
     fn restart_count(&self) -> u32 {
         let watchdog = self.watchdog.clone();
         tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async move {
+            tauri::async_runtime::block_on(async move {
                 let guard = watchdog.lock().await;
                 guard.restart_count()
             })
@@ -213,11 +215,12 @@ impl ProcessWatcher for WatchdogBridge {
     fn reset(&self) -> Result<(), String> {
         let watchdog = self.watchdog.clone();
         tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async move {
+            tauri::async_runtime::block_on(async move {
                 let mut guard = watchdog.lock().await;
-                let current = guard.state().clone();
+                let current = guard.state();
                 match current {
-                    WatchdogStateEnum::Failed | WatchdogStateEnum::Hung
+                    WatchdogStateEnum::Failed
+                    | WatchdogStateEnum::Hung
                     | WatchdogStateEnum::Recovering => {
                         guard.reset_to_restart();
                         Ok(())

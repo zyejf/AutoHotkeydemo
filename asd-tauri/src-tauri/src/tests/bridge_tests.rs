@@ -289,7 +289,7 @@ async fn test_watchdog_bridge_reset_from_failed() {
     // reset 后状态应变为 Restarting
     let guard = watchdog.lock().await;
     assert_eq!(
-        *guard.state(),
+        guard.state(),
         WatchdogStateEnum::Restarting,
         "reset 后状态应为 Restarting"
     );

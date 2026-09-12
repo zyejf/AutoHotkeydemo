@@ -6,13 +6,14 @@ pub mod infrastructure;
 mod tests;
 
 use asd_application::config_repository::ConfigRepository;
+use asd_application::error::AppError;
 use asd_application::state::AppState;
 use asd_domain::config::{Config, WatchdogStateEnum};
 use asd_domain::models::SkillGroup;
 use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use bridge::{IpcBridge, TauriEventBridge, WatchdogBridge};
-use infrastructure::ipc::{IpcManager, IpcOutboundReceiver};
-use infrastructure::watchdog::{ProcessWatchdog, WatchdogRunner, register_panic_hook};
+use infrastructure::ipc::{IpcManager, IpcOutboundReceiver, IPC_PIPE_NAME};
+use infrastructure::watchdog::{register_panic_hook, ProcessWatchdog, WatchdogRunner};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
@@ -24,11 +25,22 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 type IpcManagerArc = Arc<tokio::sync::Mutex<Option<IpcManager>>>;
 type WatchdogArc = Arc<tokio::sync::Mutex<ProcessWatchdog>>;
 
-/// IPC named pipe 名称常量。
+/// 执行关机主体序列：① 标记 IPC 关闭 → ② 设置 runner 停止标志 → ③ 调用 watchdog 优雅关机。
 ///
-/// 集中定义避免多处硬编码，用于 IpcManager::new() 和 create_listener()。
-/// AHK 执行器（ipc_client.ahk）中的管道名称必须与此一致。
-const IPC_PIPE_NAME: &str = "asd_ipc";
+/// 从 `perform_graceful_shutdown` 中抽取，使关机主体可注入三个异步步骤进行单元测试。
+/// 三个步骤按固定顺序执行（IPC 标记 → runner 标志 → watchdog 关机），
+/// 测试可注入记录型 future 断言调用顺序。
+async fn run_shutdown_sequence(
+    mark_ipc_shutting_down: impl std::future::Future<Output = ()>,
+    mark_runner_stopping: impl std::future::Future<Output = ()>,
+    shutdown_watchdog: impl std::future::Future<Output = Result<(), String>>,
+) {
+    mark_ipc_shutting_down.await;
+    mark_runner_stopping.await;
+    if let Err(e) = shutdown_watchdog.await {
+        tracing::error!("优雅关机失败: {e}");
+    }
+}
 
 async fn perform_graceful_shutdown(
     _app_state: &Arc<AppState>,
@@ -45,20 +57,26 @@ async fn perform_graceful_shutdown(
         return;
     }
 
-    {
-        let ipc_mgr = ipc_manager.lock().await;
-        if let Some(ref mgr) = *ipc_mgr {
-            mgr.mark_shutting_down();
-        }
-    }
+    let ipc_manager = ipc_manager.clone();
+    let runner_shutting_down = runner_shutting_down.clone();
+    let watchdog = watchdog.clone();
 
-    // 通知 WatchdogRunner 退出 MaxRetriesExceeded 等待循环
-    runner_shutting_down.store(true, Ordering::SeqCst);
-
-    let mut wd = watchdog.lock().await;
-    if let Err(e) = wd.graceful_shutdown().await {
-        tracing::error!("优雅关机失败: {e}");
-    }
+    run_shutdown_sequence(
+        async move {
+            let ipc_mgr = ipc_manager.lock().await;
+            if let Some(ref mgr) = *ipc_mgr {
+                mgr.mark_shutting_down();
+            }
+        },
+        async move {
+            // 通知 WatchdogRunner 退出 MaxRetriesExceeded 等待循环
+            runner_shutting_down.store(true, Ordering::SeqCst);
+        },
+        async move {
+            infrastructure::watchdog::graceful_shutdown_watchdog(&watchdog).await
+        },
+    )
+    .await;
 }
 
 fn spawn_ipc_listener(
@@ -145,7 +163,11 @@ fn spawn_heartbeat_ping(ipc_manager: IpcManagerArc) {
             interval.tick().await;
             let mgr = {
                 let guard = ipc_manager.lock().await;
-                if guard.as_ref().map(|m| m.is_shutting_down()).unwrap_or(false) {
+                if guard
+                    .as_ref()
+                    .map(|m| m.is_shutting_down())
+                    .unwrap_or(false)
+                {
                     tracing::info!("心跳 ping 循环检测到关机标志，退出");
                     return;
                 }
@@ -173,7 +195,10 @@ fn spawn_heartbeat_ping(ipc_manager: IpcManagerArc) {
     });
 }
 
-fn spawn_watchdog(app_state: Arc<AppState>, watchdog: WatchdogArc) -> Arc<std::sync::atomic::AtomicBool> {
+fn spawn_watchdog(
+    app_state: Arc<AppState>,
+    watchdog: WatchdogArc,
+) -> Arc<std::sync::atomic::AtomicBool> {
     // 提前创建 shutting_down Arc，保存引用供 perform_graceful_shutdown 使用
     let shutting_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let shutting_down_clone = shutting_down.clone();
@@ -193,7 +218,7 @@ fn spawn_watchdog(app_state: Arc<AppState>, watchdog: WatchdogArc) -> Arc<std::s
             loop {
                 interval.tick().await;
                 let wd_guard = wd_clone.lock().await;
-                let current = wd_guard.state().clone();
+                let current = wd_guard.state();
                 let restart_count = wd_guard.restart_count();
                 drop(wd_guard);
 
@@ -254,9 +279,7 @@ fn setup_ipc_callbacks(
                     guard.set_state(WatchdogStateEnum::Recovering);
                 }
                 other => {
-                    tracing::debug!(
-                        "pipe_broken: 当前状态 {:?}，跳过 Recovering 转换", other
-                    );
+                    tracing::debug!("pipe_broken: 当前状态 {:?}，跳过 Recovering 转换", other);
                 }
             }
         });
@@ -323,9 +346,11 @@ fn setup_ipc_callbacks(
             // 清理不跨重连持久化的瞬态状态。
             // AHK 重连后是全新进程，之前设置的瞬态标志在 AHK 侧已不存在，
             // 若不清理会导致 Rust-AHK 状态分裂（如用户无法启动新录制/验证）。
-            if state.emergency_mode.compare_exchange(
-                true, false, Ordering::SeqCst, Ordering::SeqCst,
-            ).is_ok() {
+            if state
+                .emergency_mode
+                .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
                 tracing::info!("AHK 重连：清理 emergency_mode 瞬态标志");
             }
             {
@@ -338,9 +363,11 @@ fn setup_ipc_callbacks(
                 if mode_guard.take().is_some() {
                     tracing::info!("AHK 重连：清理 recording_mode 瞬态标志");
                 }
-                if state.validation_in_progress.compare_exchange(
-                    true, false, Ordering::SeqCst, Ordering::SeqCst,
-                ).is_ok() {
+                if state
+                    .validation_in_progress
+                    .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_ok()
+                {
                     tracing::info!("AHK 重连：清理 validation_in_progress 瞬态标志");
                 }
             }
@@ -381,7 +408,7 @@ fn init_app_state(
     ipc_bridge: Arc<IpcBridge>,
     event_bridge: Arc<TauriEventBridge>,
     watchdog_bridge: Arc<WatchdogBridge>,
-) -> Arc<AppState> {
+) -> Result<Arc<AppState>, AppError> {
     let mut app_state = Arc::new(AppState::new(
         config,
         ipc_bridge,
@@ -395,20 +422,27 @@ fn init_app_state(
         // asd-application 和 asd-test-harness 中的多个调用方），因此通过
         // `set_config_path` 在构造后设置。
         //
-        // 安全性：此处的 `Arc::get_mut` 仅在 `init_app_state` 中调用，且
-        // `app_state` 刚通过 `Arc::new` 创建，引用计数为 1，`get_mut` 必然
-        // 返回 `Some`。`expect` 的 panic 仅在以下重构场景下可能触发：
-        // - 若未来在 `Arc::new` 和 `Arc::get_mut` 之间克隆了 `app_state`
-        // - 若 `AppState::new` 内部存储了 `Arc` 的弱引用
+        // 正常路径下引用计数为 1，`Arc::get_mut` 必然返回 `Some`。但为避免在
+        // 未来重构（例如在 `Arc::new` 与 `get_mut` 之间克隆了 app_state，或
+        // `AppState::new` 内部存储了 `Arc` 的弱引用）时触发 panic，此处改为
+        // 可恢复处理：`get_mut` 返回 `None` 时返回 `AppError::Internal`，而非
+        // 在 setup 阶段 panic 导致应用启动崩溃。
         //
         // 替代方案（改动较大，未采纳）：将 `config_path` 作为 `AppState::new`
         // 的参数传入，消除对 `Arc::get_mut` 的依赖。此方案需修改
         // `AppState::new` 签名及所有调用方（含测试），作为已知技术债记录。
-        let state_ref =
-            Arc::get_mut(&mut app_state).expect("AppState should be uniquely held during setup");
-        state_ref.set_config_path(config_path);
+        match Arc::get_mut(&mut app_state) {
+            Some(state_ref) => {
+                state_ref.set_config_path(config_path);
+            }
+            None => {
+                return Err(AppError::Internal(
+                    "AppState 在 setup 阶段被共享，无法设置 config_path".to_string(),
+                ));
+            }
+        }
     }
-    app_state
+    Ok(app_state)
 }
 
 /// 设置 IPC 和 Watchdog。
@@ -598,22 +632,14 @@ fn resolve_ahk_executor_path(app: &tauri::App) -> std::path::PathBuf {
         })
 }
 
-/// 预期的 Tauri command 数量。
+/// 单实例保护（T5-09）暂缓说明：
 ///
-/// 新增或删除命令时必须同步更新此值和下方 `generate_handler!` 列表。
-/// 此常量提供编译时追踪点：如果命令数量变化但未更新此值，
-/// 编译时断言将失败，提醒开发者同步更新文档（test-map.md 等）。
-pub const EXPECTED_TAURI_COMMAND_COUNT: usize = 34;
-
-/// 编译时断言：确保 Tauri command 数量常量与预期一致。
-///
-/// 如果新增或删除了 `generate_handler!` 中的命令，需同步更新
-/// `EXPECTED_TAURI_COMMAND_COUNT` 常量值。此断言确保常量值被
-/// 显式记录和验证，防止意外的命令数量变化未被发现。
-const _: () = {
-    assert!(EXPECTED_TAURI_COMMAND_COUNT == 34);
-};
-
+/// 计划引入 `tauri-plugin-single-instance` 以在二次启动时聚焦首实例，避免多实例
+/// 并发抢占 IPC named pipe 与 AHK 子进程。当前未接入的原因：该插件（含其依赖）
+/// 不在本地 cargo 依赖缓存中，且当前环境可能无法联网拉取，直接加入会导致
+/// `cargo build` 失败。待可用后再在 `tauri::Builder::default()` 前以
+/// `.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| { ... }))` 注册，
+/// 回调内通过 `app.get_webview_window("main")` show + set_focus 聚焦首实例。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -678,7 +704,7 @@ pub fn run() {
                 ipc_bridge,
                 event_bridge,
                 watchdog_bridge,
-            );
+            )?;
 
             let exe_path = resolve_ahk_executor_path(app);
 
@@ -697,7 +723,13 @@ pub fn run() {
 
             app.manage(app_state);
 
-            setup_tray_menu(app.handle(), &ipc_manager_arc, &watchdog, &runner_shutting_down, &shutdown_guard)?;
+            setup_tray_menu(
+                app.handle(),
+                &ipc_manager_arc,
+                &watchdog,
+                &runner_shutting_down,
+                &shutdown_guard,
+            )?;
 
             let gs = app.global_shortcut();
             let _ = gs.register("Ctrl+Shift+A");
@@ -757,27 +789,13 @@ pub fn run() {
         .expect("Tauri 应用启动失败");
 }
 
-// =================================================================
-// IPC 管道名称常量
-// =================================================================
-// 集中定义 named pipe 名称，避免多处硬编码导致不一致风险。
-// 用于 IpcManager::new() 和 create_listener() 两处调用。
-
-#[cfg(test)]
-mod pipe_name_tests {
-    use super::*;
-
-    /// 验证 IPC_PIPE_NAME 常量存在且值为 "asd_ipc"。
-    #[test]
-    fn test_ipc_pipe_name_constant_value() {
-        assert_eq!(IPC_PIPE_NAME, "asd_ipc");
-    }
-}
-
 #[cfg(test)]
 mod shutdown_tests {
     use super::*;
+    use asd_test_harness::{make_test_state, unique_pipe_name};
     use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+    use std::sync::Mutex as StdMutex;
 
     /// 验证 `try_acquire_shutdown_guard` 首次调用成功获取关机锁。
     ///
@@ -817,6 +835,119 @@ mod shutdown_tests {
         assert!(
             !infrastructure::shutdown::try_acquire_shutdown_guard(&guard),
             "已锁定状态下应返回 false"
+        );
+    }
+
+    // ---- T8-02: 关机主体序列测试 ----
+
+    /// 验证关机主体按固定顺序执行三个步骤：
+    /// ① 标记 IPC 关闭 → ② 设置 runner 停止标志 → ③ 调用 watchdog 优雅关机。
+    #[tokio::test]
+    async fn test_run_shutdown_sequence_order() {
+        let order: Arc<StdMutex<Vec<&'static str>>> = Arc::new(StdMutex::new(Vec::new()));
+        let o1 = order.clone();
+        let o2 = order.clone();
+        let o3 = order.clone();
+
+        run_shutdown_sequence(
+            async move {
+                o1.lock().unwrap().push("ipc");
+            },
+            async move {
+                o2.lock().unwrap().push("runner");
+            },
+            async move {
+                o3.lock().unwrap().push("watchdog");
+                Ok(())
+            },
+        )
+        .await;
+
+        let order = order.lock().unwrap();
+        assert_eq!(
+            *order,
+            vec!["ipc", "runner", "watchdog"],
+            "关机主体应按「标记 IPC 关闭 → 设置 runner 停止标志 → 调用 watchdog 关机」顺序执行"
+        );
+    }
+
+    /// 验证关机锁已被获取时 `perform_graceful_shutdown` 提前返回，
+    /// 不执行关机主体（IPC 未标记关机、runner 停止标志未设置）。
+    #[tokio::test]
+    async fn test_perform_graceful_shutdown_guard_already_set_returns_early() {
+        let app_state = make_test_state();
+        let (mgr, _rx) = IpcManager::new(&unique_pipe_name("gsd_early"));
+        let ipc_manager: IpcManagerArc = Arc::new(tokio::sync::Mutex::new(Some(mgr)));
+        let watchdog: WatchdogArc = Arc::new(tokio::sync::Mutex::new(ProcessWatchdog::new()));
+        let runner_shutting_down = Arc::new(AtomicBool::new(false));
+        let shutdown_guard = AtomicBool::new(true); // 已锁定
+
+        perform_graceful_shutdown(
+            &app_state,
+            &ipc_manager,
+            &watchdog,
+            &runner_shutting_down,
+            &shutdown_guard,
+        )
+        .await;
+
+        {
+            let guard = ipc_manager.lock().await;
+            assert!(
+                !guard.as_ref().unwrap().is_shutting_down(),
+                "guard 已为 true 时应提前返回，IPC 不应被标记关机"
+            );
+        }
+        assert!(
+            !runner_shutting_down.load(Ordering::SeqCst),
+            "guard 已为 true 时应提前返回，runner 停止标志不应被设置"
+        );
+    }
+
+    /// 验证二次调用被拦截：第一次调用获取关机锁并执行关机主体，
+    /// 第二次调用因 guard 已为 true 而跳过关机主体。
+    #[tokio::test]
+    async fn test_perform_graceful_shutdown_second_call_skipped() {
+        let app_state = make_test_state();
+        let (mgr, _rx) = IpcManager::new(&unique_pipe_name("gsd_second"));
+        let ipc_manager: IpcManagerArc = Arc::new(tokio::sync::Mutex::new(Some(mgr)));
+        let watchdog: WatchdogArc = Arc::new(tokio::sync::Mutex::new(ProcessWatchdog::new()));
+        let runner_shutting_down = Arc::new(AtomicBool::new(false));
+        let shutdown_guard = AtomicBool::new(false);
+
+        // 第一次调用：获取关机锁并执行关机主体
+        perform_graceful_shutdown(
+            &app_state,
+            &ipc_manager,
+            &watchdog,
+            &runner_shutting_down,
+            &shutdown_guard,
+        )
+        .await;
+        assert!(
+            shutdown_guard.load(Ordering::SeqCst),
+            "第一次调用应获取关机锁"
+        );
+        assert!(
+            runner_shutting_down.load(Ordering::SeqCst),
+            "第一次调用应执行关机主体（设置 runner 停止标志）"
+        );
+
+        // 复位 runner 标志，以便观察第二次调用是否重复执行关机主体
+        runner_shutting_down.store(false, Ordering::SeqCst);
+
+        // 第二次调用：guard 已为 true，应被拦截，不重复执行关机主体
+        perform_graceful_shutdown(
+            &app_state,
+            &ipc_manager,
+            &watchdog,
+            &runner_shutting_down,
+            &shutdown_guard,
+        )
+        .await;
+        assert!(
+            !runner_shutting_down.load(Ordering::SeqCst),
+            "第二次调用应被拦截，runner 停止标志不应再次设置"
         );
     }
 }

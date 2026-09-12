@@ -12,6 +12,8 @@ pub enum IpcError {
     IoError(String),
     #[error("等待响应超时")]
     Timeout,
+    #[error("发送消息超时")]
+    SendTimeout,
     #[error("通道已关闭")]
     ChannelClosed,
     #[error("管道断裂: {0}")]
@@ -61,7 +63,7 @@ mod tests {
 
     #[test]
     fn test_ipc_error_from_other_io() {
-        let err = std::io::Error::new(std::io::ErrorKind::Other, "some error");
+        let err = std::io::Error::other("some error");
         let ipc_err = IpcError::from(err);
         assert!(matches!(ipc_err, IpcError::IoError(_)));
     }

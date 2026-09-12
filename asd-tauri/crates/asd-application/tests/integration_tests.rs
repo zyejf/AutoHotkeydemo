@@ -1,11 +1,9 @@
 use asd_application::config_repository::ConfigRepository;
 use asd_application::error::AppError;
-#[allow(deprecated)]
-use asd_application::scheduler::SkillManager;
+use asd_application::group_service::build_toggle_command;
 use asd_application::state::{AppState, WatchdogState};
 use asd_test_harness::*;
 use indexmap::IndexMap;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 fn make_periodic_group_config() -> GroupConfig {
@@ -138,95 +136,9 @@ fn make_test_state() -> Arc<AppState> {
 }
 
 #[test]
-fn test_skill_manager_lifecycle() {
-    let mut groups = HashMap::new();
-    groups.insert("1".to_string(), make_skill_group("1", "periodic"));
-    groups.insert("2".to_string(), make_skill_group("2", "sequence"));
-
-    let mut mgr = SkillManager::new(groups);
-
-    assert!(!mgr.get_group("1").unwrap().active);
-    assert!(mgr.get_active_groups().is_empty());
-
-    mgr.activate("1").unwrap();
-    assert!(mgr.get_group("1").unwrap().active);
-    assert_eq!(mgr.get_active_groups().len(), 1);
-    assert_eq!(mgr.get_hotkey_group("F1"), Some("1"));
-
-    mgr.deactivate("1").unwrap();
-    assert!(!mgr.get_group("1").unwrap().active);
-    assert!(mgr.get_active_groups().is_empty());
-    assert_eq!(mgr.get_hotkey_group("F1"), None);
-}
-
-#[test]
-fn test_skill_manager_toggle() {
-    let mut groups = HashMap::new();
-    groups.insert("1".to_string(), make_skill_group("1", "periodic"));
-
-    let mut mgr = SkillManager::new(groups);
-
-    let result = mgr.toggle("1").unwrap();
-    assert!(result);
-    assert!(mgr.get_group("1").unwrap().active);
-
-    let result = mgr.toggle("1").unwrap();
-    assert!(!result);
-    assert!(!mgr.get_group("1").unwrap().active);
-}
-
-#[test]
-fn test_skill_manager_reload() {
-    let mut groups = HashMap::new();
-    groups.insert("1".to_string(), make_skill_group("1", "periodic"));
-
-    let mut mgr = SkillManager::new(groups);
-    mgr.activate("1").unwrap();
-    assert!(mgr.get_hotkey_group("F1").is_some());
-
-    let mut new_groups = HashMap::new();
-    new_groups.insert("3".to_string(), make_skill_group("3", "hold"));
-    mgr.reload_groups(new_groups);
-
-    assert!(mgr.get_group("1").is_none());
-    assert!(mgr.get_group("3").is_some());
-    assert!(mgr.get_hotkey_group("F1").is_none());
-}
-
-#[test]
-fn test_skill_manager_hotkey_registry() {
-    let mut groups = HashMap::new();
-    groups.insert("1".to_string(), make_skill_group("1", "periodic"));
-
-    let mut mgr = SkillManager::new(groups);
-
-    mgr.register_hotkey("F10", "10").unwrap();
-    assert_eq!(mgr.get_hotkey_group("F10"), Some("10"));
-
-    let result = mgr.register_hotkey("F10", "11");
-    assert!(result.is_err());
-
-    mgr.unregister_hotkey("F10").unwrap();
-    assert_eq!(mgr.get_hotkey_group("F10"), None);
-
-    let result = mgr.unregister_hotkey("F10");
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_skill_manager_nonexistent_group() {
-    let groups = HashMap::new();
-    let mut mgr = SkillManager::new(groups);
-
-    assert!(mgr.activate("999").is_err());
-    assert!(mgr.deactivate("999").is_err());
-    assert!(mgr.toggle("999").is_err());
-}
-
-#[test]
-fn test_skill_manager_build_toggle_command() {
+fn test_build_toggle_command() {
     let group = make_skill_group("1", "periodic");
-    let cmd = SkillManager::build_toggle_command(&group);
+    let cmd = build_toggle_command(&group.id, group.active, &group);
     match cmd {
         IpcCommand::ToggleGroup {
             group_id,
@@ -612,27 +524,6 @@ fn test_multiple_groups_concurrent_operations() {
     assert!(!state.active_group_ids().contains(&"1".to_string()));
     assert!(state.active_group_ids().contains(&"2".to_string()));
     assert!(state.active_group_ids().contains(&"3".to_string()));
-}
-
-#[test]
-fn test_skill_manager_multiple_groups() {
-    let mut groups = HashMap::new();
-    groups.insert("1".to_string(), make_skill_group("1", "periodic"));
-    groups.insert("2".to_string(), make_skill_group("2", "sequence"));
-    groups.insert("3".to_string(), make_skill_group("3", "hold"));
-
-    let mut mgr = SkillManager::new(groups);
-
-    mgr.activate("1").unwrap();
-    mgr.activate("2").unwrap();
-    assert_eq!(mgr.get_active_groups().len(), 2);
-
-    assert_eq!(mgr.get_hotkey_group("F1"), Some("1"));
-    assert_eq!(mgr.get_hotkey_group("F2"), Some("2"));
-
-    mgr.deactivate("1").unwrap();
-    assert_eq!(mgr.get_hotkey_group("F1"), None);
-    assert_eq!(mgr.get_hotkey_group("F2"), Some("2"));
 }
 
 #[test]

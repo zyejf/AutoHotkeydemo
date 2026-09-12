@@ -191,12 +191,22 @@ fn batch_toggle_impl(
             "{}部分失败: active={}, 状态失败={}, IPC回滚={}",
             log_label,
             active,
-            state_errors.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join(","),
+            state_errors
+                .iter()
+                .map(|(id, _)| id.as_str())
+                .collect::<Vec<_>>()
+                .join(","),
             ipc_rolled_back.join(",")
         );
     }
 
-    BatchToggleResult { succeeded, state_errors, ipc_rolled_back, not_found: Vec::new(), skipped: 0 }
+    BatchToggleResult {
+        succeeded,
+        state_errors,
+        ipc_rolled_back,
+        not_found: Vec::new(),
+        skipped: 0,
+    }
 }
 
 pub fn toggle_all(state: &AppState, active: bool) -> Result<BatchToggleResult, AppError> {
@@ -270,7 +280,10 @@ pub struct ReorderResult {
     pub appended_groups: Vec<String>,
 }
 
-pub fn batch_delete_groups(state: &AppState, group_ids: &[String]) -> Result<BatchDeleteResult, AppError> {
+pub fn batch_delete_groups(
+    state: &AppState,
+    group_ids: &[String],
+) -> Result<BatchDeleteResult, AppError> {
     if group_ids.is_empty() {
         return Err(AppError::Validation("分组 ID 列表不能为空".to_string()));
     }
@@ -288,11 +301,7 @@ pub fn batch_delete_groups(state: &AppState, group_ids: &[String]) -> Result<Bat
     if failed.is_empty() {
         tracing::info!("批量删除: {} 个分组全部成功", deleted.len());
     } else {
-        tracing::warn!(
-            "批量删除: {} 成功, {} 失败",
-            deleted.len(),
-            failed.len()
-        );
+        tracing::warn!("批量删除: {} 成功, {} 失败", deleted.len(), failed.len());
     }
 
     Ok(BatchDeleteResult { deleted, failed })
@@ -413,7 +422,8 @@ pub fn register_hotkey(state: &AppState, hotkey: &str, group_id: &str) -> Result
     }
 
     // 读取分组状态（活跃/非活跃）和原始热键，合并为单次读取避免 TOCTOU 竞态
-    let (is_active, original_hotkey) = state.get_group(group_id)
+    let (is_active, original_hotkey) = state
+        .get_group(group_id)
         .ok_or_else(|| AppError::GroupNotFound(group_id.to_string()))
         .map(|g| (g.active, g.hotkey.clone()))?;
 
@@ -423,12 +433,19 @@ pub fn register_hotkey(state: &AppState, hotkey: &str, group_id: &str) -> Result
     // 非活跃分组：仅更新配置，不修改 active_hotkeys 也不发送 IPC
     // 下次 toggle_group 激活时会自动注册热键到 AHK 和 active_hotkeys
     if !is_active {
-        tracing::info!("非活跃分组 '{}' 热键已更新为 '{}'（配置层面），激活时将注册到 AHK", group_id, hotkey);
+        tracing::info!(
+            "非活跃分组 '{}' 热键已更新为 '{}'（配置层面），激活时将注册到 AHK",
+            group_id,
+            hotkey
+        );
         // 通知前端热键已变更，避免 UI 显示旧值
-        state.emit_event("hotkey_updated", serde_json::json!({
-            "groupId": group_id,
-            "hotkey": hotkey,
-        }));
+        state.emit_event(
+            "hotkey_updated",
+            serde_json::json!({
+                "groupId": group_id,
+                "hotkey": hotkey,
+            }),
+        );
         return Ok(());
     }
 
@@ -446,7 +463,9 @@ pub fn register_hotkey(state: &AppState, hotkey: &str, group_id: &str) -> Result
     if let Some(ref old) = old_hotkey {
         if old != hotkey {
             tracing::info!("分组 '{}' 已有旧热键 '{}'，先注销", group_id, old);
-            let unreg_cmd = IpcCommand::UnregisterHotkey { hotkey: old.clone() };
+            let unreg_cmd = IpcCommand::UnregisterHotkey {
+                hotkey: old.clone(),
+            };
             if let Err(e) = state.send_ipc_command(&unreg_cmd) {
                 // IPC 注销旧热键失败，回滚 swap_hotkey 和 set_group_hotkey
                 if let Err(rollback_err) = state.swap_hotkey(old, group_id) {
@@ -455,11 +474,14 @@ pub fn register_hotkey(state: &AppState, hotkey: &str, group_id: &str) -> Result
                         old, rollback_err
                     );
                     // 通知前端热键状态不一致，用户可手动刷新或重新注册
-                    state.emit_event("hotkey_conflict", serde_json::json!({
-                        "groupId": group_id,
-                        "hotkey": old,
-                        "reason": format!("回滚失败: {}", rollback_err),
-                    }));
+                    state.emit_event(
+                        "hotkey_conflict",
+                        serde_json::json!({
+                            "groupId": group_id,
+                            "hotkey": old,
+                            "reason": format!("回滚失败: {}", rollback_err),
+                        }),
+                    );
                 }
                 if let Err(rollback_err) = state.set_group_hotkey(group_id, &original_hotkey) {
                     tracing::warn!(
@@ -486,11 +508,14 @@ pub fn register_hotkey(state: &AppState, hotkey: &str, group_id: &str) -> Result
                         old, rollback_err
                     );
                     // 通知前端热键状态不一致，用户可手动刷新或重新注册
-                    state.emit_event("hotkey_conflict", serde_json::json!({
-                        "groupId": group_id,
-                        "hotkey": old,
-                        "reason": format!("回滚失败: {}", rollback_err),
-                    }));
+                    state.emit_event(
+                        "hotkey_conflict",
+                        serde_json::json!({
+                            "groupId": group_id,
+                            "hotkey": old,
+                            "reason": format!("回滚失败: {}", rollback_err),
+                        }),
+                    );
                 }
                 // 向 AHK 重新注册旧热键，恢复 AHK 侧热键监听
                 state.try_send_ipc_command(&IpcCommand::RegisterHotkey {

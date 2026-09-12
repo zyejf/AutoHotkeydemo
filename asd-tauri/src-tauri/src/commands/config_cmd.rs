@@ -81,7 +81,10 @@ pub fn import_config_impl(state: &AppState, path: &str) -> Result<(), AppError> 
 }
 
 /// `compare_configs` 的核心逻辑。
-pub fn compare_configs_impl(state: &AppState, backup_filename: &str) -> Result<ConfigDiff, AppError> {
+pub fn compare_configs_impl(
+    state: &AppState,
+    backup_filename: &str,
+) -> Result<ConfigDiff, AppError> {
     if backup_filename.trim().is_empty() {
         return Err(AppError::Validation("备份文件名不能为空".to_string()));
     }
@@ -299,11 +302,7 @@ mod tests {
         let result = get_config_impl(&state);
         assert!(result.is_ok(), "读取配置应成功: {:?}", result.err());
         let config = result.unwrap();
-        assert_eq!(
-            config.group_settings.len(),
-            2,
-            "测试配置应包含 2 个分组"
-        );
+        assert_eq!(config.group_settings.len(), 2, "测试配置应包含 2 个分组");
     }
 
     /// 验证 get_config_impl 反映 save_config_impl 后的配置变更。
@@ -356,10 +355,7 @@ mod tests {
         let config = make_test_config();
         let result = validate_config_impl(&config);
         assert!(result.is_ok(), "验证函数应返回 Ok: {:?}", result.err());
-        assert!(
-            result.unwrap().is_valid(),
-            "有效配置应通过验证"
-        );
+        assert!(result.unwrap().is_valid(), "有效配置应通过验证");
     }
 
     /// 验证 validate_config_impl 对无效配置返回 is_valid() == false。
@@ -369,10 +365,7 @@ mod tests {
         config.group_settings.get_mut("1").unwrap().hotkey = String::new();
         let result = validate_config_impl(&config);
         assert!(result.is_ok(), "验证函数本身应返回 Ok");
-        assert!(
-            !result.unwrap().is_valid(),
-            "无效配置不应通过验证"
-        );
+        assert!(!result.unwrap().is_valid(), "无效配置不应通过验证");
     }
 
     // --- list_backups_impl ---
@@ -383,10 +376,7 @@ mod tests {
         let (state, _dir) = make_test_state_with_path();
         let result = list_backups_impl(&state);
         assert!(result.is_ok(), "列出备份应成功: {:?}", result.err());
-        assert!(
-            result.unwrap().is_empty(),
-            "无备份时应返回空列表"
-        );
+        assert!(result.unwrap().is_empty(), "无备份时应返回空列表");
     }
 
     /// 验证 list_backups_impl 在未设置 config_path 时返回错误。

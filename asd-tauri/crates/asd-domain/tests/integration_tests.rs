@@ -269,14 +269,16 @@ fn test_config_without_optional_fields() {
 
 #[test]
 fn test_config_hold_settings_roundtrip() {
-    let mut config = Config::default();
-    config.hold_settings = Some(HoldSettings {
-        allow_overlap: true,
-        check_interval: 100,
-        debounce_delay: 50,
-        press_speed: 120,
-        release_on_emergency: false,
-    });
+    let config = Config {
+        hold_settings: Some(HoldSettings {
+            allow_overlap: true,
+            check_interval: 100,
+            debounce_delay: 50,
+            press_speed: 120,
+            release_on_emergency: false,
+        }),
+        ..Default::default()
+    };
     let json = serde_json::to_string(&config).unwrap();
     let decoded: Config = serde_json::from_str(&json).unwrap();
     let hs = decoded.hold_settings.unwrap();

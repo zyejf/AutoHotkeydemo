@@ -1,11 +1,9 @@
 use asd_application::config_repository::ConfigRepository;
 use asd_application::error::AppError;
-#[allow(deprecated)]
-use asd_application::scheduler::SkillManager;
+use asd_application::group_service::build_toggle_command;
 use asd_application::state::AppState;
 use asd_test_harness::*;
 use indexmap::IndexMap;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 fn make_periodic_group_config() -> GroupConfig {
@@ -41,32 +39,6 @@ fn make_test_config() -> Config {
         hold_settings: None,
         last_modified: None,
         version: Some("3.0".to_string()),
-    }
-}
-
-#[allow(dead_code)]
-fn make_skill_group(id: &str, mode: &str) -> SkillGroup {
-    let mode_data = match mode {
-        "periodic" => ModeData::Periodic(PeriodicData {
-            keys: vec!["1".to_string()],
-            intervals: vec![50],
-        }),
-        _ => ModeData::Periodic(PeriodicData {
-            keys: vec!["1".to_string()],
-            intervals: vec![50],
-        }),
-    };
-
-    SkillGroup {
-        id: id.to_string(),
-        name: format!("组 {id}"),
-        hotkey: format!("F{id}"),
-        active: false,
-        mode: mode.to_string(),
-        key_press_duration: 10,
-        hold_keys: None,
-        hold_mode: None,
-        mode_data,
     }
 }
 
@@ -208,7 +180,7 @@ fn test_ipc_command_emergency_release_flow() {
 }
 
 #[test]
-fn test_skill_group_from_config_to_manager() {
+fn test_skill_group_from_config_to_toggle_command() {
     let config = make_test_config();
     let groups = AppState::build_groups_from_config(&config);
 
@@ -222,20 +194,13 @@ fn test_skill_group_from_config_to_manager() {
     assert_eq!(group.mode, "periodic");
     assert!(!group.active);
 
-    let groups_map: HashMap<String, SkillGroup> = groups.into_iter().collect();
-    let mut mgr = SkillManager::new(groups_map);
-
-    mgr.activate("1").unwrap();
-    assert!(mgr.get_group("1").unwrap().active);
-    assert_eq!(mgr.get_hotkey_group("F1"), Some("1"));
-
-    let cmd = SkillManager::build_toggle_command(mgr.get_group("1").unwrap());
+    let cmd = build_toggle_command(&group.id, group.active, group);
     match cmd {
         IpcCommand::ToggleGroup {
             group_id, active, ..
         } => {
             assert_eq!(group_id, "1");
-            assert!(active);
+            assert!(!active);
         }
         _ => panic!("Expected ToggleGroup"),
     }
@@ -247,7 +212,7 @@ fn test_skill_group_from_config_to_ipc_command() {
     let groups = AppState::build_groups_from_config(&config);
     let group = &groups["1"];
 
-    let cmd = SkillManager::build_toggle_command(group);
+    let cmd = build_toggle_command(&group.id, group.active, group);
     let msg = IpcMessage::command(1, &cmd);
 
     assert_eq!(msg.r#type, "command");

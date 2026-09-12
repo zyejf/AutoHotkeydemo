@@ -343,11 +343,7 @@ mod tests {
         let result = toggle_all_impl(&state, true);
         assert!(result.is_ok(), "全局切换应成功: {:?}", result.err());
         let batch_result = result.unwrap();
-        assert_eq!(
-            batch_result.succeeded.len(),
-            2,
-            "2 个分组应全部成功切换"
-        );
+        assert_eq!(batch_result.succeeded.len(), 2, "2 个分组应全部成功切换");
         assert!(batch_result.state_errors.is_empty(), "不应有状态错误");
     }
 
@@ -429,10 +425,7 @@ mod tests {
         assert!(result.is_ok(), "重排序应成功: {:?}", result.err());
         let reorder_result = result.unwrap();
         assert_eq!(reorder_result.reordered_count, 2, "2 个分组已重排序");
-        assert!(
-            reorder_result.appended_groups.is_empty(),
-            "不应有追加分组"
-        );
+        assert!(reorder_result.appended_groups.is_empty(), "不应有追加分组");
     }
 
     /// 验证 reorder_groups_impl 拒绝空分组列表。

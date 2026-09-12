@@ -238,7 +238,7 @@ fn test_ipc_error_from_io() {
     let ipc_err = IpcError::from(err);
     assert!(matches!(ipc_err, IpcError::PipeBroken(_)));
 
-    let err2 = std::io::Error::new(std::io::ErrorKind::Other, "some other error");
+    let err2 = std::io::Error::other("some other error");
     let ipc_err2 = IpcError::from(err2);
     assert!(matches!(ipc_err2, IpcError::IoError(_)));
 }
@@ -615,10 +615,7 @@ async fn test_message_size_boundary() {
     // 后缀 "}\n = 3 字节
     // 总计 31 + N + 3 = 34 + N，目标 65535 → N = 65501
     let padding = "A".repeat(65501);
-    let line = format!(
-        "{{\"type\":\"ping\",\"seq\":1,\"data\":\"{}\"}}\n",
-        padding
-    );
+    let line = format!("{{\"type\":\"ping\",\"seq\":1,\"data\":\"{}\"}}\n", padding);
     assert_eq!(line.len(), 65535, "消息总长应为 65535 字节");
     let line_bytes = line.into_bytes();
 
@@ -642,11 +639,7 @@ async fn test_message_size_boundary() {
     let result = tokio::time::timeout(Duration::from_secs(3), client.recv())
         .await
         .expect("recv 不应挂起");
-    assert!(
-        result.is_ok(),
-        "边界大小消息应正常处理: {:?}",
-        result.err()
-    );
+    assert!(result.is_ok(), "边界大小消息应正常处理: {:?}", result.err());
     let msg = result.unwrap();
     assert_eq!(msg.r#type, "ping");
     assert_eq!(msg.seq, 1);
@@ -664,8 +657,7 @@ async fn test_auth_token_mismatch() {
     let name_clone = pipe_name.clone();
     let listener = create_listener(&pipe_name).expect("创建 Listener 失败");
 
-    let (server, _server_rx) =
-        IpcManager::new_with_token(&name_clone, "CORRECT_TOKEN".to_string());
+    let (server, _server_rx) = IpcManager::new_with_token(&name_clone, "CORRECT_TOKEN".to_string());
     let server_handle = tokio::spawn(async move { server.accept_from_ahk(&listener).await });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -724,10 +716,7 @@ async fn test_auth_wrong_message_type() {
                 msg.contains("期望 auth"),
                 "错误消息应包含 '期望 auth': {msg}"
             );
-            assert!(
-                msg.contains("pong"),
-                "错误消息应包含实际类型 'pong': {msg}"
-            );
+            assert!(msg.contains("pong"), "错误消息应包含实际类型 'pong': {msg}");
         }
         other => panic!("期望 AuthFailed(期望 auth)，实际: {other:?}"),
     }
@@ -867,7 +856,9 @@ async fn test_pending_responses_cleanup() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // 直接调用 cleanup_stale_pending(max_age=0)，立即清理所有条目
-    manager.cleanup_stale_pending(Duration::from_millis(0)).await;
+    manager
+        .cleanup_stale_pending(Duration::from_millis(0))
+        .await;
 
     let result = tokio::time::timeout(Duration::from_secs(2), wait_handle)
         .await

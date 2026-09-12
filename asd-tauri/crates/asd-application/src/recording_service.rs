@@ -1,5 +1,4 @@
 use crate::backup_service::validate_file_path;
-use crate::config_repository::atomic_write;
 use crate::config_repository::ConfigRepository;
 use crate::error::AppError;
 use crate::state::AppState;
@@ -303,7 +302,7 @@ pub fn export_recording(
         .map_err(|e| AppError::Config(format!("序列化录制数据失败: {e}")))?;
 
     let p = std::path::Path::new(path);
-    atomic_write(p, &json).map_err(|e| AppError::Internal(format!("导出录制数据失败: {e}")))?;
+    ConfigRepository::atomic_write(p, &json).map_err(|e| AppError::Internal(format!("导出录制数据失败: {e}")))?;
 
     tracing::info!("录制结果已导出: {}", path);
     Ok(())

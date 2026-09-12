@@ -180,10 +180,7 @@ fn test_restore_from_corrupted_backup() {
     std::fs::write(&corrupted_path, "{invalid json content!!!}").unwrap();
 
     let result = restore_backup(&state, corrupted_filename);
-    assert!(
-        result.is_err(),
-        "恢复损坏的备份文件应返回错误"
-    );
+    assert!(result.is_err(), "恢复损坏的备份文件应返回错误");
     assert!(
         matches!(result, Err(AppError::Config(_))),
         "损坏的 JSON 应返回 Config 错误（解析失败），实际: {:?}",

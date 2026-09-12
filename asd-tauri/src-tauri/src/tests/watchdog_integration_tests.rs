@@ -13,7 +13,8 @@
 #![cfg(windows)]
 
 use crate::infrastructure::watchdog::{
-    ProcessWatchdog, WatchdogAction, WatchdogRunner, BACKOFF_DURATIONS, MAX_RESTART_ATTEMPTS,
+    graceful_shutdown_watchdog, ProcessWatchdog, WatchdogAction, WatchdogRunner, BACKOFF_DURATIONS,
+    MAX_RESTART_ATTEMPTS,
 };
 use asd_domain::config::WatchdogStateEnum;
 use std::os::windows::process::CommandExt;
@@ -59,7 +60,7 @@ fn spawn_quick_exit_child() -> std::process::Child {
 #[ignore = "涉及真实进程管理，需手动运行：cargo test -- --ignored test_watchdog_start_child_process"]
 fn test_watchdog_start_child_process() {
     let mut wd = ProcessWatchdog::new();
-    assert_eq!(*wd.state(), WatchdogStateEnum::Idle);
+    assert_eq!(wd.state(), WatchdogStateEnum::Idle);
     assert!(wd.child_pid().is_none());
 
     let child = spawn_long_running_child();
@@ -69,7 +70,7 @@ fn test_watchdog_start_child_process() {
     assert!(result.is_ok(), "attach_child 应成功: {:?}", result);
 
     assert_eq!(
-        *wd.state(),
+        wd.state(),
         WatchdogStateEnum::Running,
         "附加子进程后状态应为 Running"
     );
@@ -77,21 +78,26 @@ fn test_watchdog_start_child_process() {
 
     // tick 在 Running 状态下且子进程存活时应返回 None
     let action = wd.tick();
-    assert_eq!(action, WatchdogAction::None, "子进程存活时 tick 应返回 None");
+    assert_eq!(
+        action,
+        WatchdogAction::None,
+        "子进程存活时 tick 应返回 None"
+    );
 
     // 清理：优雅关机
     let rt = tokio::runtime::Runtime::new().expect("创建 tokio 运行时失败");
     rt.block_on(async {
-        let result = wd.graceful_shutdown().await;
+        let wd = Arc::new(Mutex::new(wd));
+        let result = graceful_shutdown_watchdog(&wd).await;
         assert!(result.is_ok(), "graceful_shutdown 应成功: {:?}", result);
+        let guard = wd.lock().await;
+        assert_eq!(
+            guard.state(),
+            WatchdogStateEnum::Idle,
+            "关机后状态应回到 Idle"
+        );
+        assert!(guard.child_pid().is_none(), "关机后 child_pid 应为 None");
     });
-
-    assert_eq!(
-        *wd.state(),
-        WatchdogStateEnum::Idle,
-        "关机后状态应回到 Idle"
-    );
-    assert!(wd.child_pid().is_none(), "关机后 child_pid 应为 None");
 }
 
 // =================================================================
@@ -111,7 +117,7 @@ fn test_watchdog_child_crash_restart() {
 
     let child = spawn_long_running_child();
     wd.attach_child(child).expect("attach_child 失败");
-    assert_eq!(*wd.state(), WatchdogStateEnum::Running);
+    assert_eq!(wd.state(), WatchdogStateEnum::Running);
 
     // 模拟崩溃：kill 子进程
     {
@@ -129,7 +135,7 @@ fn test_watchdog_child_crash_restart() {
         "子进程退出后 tick 应返回 RestartNeeded"
     );
     assert_eq!(
-        *wd.state(),
+        wd.state(),
         WatchdogStateEnum::Restarting,
         "检测到崩溃后状态应为 Restarting"
     );
@@ -155,7 +161,7 @@ async fn test_watchdog_runner_auto_restart() {
         let mut guard = wd.lock().await;
         let result = guard.spawn_child("C:\\Windows\\System32\\cmd.exe", "test_auth_token");
         assert!(result.is_ok(), "spawn_child 应成功: {:?}", result);
-        assert_eq!(*guard.state(), WatchdogStateEnum::Running);
+        assert_eq!(guard.state(), WatchdogStateEnum::Running);
     }
 
     let runner = WatchdogRunner::from_arc(wd.clone());
@@ -198,8 +204,7 @@ async fn test_watchdog_runner_auto_restart() {
 
     // 清理
     runner_handle.abort();
-    let mut guard = wd.lock().await;
-    let _ = guard.graceful_shutdown().await;
+    let _ = graceful_shutdown_watchdog(&wd).await;
 }
 
 // =================================================================
@@ -230,7 +235,7 @@ fn test_watchdog_restart_limit() {
         "达到 MAX_RESTART_ATTEMPTS 时应返回 MaxRetriesExceeded"
     );
     assert_eq!(
-        *wd.state(),
+        wd.state(),
         WatchdogStateEnum::Failed,
         "达到上限后状态应为 Failed"
     );
@@ -252,7 +257,7 @@ fn test_watchdog_failed_state_persistent() {
     assert_eq!(action2, WatchdogAction::MaxRetriesExceeded);
 
     // 状态应保持 Failed
-    assert_eq!(*wd.state(), WatchdogStateEnum::Failed);
+    assert_eq!(wd.state(), WatchdogStateEnum::Failed);
 }
 
 // =================================================================
@@ -358,7 +363,7 @@ fn test_watchdog_heartbeat_recovery() {
 
     // 收到心跳后应恢复到 Running
     wd.notify_heartbeat();
-    assert_eq!(*wd.state(), WatchdogStateEnum::Running);
+    assert_eq!(wd.state(), WatchdogStateEnum::Running);
     assert_eq!(wd.missed_heartbeats(), 0);
 }
 
@@ -381,7 +386,11 @@ fn test_watchdog_stable_heartbeat_resets_count() {
 
     // 第 5 次心跳应触发重置
     wd.notify_heartbeat();
-    assert_eq!(wd.restart_count(), 0, "5 次稳定心跳后 restart_count 应重置为 0");
+    assert_eq!(
+        wd.restart_count(),
+        0,
+        "5 次稳定心跳后 restart_count 应重置为 0"
+    );
 }
 
 // =================================================================
@@ -396,27 +405,31 @@ async fn test_watchdog_graceful_shutdown() {
 
     let child = spawn_long_running_child();
     wd.attach_child(child).expect("attach_child 失败");
-    assert_eq!(*wd.state(), WatchdogStateEnum::Running);
+    assert_eq!(wd.state(), WatchdogStateEnum::Running);
 
     // 优雅关机
-    let result = wd.graceful_shutdown().await;
+    let wd = Arc::new(Mutex::new(wd));
+    let result = graceful_shutdown_watchdog(&wd).await;
     assert!(result.is_ok(), "graceful_shutdown 应成功: {:?}", result);
 
-    assert_eq!(*wd.state(), WatchdogStateEnum::Idle);
-    assert!(!wd.has_child());
-    assert!(wd.child_pid().is_none());
+    let guard = wd.lock().await;
+    assert_eq!(guard.state(), WatchdogStateEnum::Idle);
+    assert!(!guard.has_child());
+    assert!(guard.child_pid().is_none());
 }
 
 /// 验证 `graceful_shutdown` 在无子进程时返回 Ok。
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "验证无子进程时的关机行为"]
 async fn test_watchdog_graceful_shutdown_no_child() {
-    let mut wd = ProcessWatchdog::new();
+    let wd = ProcessWatchdog::new();
     assert!(wd.child_pid().is_none());
 
-    let result = wd.graceful_shutdown().await;
+    let wd = Arc::new(Mutex::new(wd));
+    let result = graceful_shutdown_watchdog(&wd).await;
     assert!(result.is_ok(), "无子进程时 graceful_shutdown 应返回 Ok");
-    assert_eq!(*wd.state(), WatchdogStateEnum::Idle);
+    let guard = wd.lock().await;
+    assert_eq!(guard.state(), WatchdogStateEnum::Idle);
 }
 
 // =================================================================
@@ -434,8 +447,12 @@ fn test_watchdog_reset_to_restart() {
 
     wd.reset_to_restart();
 
-    assert_eq!(*wd.state(), WatchdogStateEnum::Restarting);
-    assert_eq!(wd.restart_count(), 0, "reset_to_restart 应将 restart_count 重置为 0");
+    assert_eq!(wd.state(), WatchdogStateEnum::Restarting);
+    assert_eq!(
+        wd.restart_count(),
+        0,
+        "reset_to_restart 应将 restart_count 重置为 0"
+    );
     assert_eq!(
         wd.backoff_duration(),
         Duration::from_secs(1),
@@ -457,7 +474,7 @@ fn test_watchdog_reset_restart_count() {
     assert_eq!(wd.restart_count(), 0);
     assert_eq!(wd.backoff_duration(), Duration::from_secs(1));
     assert_eq!(
-        *wd.state(),
+        wd.state(),
         WatchdogStateEnum::Running,
         "reset_restart_count 不应改变状态"
     );
@@ -476,9 +493,9 @@ fn test_backoff_durations_constant() {
     assert_eq!(BACKOFF_DURATIONS[2], Duration::from_secs(4));
     assert_eq!(BACKOFF_DURATIONS[3], Duration::from_secs(8));
     // 第 5 个开始为 30s 上限
-    for i in 4..10 {
+    for (i, duration) in BACKOFF_DURATIONS.iter().enumerate().skip(4) {
         assert_eq!(
-            BACKOFF_DURATIONS[i],
+            *duration,
             Duration::from_secs(30),
             "BACKOFF_DURATIONS[{}] 应为 30s",
             i
@@ -505,12 +522,12 @@ fn test_watchdog_full_state_machine_flow() {
     let mut wd = ProcessWatchdog::new();
 
     // 1. 初始 Idle
-    assert_eq!(*wd.state(), WatchdogStateEnum::Idle);
+    assert_eq!(wd.state(), WatchdogStateEnum::Idle);
 
     // 2. attach_child → Running
     let child = spawn_quick_exit_child();
     wd.attach_child(child).expect("attach_child 失败");
-    assert_eq!(*wd.state(), WatchdogStateEnum::Running);
+    assert_eq!(wd.state(), WatchdogStateEnum::Running);
 
     // 3. 等待子进程退出
     std::thread::sleep(Duration::from_millis(200));
@@ -518,16 +535,16 @@ fn test_watchdog_full_state_machine_flow() {
     // 4. tick 检测到退出 → Restarting
     let action = wd.tick();
     assert_eq!(action, WatchdogAction::RestartNeeded);
-    assert_eq!(*wd.state(), WatchdogStateEnum::Restarting);
+    assert_eq!(wd.state(), WatchdogStateEnum::Restarting);
 
     // 5. 模拟达到重启上限
     wd.set_restart_count(MAX_RESTART_ATTEMPTS);
     let action = wd.tick();
     assert_eq!(action, WatchdogAction::MaxRetriesExceeded);
-    assert_eq!(*wd.state(), WatchdogStateEnum::Failed);
+    assert_eq!(wd.state(), WatchdogStateEnum::Failed);
 
     // 6. reset_to_restart → Restarting
     wd.reset_to_restart();
-    assert_eq!(*wd.state(), WatchdogStateEnum::Restarting);
+    assert_eq!(wd.state(), WatchdogStateEnum::Restarting);
     assert_eq!(wd.restart_count(), 0);
 }

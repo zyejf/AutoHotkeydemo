@@ -359,7 +359,7 @@ fn test_ipc_error_from_broken_pipe() {
 
 #[test]
 fn test_ipc_error_from_other_io() {
-    let err = std::io::Error::new(std::io::ErrorKind::Other, "some error");
+    let err = std::io::Error::other("some error");
     let ipc_err = IpcError::from(err);
     assert!(matches!(ipc_err, IpcError::IoError(_)));
 }

@@ -169,7 +169,7 @@ fn test_register_hotkey() {
     assert!(result.is_ok());
     let commands = ipc.sent_commands();
     // 活跃分组注册新热键：先注销旧热键，再注册新热键
-    assert!(commands.len() >= 1);
+    assert!(!commands.is_empty());
     assert!(commands.iter().any(|c| matches!(
         c,
         IpcCommand::RegisterHotkey { hotkey, group_id } if hotkey == "F3" && group_id == "1"

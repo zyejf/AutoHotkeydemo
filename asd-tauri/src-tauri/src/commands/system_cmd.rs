@@ -38,7 +38,10 @@ pub fn emergency_release_impl(state: &AppState) -> Result<(), AppError> {
         // 仅在首次设置（非重复调用）时回滚，避免覆盖并发的 clear_emergency
         if !already_active {
             let _ = state.emergency_mode.compare_exchange(
-                true, false, Ordering::SeqCst, Ordering::SeqCst,
+                true,
+                false,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
             );
         }
         return Err(e);
@@ -64,7 +67,9 @@ pub fn toggle_hold_mode_impl(state: &AppState) -> Result<bool, AppError> {
         }
         attempts += 1;
         if attempts >= 10 {
-            return Err(AppError::Internal("toggle_hold_mode CAS 竞争超限".to_string()));
+            return Err(AppError::Internal(
+                "toggle_hold_mode CAS 竞争超限".to_string(),
+            ));
         }
     }
 
@@ -103,9 +108,11 @@ pub async fn emergency_release(state: tauri::State<'_, Arc<AppState>>) -> Result
 pub async fn clear_emergency(state: tauri::State<'_, Arc<AppState>>) -> Result<(), AppError> {
     // 使用 compare_exchange 而非 store，与 emergency_release 对称，
     // 避免覆盖并发 emergency_release 设置的 true
-    if state.emergency_mode.compare_exchange(
-        true, false, Ordering::SeqCst, Ordering::SeqCst,
-    ).is_ok() {
+    if state
+        .emergency_mode
+        .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
         tracing::info!("紧急释放模式已清除");
     } else {
         tracing::debug!("紧急释放模式已处于关闭状态");
@@ -142,7 +149,9 @@ mod tests {
     use asd_domain::config::WatchdogStateEnum;
     use asd_domain::traits::IpcSender;
     use asd_ipc_protocol::{IpcCommand, IpcMessage};
-    use asd_test_harness::{make_test_config, make_test_state, MockEventEmitter, MockProcessWatcher};
+    use asd_test_harness::{
+        make_test_config, make_test_state, MockEventEmitter, MockProcessWatcher,
+    };
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -202,7 +211,10 @@ mod tests {
         let result = emergency_release_impl(&state);
         assert!(result.is_ok(), "紧急释放应成功: {:?}", result.err());
         // 验证 emergency_mode 已设置为 true
-        assert!(state.is_emergency_mode(), "紧急释放后 emergency_mode 应为 true");
+        assert!(
+            state.is_emergency_mode(),
+            "紧急释放后 emergency_mode 应为 true"
+        );
     }
 
     /// 验证 toggle_hold_mode 成功翻转长按模式。
@@ -211,20 +223,29 @@ mod tests {
     fn test_toggle_hold_mode_toggles() {
         let state = make_test_state();
         // 前置条件：hold_mode_enabled 未开启
-        assert!(!state.is_hold_mode_enabled(), "初始 hold_mode_enabled 应为 false");
+        assert!(
+            !state.is_hold_mode_enabled(),
+            "初始 hold_mode_enabled 应为 false"
+        );
 
         let result = toggle_hold_mode_impl(&state);
         assert!(result.is_ok(), "切换长按模式应成功: {:?}", result.err());
         let new_value = result.unwrap();
         assert!(new_value, "首次切换应返回 true（false→true）");
-        assert!(state.is_hold_mode_enabled(), "切换后 hold_mode_enabled 应为 true");
+        assert!(
+            state.is_hold_mode_enabled(),
+            "切换后 hold_mode_enabled 应为 true"
+        );
 
         // 再次切换：true → false
         let result2 = toggle_hold_mode_impl(&state);
         assert!(result2.is_ok(), "第二次切换应成功: {:?}", result2.err());
         let new_value2 = result2.unwrap();
         assert!(!new_value2, "第二次切换应返回 false（true→false）");
-        assert!(!state.is_hold_mode_enabled(), "二次切换后 hold_mode_enabled 应为 false");
+        assert!(
+            !state.is_hold_mode_enabled(),
+            "二次切换后 hold_mode_enabled 应为 false"
+        );
     }
 
     // ----------------------------------------------------------------
@@ -288,9 +309,6 @@ mod tests {
             WatchdogStateEnum::Running,
             "更新后状态应为 Running"
         );
-        assert_eq!(
-            updated.restart_count, 3,
-            "更新后重启次数应为 3"
-        );
+        assert_eq!(updated.restart_count, 3, "更新后重启次数应为 3");
     }
 }

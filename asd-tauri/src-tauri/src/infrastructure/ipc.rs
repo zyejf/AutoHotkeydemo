@@ -16,11 +16,24 @@ pub use asd_ipc_protocol::{HotkeyMerger, IpcError};
 
 const MAX_MESSAGE_SIZE: usize = 64 * 1024;
 const IPC_CHANNEL_CAPACITY: usize = 512;
+/// 单次 IPC 写入（`write_all` + `flush`）的超时阈值。
+///
+/// T6-05：AHK 子进程挂死且管道写满时，无超时的写入会无限阻塞 Tauri
+/// 工作线程，多命令并发可能耗尽线程池。此超时将该窗口限制在 2s 内，
+/// 超时视同管道不可靠，清理连接并返回 `SendTimeout`。
+const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(2000);
 /// pending_responses 周期性清理的最大存活时间。
 ///
 /// **约束**: `send_and_wait` 的 timeout 不应超过此值，否则 pending response
 /// 会在超时前被清理，导致收到 `ChannelClosed` 而非 `Timeout` 错误。
 pub const PENDING_CLEANUP_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// IPC named pipe 名称（不含 `\\.\pipe\` 前缀），全项目唯一权威定义。
+///
+/// T5-12：从 `lib.rs` 收敛到此，避免 Rust 侧多处硬编码；AHK 执行器
+/// `ahk_executor/ipc_client.ahk` 中的 `PIPE_NAME := "\\.\pipe\asd_ipc"`
+/// 后缀必须与此一致，一致性由 `test_ipc_pipe_name_matches_ahk_client` 守护。
+pub const IPC_PIPE_NAME: &str = "asd_ipc";
 
 static AUTH_FALLBACK_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -73,17 +86,7 @@ impl Clone for IpcManager {
 
 impl IpcManager {
     pub fn new(pipe_name: &str) -> (Self, IpcOutboundReceiver) {
-        let auth_token = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-            Ok(d) => format!("ASD_{}", d.as_nanos()),
-            Err(_) => {
-                let pid = std::process::id();
-                let counter = AUTH_FALLBACK_COUNTER.fetch_add(1, Ordering::Relaxed);
-                tracing::warn!(
-                    "系统时钟异常，使用 PID+计数器作为 auth token 后缀: pid={pid}, counter={counter}"
-                );
-                format!("ASD_FALLBACK_{pid}_{counter}")
-            }
-        };
+        let auth_token = generate_auth_token();
         Self::new_with_token(pipe_name, auth_token)
     }
 
@@ -164,10 +167,8 @@ impl IpcManager {
         *self.recv_half.lock().await = Some(BufReader::new(recv));
 
         // C-14: 验证认证消息 — 首条消息必须是 auth 类型且 token 匹配
-        let auth_result = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            self.recv()
-        ).await;
+        let auth_result =
+            tokio::time::timeout(std::time::Duration::from_secs(5), self.recv()).await;
 
         match auth_result {
             Ok(Ok(msg)) if msg.r#type == "auth" => {
@@ -177,7 +178,7 @@ impl IpcManager {
                     .and_then(|d| d.get("token"))
                     .and_then(|t| t.as_str())
                     .unwrap_or("");
-                if token != self.auth_token {
+                if !constant_time_eq(token, &self.auth_token) {
                     self.cleanup_connection().await;
                     tracing::warn!("IPC AHK 认证失败: token 不匹配");
                     return Err(IpcError::AuthFailed("token 不匹配".to_string()));
@@ -298,10 +299,12 @@ impl IpcManager {
         let mut writer_guard = self.send_half.lock().await;
         let writer = writer_guard.as_mut().ok_or(IpcError::ConnectionClosed)?;
 
-        match writer.write_all(bytes).await {
-            Ok(()) => match writer.flush().await {
-                Ok(()) => Ok(()),
-                Err(e) => {
+        // T6-05：写入（write_all + flush）加超时，避免 AHK 挂死且管道写满时
+        // 无限阻塞。超时视同管道不可靠，清理连接并返回 SendTimeout。
+        match tokio::time::timeout(SEND_TIMEOUT, writer.write_all(bytes)).await {
+            Ok(Ok(())) => match tokio::time::timeout(SEND_TIMEOUT, writer.flush()).await {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(e)) => {
                     let ipc_err = IpcError::from(e);
                     let _is_pipe_broken = matches!(ipc_err, IpcError::PipeBroken(_));
                     // flush 失败时连接可能已不可靠，无论是否为 PipeBroken 都清理
@@ -310,8 +313,18 @@ impl IpcManager {
                     self.notify_pipe_broken().await;
                     Err(ipc_err)
                 }
+                Err(_elapsed) => {
+                    tracing::warn!(
+                        "IPC send flush 超时 ({}ms)，视为管道不可靠",
+                        SEND_TIMEOUT.as_millis()
+                    );
+                    *writer_guard = None;
+                    drop(writer_guard);
+                    self.notify_pipe_broken().await;
+                    Err(IpcError::SendTimeout)
+                }
             },
-            Err(e) => {
+            Ok(Err(e)) => {
                 let ipc_err = IpcError::from(e);
                 let is_pipe_broken = matches!(ipc_err, IpcError::PipeBroken(_));
                 if is_pipe_broken {
@@ -322,6 +335,16 @@ impl IpcManager {
                     self.notify_pipe_broken().await;
                 }
                 Err(ipc_err)
+            }
+            Err(_elapsed) => {
+                tracing::warn!(
+                    "IPC send 写超时 ({}ms)，视为管道不可靠",
+                    SEND_TIMEOUT.as_millis()
+                );
+                *writer_guard = None;
+                drop(writer_guard);
+                self.notify_pipe_broken().await;
+                Err(IpcError::SendTimeout)
             }
         }
     }
@@ -435,7 +458,11 @@ impl IpcManager {
 
         // 使用 take() 限制读取大小，避免恶意/异常大消息耗尽内存
         let mut line = String::with_capacity(256);
-        match reader.take(MAX_MESSAGE_SIZE as u64).read_line(&mut line).await {
+        match reader
+            .take(MAX_MESSAGE_SIZE as u64)
+            .read_line(&mut line)
+            .await
+        {
             Ok(0) => {
                 *reader_guard = None;
                 Err(IpcError::ConnectionClosed)
@@ -453,8 +480,12 @@ impl IpcManager {
                     // 发送超长无换行数据导致 OOM。
                     const MAX_DISCARD_SIZE: u64 = 1024 * 1024;
                     let mut discard = String::new();
-                    if let Err(discard_err) = reader.take(MAX_DISCARD_SIZE).read_line(&mut discard).await {
-                        tracing::debug!("消耗超大消息残余数据失败（可能是管道断裂）: {discard_err}");
+                    if let Err(discard_err) =
+                        reader.take(MAX_DISCARD_SIZE).read_line(&mut discard).await
+                    {
+                        tracing::debug!(
+                            "消耗超大消息残余数据失败（可能是管道断裂）: {discard_err}"
+                        );
                     }
                     if !discard.ends_with('\n') {
                         tracing::error!(
@@ -462,14 +493,16 @@ impl IpcManager {
                             MAX_DISCARD_SIZE
                         );
                         *reader_guard = None;
-                        return Err(IpcError::PipeBroken("残余数据超限，管道状态不一致".to_string()));
+                        return Err(IpcError::PipeBroken(
+                            "残余数据超限，管道状态不一致".to_string(),
+                        ));
                     }
                     return Err(IpcError::MessageTooLarge(line.len(), MAX_MESSAGE_SIZE));
                 }
                 if trimmed.len() > MAX_MESSAGE_SIZE {
                     return Err(IpcError::MessageTooLarge(trimmed.len(), MAX_MESSAGE_SIZE));
                 }
-                let msg: IpcMessage = serde_json::from_str(trimmed)?;
+                let msg = parse_message(trimmed)?;
                 Ok(msg)
             }
             Err(e) => {
@@ -490,12 +523,34 @@ impl IpcManager {
             let mut pending = self.pending_responses.lock().await;
             if let Some(p) = pending.remove(&ack) {
                 if p.tx.send(msg).is_err() {
-                    tracing::debug!("dispatch_response: oneshot 发送失败 (ack_seq={ack})，接收方可能已超时");
+                    tracing::debug!(
+                        "dispatch_response: oneshot 发送失败 (ack_seq={ack})，接收方可能已超时"
+                    );
                 }
                 return true;
             }
         }
         false
+    }
+
+    /// 将非关键消息转发到 outbound 通道。
+    ///
+    /// T6-06：非关键消息（heartbeat / key_send_event / key_record_event 等）
+    /// 用 try_send，通道满时丢弃而非 await 阻塞监听循环，避免经 recv →
+    /// OS 管道 → AHK 同步 WriteFile 反向压死。
+    async fn forward_to_outbound(&self, msg: IpcMessage) {
+        match self.outbound_tx.try_send(msg) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(dropped)) => {
+                tracing::debug!(
+                    "IPC outbound 通道已满，丢弃非关键消息 type={}",
+                    dropped.r#type
+                );
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                tracing::debug!("IPC outbound 通道已关闭，丢弃非关键消息");
+            }
+        }
     }
 
     pub async fn listen_ahk(&self) {
@@ -542,33 +597,40 @@ impl IpcManager {
                         }
                     };
 
-                    if self.dispatch_response(msg.clone()).await {
-                        continue;
-                    }
-
-                    if msg.r#type == "pong" {
-                        let cb = self.on_heartbeat.lock().clone();
-                        if let Some(cb) = cb {
-                            cb();
-                        }
-                        continue;
-                    }
-
-                    if msg.r#type == "hotkey" {
-                        let messages = {
-                            let mut merger = self.hotkey_merger.lock().await;
-                            merger.push(msg);
-                            if merger.should_flush() {
-                                merger.flush()
-                            } else {
-                                Vec::new()
+                    // T8-01：消息分类逻辑抽取为纯函数 classify_message，分发语义与原内联实现等价。
+                    match classify_message(&msg) {
+                        MessageKind::Response => {
+                            // T6-06：仅当消息携带 ack_seq 时才可能是响应，才需要 clone 深拷贝。
+                            if self.dispatch_response(msg.clone()).await {
+                                continue;
                             }
-                        };
-                        for msg in messages {
-                            let _ = self.outbound_tx.send(msg).await;
+                            // 响应未匹配到 pending（如超时后被清理），按非关键消息转发兜底。
+                            self.forward_to_outbound(msg).await;
                         }
-                    } else {
-                        let _ = self.outbound_tx.send(msg).await;
+                        MessageKind::Pong => {
+                            let cb = self.on_heartbeat.lock().clone();
+                            if let Some(cb) = cb {
+                                cb();
+                            }
+                            continue;
+                        }
+                        MessageKind::Hotkey => {
+                            let messages = {
+                                let mut merger = self.hotkey_merger.lock().await;
+                                merger.push(msg);
+                                if merger.should_flush() {
+                                    merger.flush()
+                                } else {
+                                    Vec::new()
+                                }
+                            };
+                            for msg in messages {
+                                let _ = self.outbound_tx.send(msg).await;
+                            }
+                        }
+                        MessageKind::Forward => {
+                            self.forward_to_outbound(msg).await;
+                        }
                     }
                 }
                 _ = flush_interval.tick() => {
@@ -615,7 +677,8 @@ impl IpcManager {
         }
         let mut pending = self.pending_responses.lock().await;
         for (seq, p) in pending.drain() {
-            let _ = p.tx.send(IpcMessage::error_response(seq, seq, "pipe_broken"));
+            let _ =
+                p.tx.send(IpcMessage::error_response(seq, seq, "pipe_broken"));
         }
     }
 
@@ -649,6 +712,99 @@ impl IpcManager {
                 tracing::warn!("清理超时 pending response: seq={seq}");
             }
         }
+    }
+}
+
+/// 生成 32 字节随机认证 token，并 hex 编码为 64 字符字符串。
+///
+/// T5-08：原实现用 `SystemTime::now()` 时间戳派生 token，攻击者可结合进程启动
+/// 时间缩小猜测空间。改为随机字节后 token 不可预测。
+///
+/// 随机源不可用时（理论上极罕见）回退为 PID + 计数器 + 时间戳，仍保持纯
+/// 十六进制格式，保证 token 通过环境变量跨语言传递时不引入特殊字符。
+fn generate_auth_token() -> String {
+    let mut buf = [0u8; 32];
+    match getrandom::getrandom(&mut buf) {
+        Ok(()) => {
+            let mut hex = String::with_capacity(64);
+            for byte in &buf {
+                hex.push_str(&format!("{byte:02x}"));
+            }
+            hex
+        }
+        Err(e) => {
+            let pid = std::process::id();
+            let counter = AUTH_FALLBACK_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            tracing::warn!(
+                "系统随机源不可用，使用 PID+计数器+时间戳作为 auth token 兜底: pid={pid}, counter={counter}, err={e}"
+            );
+            format!("{pid:08x}{counter:08x}{ts:016x}")
+        }
+    }
+}
+
+/// 恒定时间字符串比较，避免认证 token 比较的时序侧信道（T5-08）。
+///
+/// 逐字节 XOR 累积差异，不提前返回；长度差异也纳入 `diff` 计算，
+/// 屏蔽「长度不等立即返回 false」的短路径时序泄露。
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    let mut diff = a.len() ^ b.len();
+    let max_len = a.len().max(b.len());
+    for i in 0..max_len {
+        let x = a.get(i).copied().unwrap_or(0);
+        let y = b.get(i).copied().unwrap_or(0);
+        diff |= (x ^ y) as usize;
+    }
+    diff == 0
+}
+
+/// IPC 消息分发分类。
+///
+/// T8-01：从 `listen_ahk` 的内联分发逻辑抽出，便于单元测试。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MessageKind {
+    /// 携带 ack_seq 的响应消息，需尝试匹配 pending response
+    Response,
+    /// 心跳 pong 响应
+    Pong,
+    /// 热键事件
+    Hotkey,
+    /// 其它消息，转发到 outbound 通道
+    Forward,
+}
+
+/// 将一行 JSON 解析为 `IpcMessage`。
+///
+/// T8-01：从 `recv` 内联的 `serde_json::from_str` 抽出，便于单元测试。
+fn parse_message(line: &str) -> Result<IpcMessage, IpcError> {
+    let msg: IpcMessage = serde_json::from_str(line)?;
+    Ok(msg)
+}
+
+/// 按消息内容分类，供 `listen_ahk` 分发分支复用。
+///
+/// 分类优先级与原内联实现等价：
+/// 1. `pong` 心跳消息 —— `pong` 也携带 ack_seq，但 Rust 侧 ping 永不注册
+///    pending（走 `send` 而非 `send_and_wait`），因此 `dispatch_response` 对
+///    `pong` 始终返回 false，将其直接归为 `Pong` 不改变运行行为；
+/// 2. 其它携带 `ack_seq` 的消息 → `Response`；
+/// 3. `hotkey` → `Hotkey`；
+/// 4. 其余 → `Forward`（含 heartbeat / key_send_event 等非关键消息）。
+fn classify_message(msg: &IpcMessage) -> MessageKind {
+    if msg.r#type == "pong" {
+        MessageKind::Pong
+    } else if msg.ack_seq.is_some() {
+        MessageKind::Response
+    } else if msg.r#type == "hotkey" {
+        MessageKind::Hotkey
+    } else {
+        MessageKind::Forward
     }
 }
 
@@ -930,7 +1086,7 @@ mod tests {
 
     #[test]
     fn test_ipc_error_from_other_io() {
-        let err = std::io::Error::new(std::io::ErrorKind::Other, "some error");
+        let err = std::io::Error::other("some error");
         let ipc_err = IpcError::from(err);
         assert!(matches!(ipc_err, IpcError::IoError(_)));
     }
@@ -1084,6 +1240,178 @@ mod tests {
         assert!(
             called.load(Ordering::SeqCst),
             "非关机期间 pipe_broken 回调应被触发"
+        );
+    }
+
+    // ---- T6-05: send() 写超时兜底 — 测试 ----
+
+    /// 验证单次 IPC 写超时阈值固定为 2000ms（T6-05 兜底上限）。
+    #[test]
+    fn test_send_timeout_configured_to_2000ms() {
+        assert_eq!(
+            SEND_TIMEOUT,
+            std::time::Duration::from_millis(2000),
+            "SEND_TIMEOUT 应为 2000ms，避免 AHK 挂死时无限阻塞工作线程"
+        );
+    }
+
+    /// 验证未连接时 send() 不阻塞、立即返回 ConnectionClosed 错误，
+    /// 而非挂起工作线程（T6-05 错误路径确定性回归）。
+    #[tokio::test]
+    async fn test_send_returns_connection_closed_when_disconnected() {
+        let (manager, _rx) = IpcManager::new(&unique_pipe_name("test_send_disconnected"));
+        let msg = IpcMessage::ping(1);
+        let result = manager.send(&msg).await;
+        assert!(
+            matches!(result, Err(IpcError::ConnectionClosed)),
+            "未连接时 send() 应返回 ConnectionClosed，实际: {:?}",
+            result
+        );
+    }
+
+    // ---- T8-01: parse_message 纯函数测试 ----
+
+    #[test]
+    fn test_parse_message_valid_line() {
+        let json = r#"{"type":"pong","seq":2,"ack_seq":1}"#;
+        let msg = parse_message(json).expect("应成功解析合法 JSON");
+        assert_eq!(msg.r#type, "pong");
+        assert_eq!(msg.seq, 2);
+        assert_eq!(msg.ack_seq, Some(1));
+    }
+
+    #[test]
+    fn test_parse_message_malformed_json() {
+        let result = parse_message("{invalid json");
+        assert!(
+            matches!(result, Err(IpcError::JsonError(_))),
+            "畸形 JSON 应返回 JsonError，实际: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_parse_message_missing_optional_fields() {
+        // 缺少 keys/data 等可选字段时仍应成功解析，且对应字段为 None
+        let json = r#"{"type":"heartbeat","seq":50}"#;
+        let msg = parse_message(json).expect("缺少可选字段不应导致解析失败");
+        assert_eq!(msg.r#type, "heartbeat");
+        assert_eq!(msg.seq, 50);
+        assert!(msg.keys.is_none(), "keys 应为 None");
+        assert!(msg.data.is_none(), "data 应为 None");
+    }
+
+    // ---- T8-01: classify_message 纯函数测试 ----
+
+    #[test]
+    fn test_classify_message_response_with_ack_seq() {
+        let msg = IpcMessage::response(100, 42, "ok", None);
+        assert_eq!(classify_message(&msg), MessageKind::Response);
+    }
+
+    #[test]
+    fn test_classify_message_pong() {
+        let msg = IpcMessage::pong(2, 1);
+        assert_eq!(classify_message(&msg), MessageKind::Pong);
+    }
+
+    #[test]
+    fn test_classify_message_hotkey() {
+        let msg = IpcMessage::hotkey_event(1, "F1");
+        assert_eq!(classify_message(&msg), MessageKind::Hotkey);
+    }
+
+    #[test]
+    fn test_classify_message_forward_unknown_type() {
+        // 未知 type 消息应落入 forward 兜底分支
+        let msg = IpcMessage {
+            r#type: "unknown_type".to_string(),
+            seq: 7,
+            ..Default::default()
+        };
+        assert_eq!(classify_message(&msg), MessageKind::Forward);
+    }
+
+    #[test]
+    fn test_classify_message_forward_heartbeat() {
+        let msg = IpcMessage::heartbeat(50);
+        assert_eq!(classify_message(&msg), MessageKind::Forward);
+    }
+
+    // ---- T5-08: auth token 随机生成 + 恒定时间比较 测试 ----
+
+    /// 验证 `IpcManager::new` 生成的 auth token 为 64 字符纯十六进制，
+    /// 且两次生成结果不同（随机性），杜绝时间戳可预测性。
+    #[test]
+    fn test_auth_token_is_random_64_hex() {
+        let (mgr1, _) = IpcManager::new(&unique_pipe_name("auth_hex_1"));
+        let (mgr2, _) = IpcManager::new(&unique_pipe_name("auth_hex_2"));
+        let t1 = mgr1.auth_token();
+        let t2 = mgr2.auth_token();
+        assert_eq!(t1.len(), 64, "auth token 应为 64 字符 hex");
+        assert!(
+            t1.bytes().all(|b| b.is_ascii_hexdigit()),
+            "auth token 应为纯十六进制，实际: {t1}"
+        );
+        assert_ne!(t1, t2, "两次生成的 token 应不同（随机性）");
+    }
+
+    #[test]
+    fn test_constant_time_eq_same() {
+        assert!(constant_time_eq("abc123", "abc123"));
+    }
+
+    #[test]
+    fn test_constant_time_eq_different_same_length() {
+        assert!(!constant_time_eq("abc123", "abc124"));
+    }
+
+    #[test]
+    fn test_constant_time_eq_different_length() {
+        assert!(!constant_time_eq("abc", "ab"));
+        assert!(!constant_time_eq("ab", "abc"));
+    }
+
+    #[test]
+    fn test_constant_time_eq_empty() {
+        assert!(constant_time_eq("", ""));
+        assert!(!constant_time_eq("", "a"));
+    }
+
+    // ---- T5-12: 管道名单一权威 + 跨语言一致守护 测试 ----
+
+    /// 验证 `IPC_PIPE_NAME` 单一权威常量存在且值为 "asd_ipc"。
+    ///
+    /// 该测试原位于 `lib.rs` 的 `pipe_name_tests` 模块，随常量收敛到 `ipc.rs`
+    /// 后一并迁移至此，保证权威定义与测试同处一文件。
+    #[test]
+    fn test_ipc_pipe_name_constant_value() {
+        assert_eq!(IPC_PIPE_NAME, "asd_ipc");
+    }
+
+    /// 验证 AHK 执行器 `ipc_client.ahk` 的 `PIPE_NAME := "\\.\pipe\asd_ipc"`
+    /// 后缀与 Rust 常量 `IPC_PIPE_NAME` 一致（T5-12 跨语言单一权威守护）。
+    ///
+    /// 若 AHK 侧管道名被改动而 Rust 侧未同步，本测试会在 CI 中失败，
+    /// 防止 Rust 与 AHK 之间的 named pipe 名称漂移导致 IPC 无法连通。
+    #[test]
+    fn test_ipc_pipe_name_matches_ahk_client() {
+        let ahk_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("ahk_executor")
+            .join("ipc_client.ahk");
+        let content = std::fs::read_to_string(&ahk_path)
+            .unwrap_or_else(|e| panic!("无法读取 AHK 客户端文件 {}: {e}", ahk_path.display()));
+
+        let re = regex::Regex::new(r#"PIPE_NAME\s*:=\s*"[^"]*\\pipe\\([A-Za-z0-9_]+)""#)
+            .expect("IPC 管道名正则表达式应为合法");
+        let caps = re
+            .captures(&content)
+            .unwrap_or_else(|| panic!("AHK 客户端 {} 中未找到 PIPE_NAME 定义", ahk_path.display()));
+
+        assert_eq!(
+            &caps[1], IPC_PIPE_NAME,
+            "AHK 侧管道名后缀必须与 Rust 常量 IPC_PIPE_NAME 一致（Rust={IPC_PIPE_NAME}，AHK={}）",
+            &caps[1]
         );
     }
 }

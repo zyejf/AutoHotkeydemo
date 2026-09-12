@@ -2,9 +2,16 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 pub const VALID_MODES: &[&str] = &[
-    "periodic", "sequence", "hybrid", "hold",
-    "enhanced_periodic", "enhanced_sequence", "enhanced_hybrid",
-    "joystick_periodic", "joystick_sequence", "joystick_hold",
+    "periodic",
+    "sequence",
+    "hybrid",
+    "hold",
+    "enhanced_periodic",
+    "enhanced_sequence",
+    "enhanced_hybrid",
+    "joystick_periodic",
+    "joystick_sequence",
+    "joystick_hold",
 ];
 
 /// 需要 intervals 字段的模式列表（periodic 类模式）
@@ -60,7 +67,7 @@ impl Config {
                 release_on_emergency: true,
             }),
             last_modified: None,
-            version: Some("3.0".to_string()),
+            version: Some("4.0".to_string()),
         }
     }
 }
@@ -343,9 +350,7 @@ impl<'de> Deserialize<'de> for GroupConfig {
             None | Some(serde_json::Value::Null) => None,
             Some(v) => {
                 let parsed = serde_json::from_value::<Vec<serde_json::Value>>(v.clone())
-                    .map_err(|e| {
-                        serde::de::Error::custom(format!("holdTriggers 解析失败: {e}"))
-                    })?;
+                    .map_err(|e| serde::de::Error::custom(format!("holdTriggers 解析失败: {e}")))?;
                 if parsed.is_empty() {
                     None
                 } else {
@@ -525,7 +530,7 @@ mod unit_tests {
     fn test_hold_settings_deserialize() {
         let json = r#"{"allowOverlap":false,"checkInterval":50,"debounceDelay":25,"pressSpeed":80,"releaseOnEmergency":true}"#;
         let hs: HoldSettings = serde_json::from_str(json).unwrap();
-        assert_eq!(hs.allow_overlap, false);
+        assert!(!hs.allow_overlap);
         assert_eq!(hs.check_interval, 50);
         assert_eq!(hs.debounce_delay, 25);
     }
@@ -730,7 +735,10 @@ mod unit_tests {
     fn test_group_config_hold_triggers_valid_array() {
         let json = r#"{"hotkey":"F1","mode":"periodic","keys":["1"],"intervals":[50],"holdTriggers":[{"type":"press"}]}"#;
         let gc: GroupConfig = serde_json::from_str(json).unwrap();
-        assert!(gc.hold_triggers.is_some(), "holdTriggers 存在且有效时应为 Some");
+        assert!(
+            gc.hold_triggers.is_some(),
+            "holdTriggers 存在且有效时应为 Some"
+        );
         assert_eq!(gc.hold_triggers.as_ref().unwrap().len(), 1);
     }
 
@@ -754,7 +762,10 @@ mod unit_tests {
     fn test_group_config_hold_triggers_null() {
         let json = r#"{"hotkey":"F1","mode":"periodic","keys":["1"],"intervals":[50],"holdTriggers":null}"#;
         let gc: GroupConfig = serde_json::from_str(json).unwrap();
-        assert!(gc.hold_triggers.is_none(), "holdTriggers 为 null 时应为 None");
+        assert!(
+            gc.hold_triggers.is_none(),
+            "holdTriggers 为 null 时应为 None"
+        );
     }
 
     fn make_periodic_group_config() -> GroupConfig {

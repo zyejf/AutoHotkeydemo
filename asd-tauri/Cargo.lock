@@ -129,7 +129,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
- "tracing",
 ]
 
 [[package]]
@@ -139,7 +138,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
- "tracing",
 ]
 
 [[package]]
@@ -153,9 +151,11 @@ dependencies = [
  "chrono",
  "clap",
  "criterion",
+ "getrandom 0.2.17",
  "indexmap 2.14.0",
  "interprocess",
  "parking_lot",
+ "regex",
  "serde",
  "serde_json",
  "serial_test",

@@ -72,11 +72,7 @@ fn test_config_change_to_ipc_command_full_flow() {
         } => {
             assert_eq!(group_id, "1", "group_id 应为 \"1\"");
             assert!(*active, "active 应为 true（分组已激活，参数变更重新同步）");
-            assert_eq!(
-                mode.as_deref(),
-                Some("periodic"),
-                "mode 应为 \"periodic\""
-            );
+            assert_eq!(mode.as_deref(), Some("periodic"), "mode 应为 \"periodic\"");
             assert_eq!(
                 *key_press_duration,
                 Some(99),
@@ -84,7 +80,10 @@ fn test_config_change_to_ipc_command_full_flow() {
             );
             assert!(hold_keys.is_none(), "hold_keys 应为 None");
             assert!(hold_mode.is_none(), "hold_mode 应为 None");
-            assert!(mode_data.is_some(), "mode_data 应为 Some（包含 keys 和 intervals）");
+            assert!(
+                mode_data.is_some(),
+                "mode_data 应为 Some（包含 keys 和 intervals）"
+            );
         }
         other => panic!("Expected ToggleGroup, got {:?}", other),
     }
@@ -120,7 +119,10 @@ fn test_config_change_to_ipc_command_full_flow() {
         data["keyPressDuration"], 99,
         "JSON 往返后 keyPressDuration 应为 99"
     );
-    assert_eq!(data["mode"], "periodic", "JSON 往返后 mode 应为 \"periodic\"");
+    assert_eq!(
+        data["mode"], "periodic",
+        "JSON 往返后 mode 应为 \"periodic\""
+    );
 }
 
 // =================================================================
@@ -145,8 +147,7 @@ fn test_recording_flow_full_dataflow() {
     }
 
     // 启动录制
-    recording_service::start_recording(&state, "1", "periodic")
-        .expect("启动录制应成功");
+    recording_service::start_recording(&state, "1", "periodic").expect("启动录制应成功");
 
     // 验证 recording_mode 已设置为 "periodic"
     {
@@ -159,23 +160,27 @@ fn test_recording_flow_full_dataflow() {
     }
 
     // 停止录制
-    let result = recording_service::stop_recording(&state)
-        .expect("停止录制应成功");
+    let result = recording_service::stop_recording(&state).expect("停止录制应成功");
 
     // 验证 recording_mode 已清除
     {
         let mode = state.recording_mode.read();
-        assert!(
-            mode.is_none(),
-            "录制停止后 recording_mode 应为 None"
-        );
+        assert!(mode.is_none(), "录制停止后 recording_mode 应为 None");
     }
 
     // 验证录制结果（MockIpcSender 返回的固定响应数据）
     assert_eq!(result.seq, 1, "录制结果 seq 应为 1");
-    assert_eq!(result.keys, vec!["1", "2"], "录制结果 keys 应为 [\"1\", \"2\"]");
+    assert_eq!(
+        result.keys,
+        vec!["1", "2"],
+        "录制结果 keys 应为 [\"1\", \"2\"]"
+    );
     assert_eq!(result.mode, "periodic", "录制结果 mode 应为 \"periodic\"");
-    assert_eq!(result.intervals, vec![50, 100], "录制结果 intervals 应为 [50, 100]");
+    assert_eq!(
+        result.intervals,
+        vec![50, 100],
+        "录制结果 intervals 应为 [50, 100]"
+    );
     assert!(result.delays.is_empty(), "录制结果 delays 应为空");
 
     // 测试 export_recording 和 import_recording 往返一致性
@@ -198,14 +203,10 @@ fn test_recording_flow_full_dataflow() {
         .expect("导出录制应成功");
 
     // 导入录制数据
-    let imported = recording_service::import_recording(path_str)
-        .expect("导入录制应成功");
+    let imported = recording_service::import_recording(path_str).expect("导入录制应成功");
 
     // 验证导入数据匹配导出数据
-    assert_eq!(
-        imported.keys, keys,
-        "导入的 keys 应与导出的 keys 一致"
-    );
+    assert_eq!(imported.keys, keys, "导入的 keys 应与导出的 keys 一致");
     assert_eq!(
         imported.delays, delays,
         "导入的 delays 应与导出的 delays 一致"
@@ -214,10 +215,7 @@ fn test_recording_flow_full_dataflow() {
         imported.intervals, intervals,
         "导入的 intervals 应与导出的 intervals 一致（空向量）"
     );
-    assert_eq!(
-        imported.mode, mode,
-        "导入的 mode 应与导出的 mode 一致"
-    );
+    assert_eq!(imported.mode, mode, "导入的 mode 应与导出的 mode 一致");
 
     // 清理临时目录
     let _ = std::fs::remove_dir_all(&dir);
@@ -242,8 +240,7 @@ fn test_group_toggle_to_toggle_command_flow() {
     assert!(!initial_group.active, "初始状态分组 1 应未激活");
 
     // 第一次切换：激活分组 1
-    let status = group_service::toggle_group(&state, "1")
-        .expect("激活分组应成功");
+    let status = group_service::toggle_group(&state, "1").expect("激活分组应成功");
     assert!(status.active, "切换后分组应为激活状态");
     assert_eq!(status.id, "1");
 
@@ -292,8 +289,7 @@ fn test_group_toggle_to_toggle_command_flow() {
     assert_eq!(decoded_on.data.as_ref().unwrap()["active"], true);
 
     // 第二次切换：停用分组 1
-    let status = group_service::toggle_group(&state, "1")
-        .expect("停用分组应成功");
+    let status = group_service::toggle_group(&state, "1").expect("停用分组应成功");
     assert!(!status.active, "再次切换后分组应为未激活状态");
 
     // 捕获所有发送的 IPC 命令（包含激活和停用的命令）
@@ -372,8 +368,7 @@ fn test_hotkey_register_unregister_flow() {
     // 2. 更新 active_hotkeys（swap_hotkey）
     // 3. 发送 UnregisterHotkey{F1}（注销旧热键）
     // 4. 发送 RegisterHotkey{F3, 1}（注册新热键）
-    group_service::register_hotkey(&state, "F3", "1")
-        .expect("注册热键 F3 应成功");
+    group_service::register_hotkey(&state, "F3", "1").expect("注册热键 F3 应成功");
 
     // 捕获发送的 IPC 命令
     let cmds_after_register = sender.sent_commands();
@@ -422,8 +417,7 @@ fn test_hotkey_register_unregister_flow() {
     // 1. 从 active_hotkeys 移除 F3
     // 2. 发送 UnregisterHotkey{F3}
     // 3. 因为分组活跃，发送 ToggleGroup{1, false} 并 set_group_active(false)
-    group_service::unregister_hotkey(&state, "F3")
-        .expect("注销热键 F3 应成功");
+    group_service::unregister_hotkey(&state, "F3").expect("注销热键 F3 应成功");
 
     // 捕获所有发送的 IPC 命令
     let cmds_all = sender.sent_commands();
@@ -450,8 +444,5 @@ fn test_hotkey_register_unregister_flow() {
 
     // 验证最终状态：分组 1 已停用（unregister_hotkey 会自动停用活跃分组）
     let final_group = state.get_group("1").expect("分组 1 应存在");
-    assert!(
-        !final_group.active,
-        "注销热键后分组 1 应已停用"
-    );
+    assert!(!final_group.active, "注销热键后分组 1 应已停用");
 }

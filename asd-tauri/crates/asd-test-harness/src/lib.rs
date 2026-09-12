@@ -18,7 +18,7 @@ pub use asd_domain::config::*;
 pub use asd_domain::models::SkillGroup;
 pub use asd_domain::traits::{EventEmitter, IpcSender, ProcessWatcher};
 pub use asd_domain::validator::{ConfigValidator, ValidationResult};
-pub use asd_ipc_protocol::{IpcCommand, IpcMessage, IpcError};
+pub use asd_ipc_protocol::{IpcCommand, IpcError, IpcMessage};
 
 // =================================================================
 // Mock 实现
@@ -340,8 +340,8 @@ mod tests {
     /// 1600 个样本在 100000 个可能值中的碰撞概率 ≈ 1 - e^(-1600²/(2×100000)) ≈ 100%
     #[test]
     fn test_unique_pipe_name_concurrent_uniqueness() {
-        use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
         use std::thread;
 
         const THREAD_COUNT: usize = 16;

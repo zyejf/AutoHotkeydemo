@@ -1,5 +1,6 @@
 use asd_ipc_protocol::IpcError;
 use serde::Serialize;
+use std::borrow::Cow;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -32,15 +33,18 @@ impl AppError {
     }
 
     /// 返回错误的内部消息（不含变体前缀），用于序列化时提供具体错误详情。
-    pub fn message(&self) -> &str {
+    ///
+    /// 返回 `Cow<'_, str>`：字符串类变体借用内部字段，`Io` 变体因
+    /// `std::io::Error` 无法直接借用 `&str`，通过 `to_string()` 构造自有字符串。
+    /// 这样 `Io` 错误也能返回非空消息，避免调用方拿到空串。
+    pub fn message(&self) -> Cow<'_, str> {
         match self {
-            AppError::Config(m) => m,
-            AppError::Ipc(m) => m,
-            AppError::GroupNotFound(m) => m,
-            AppError::Validation(m) => m,
-            AppError::Internal(m) => m,
-            // io::Error 无法直接返回 &str，序列化时通过 Serialize 实现处理
-            AppError::Io(_) => "",
+            AppError::Config(m) => Cow::Borrowed(m),
+            AppError::Ipc(m) => Cow::Borrowed(m),
+            AppError::GroupNotFound(m) => Cow::Borrowed(m),
+            AppError::Validation(m) => Cow::Borrowed(m),
+            AppError::Internal(m) => Cow::Borrowed(m),
+            AppError::Io(e) => Cow::Owned(e.to_string()),
         }
     }
 }
@@ -53,12 +57,7 @@ impl Serialize for AppError {
         use serde::ser::SerializeStruct;
         let mut state = serializer.serialize_struct("AppError", 2)?;
         state.serialize_field("kind", self.kind_str())?;
-        // Io 变体存储的是 std::io::Error，无法通过 message() 返回 &str，
-        // 此处使用 to_string() 序列化完整错误消息
-        match self {
-            AppError::Io(e) => state.serialize_field("message", &e.to_string())?,
-            _ => state.serialize_field("message", self.message())?,
-        }
+        state.serialize_field("message", &self.message())?;
         state.end()
     }
 }
@@ -91,18 +90,23 @@ mod tests {
             (AppError::GroupNotFound("g".to_string()), "GroupNotFound"),
             (AppError::Validation("v".to_string()), "Validation"),
             (AppError::Internal("x".to_string()), "Internal"),
-            (AppError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "io")), "Io"),
+            (
+                AppError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "io")),
+                "Io",
+            ),
         ];
         for (err, expected_kind) in &cases {
             let json = serde_json::to_string(&err).unwrap();
             let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
             assert_eq!(
                 parsed["kind"], *expected_kind,
-                "变体 {:?} 的 kind 字段应为 {}", err, expected_kind
+                "变体 {:?} 的 kind 字段应为 {}",
+                err, expected_kind
             );
             assert!(
                 parsed["message"].is_string(),
-                "变体 {:?} 的 message 字段应为字符串", err
+                "变体 {:?} 的 message 字段应为字符串",
+                err
             );
         }
     }
@@ -147,7 +151,7 @@ mod tests {
             AppError::GroupNotFound("g".to_string()),
             AppError::Validation("v".to_string()),
             AppError::Internal("x".to_string()),
-            AppError::Io(std::io::Error::new(std::io::ErrorKind::Other, "io")),
+            AppError::Io(std::io::Error::other("io")),
         ];
         for v in &variants {
             let json = serde_json::to_string(v).unwrap();

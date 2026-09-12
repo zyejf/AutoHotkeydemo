@@ -342,13 +342,7 @@ mod tests {
     /// 不应进入 `validate_file_path` 返回 `AppError::Config`。
     #[test]
     fn test_export_recording_impl_empty_path() {
-        let result = export_recording_impl(
-            "",
-            &["1".to_string()],
-            &[50],
-            &[],
-            "periodic",
-        );
+        let result = export_recording_impl("", &["1".to_string()], &[50], &[], "periodic");
         assert!(result.is_err(), "空路径应返回错误");
         match result.unwrap_err() {
             AppError::Validation(_) => {}
@@ -359,13 +353,7 @@ mod tests {
     /// 验证 export_recording_impl 拒绝纯空白路径。
     #[test]
     fn test_export_recording_impl_whitespace_path() {
-        let result = export_recording_impl(
-            "   ",
-            &["1".to_string()],
-            &[50],
-            &[],
-            "periodic",
-        );
+        let result = export_recording_impl("   ", &["1".to_string()], &[50], &[], "periodic");
         assert!(result.is_err(), "纯空白路径应返回错误");
         match result.unwrap_err() {
             AppError::Validation(_) => {}

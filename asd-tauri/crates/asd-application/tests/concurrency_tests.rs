@@ -110,8 +110,7 @@ fn assert_memory_consistent(state: &AppState, expected_group_count: usize) {
 /// 验证磁盘配置文件存在、可读且可解析为有效 `Config`。
 fn assert_disk_valid(path: &std::path::Path) {
     let content = std::fs::read_to_string(path).expect("配置文件应存在且可读");
-    let _parsed: Config =
-        serde_json::from_str(&content).expect("配置文件应为可解析的有效 JSON");
+    let _parsed: Config = serde_json::from_str(&content).expect("配置文件应为可解析的有效 JSON");
 }
 
 // =================================================================
@@ -224,7 +223,9 @@ fn test_concurrent_delete_group_different_groups() {
         handles.push(thread::spawn(move || -> Result<bool, String> {
             let group_id = i.to_string();
             barrier.wait();
-            state.delete_group_atomic(&group_id).map_err(|e| e.to_string())
+            state
+                .delete_group_atomic(&group_id)
+                .map_err(|e| e.to_string())
         }));
     }
 
@@ -332,14 +333,8 @@ fn test_concurrent_save_and_delete_same_group() {
         // 两个操作都应成功（save 写入含 group 1 的配置；delete 删除存在的 group 1）
         let save_ok = result_a.unwrap().is_ok();
         let delete_ok = result_b.unwrap().is_ok();
-        assert!(
-            save_ok,
-            "迭代 {iteration}: save_config_atomic 应成功"
-        );
-        assert!(
-            delete_ok,
-            "迭代 {iteration}: delete_group_atomic 应成功"
-        );
+        assert!(save_ok, "迭代 {iteration}: save_config_atomic 应成功");
+        assert!(delete_ok, "迭代 {iteration}: delete_group_atomic 应成功");
 
         // 验证状态一致性
         let config = state.read_config().expect("read_config 应成功");
@@ -464,7 +459,8 @@ fn test_concurrent_sync_config_changes() {
     //   配置回退可能导致热键变更误判，属已知的 fire-and-forget 行为
     for cmd in &commands {
         match cmd {
-            IpcCommand::ToggleGroup { .. } | IpcCommand::RegisterHotkey { .. }
+            IpcCommand::ToggleGroup { .. }
+            | IpcCommand::RegisterHotkey { .. }
             | IpcCommand::UnregisterHotkey { .. } => {}
             other => panic!("捕获到意外的 IPC 命令类型: {other:?}"),
         }

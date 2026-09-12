@@ -87,11 +87,13 @@ impl ConfigValidator {
     pub fn validate_config(config: &Config) -> ValidationResult {
         let mut result = Self::validate(&config.group_settings);
 
-        Self::validate_hotkey_format("_global", &config.control_hotkeys.emergency, &mut result);
-        Self::validate_hotkey_format("_global", &config.control_hotkeys.release_all_holds, &mut result);
-        Self::validate_hotkey_format("_global", &config.control_hotkeys.show_status, &mut result);
-        Self::validate_hotkey_format("_global", &config.control_hotkeys.toggle_all, &mut result);
-        Self::validate_hotkey_format("_global", &config.control_hotkeys.toggle_hold_mode, &mut result);
+        Self::validate_control_hotkey("_global", "emergency", &config.control_hotkeys.emergency, &mut result);
+        Self::validate_control_hotkey("_global", "releaseAllHolds", &config.control_hotkeys.release_all_holds, &mut result);
+        Self::validate_control_hotkey("_global", "showStatus", &config.control_hotkeys.show_status, &mut result);
+        Self::validate_control_hotkey("_global", "toggleAll", &config.control_hotkeys.toggle_all, &mut result);
+        Self::validate_control_hotkey("_global", "toggleHoldMode", &config.control_hotkeys.toggle_hold_mode, &mut result);
+
+        Self::validate_control_hotkey_conflicts(config, &mut result);
 
         if let Some(ref hs) = config.hold_settings {
             if hs.check_interval == 0 {
@@ -150,11 +152,65 @@ impl ConfigValidator {
         }
 
         // 使用 eq_ignore_ascii_case 进行大小写不敏感匹配，正确处理 PascalCase 键名如 "Space"/"space"
+        //
+        // 权衡取舍（仅 warning 而非 error）：
+        // 热键键名可能包含 VALID_HOTKEY_KEYS 白名单之外、但 AHK 实际支持的自定义键名
+        // （例如虚拟键、驱动注入的按键、或后续版本新增的键）。若此处升级为 error，
+        // 会让这些"合法但不在白名单内"的配置整体被判定为无效，阻止应用启动/保存，
+        // 对用户造成比"格式存疑"更大的破坏。因此只记录 warning 提示用户复核，
+        // 保留配置的可用性；真正不可恢复的错误（如空热键、仅修饰符）仍在上方返回 error。
         if !VALID_HOTKEY_KEYS.iter().any(|k| k.eq_ignore_ascii_case(rest)) {
             result.add_warning(&format!(
                 "[{}] 热键 '{}' 格式可能不正确，请确认是否为有效的 AHK 热键",
                 group_id, hotkey
             ));
+        }
+    }
+
+    fn validate_control_hotkey(
+        group_id: &str,
+        field: &str,
+        hotkey: &str,
+        result: &mut ValidationResult,
+    ) {
+        if hotkey.is_empty() {
+            result.add_error(group_id, field, &format!("控制热键 {} 不能为空", field));
+        } else {
+            Self::validate_hotkey_format(group_id, hotkey, result);
+        }
+    }
+
+    fn validate_control_hotkey_conflicts(config: &Config, result: &mut ValidationResult) {
+        let control_hotkeys: [(&str, &str); 5] = [
+            ("emergency", &config.control_hotkeys.emergency),
+            ("releaseAllHolds", &config.control_hotkeys.release_all_holds),
+            ("showStatus", &config.control_hotkeys.show_status),
+            ("toggleAll", &config.control_hotkeys.toggle_all),
+            ("toggleHoldMode", &config.control_hotkeys.toggle_hold_mode),
+        ];
+
+        let mut seen: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        for (field, hotkey) in control_hotkeys {
+            if hotkey.is_empty() {
+                continue;
+            }
+            let normalized = normalize_hotkey_for_comparison(hotkey);
+            seen.entry(normalized)
+                .or_insert_with(|| format!("_global:{}", field));
+        }
+
+        for (id, group) in &config.group_settings {
+            if group.hotkey.is_empty() {
+                continue;
+            }
+            let normalized = normalize_hotkey_for_comparison(&group.hotkey);
+            if let Some(prev_label) = seen.get(&normalized) {
+                result.add_error(
+                    id,
+                    "hotkey",
+                    &format!("热键 '{}' 与控制热键 {} 重复", group.hotkey, prev_label),
+                );
+            }
         }
     }
 
@@ -1741,5 +1797,38 @@ mod tests {
         );
         let result = ConfigValidator::validate(&groups);
         assert!(result.warnings.iter().any(|w| w.contains("格式可能不正确")));
+    }
+
+    #[test]
+    fn test_control_hotkey_empty_error() {
+        let mut config = Config::default();
+        config.control_hotkeys.emergency = String::new();
+        let result = ConfigValidator::validate_config(&config);
+        assert!(!result.is_valid(), "控制热键为空应产生错误");
+        assert!(result.errors.iter().any(|e| e.field == "emergency"));
+    }
+
+    #[test]
+    fn test_control_hotkey_conflict_with_group_hotkey() {
+        let mut config = Config::default();
+        config.control_hotkeys.emergency = "F1".to_string();
+        config.group_settings.insert("1".to_string(), make_periodic_group());
+        let result = ConfigValidator::validate_config(&config);
+        assert!(!result.is_valid(), "控制热键与分组热键冲突应产生错误");
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.field == "hotkey" && e.message.contains("控制热键")));
+    }
+
+    #[test]
+    fn test_default_config_is_valid() {
+        let config = Config::default();
+        let result = ConfigValidator::validate_config(&config);
+        assert!(
+            result.is_valid(),
+            "默认配置不应有错误: {:?}",
+            result.errors
+        );
     }
 }

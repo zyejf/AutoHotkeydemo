@@ -13,38 +13,52 @@ pub enum ConfigLoadError {
 /// 配置文件仓库，提供配置的加载、保存和原子写入功能。
 ///
 /// 支持自动剥离 BOM、原子写入（先写临时文件再重命名）和详细的错误类型区分。
-pub fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| "无效的文件路径".to_string())?
-        .to_string_lossy()
-        .to_string();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let tmp_file_name = format!(".tmp_{file_name}_{}_{}",
-        std::process::id(),
-        now.as_nanos()
-    );
-    let tmp_path = path.with_file_name(&tmp_file_name);
-
-    fs::write(&tmp_path, content).map_err(|e| format!("写入临时文件失败: {e}"))?;
-
-    if let Err(e) = fs::rename(&tmp_path, path) {
-        tracing::debug!("rename 失败，尝试 copy+remove fallback: {e}");
-        fs::copy(&tmp_path, path).map_err(|e2| {
-            let _ = fs::remove_file(&tmp_path);
-            format!("重命名和复制均失败: rename={e}, copy={e2}")
-        })?;
-        if let Err(e) = fs::remove_file(&tmp_path) {
-            tracing::warn!("atomic_write: 临时文件删除失败（可能被锁定）: {} : {e}", tmp_path.display());
-        }
-    }
-
-    Ok(())
-}
-
+///
+/// # 错误类型基准（ConfigLoadError）
+///
+/// `ConfigLoadError` 是本模块的规范错误类型（用于 [`load_from_file_checked`](Self::load_from_file_checked)）。
+/// 其余 I/O 方法（`atomic_write` / `read_file_to_string` / `ensure_dir_all` /
+/// `list_dir_files` / `delete_file`）目前仍返回 `Result<_, String>`，原因是有较多
+/// 跨 crate 调用方（backup_service、recording_service、src-tauri 命令层），
+/// 全量统一到 `ConfigLoadError` 需同步改动大量调用点。为避免高回归风险，
+/// 本次暂不展开，作为后续错误类型统一的技术债记录。
 pub struct ConfigRepository;
+
+impl ConfigRepository {
+    /// 原子写入文件：先写临时文件，再重命名到目标路径。
+    ///
+    /// rename 失败时回退到 copy + remove，避免跨文件系统 rename 限制导致的写入失败。
+    pub fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
+        let file_name = path
+            .file_name()
+            .ok_or_else(|| "无效的文件路径".to_string())?
+            .to_string_lossy()
+            .to_string();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        let tmp_file_name = format!(".tmp_{file_name}_{}_{}",
+            std::process::id(),
+            now.as_nanos()
+        );
+        let tmp_path = path.with_file_name(&tmp_file_name);
+
+        fs::write(&tmp_path, content).map_err(|e| format!("写入临时文件失败: {e}"))?;
+
+        if let Err(e) = fs::rename(&tmp_path, path) {
+            tracing::debug!("rename 失败，尝试 copy+remove fallback: {e}");
+            fs::copy(&tmp_path, path).map_err(|e2| {
+                let _ = fs::remove_file(&tmp_path);
+                format!("重命名和复制均失败: rename={e}, copy={e2}")
+            })?;
+            if let Err(e) = fs::remove_file(&tmp_path) {
+                tracing::warn!("atomic_write: 临时文件删除失败（可能被锁定）: {} : {e}", tmp_path.display());
+            }
+        }
+
+        Ok(())
+    }
+}
 
 fn cleanup_stale_temp_files(dir: &Path) {
     let Ok(entries) = fs::read_dir(dir) else { return };
@@ -127,7 +141,7 @@ impl ConfigRepository {
         let path = path.as_ref();
         let json =
             serde_json::to_string_pretty(config).map_err(|e| format!("序列化配置失败: {e}"))?;
-        let result = atomic_write(path, &json);
+        let result = Self::atomic_write(path, &json);
         if let Some(parent) = path.parent() {
             cleanup_stale_temp_files(parent);
         }
@@ -230,7 +244,7 @@ mod tests {
 
         let loaded = ConfigRepository::load_from_file(&path);
         assert_eq!(loaded.control_hotkeys.emergency, "F10");
-        assert_eq!(loaded.version.as_deref(), Some("3.0"));
+        assert_eq!(loaded.version.as_deref(), Some("4.0"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

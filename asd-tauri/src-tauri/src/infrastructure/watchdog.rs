@@ -39,8 +39,6 @@ const SHUTDOWN_IPC_TIMEOUT: Duration = Duration::from_secs(2);
 const SHUTDOWN_WM_CLOSE_TIMEOUT: Duration = Duration::from_secs(3);
 const STABLE_HEARTBEAT_THRESHOLD: u32 = 5;
 
-type StateChangeCallback = Arc<dyn Fn(&WatchdogStateEnum) + Send + Sync>;
-
 pub struct ProcessWatchdog {
     state: WatchdogStateEnum,
     child: Option<Child>,
@@ -52,7 +50,6 @@ pub struct ProcessWatchdog {
     backoff_duration: Duration,
     last_restart: Option<std::time::Instant>,
     last_heartbeat: Option<std::time::Instant>,
-    on_state_change: Option<StateChangeCallback>,
     send_shutdown: Option<Arc<dyn Fn() + Send + Sync>>,
     stable_heartbeat_count: u32,
 }
@@ -69,7 +66,13 @@ unsafe impl Send for ProcessWatchdog {}
 // （例如 Child 仅实现了 Send 而非 Sync），而是依赖于外部 Mutex 保护：
 // ProcessWatchdog 仅通过 Arc<tokio::sync::Mutex<ProcessWatchdog>> 共享，
 // 所有访问都必须获取 Mutex 锁，不存在并发访问同一实例的情况。
-// 如果未来移除 Mutex 保护，必须重新评估此 unsafe impl。
+//
+// 不变式（违反即可能导致数据竞争/UB）：
+// 1. 任何对 ProcessWatchdog 内部字段（含 Option<Child> / Option<JobObjectGuard>）的
+//    访问，必须先持有外层 Mutex 锁；跨线程共享仅通过 Arc<Mutex<..>> 进行。
+// 2. 借用（引用）不得逃逸出锁作用域：state() 因此返回 Clone 快照而非 & 引用；
+//    任何新增方法若返回内部引用，都必须保证该引用不在锁守卫作用域之外被使用。
+// 如果未来移除 Mutex 保护或让内部借用逃逸出锁作用域，必须重新评估此 unsafe impl。
 unsafe impl Sync for ProcessWatchdog {}
 
 impl Default for ProcessWatchdog {
@@ -91,14 +94,9 @@ impl ProcessWatchdog {
             backoff_duration: BACKOFF_DURATIONS[0],
             last_restart: None,
             last_heartbeat: None,
-            on_state_change: None,
             send_shutdown: None,
             stable_heartbeat_count: 0,
         }
-    }
-
-    pub fn set_on_state_change(&mut self, cb: Arc<dyn Fn(&WatchdogStateEnum) + Send + Sync>) {
-        self.on_state_change = Some(cb);
     }
 
     pub fn set_send_shutdown(&mut self, cb: Arc<dyn Fn() + Send + Sync>) {
@@ -109,14 +107,17 @@ impl ProcessWatchdog {
         if self.state != new_state {
             tracing::info!("Watchdog 状态变更: {:?} → {:?}", self.state, new_state);
             self.state = new_state.clone();
-            if let Some(ref cb) = self.on_state_change {
-                cb(&self.state);
-            }
         }
     }
 
-    pub fn state(&self) -> &WatchdogStateEnum {
-        &self.state
+    /// 返回当前状态快照（`Clone`），与锁生命周期解耦。
+    ///
+    /// 返回的是 `self.state` 的克隆值而非引用，避免把「锁内借用」暴露为
+    /// 「可能跨锁存活的引用」。若返回 `&WatchdogStateEnum`，调用方一旦把该
+    /// 引用保存到外层 `Mutex` 守卫作用域之外，就会形成跨锁共享引用，触发
+    /// 数据竞争（UB）。返回值快照从根上消除这一入口。
+    pub fn state(&self) -> WatchdogStateEnum {
+        self.state.clone()
     }
 
     pub fn restart_count(&self) -> u32 {
@@ -164,6 +165,19 @@ impl ProcessWatchdog {
             Ok(())
         } else {
             Err("no child".to_string())
+        }
+    }
+
+    /// 终止并等待子进程退出（回收僵尸进程），但不修改 `self.child` 字段，
+    /// 由调用方决定是否将 `child` 置为 `None`。
+    ///
+    /// 与 [`kill_child`](Self::kill_child) 的区别：本方法不返回错误，忽略
+    /// `kill`/`wait` 的失败（与旧逻辑 `let _ = child.kill()` 一致），供
+    /// `begin_restart` / `reset_to_restart` / `graceful_shutdown` 三处统一复用。
+    fn kill_and_reap(&mut self) {
+        if let Some(ref mut child) = self.child {
+            let _ = child.kill();
+            let _ = child.wait();
         }
     }
 
@@ -239,7 +253,6 @@ impl ProcessWatchdog {
             (exe_path.to_string(), Vec::new())
         };
 
-
         let mut cmd = Command::new(&program);
         cmd.creation_flags(CREATE_NO_WINDOW.0);
         if !args.is_empty() {
@@ -257,7 +270,10 @@ impl ProcessWatchdog {
     pub fn notify_heartbeat(&mut self) {
         self.missed_heartbeats = 0;
         self.last_heartbeat = Some(std::time::Instant::now());
-        if matches!(self.state, WatchdogStateEnum::Hung | WatchdogStateEnum::Recovering) {
+        if matches!(
+            self.state,
+            WatchdogStateEnum::Hung | WatchdogStateEnum::Recovering
+        ) {
             tracing::info!("Watchdog: 进程从 {:?} 状态恢复", self.state);
             self.set_state(WatchdogStateEnum::Running);
         }
@@ -359,10 +375,8 @@ impl ProcessWatchdog {
     }
 
     pub fn begin_restart(&mut self) {
-        if let Some(ref mut child) = self.child {
-            let _ = child.kill();
-            tracing::info!("Watchdog: begin_restart 已终止旧子进程");
-        }
+        self.kill_and_reap();
+        tracing::info!("Watchdog: begin_restart 已终止旧子进程");
         self.child = None;
         self.job_guard = None;
         self.missed_heartbeats = 0;
@@ -388,10 +402,8 @@ impl ProcessWatchdog {
     }
 
     pub fn reset_to_restart(&mut self) {
-        if let Some(ref mut child) = self.child {
-            let _ = child.kill();
-            tracing::info!("Watchdog: reset_to_restart 已终止旧子进程");
-        }
+        self.kill_and_reap();
+        tracing::info!("Watchdog: reset_to_restart 已终止旧子进程");
         self.restart_count = 0;
         self.backoff_duration = BACKOFF_DURATIONS[0];
         self.stable_heartbeat_count = 0;
@@ -414,63 +426,6 @@ impl ProcessWatchdog {
         }
     }
 
-    pub async fn graceful_shutdown(&mut self) -> Result<(), String> {
-        let pid = match self.child {
-            Some(ref child) => child.id(),
-            None => return Ok(()),
-        };
-
-        tracing::info!("Watchdog: 开始优雅关机 PID={pid}");
-
-        // Phase 1: 通过 IPC 发送 shutdown 消息
-        tracing::info!(
-            "Watchdog: Phase 1 - 发送 IPC shutdown 消息 (超时 {:?})",
-            SHUTDOWN_IPC_TIMEOUT
-        );
-        if let Some(ref send_shutdown) = self.send_shutdown {
-            send_shutdown();
-        } else {
-            tracing::warn!(
-                "Watchdog: Phase 1 - send_shutdown 回调未设置，跳过 IPC shutdown 消息发送"
-            );
-        }
-        if self.wait_for_exit(SHUTDOWN_IPC_TIMEOUT).await {
-            tracing::info!("Watchdog: 进程在 IPC shutdown 后退出");
-            self.cleanup();
-            return Ok(());
-        }
-
-        tracing::info!(
-            "Watchdog: Phase 2 - 发送 WM_CLOSE (超时 {:?})",
-            SHUTDOWN_WM_CLOSE_TIMEOUT
-        );
-        if let Err(e) = send_wm_close(pid) {
-            tracing::warn!("Watchdog: Phase 2 - WM_CLOSE 发送失败: {e}，继续尝试 Phase 3");
-        } else if self.wait_for_exit(SHUTDOWN_WM_CLOSE_TIMEOUT).await {
-            tracing::info!("Watchdog: 进程在 WM_CLOSE 后退出");
-            self.cleanup();
-            return Ok(());
-        }
-
-        tracing::warn!("Watchdog: Phase 3 - 强制终止进程 PID={pid}");
-        if let Some(ref mut child) = self.child {
-            let _ = child.kill();
-        }
-        self.cleanup();
-        Ok(())
-    }
-
-    async fn wait_for_exit(&mut self, timeout: Duration) -> bool {
-        let start = std::time::Instant::now();
-        while start.elapsed() < timeout {
-            if self.is_child_exited() {
-                return true;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        false
-    }
-
     fn cleanup(&mut self) {
         self.child = None;
         self.job_guard = None;
@@ -483,6 +438,78 @@ impl ProcessWatchdog {
     }
 }
 
+/// 优雅关机（T5-10 重构）：等待轮询在锁外执行，锁内仅做状态快照与切换，
+/// 消除 `graceful_shutdown` 持锁横跨多个 await 点的隐患。
+///
+/// 三阶段流程与原 `graceful_shutdown(&mut self)` 等价：
+/// ① 发送 IPC shutdown → ② 发送 WM_CLOSE → ③ 强制 kill_and_reap。
+/// 每个阶段的进程退出轮询（原 `wait_for_exit`）通过 [`poll_watchdog_exit`]
+/// 以「短暂加锁检查 → 释放锁 sleep」的方式执行，不再长时间持锁。
+pub async fn graceful_shutdown_watchdog(
+    watchdog: &Arc<Mutex<ProcessWatchdog>>,
+) -> Result<(), String> {
+    // 锁内仅做状态快照：读取 pid 与 send_shutdown 回调克隆（不 await）
+    let (pid, send_shutdown) = {
+        let guard = watchdog.lock().await;
+        match guard.child_pid() {
+            Some(pid) => (pid, guard.send_shutdown.clone()),
+            None => return Ok(()),
+        }
+    };
+
+    tracing::info!("Watchdog: 开始优雅关机 PID={pid}");
+
+    // Phase 1: 通过 IPC 发送 shutdown 消息
+    tracing::info!(
+        "Watchdog: Phase 1 - 发送 IPC shutdown 消息 (超时 {:?})",
+        SHUTDOWN_IPC_TIMEOUT
+    );
+    if let Some(ref send_shutdown) = send_shutdown {
+        send_shutdown();
+    } else {
+        tracing::warn!("Watchdog: Phase 1 - send_shutdown 回调未设置，跳过 IPC shutdown 消息发送");
+    }
+    if poll_watchdog_exit(watchdog, SHUTDOWN_IPC_TIMEOUT).await {
+        tracing::info!("Watchdog: 进程在 IPC shutdown 后退出");
+        watchdog.lock().await.cleanup();
+        return Ok(());
+    }
+
+    tracing::info!(
+        "Watchdog: Phase 2 - 发送 WM_CLOSE (超时 {:?})",
+        SHUTDOWN_WM_CLOSE_TIMEOUT
+    );
+    if let Err(e) = send_wm_close(pid) {
+        tracing::warn!("Watchdog: Phase 2 - WM_CLOSE 发送失败: {e}，继续尝试 Phase 3");
+    } else if poll_watchdog_exit(watchdog, SHUTDOWN_WM_CLOSE_TIMEOUT).await {
+        tracing::info!("Watchdog: 进程在 WM_CLOSE 后退出");
+        watchdog.lock().await.cleanup();
+        return Ok(());
+    }
+
+    tracing::warn!("Watchdog: Phase 3 - 强制终止进程 PID={pid}");
+    let mut guard = watchdog.lock().await;
+    guard.kill_and_reap();
+    guard.cleanup();
+    Ok(())
+}
+
+/// 轮询子进程退出（T5-10）：每 100ms 短暂加锁检查一次 `is_child_exited`，
+/// 检查后立即释放锁再 sleep，避免长持锁阻塞其它调用方。
+async fn poll_watchdog_exit(watchdog: &Arc<Mutex<ProcessWatchdog>>, timeout: Duration) -> bool {
+    let start = std::time::Instant::now();
+    while start.elapsed() < timeout {
+        {
+            let mut guard = watchdog.lock().await;
+            if guard.is_child_exited() {
+                return true;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    false
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum WatchdogAction {
     None,
@@ -492,13 +519,23 @@ pub enum WatchdogAction {
     MaxRetriesExceeded,
 }
 
+/// `JOBOBJECTINFOCLASS` 中 `JobObjectExtendedLimitInformation` 对应的枚举值。
+///
+/// windows crate 将 `JOBOBJECTINFOCLASS` 定义为 `pub struct JOBOBJECTINFOCLASS(pub i32)`，
+/// 未导出该枚举各成员的具名常量，因此以具名常量代替魔法数字 `9`。
+const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS: i32 = 9;
+
 struct JobObjectGuard(HANDLE);
 
 // SAFETY: JobObjectGuard 仅包含一个 HANDLE（原始指针），
-// 所有访问都在 Mutex 锁保护下，HANDLE 本身是线程安全的系统资源
+// 所有访问都在外层 Mutex 锁保护下，HANDLE 本身是线程安全的系统资源。
+// 不变式：JobObjectGuard 只作为 ProcessWatchdog 的字段存在，而 ProcessWatchdog
+// 仅通过 Arc<Mutex<..>> 跨线程共享，因此对 JobObjectGuard 的任何访问（含 Drop 中
+// 的 CloseHandle）都发生在持锁期间；State 引用不得逃逸出锁作用域。
 unsafe impl Send for JobObjectGuard {}
-// SAFETY: JobObjectGuard 通过 Mutex 保护访问，
-// Drop 实现只调用 CloseHandle，是线程安全的系统调用
+// SAFETY: JobObjectGuard 通过外层 Mutex 保护访问，
+// Drop 实现只调用 CloseHandle，是线程安全的系统调用。
+// 不变式同 Send：任何访问必须先持有外层 Mutex 锁，引用不得超出锁作用域。
 unsafe impl Sync for JobObjectGuard {}
 
 impl JobObjectGuard {
@@ -515,7 +552,7 @@ impl JobObjectGuard {
             };
             SetInformationJobObject(
                 handle,
-                JOBOBJECTINFOCLASS(9), // JobObjectExtendedLimitInformation
+                JOBOBJECTINFOCLASS(JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS),
                 &info as *const _ as *const _,
                 std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
             )?;
@@ -559,7 +596,9 @@ impl<T> RawBoxGuard<T> {
 impl<T> Drop for RawBoxGuard<T> {
     fn drop(&mut self) {
         if !self.0.is_null() {
-            unsafe { let _ = Box::from_raw(self.0); }
+            unsafe {
+                let _ = Box::from_raw(self.0);
+            }
         }
     }
 }
@@ -737,7 +776,8 @@ impl WatchdogRunner {
 
     /// 设置 shutting_down 标志，通知 WatchdogRunner 尽快退出等待循环。
     pub fn mark_shutting_down(&self) {
-        self.shutting_down.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.shutting_down
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// 返回 shutting_down Arc 的克隆，允许外部保存引用以便在关机时设置标志。
@@ -772,22 +812,10 @@ impl WatchdogRunner {
                         break;
                     }
                     if let (Some(path), Some(token)) = (exe_path, auth_token) {
-                        let mut wd = self.watchdog.lock().await;
-                        if *wd.state() != WatchdogStateEnum::Restarting {
-                            tracing::info!("Watchdog: 状态已从 Restarting 变更为 {:?}，跳过重启", wd.state());
-                            continue;
-                        }
-                        wd.begin_restart();
-                        match wd.spawn_child(&path, &token) {
-                            Ok(()) => {
-                                tracing::info!(
-                                    "Watchdog: 子进程重启成功 (attempt={})",
-                                    wd.restart_count()
-                                );
-                            }
-                            Err(e) => {
-                                tracing::error!("Watchdog: 子进程重启失败: {e}");
-                            }
+                        // T5-04：重启（含 taskkill 清理 + Command::spawn 阻塞系统调用）
+                        // 已迁入 spawn_blocking 线程，避免阻塞异步运行时工作线程。
+                        if let Err(e) = self.restart_child(path, token).await {
+                            tracing::error!("Watchdog: 子进程重启失败: {e}");
                         }
                     } else {
                         tracing::error!("Watchdog: 无法重启子进程，exe_path 或 auth_token 未设置");
@@ -804,11 +832,13 @@ impl WatchdogRunner {
                     for _ in 0..60 {
                         tokio::time::sleep(Duration::from_secs(1)).await;
                         if self.shutting_down.load(std::sync::atomic::Ordering::SeqCst) {
-                            tracing::info!("Watchdog: shutting_down 标志已设置，退出 MaxRetriesExceeded 等待");
+                            tracing::info!(
+                                "Watchdog: shutting_down 标志已设置，退出 MaxRetriesExceeded 等待"
+                            );
                             break;
                         }
                         let wd = self.watchdog.lock().await;
-                        if *wd.state() != WatchdogStateEnum::Failed {
+                        if wd.state() != WatchdogStateEnum::Failed {
                             break;
                         }
                         drop(wd);
@@ -816,6 +846,34 @@ impl WatchdogRunner {
                 }
             }
         }
+    }
+
+    /// 在 `spawn_blocking` 阻塞线程中执行子进程重启（T5-04）。
+    ///
+    /// `spawn_child` 内部会调用 `cleanup_stale_executor_processes`（同步 `taskkill`）
+    /// 与 `std::process::Command::spawn`（同步 `CreateProcess`），均为阻塞系统调用。
+    /// 若在 async 循环中持锁执行会阻塞异步运行时工作线程，故迁入 `spawn_blocking`。
+    /// 在阻塞线程内使用 `blocking_lock` 获取 tokio 互斥锁（非异步上下文，安全）。
+    async fn restart_child(&self, path: String, token: String) -> Result<(), String> {
+        let watchdog = self.watchdog.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut wd = watchdog.blocking_lock();
+            if wd.state() != WatchdogStateEnum::Restarting {
+                tracing::info!(
+                    "Watchdog: 状态已从 Restarting 变更为 {:?}，跳过重启",
+                    wd.state()
+                );
+                return Ok(());
+            }
+            wd.begin_restart();
+            let result = wd.spawn_child(&path, &token);
+            if let Ok(()) = &result {
+                tracing::info!("Watchdog: 子进程重启成功 (attempt={})", wd.restart_count());
+            }
+            result
+        })
+        .await
+        .map_err(|e| format!("spawn_blocking 重启任务执行失败: {e}"))?
     }
 
     pub fn watchdog(&self) -> Arc<Mutex<ProcessWatchdog>> {
@@ -846,7 +904,7 @@ mod tests {
     #[test]
     fn test_watchdog_initial_state() {
         let wd = ProcessWatchdog::new();
-        assert_eq!(*wd.state(), WatchdogStateEnum::Idle);
+        assert_eq!(wd.state(), WatchdogStateEnum::Idle);
         assert_eq!(wd.restart_count(), 0);
     }
 
@@ -899,13 +957,13 @@ mod tests {
     #[test]
     fn test_watchdog_state_transitions() {
         let mut wd = ProcessWatchdog::new();
-        assert_eq!(*wd.state(), WatchdogStateEnum::Idle);
+        assert_eq!(wd.state(), WatchdogStateEnum::Idle);
 
         wd.set_state(WatchdogStateEnum::Starting);
-        assert_eq!(*wd.state(), WatchdogStateEnum::Starting);
+        assert_eq!(wd.state(), WatchdogStateEnum::Starting);
 
         wd.set_state(WatchdogStateEnum::Running);
-        assert_eq!(*wd.state(), WatchdogStateEnum::Running);
+        assert_eq!(wd.state(), WatchdogStateEnum::Running);
     }
 
     #[test]
@@ -913,7 +971,7 @@ mod tests {
         let mut wd = ProcessWatchdog::new();
         wd.state = WatchdogStateEnum::Hung;
         wd.notify_heartbeat();
-        assert_eq!(*wd.state(), WatchdogStateEnum::Running);
+        assert_eq!(wd.state(), WatchdogStateEnum::Running);
     }
 
     #[test]
@@ -934,7 +992,35 @@ mod tests {
         let runner = WatchdogRunner::new(wd);
         let wd_arc = runner.watchdog();
         let guard = wd_arc.lock().await;
-        assert_eq!(*guard.state(), WatchdogStateEnum::Idle);
+        assert_eq!(guard.state(), WatchdogStateEnum::Idle);
+    }
+
+    /// T5-01 提交2 回归基线：验证 `ProcessWatchdog`（含 `Option<Child>`（`Send + !Sync`）
+    /// 与 `JobObjectGuard(HANDLE)`）依赖手工 `unsafe impl Send/Sync`，可安全跨
+    /// `tokio::spawn` 移动并被 `tokio::sync::Mutex` 保护并发访问。
+    ///
+    /// 若后续移除/破坏 `unsafe impl Send/Sync`，此测试将无法编译（`tokio::spawn`
+    /// 要求 Future: Send，跨任务共享要求 Arc<Mutex<..>>: Send+Sync），从而在
+    /// 编译期捕获回归。
+    #[tokio::test]
+    async fn test_watchdog_cross_thread_move_and_mutex_access() {
+        let wd = ProcessWatchdog::new();
+        let shared = Arc::new(tokio::sync::Mutex::new(wd));
+
+        let h_write = {
+            let shared = shared.clone();
+            tokio::spawn(async move {
+                shared.lock().await.set_state(WatchdogStateEnum::Running);
+            })
+        };
+        let h_read = {
+            let shared = shared.clone();
+            tokio::spawn(async move { shared.lock().await.restart_count() })
+        };
+
+        h_write.await.unwrap();
+        assert_eq!(h_read.await.unwrap(), 0);
+        assert_eq!(shared.lock().await.state(), WatchdogStateEnum::Running);
     }
 
     #[test]
@@ -974,7 +1060,7 @@ mod tests {
         wd.state = WatchdogStateEnum::Recovering;
         let action = wd.tick();
         assert_eq!(action, WatchdogAction::RestartNeeded);
-        assert_eq!(*wd.state(), WatchdogStateEnum::Restarting);
+        assert_eq!(wd.state(), WatchdogStateEnum::Restarting);
     }
 
     #[test]
@@ -989,7 +1075,7 @@ mod tests {
         wd.last_heartbeat = Some(std::time::Instant::now());
         let action = wd.tick();
         assert_eq!(action, WatchdogAction::RestartNeeded);
-        assert_eq!(*wd.state(), WatchdogStateEnum::Restarting);
+        assert_eq!(wd.state(), WatchdogStateEnum::Restarting);
     }
 
     #[test]
@@ -999,7 +1085,7 @@ mod tests {
         wd.last_heartbeat = Some(std::time::Instant::now() - Duration::from_secs(31));
         let action = wd.tick();
         assert_eq!(action, WatchdogAction::RestartNeeded);
-        assert_eq!(*wd.state(), WatchdogStateEnum::Restarting);
+        assert_eq!(wd.state(), WatchdogStateEnum::Restarting);
     }
 
     #[test]
@@ -1009,7 +1095,7 @@ mod tests {
         wd.last_heartbeat = None;
         let action = wd.tick();
         assert_eq!(action, WatchdogAction::RestartNeeded);
-        assert_eq!(*wd.state(), WatchdogStateEnum::Restarting);
+        assert_eq!(wd.state(), WatchdogStateEnum::Restarting);
     }
 
     #[test]
@@ -1036,7 +1122,7 @@ mod tests {
         wd.last_heartbeat = Some(std::time::Instant::now() - Duration::from_secs(29));
         let action = wd.tick();
         assert_eq!(action, WatchdogAction::RestartNeeded);
-        assert_eq!(*wd.state(), WatchdogStateEnum::Restarting);
+        assert_eq!(wd.state(), WatchdogStateEnum::Restarting);
     }
 
     // =================================================================
@@ -1053,7 +1139,7 @@ mod tests {
 
     /// 验证 cleanup_stale_executor_processes 不会终止当前测试进程自身。
     /// 当前进程是 cargo test 进程，不是 asd_executor.exe 或 AutoHotkey64.exe，
-        #[test]
+    #[test]
     fn test_cleanup_does_not_terminate_current_process() {
         let my_pid = std::process::id();
         cleanup_stale_executor_processes();
@@ -1094,7 +1180,7 @@ mod tests {
     #[test]
     fn test_stale_process_names_excludes_generic_autohotkey() {
         assert!(
-            !STALE_PROCESS_NAMES.iter().any(|&n| n == "AutoHotkey64.exe"),
+            !STALE_PROCESS_NAMES.contains(&"AutoHotkey64.exe"),
             "STALE_PROCESS_NAMES 不得包含通用进程名 AutoHotkey64.exe，否则会误杀用户其他 AHK 脚本"
         );
     }
@@ -1103,7 +1189,7 @@ mod tests {
     #[test]
     fn test_stale_process_names_includes_project_executor() {
         assert!(
-            STALE_PROCESS_NAMES.iter().any(|&n| n == "asd_executor.exe"),
+            STALE_PROCESS_NAMES.contains(&"asd_executor.exe"),
             "STALE_PROCESS_NAMES 必须包含项目专用执行器 asd_executor.exe"
         );
     }
