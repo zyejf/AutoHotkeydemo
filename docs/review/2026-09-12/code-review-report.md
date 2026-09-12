@@ -142,7 +142,7 @@ fan-in 最高的模块即变更影响面最大的关键路径：
 | T3-05+T6-03 | 日志写盘无限速 | ✅ 已修复 | 三模块统一引用 `LOG_RATE_LIMIT_MS := 1000` |
 | T3-06 | `_SendJoyKey` 热路径异常与高频 ERROR | 需复核 | 未深入 |
 | T4-04 | Rust 控制热键静默放行 + 无交叉冲突检测 | ✅ 已修复 | `validate_control_hotkey` + `validate_control_hotkey_conflicts` |
-| **T5-01** | `watchdog.rs` 4 处手写 `unsafe impl Send/Sync` | ❌ **未修复** | 仍在第 64/76/535/539 行 |
+| **T5-01** | `watchdog.rs` 4 处手写 `unsafe impl Send/Sync` | ✅ **已修复** | 引入 `RawHandle` + `SendSyncCell` 封装；`ProcessWatchdog` 的 2 处彻底消除，手工 unsafe 由 4 处收敛为 3 处 |
 | T5-02 | `EXPECTED_TAURI_COMMAND_COUNT` 永真式断言 | ⚠️ **已删除但无替代** | 原地断言已移除，现无任何命令数量守护机制 |
 | T6-02 | 每次按键新建闭包 + 定时器未纳管 | ✅ 已修复 | `_releaseTimers` Map 统一纳管（11 处引用） |
 | T6-04 | 重复激活分组导致双倍发键 | ✅ 已修复 | 三个入口均有幂等保护（`StartPeriodic`/`StartSequence`/`StartHold`） |
@@ -242,24 +242,61 @@ fan-in 最高的模块即变更影响面最大的关键路径：
 
 ---
 
-## 5. 未修复项与版本对比
+## 5. 修复状态与版本对比
 
-### 5.1 未完全闭合的问题
+### 5.1 审查发现闭合情况
 
-| 优先级 | 编号 | 描述 | 建议处理 |
+本次审查共 10 项发现（0 Critical / 4 Important / 6 Minor），其中 **9 项已修复**，
+1 项（A-4）转为**技术债登记**（有明确的触发条件）。
+
+| 优先级 | 编号 | 描述 | 处置结果 |
 |:------:|------|------|---------|
-| **P1** | T5-01 | `watchdog.rs` 4 处 `unsafe impl Send/Sync`（第 64/76/535/539 行） | 引入 `Mutex` 封装或使用 `SendWrapper`，消除手工 unsafe 的 soundness 依赖；至少补充不变量注释 |
-| **P1** | 4.2 | 891 行废弃测试代码 | 归档或删除 |
-| **P1** | 4.3 | `test_error_captor.ahk` 引用不存在模块 | 归档或删除 |
-| **P2** | CR2 | 录制/验证模式 IPC 同步阻塞写 | 改用 `OVERLAPPED` 异步写（`FILE_FLAG_OVERLAPPED` 常量已定义，仅需接入） |
-| **P2** | T7-04 | `test-map.md:50` 引用已删 `scheduler.rs` | 删除该行，同步测试计数 |
-| **P2** | T7-05 | AGENTS.md Rust 测试数 624 与实际 596 不符 | 修正为实测值 |
-| **P2** | 4.1 | AGENTS.md 妥协 #1 漏记一条依赖 | 补入 `config_validator` |
-| **P3** | 4.4 | `gui.ahk` 孤立且 Include 失效 | 删除 |
-| **P3** | 4.5 | 命令数量守护缺失 | 建立替代守护 |
-| **P3** | 4.6 | `migration_logger.ahk` 无测试 | 补测或标注免测 |
+| **P1** | T5-01 | `watchdog.rs` 4 处 `unsafe impl Send/Sync` | ✅ **已修复**：引入 `RawHandle`/`SendSyncCell`，`ProcessWatchdog` 的 2 处消除；新增 3 个回归防线并完成 2 组故障注入验证 |
+| **P1** | 4.2 | 891 行废弃测试代码 | ✅ **已归档**至 `tests/archive/`（6 文件 / 1220 行） |
+| **P1** | 4.3 | `test_error_captor.ahk` 引用不存在模块 | ✅ **已归档** |
+| **P1** | 4.1 | AGENTS.md 妥协 #1 漏记一条依赖 | ✅ **已补入** `config_validator` |
+| **P2** | CR2 | 录制/验证模式 IPC 同步阻塞写 | 📋 **技术债登记**：仅在录制模式（默认关闭）触发；改造需重做 IPC 并发模型，收益/风险比不佳。已在 `ipc_client.ahk` 就地记录取舍与触发条件 |
+| **P2** | T7-04 | `test-map.md:50` 引用已删 `scheduler.rs` | ✅ **已修复**：删除该行，重算 186 → 163 |
+| **P2** | T7-05 | AGENTS.md Rust 测试数 624 与实际不符 | ✅ **已修复**：修正为「595 个测试函数（`#[test]` 569 + `#[tokio::test]` 26），运行用例 608 个」 |
+| **P3** | 4.4 | `gui.ahk` 孤立且 Include 失效 | ✅ **已删除**（2261 行）+ 删除 3 个守护它的失效 I14 测试 |
+| **P3** | 4.5 | 命令数量守护缺失（原为永真式断言） | ✅ **已修复**：新建 `command_contract_tests.rs`，含故障注入验证 |
+| **P3** | 4.6 | `migration_logger.ahk` 无测试 | ✅ **已修复**：补齐 10 个测试，从零覆盖死角提升 |
 
-### 5.2 三轮审查趋势
+### 5.2 T5-01 修复要点（唯一 soundness 相关项）
+
+**根因**：`windows` crate 0.62.2 的 `HANDLE(pub *mut c_void)` 既非 `Send` 也非 `Sync`
+（已用编译器探针实证），而 `std::process::Child` 是 `Send + !Sync`。
+两者直接作为字段，把 `!Sync` 传染给 `ProcessWatchdog`，
+迫使原作者手写 `unsafe impl` 来「压平」这一性质 —— 代价是
+**编译器从此不再校验任何字段**。
+
+**修复**：把「跨线程移动」与「并发共享」两个命题拆开，各自在最小边界上论证：
+
+```
+HANDLE (:: !Send + !Sync)
+  └─ RawHandle          : unsafe impl Send              ← 手工命题 1（句柄可移动）
+       └─ SendSyncCell   : T: Send ⇒ Send + Sync        ← 手工命题 2（无 &T 共享入口）
+            ├─ JobObjectGuard   : 自动推导
+            └─ ProcessWatchdog  : 自动推导 Send + Sync + 'static  ← 原 2 处 unsafe 已消除
+```
+
+**修复前后对比**：
+
+| 维度 | 修复前 | 修复后 |
+|------|-------|-------|
+| 手写 `unsafe impl` 数量 | 4 处（分散在 2 个具体类型上） | 3 处（收敛在 2 个泛型封装内） |
+| `ProcessWatchdog` 是否参与手工 unsafe | 是（2 处） | **否**（纯自动推导） |
+| 新增 `!Sync` 字段时的行为 | 静默编译通过（**UB 风险**） | **编译期报错** E0277 |
+| 防退化修复机制 | 无 | 源码级白名单测试（已验证可捕获） |
+
+**故障注入验证**（两项均已实测）：
+
+1. 向 `ProcessWatchdog` 新增 `Cell<u32>` 字段 → 编译失败：
+   ``error[E0277]: `Cell<u32>` cannot be shared between threads safely``
+2. 给 `ProcessWatchdog` 加回手写 `unsafe impl Send` → 测试失败：
+   ``发现未在白名单中的手写 unsafe impl Send/Sync，请单独论证其安全前提``
+
+### 5.3 三轮审查趋势
 
 | 日期 | Critical | Important | Minor | 合计 | 趋势 |
 |------|:--------:|:---------:|:-----:|:----:|------|

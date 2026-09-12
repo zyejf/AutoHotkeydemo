@@ -2,6 +2,9 @@
 mod bridge_tests;
 
 #[cfg(test)]
+mod command_contract_tests;
+
+#[cfg(test)]
 mod config_compat_tests;
 
 #[cfg(test)]

@@ -652,42 +652,12 @@ class GuiAndTimerSpecTests extends AutoHotUnitSuite {
         this.assert.isFalse(sg._releaseTimers.Has("a"))
     }
 
-    ; ============================================================
-    ; I14: Run 路径加引号转义
-    ; 问题：Run("notepad.exe " logFile) 路径未加引号，含空格路径会出错
-    ; 修复：Run('notepad.exe "' logFile '"') 路径用双引号包围
-    ; ============================================================
-
-    Test_I14_OpenConfigFile_UsesQuotedPath() {
-        ; 静态分析：_OpenConfigFile 中 Run 应使用引号包围路径
-        path := A_ScriptDir "\..\gui.ahk"
-        content := FileRead(path, "UTF-8")
-        ; 修复前：Run("notepad.exe config.json") — 路径未加引号
-        hasUnquotedConfig := InStr(content, 'Run("notepad.exe config.json")') > 0
-        this.assert.isFalse(hasUnquotedConfig)
-    }
-
-    Test_I14_ShowErrorLog_NotUnquotedConcat() {
-        ; 静态分析：_ShowErrorLog 中 Run 不应使用未加引号的字符串拼接
-        path := A_ScriptDir "\..\gui.ahk"
-        content := FileRead(path, "UTF-8")
-        ; 修复前：Run("notepad.exe " logFile) — logFile 未加引号
-        hasUnquotedLog := InStr(content, 'Run("notepad.exe " logFile)') > 0
-        this.assert.isFalse(hasUnquotedLog)
-    }
-
-    Test_I14_ShowErrorLog_PathSurroundedByQuotes() {
-        ; 静态分析：_ShowErrorLog 方法区域内 Run 应使用单引号字符串包围路径
-        path := A_ScriptDir "\..\gui.ahk"
-        content := FileRead(path, "UTF-8")
-        methodStart := InStr(content, "static _ShowErrorLog() {")
-        this.assert.isTrue(methodStart > 0)
-        methodRegion := SubStr(content, methodStart, 500)
-        ; 修复后应使用单引号字符串: Run('notepad.exe "' logFile '"')
-        ; 修复前使用双引号字符串: Run("notepad.exe " logFile)
-        hasSingleQuoteRun := InStr(methodRegion, "Run('notepad.exe") > 0
-        this.assert.isTrue(hasSingleQuoteRun)
-    }
+    ; 注：I14（Run 路径加引号转义）的 3 个静态分析测试已于 2026-09-12 审查中移除。
+    ; 原测试以根目录 gui.ahk（v1.0 遗留文件，非生产代码）为断言目标，其守护的
+    ; _OpenConfigFile / _ShowErrorLog 方法在现行生产架构中已不存在（GUI 已迁移至
+    ; presentation/gui_manager.ahk + WebView2）。测试对生产代码无保护作用，属假性
+    ; 安全覆盖；gui.ahk 亦已删除。若未来 gui_manager.ahk 引入同类 Run 路径调用，
+    ; 应针对该生产文件重新编写 I14 断言。
 }
 
 ; =================================================================
@@ -1083,5 +1053,155 @@ class FixtureUsageTests extends AutoHotUnitSuite {
         parsed := JSONParser.Parse(singleJson)
         this.assert.isTrue(parsed is Map)
         this.assert.isTrue(parsed.Has("GroupSettings"))
+    }
+}
+; =================================================================
+; 迁移日志测试（2026-09-12 审查 B-6 补测）
+; 背景：graph 分析显示 migration_logger.ahk 是全项目唯一未被任何测试
+;       直接引用的生产模块，为零覆盖死角。本套件补齐基础覆盖。
+; =================================================================
+
+class MigrationLoggerTests extends AutoHotUnitSuite {
+    ; 备份被测类的静态状态，避免污染其他套件
+    _origEntries := ""
+    _origLogFile := ""
+
+    Setup() {
+        this._origEntries := MigrationLogger._entries
+        this._origLogFile := MigrationLogger._logFile
+        MigrationLogger._entries := []
+    }
+
+    Teardown() {
+        MigrationLogger._entries := this._origEntries
+        MigrationLogger._logFile := this._origLogFile
+    }
+
+    ; Log 应把条目追加进内部缓冲
+    Test_Log_AppendsEntryToBuffer() {
+        MigrationLogger._entries := []
+        MigrationLogger.Log("3.0", "4.0", "grp1", "hotkey", "F1", "F2")
+        this.assert.isTrue(MigrationLogger._entries.Length = 1)
+        entry := MigrationLogger._entries[1]
+        this.assert.isTrue(entry is Map)
+        this.assert.isTrue(entry["fromVersion"] = "3.0")
+        this.assert.isTrue(entry["toVersion"] = "4.0")
+        this.assert.isTrue(entry["groupId"] = "grp1")
+        this.assert.isTrue(entry["field"] = "hotkey")
+    }
+
+    ; Log 应记录时间戳（A_Now 格式，非空）
+    Test_Log_RecordsTimestamp() {
+        MigrationLogger._entries := []
+        MigrationLogger.Log("3.0", "4.0", "g", "f", 1, 2)
+        ts := MigrationLogger._entries[1]["timestamp"]
+        this.assert.isTrue(StrLen(ts) > 0)
+        ; A_Now 形如 YYYYMMDDHH24MISS，14 位纯数字
+        this.assert.isTrue(RegExMatch(ts, "^\d{14}$") = 1)
+    }
+
+    ; _ToString 应把对象/数组序列化为 JSON 字符串，标量转为字符串
+    Test_ToString_SerializesObjectsAndScalars() {
+        this.assert.isTrue(MigrationLogger._ToString("abc") = "abc")
+        this.assert.isTrue(MigrationLogger._ToString(42) = "42")
+        arrStr := MigrationLogger._ToString([1, 2, 3])
+        this.assert.isTrue(InStr(arrStr, "[") > 0)
+        mapStr := MigrationLogger._ToString(Map("a", 1))
+        this.assert.isTrue(InStr(mapStr, "{") > 0)
+    }
+
+    ; Flush 在缓冲为空时不应创建文件或抛异常（幂等空操作）
+    Test_Flush_EmptyBuffer_IsNoop() {
+        MigrationLogger._entries := []
+        tmp := A_Temp "\asd_mig_test_empty.log"
+        if FileExist(tmp)
+            FileDelete(tmp)
+        MigrationLogger._logFile := tmp
+        MigrationLogger.Flush()
+        this.assert.isFalse(FileExist(tmp))
+        this.assert.isTrue(MigrationLogger._entries.Length = 0)
+    }
+
+    ; Flush 应把缓冲写入文件并清空缓冲
+    Test_Flush_WritesAndClearsBuffer() {
+        tmp := A_Temp "\asd_mig_test_flush.log"
+        if FileExist(tmp)
+            FileDelete(tmp)
+        MigrationLogger._logFile := tmp
+        MigrationLogger._entries := []
+        MigrationLogger.Log("3.0", "4.0", "grpA", "mode", "periodic", "sequence")
+        MigrationLogger.Flush()
+        ; 注意：FileExist 返回属性字符串（如 "A"）而非布尔值，不可直接用 isTrue 断言
+        this.assert.isTrue(FileExist(tmp) != "")
+        content := FileRead(tmp, "UTF-8")
+        this.assert.isTrue(InStr(content, "fromVersion=3.0") > 0)
+        this.assert.isTrue(InStr(content, "groupId=grpA") > 0)
+        ; 缓冲应已清空
+        this.assert.isTrue(MigrationLogger._entries.Length = 0)
+        FileDelete(tmp)
+    }
+
+    ; GetHistory 文件不存在时应返回空数组而非报错
+    Test_GetHistory_MissingFile_ReturnsEmptyArray() {
+        MigrationLogger._logFile := A_Temp "\asd_mig_nonexistent_" A_TickCount ".log"
+        hist := MigrationLogger.GetHistory()
+        this.assert.isTrue(hist is Array)
+        this.assert.isTrue(hist.Length = 0)
+    }
+
+    ; GetHistory 应能回读 Flush 写入的内容，且键值可正确还原
+    Test_GetHistory_RoundTrip() {
+        tmp := A_Temp "\asd_mig_test_rt.log"
+        if FileExist(tmp)
+            FileDelete(tmp)
+        MigrationLogger._logFile := tmp
+        MigrationLogger._entries := []
+        MigrationLogger.Log("3.0", "4.0", "grpRT", "hotkey", "F1", "F5")
+        MigrationLogger.Flush()
+
+        hist := MigrationLogger.GetHistory()
+        this.assert.isTrue(hist is Array)
+        this.assert.isTrue(hist.Length = 1)
+        e := hist[1]
+        this.assert.isTrue(e["groupId"] = "grpRT")
+        this.assert.isTrue(e["oldValue"] = "F1")
+        this.assert.isTrue(e["newValue"] = "F5")
+        FileDelete(tmp)
+    }
+
+    ; 值中包含 '=' 时，GetHistory 的 StrSplit 限宽应保留完整值（不截断）
+    Test_GetHistory_ValueContainingEquals_Preserved() {
+        tmp := A_Temp "\asd_mig_test_eq.log"
+        if FileExist(tmp)
+            FileDelete(tmp)
+        MigrationLogger._logFile := tmp
+        MigrationLogger._entries := []
+        MigrationLogger.Log("3.0", "4.0", "g", "expr", "a=1", "b=2")
+        MigrationLogger.Flush()
+
+        hist := MigrationLogger.GetHistory()
+        this.assert.isTrue(hist.Length = 1)
+        this.assert.isTrue(hist[1]["oldValue"] = "a=1")
+        this.assert.isTrue(hist[1]["newValue"] = "b=2")
+        FileDelete(tmp)
+    }
+
+    ; 多条日志应各自成行，可全部回读
+    Test_GetHistory_MultipleEntries() {
+        tmp := A_Temp "\asd_mig_test_multi.log"
+        if FileExist(tmp)
+            FileDelete(tmp)
+        MigrationLogger._logFile := tmp
+        MigrationLogger._entries := []
+        MigrationLogger.Log("3.0", "4.0", "g1", "f1", "v1", "v2")
+        MigrationLogger.Log("3.0", "4.0", "g2", "f2", "v3", "v4")
+        MigrationLogger.Log("3.0", "4.0", "g3", "f3", "v5", "v6")
+        MigrationLogger.Flush()
+
+        hist := MigrationLogger.GetHistory()
+        this.assert.isTrue(hist.Length = 3)
+        this.assert.isTrue(hist[1]["groupId"] = "g1")
+        this.assert.isTrue(hist[3]["groupId"] = "g3")
+        FileDelete(tmp)
     }
 }

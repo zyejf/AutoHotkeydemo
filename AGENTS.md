@@ -64,7 +64,7 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 | 基础设施层 (infra)    | `infrastructure/`  | `config_store`, `json_parser`, `json_serializer`, `config_validator`, `debug_logger`, `json_logger`, `error_system`, `error_handler`, `backup_core`, `utils`, `ipc_channel`, `joy_hotkey_manager`, `config_io`, `joy_sender`, `migration_logger` |
 | 应用层 (application) | `application/`     | `group_service`, `config_service`, `backup_service` |
 | 表现层 (presentation) | `presentation/`    | `webview2_manager`, `ui_manager`, `gui_manager`, `group_editor`, `backup_ui`, `debug_panel` |
-| 测试层 (tests)       | `tests/`           | `test_domain`, `test_infrastructure`, `test_application`, `test_presentation`, `test_webview2_bridge`, `test_boundary`, `test_error_captor`, `test_error_system`, `test_integration_error_system`, `test_result_reporter`, `run_all_tests`, `run_tests`, `AutoHotUnit`, `run_tests.ps1` |
+| 测试层 (tests)       | `tests/`           | `test_webview2_bridge`, `test_error_system`, `test_integration_error_system`, `test_result_reporter`, `test_joy_hotkey_manager`, `test_joystick`, `test_key_recorder`, `test_key_validator`, `test_key_test_integration`, `test_ahk_executor/*`, `suites/*`, `run_all_tests`, `run_tests`, `AutoHotUnit`, `run_tests.ps1`；归档于 `tests/archive/` |
 
 #### AHK 已知架构妥协（Known Architecture Compromises）
 
@@ -72,7 +72,7 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 
 | # | 妥协 | 影响文件 | 说明 | 约束边界 |
 |---|------|---------|------|---------|
-| 1 | **DDD 层依赖违规** | `domain/mode_registry.ahk` → `infrastructure/error_system.ahk` | 领域层直接依赖基础设施层的 `ErrorSystem`。在严格 DDD 中领域层应通过接口使用日志服务，但 AHK v2 无 DI 容器，通过接口注入会导致过度复杂化。 | 仅允许 `domain/` 引用 `infrastructure/error_system.ahk` 的 `LogError` 方法。禁止领域层引用 `infrastructure/` 中的其他模块。此外，允许 `infrastructure/joy_hotkey_manager.ahk` 引用 `domain/joystick_input.ahk` 的纯工具函数（`JoystickInput` 类，无副作用、无状态），以消除代码重复（A1 修复：删除冗余的 `infrastructure/joystick_input_utils.ahk`，该文件曾为避免反向依赖而复制 `JoystickInput` 的全部方法）。同样允许 `infrastructure/joy_sender.ahk` 反向 `#Include "../domain/interfaces.ahk"`（`JoySender` 实现 `IJoySender` 抽象接口，依赖倒置）；该引用仅用于类型继承、无副作用无状态，仅限「domain 定义接口 / joy_sender 实现接口」这一边界。 |
+| 1 | **DDD 层依赖违规** | `domain/mode_registry.ahk` → `infrastructure/error_system.ahk` | 领域层直接依赖基础设施层的 `ErrorSystem`。在严格 DDD 中领域层应通过接口使用日志服务，但 AHK v2 无 DI 容器，通过接口注入会导致过度复杂化。 | 仅允许 `domain/` 引用 `infrastructure/error_system.ahk` 的 `LogError` 方法。禁止领域层引用 `infrastructure/` 中的其他模块。此外，允许 `infrastructure/joy_hotkey_manager.ahk` 引用 `domain/joystick_input.ahk` 的纯工具函数（`JoystickInput` 类，无副作用、无状态），以消除代码重复（A1 修复：删除冗余的 `infrastructure/joystick_input_utils.ahk`，该文件曾为避免反向依赖而复制 `JoystickInput` 的全部方法）。同样允许 `infrastructure/joy_sender.ahk` 反向 `#Include "../domain/interfaces.ahk"`（`JoySender` 实现 `IJoySender` 抽象接口，依赖倒置）；该引用仅用于类型继承、无副作用无状态，仅限「domain 定义接口 / joy_sender 实现接口」这一边界。此外，允许 `infrastructure/config_validator.ahk` 引用 `domain/joystick_input.ahk` 的 `JoystickInput.IsJoystickKey()` 纯静态方法（无副作用、无状态），用于摇杆按键名的合法性校验（`config_validator.ahk:167`）。 |
 | 2 | **`BackupCore` 隐式依赖** | `application/config_service.ahk` → `infrastructure/backup_core.ahk` | 应用层通过全局 `BackupCore` 类名隐式引用基础设施层模块。应通过显式 `#Include` 或接口抽象化。 | `ConfigService` 内部仅通过 `BackupCore.CreateBackup()` 静态方法调用，不直接访问其内部状态。未来若引入 DI 机制应重构为接口注入。 |
 
 #### AHK 内部工具函数迁移
@@ -141,7 +141,7 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
 | 2 | **I/O 泄漏修复** | Config 的 I/O 方法从 domain 层移到 application 层的 ConfigRepository，确保 domain crate 无文件 I/O。 |
 | 3 | **Miri 兼容** | asd-domain, asd-ipc-protocol, asd-application 可通过 Miri 验证（0 UB），不含 unsafe 代码。 |
 | 4 | **AHK 子进程隔离** | AHK 执行器（asd_executor.exe）作为子进程由 Rust 主进程管理，通过 interprocess named pipe 通信。 |
-| 5 | **测试覆盖** | Rust 624 个测试函数（`#[test]` + `#[tokio::test]`，含 16 个 `#[ignore]`）+ AHK v2 607 个用例 + AHK 执行器 57 套件/255 个 `Test_` 方法 + E2E 53 用例/9 suite（截至 2026-08-20 统计，数量与分布以 `asd-tauri/docs/test-map.md` 为唯一权威）。纯逻辑 crate 覆盖率 96.57%。另有 7 个 criterion bench、5 个 fuzz target。 |
+| 5 | **测试覆盖** | Rust 601 个测试函数（`#[test]` 575 + `#[tokio::test]` 26，含 16 个 `#[ignore]`），运行用例 614 个（598 passed + 16 ignored）+ AHK v2 616 个用例（实测全通过）+ AHK 执行器 57 套件/255 个 `Test_` 方法 + E2E 53 用例/9 suite（截至 2026-09-12 实测，数量与分布以 `asd-tauri/docs/test-map.md` 为唯一权威）。纯逻辑 crate 覆盖率 96.57%。另有 7 个 criterion bench、5 个 fuzz target。 |
 | 6 | **进程清理与 panic hook 补偿** | watchdog.rs 的 `cleanup_stale_executor_processes` 仅清理项目专用的 `asd_executor.exe`，**绝不**清理 `AutoHotkey64.exe` 等通用进程名，避免误杀用户其他 AHK 脚本（R1 安全约束）。`build_panic_hook_closure` 纯函数将 panic hook 的构建逻辑与全局 `set_hook` 注册分离，使测试可验证 hook 行为（先 cleanup 后 original_hook）而不污染全局 `Once` 状态（R3 可测试性）。JobObject 失败时，`register_panic_hook` 作为补偿机制确保主进程崩溃时子进程被清理（I36）。 |
 
 #### Rust/Tauri 已知架构妥协
@@ -258,8 +258,9 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
 - 查看应用日志: `Get-Content logs\app.log -Tail 10`
 - 过滤错误日志: `Select-String -Path logs\app.log -Pattern '"level":"ERROR"'`
 - **tests/ 目录结构**（v4.1 整理）：
-  - 根目录保留 22 个核心文件 = 16 个 `test_*.ahk`（`test_application`/`test_boundary`/`test_domain`/`test_error_captor`/`test_error_system`/`test_infrastructure`/`test_integration_error_system`/`test_joy_hotkey_manager`/`test_joy_hotkey_manager_ahu`/`test_joystick`/`test_key_recorder`/`test_key_test_integration`/`test_key_validator`/`test_presentation`/`test_result_reporter`/`test_webview2_bridge`）+ 6 个框架/配置文件（`AutoHotUnit.ahk`、`run_all_tests.ahk`、`run_tests.ahk`、`run_tests.ps1`、`config.json`、`TEST_STRATEGY.md`）
-  - `tests/archive/`：归档了 39 个调试/原型/旧版本文件（HTML 原型 `test_html_*`、WebView2 原型 `test_wv2_*`/`test_webview2_proto`、编号测试 `test_*_c*`、full 旧版本 `test_*_full`、bug 复现脚本 `run_bug_repro`/`test_bug_reproduction`、基准 `benchmark_hotpath` 等），不参与 `run_all_tests.ahk` 运行
+  - 根目录保留 13 个核心文件 = 10 个 `test_*.ahk`（`test_error_system`/`test_integration_error_system`/`test_joy_hotkey_manager`/`test_joy_hotkey_manager_ahu`/`test_joystick`/`test_key_recorder`/`test_key_test_integration`/`test_key_validator`/`test_result_reporter`/`test_webview2_bridge`）+ 3 个框架/入口文件（`AutoHotUnit.ahk`、`run_all_tests.ahk`、`run_tests.ahk`、`run_tests.ps1`）
+  - `tests/archive/`：归档了 41 个调试/原型/旧版本/废弃测试文件（HTML 原型 `test_html_*`、WebView2 原型 `test_wv2_*`/`test_webview2_proto`、编号测试 `test_*_c*`、full 旧版本 `test_*_full`、bug 复现脚本 `run_bug_repro`/`test_bug_reproduction`、基准 `benchmark_hotpath`、以及 2026-09-12 归档的 6 个上一代断言式测试 `test_domain`/`test_application`/`test_infrastructure`/`test_presentation`/`test_boundary`/`test_error_captor` 等），不参与 `run_all_tests.ahk` 运行
+  - `tests/suites/`：内联测试套件（`core_suites`/`base_suites`/`fix_round_suites`/`layering_security_suites`），由 `run_all_tests.ahk` 加载
   - `tests/test_ahk_executor/`：AHK 执行器测试（57 套件，详见下方）
   - `tests/fixtures/`：AHK v2 测试固件目录（v4.1 新增），存放可复用的测试数据文件（如 `sample_config.json` 标准配置样本覆盖 7 种模式、`import_test_data.json` 导入测试场景数据）
   - 删除了 25 个 `.txt`/`.log` 调试输出文件（stderr/stdout 重定向、`bug_repro_results`、`debug_output`、`test_results.log` 等）
@@ -282,7 +283,7 @@ AHK v2 测试历史上存在 4 种不统一的测试模式，统一规范如下�
 | 模式 | 状态 | 使用文件 | 迁移计划 |
 |------|------|---------|---------|
 | AutoHotUnitSuite | ✅ 推荐模式 | `run_all_tests.ahk`（80 套件）、`run_tests.ahk`、`test_joy_hotkey_manager_ahu.ahk`、`test_ahk_executor/*.ahk`（5 文件） | 新测试必须使用此模式 |
-| TestReporter 场景式 | ⚠️ 保留（已稳定） | `test_application.ahk`、`test_domain.ahk`、`test_infrastructure.ahk`、`test_presentation.ahk`、`test_boundary.ahk`、`test_error_captor.ahk`、`test_integration_error_system.ahk`、`test_key_recorder.ahk`、`test_key_test_integration.ahk`、`test_key_validator.ahk`、`test_result_reporter.ahk`、`test_webview2_bridge.ahk`（共 12 文件） | 后续逐步迁移，当前保留 |
+| TestReporter 场景式 | 📦 已归档（2026-09-12） | 原 `test_application.ahk`、`test_domain.ahk`、`test_infrastructure.ahk`、`test_presentation.ahk`、`test_boundary.ahk`、`test_error_captor.ahk`（共 6 文件）已移入 `tests/archive/`——它们不含 `Test_` 方法，从未被 `run_all_tests.ahk` 加载。仍保留于根目录的：`test_integration_error_system.ahk`、`test_key_recorder.ahk`、`test_key_test_integration.ahk`、`test_key_validator.ahk`、`test_result_reporter.ahk`、`test_webview2_bridge.ahk` | 保留者后续逐步迁移 |
 | JoyTestRunner 自定义 | ⚠️ 保留（已稳定） | `test_joystick.ahk` | 后续迁移，当前保留 |
 | 函数式全局变量 | ⚠️ 保留（已稳定） | `test_error_system.ahk` | 后续迁移，当前保留 |
 

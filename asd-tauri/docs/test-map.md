@@ -47,25 +47,24 @@
 | Crate | 类型 | 文件路径 | 测试数 | 覆盖范围 |
 |-------|------|---------|-------|---------|
 | asd-application | 单元 | crates/asd-application/src/state.rs | 36 | AppState 状态管理与 trait object 装配 |
-| asd-application | 单元 | crates/asd-application/src/scheduler.rs | 17 | SkillManager 调度逻辑（Arc<dyn IpcSender>） |
 | asd-application | 单元 | crates/asd-application/src/config_repository.rs | 24 | ConfigRepository 文件 I/O 与序列化 |
 | asd-application | 单元 | crates/asd-application/src/time_format.rs | 4 | 时间格式化工具 |
 | asd-application | 单元 | crates/asd-application/src/error.rs | 6 | AppError 错误类型 |
-| **单元小计** | — | — | **87** | — |
+| **单元小计** | — | — | **70** | — |
 
 ### 集成测试
 
 | Crate | 类型 | 文件路径 | 测试数 | 覆盖范围 |
 |-------|------|---------|-------|---------|
-| asd-application | 集成 | crates/asd-application/tests/integration_tests.rs | 34 | 跨服务集成（AppState + Scheduler + ConfigRepo） |
+| asd-application | 集成 | crates/asd-application/tests/integration_tests.rs | 28 | 跨服务集成（AppState + ConfigRepo） |
 | asd-application | 集成 | crates/asd-application/tests/backup_service_tests.rs | 17 | BackupService 备份创建与恢复 |
 | asd-application | 集成 | crates/asd-application/tests/group_service_tests.rs | 16 | GroupService 分组增删改查 |
 | asd-application | 集成 | crates/asd-application/tests/cross_crate_tests.rs | 13 | 跨 crate 边界（domain → application → ipc-protocol） |
 | asd-application | 集成 | crates/asd-application/tests/recording_service_tests.rs | 11 | RecordingService 按键录制 |
-| asd-application | 端到端 | crates/asd-application/tests/e2e_dataflow_tests.rs | 4 | 端到端数据流（Command → Bridge → AppState → Scheduler） |
+| asd-application | 端到端 | crates/asd-application/tests/e2e_dataflow_tests.rs | 4 | 端到端数据流（Command → Bridge → AppState） |
 | asd-application | 集成 | crates/asd-application/tests/concurrency_tests.rs | 4 | AppState 并发安全（Arc<Mutex> 验证） |
-| **集成小计** | — | — | **99** | — |
-| **总计** | — | — | **186** | — |
+| **集成小计** | — | — | **93** | — |
+| **总计** | — | — | **163** | — |
 
 ## asd-test-harness
 

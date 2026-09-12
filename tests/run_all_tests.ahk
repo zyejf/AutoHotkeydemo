@@ -24,6 +24,7 @@
 #Include "../infrastructure/error_handler.ahk"
 #Include "../infrastructure/config_io.ahk"
 #Include "../infrastructure/ipc_channel.ahk"
+#Include "../infrastructure/migration_logger.ahk"
 #Include "../application/config_service.ahk"
 #Include "../application/group_service.ahk"
 #Include "../application/backup_service.ahk"
@@ -243,6 +244,13 @@ testManager.RegisterSuite(
     JoyHotkeyPollingTimerTests,
     JoyHotkeyCallbackTests,
     JoyHotkeyReviewFixTests
+)
+
+; ============================================================
+; 注册迁移日志测试套件（2026-09-12 补测：原为零覆盖死角）
+; ============================================================
+testManager.RegisterSuite(
+    MigrationLoggerTests
 )
 
 ; 运行测试
