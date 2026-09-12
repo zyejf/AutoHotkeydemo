@@ -40,6 +40,8 @@ class ErrorSystem {
     static _errorCount := 0
     static _writeCount := 0
     static _sizeCheckInterval := 10
+    static _rateLastTime := Map()
+    static _rateSuppressed := Map()
 
     ; =================================================================
     ; 初始化
@@ -183,9 +185,24 @@ class ErrorSystem {
     ; 写入日志
     ; =================================================================
     static _WriteLog(record) {
+        global LOG_RATE_LIMIT_MS
         this.Init()
 
         try {
+            source := this._ResolveSource(record)
+            now := A_TickCount
+
+            ; 限速：同一源在窗口内仅累加抑制计数并跳过落盘
+            if this._rateLastTime.Has(source) && (now - this._rateLastTime[source] < LOG_RATE_LIMIT_MS) {
+                if !this._rateSuppressed.Has(source)
+                    this._rateSuppressed[source] := 0
+                this._rateSuppressed[source] += 1
+                return
+            }
+            suppressed := this._rateSuppressed.Has(source) ? this._rateSuppressed[source] : 0
+            this._rateLastTime[source] := now
+            this._rateSuppressed[source] := 0
+
             this._writeCount++
             if this._writeCount >= this._sizeCheckInterval {
                 this._writeCount := 0
@@ -195,6 +212,9 @@ class ErrorSystem {
                         this._RotateLog()
                 }
             }
+
+            if suppressed > 0
+                record["suppressedCount"] := suppressed
 
             jsonLine := this._ToJsonLine(record)
 
@@ -213,10 +233,26 @@ class ErrorSystem {
     }
 
     ; =================================================================
+    ; 解析日志写入源（用于限速分桶，避免不同来源互相抑制）
+    ; =================================================================
+    static _ResolveSource(record) {
+        if record is Map {
+            if record.Has("file") && record["file"] != ""
+                return record["file"]
+            if record.Has("what") && record["what"] != ""
+                return record["what"]
+            if record.Has("message")
+                return record["message"]
+        }
+        return "unknown"
+    }
+
+    ; =================================================================
     ; 构建 JSON 行
     ; =================================================================
     static _ToJsonLine(record) {
-        return JSONSerializer.Stringify(record)
+        ; T6-09: 日志以单行紧凑 JSON 落盘（indent=0），避免多行 pretty 输出
+        return JSONSerializer.Stringify(record, 0)
     }
 
     ; =================================================================

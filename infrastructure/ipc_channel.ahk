@@ -1,9 +1,11 @@
 ; =================================================================
 ; 基础设施层 - IPC 进程间通信预留接口
 ; 版本: 3.0
-; 说明: 为未来跨进程通信提供预留接口
-;       当前实现基于文件管道的最简通道
-;       后续可升级为 WM_COPYDATA / TCP Socket / Named Pipe
+; 说明: 为未来跨进程通信提供预留接口（低优先级、非热路径实现）
+;       当前实现基于文件管道的最简通道，已知非高效实现现状：
+;       每次 Send/Emit 会做一次 FileGetSize + 整条 Stringify + FileAppend
+;       该文件管道仅作为预留通道，暂不追求性能，后续可优化为
+;       内存队列 + 定时刷新，或升级为 WM_COPYDATA / TCP Socket / Named Pipe
 ;       使用 OnMessage 监听外部消息
 ; =================================================================
 
@@ -181,6 +183,10 @@ class IPCChannel {
             for callback in IPCChannel.listeners[eventName] {
                 try
                     callback(msgObj)
+                catch as e {
+                    JSONLogger.Log("WARNING", "IPC消息回调执行失败: " e.Message,
+                                  Map("module", "IPCChannel", "event", eventName))
+                }
             }
         }
     }

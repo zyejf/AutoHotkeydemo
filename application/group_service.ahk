@@ -224,16 +224,17 @@ class GroupService {
     static ExportGroups(filePath) {
         try {
             config := GroupService.ConfigStore.Load()
-            return ExportConfigToFile(filePath, config)
+            return ConfigIO.ExportToFile(filePath, config)
         } catch as e {
             ErrorSystem.LogError(e.Message, "ERROR", A_ThisFunc, A_LineNumber)
             throw e
         }
     }
 
-    static ImportGroups(filePath) {
+    static ImportGroups(filePathOrConfig) {
         try {
-            config := ImportConfigFromFile(filePath)
+            ; T3-08+T6-12: 支持传入已解析的 Map，避免对同一份 JSON 二次解析
+            config := filePathOrConfig is Map ? filePathOrConfig : ConfigIO.LoadFromFile(filePathOrConfig)
             errors := ConfigValidator.Validate(config)
             if errors.Length > 0
                 throw Error("导入配置验证失败: " ConfigValidator.GetErrorMessage(errors[1]))

@@ -314,7 +314,7 @@ class SequenceExecutor extends IExecutor {
             if delay < 10
                 delay := 10
 
-            if !group.HasProp("_nextStepTime") || group._nextStepTime = 0 {
+            if group._nextStepTime = 0 {
                 group._nextStepTime := now + delay
             } else if now < group._nextStepTime - 2 {
                 return Max(1, group._nextStepTime - now - 2)
@@ -331,7 +331,7 @@ class SequenceExecutor extends IExecutor {
             nextDelay := nextStep <= group.delays.Length ? group.delays[nextStep] : 100
             if nextDelay < 10
                 nextDelay := 10
-            if !group.HasProp("_nextStepTime") || group._nextStepTime = 0 {
+            if group._nextStepTime = 0 {
                 group._nextStepTime := A_TickCount + nextDelay
             } else {
                 group._nextStepTime := group._nextStepTime + nextDelay
@@ -412,7 +412,7 @@ class EnhancedSequenceExecutor extends IExecutor {
             if delay < 10
                 delay := 10
 
-            if !group.HasProp("_nextStepTime") || group._nextStepTime = 0 {
+            if group._nextStepTime = 0 {
                 group._nextStepTime := now + delay
             } else if now < group._nextStepTime - 2 {
                 return Max(1, group._nextStepTime - now - 2)
@@ -431,7 +431,7 @@ class EnhancedSequenceExecutor extends IExecutor {
             nextDelay := nextStep <= group.pressDelays.Length ? group.pressDelays[nextStep] : 100
             if nextDelay < 10
                 nextDelay := 10
-            if !group.HasProp("_nextStepTime") || group._nextStepTime = 0 {
+            if group._nextStepTime = 0 {
                 group._nextStepTime := A_TickCount + nextDelay
             } else {
                 group._nextStepTime := group._nextStepTime + nextDelay

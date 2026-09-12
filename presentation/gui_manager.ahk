@@ -209,7 +209,7 @@ class GUIManager {
             return
 
         config := ConfigService.ConfigStore.Load()
-        ExportConfigToFile(filePath, config)
+        ConfigIO.ExportToFile(filePath, config)
         SkillManager._Notify("配置已导出到: " filePath, "success", 3000)
     }
 
@@ -418,10 +418,30 @@ class GlobalSettingsEditor {
                     controlHotkeys[action] := GlobalSettingsEditor.controls[editKey].Text
             }
 
+            ; T3-04: 逐字段 try-catch 转换数值，非法输入弹错并中止，不再静默吞异常
+            try
+                debounceDelay := Integer(GlobalSettingsEditor.controls["hs_debounceDelay"].Text)
+            catch {
+                MsgBox("防抖延迟必须是整数", "错误", "Icon!")
+                return
+            }
+            try
+                checkInterval := Integer(GlobalSettingsEditor.controls["hs_checkInterval"].Text)
+            catch {
+                MsgBox("检查间隔必须是整数", "错误", "Icon!")
+                return
+            }
+            try
+                pressSpeed := Integer(GlobalSettingsEditor.controls["hs_pressSpeed"].Text)
+            catch {
+                MsgBox("按键速率必须是整数", "错误", "Icon!")
+                return
+            }
+
             holdSettings := Map(
-                "debounceDelay", Integer(GlobalSettingsEditor.controls["hs_debounceDelay"].Text),
-                "checkInterval", Integer(GlobalSettingsEditor.controls["hs_checkInterval"].Text),
-                "pressSpeed", Integer(GlobalSettingsEditor.controls["hs_pressSpeed"].Text),
+                "debounceDelay", debounceDelay,
+                "checkInterval", checkInterval,
+                "pressSpeed", pressSpeed,
                 "allowOverlap", GlobalSettingsEditor.controls["hs_allowOverlap"].Value ? true : false,
                 "releaseOnEmergency", GlobalSettingsEditor.controls["hs_releaseOnEmergency"].Value ? true : false
             )
@@ -429,7 +449,11 @@ class GlobalSettingsEditor {
             ConfigService.ConfigStore.Set("CONTROL_HOTKEYS", controlHotkeys)
             ConfigService.ConfigStore.Set("HoldSettings", holdSettings)
 
-            ConfigService.SaveConfig()
+            ; T3-04: 检查 SaveConfig 返回值，失败才不提示「已保存」
+            if !ConfigService.SaveConfig() {
+                MsgBox("保存失败", "错误", "Icon!")
+                return
+            }
             MsgBox("全局设置已保存", "成功", "Iconi")
             GlobalSettingsEditor.gui.Destroy()
         } catch as e {

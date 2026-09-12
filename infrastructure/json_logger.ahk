@@ -156,6 +156,8 @@ class JSONLogger {
     static _initialized := false
     static _writeCount := 0
     static _sizeCheckInterval := 100
+    static _rateLastTime := Map()
+    static _rateSuppressed := Map()
 
     static errors := []
     static errorCount := Map("CRITICAL", 0, "ERROR", 0, "WARNING", 0, "INFO", 0, "DEBUG", 0)
@@ -208,8 +210,23 @@ class JSONLogger {
     }
 
     static _LogToFile(errorObj) {
+        global LOG_RATE_LIMIT_MS
         this.Init()
         try {
+            source := this._ResolveSource(errorObj)
+            now := A_TickCount
+
+            ; 限速：同一源在窗口内仅累加抑制计数并跳过落盘
+            if this._rateLastTime.Has(source) && (now - this._rateLastTime[source] < LOG_RATE_LIMIT_MS) {
+                if !this._rateSuppressed.Has(source)
+                    this._rateSuppressed[source] := 0
+                this._rateSuppressed[source] += 1
+                return
+            }
+            suppressed := this._rateSuppressed.Has(source) ? this._rateSuppressed[source] : 0
+            this._rateLastTime[source] := now
+            this._rateSuppressed[source] := 0
+
             this._writeCount++
             if this._writeCount >= this._sizeCheckInterval {
                 this._writeCount := 0
@@ -219,14 +236,23 @@ class JSONLogger {
                         this._RotateLog()
                 }
             }
-            jsonLine := this._BuildLogLine(errorObj) "`n"
+            jsonLine := this._BuildLogLine(errorObj, suppressed) "`n"
             FileAppend(jsonLine, this.logFile, "UTF-8")
         } catch {
             OutputDebug("JSONLogger._LogToFile: 写入失败")
         }
     }
 
-    static _BuildLogLine(errorObj) {
+    ; =================================================================
+    ; 解析日志写入源（用于限速分桶，避免不同 module 互相抑制）
+    ; =================================================================
+    static _ResolveSource(errorObj) {
+        module := errorObj.module != "" ? errorObj.module : "Unknown"
+        code := errorObj.type != "" ? errorObj.type : "generic"
+        return module ":" code
+    }
+
+    static _BuildLogLine(errorObj, suppressedCount := 0) {
         entry := Map(
             "timestamp", errorObj.timestamp,
             "level", errorObj.level,
@@ -237,7 +263,10 @@ class JSONLogger {
         )
         if errorObj.filePath != ""
             entry["file"] := errorObj.filePath
-        return JSONSerializer.Stringify(entry)
+        if suppressedCount > 0
+            entry["suppressedCount"] := suppressedCount
+        ; T6-09: 日志以单行紧凑 JSON 落盘（indent=0），避免多行 pretty 输出
+        return JSONSerializer.Stringify(entry, 0)
     }
 
     static _RotateLog() {

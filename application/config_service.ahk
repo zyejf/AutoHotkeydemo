@@ -33,7 +33,7 @@ class ConfigService {
     ; =================================================================
     static LoadConfig() {
         try {
-            config := ImportConfigFromFile(ConfigService.configPath)
+            config := ConfigIO.LoadFromFile(ConfigService.configPath)
             if IsObject(config) && ConfigService._HasErrorSignal(config)
                 ErrorSystem.LogError(ConfigService._GetErrorSignal(config), "CRITICAL", A_ThisFunc, A_LineNumber)
         } catch as e {
@@ -103,7 +103,7 @@ class ConfigService {
                 }
             }
 
-            return ExportConfigToFile(ConfigService.configPath, config)
+            return ConfigIO.ExportToFile(ConfigService.configPath, config)
         } catch as e {
             JSONLogger.Log("ERROR", "保存配置失败: " e.Message,
                           Map("module", "ConfigService"))
@@ -147,7 +147,7 @@ class ConfigService {
             JSONLogger.Log("DEBUG", "热重载前已创建备份",
                           Map("module", "ConfigService"))
 
-            config := ImportConfigFromFile(ConfigService.configPath)
+            config := ConfigIO.LoadFromFile(ConfigService.configPath)
 
             if IsObject(config) && ConfigService._HasErrorSignal(config)
                 ErrorSystem.LogError(ConfigService._GetErrorSignal(config), "CRITICAL", A_ThisFunc, A_LineNumber)
@@ -373,7 +373,7 @@ class ConfigService {
     ; 配置加载/存储辅助
     ; =================================================================
     static _SaveToFile(config) {
-        return ExportConfigToFile(ConfigService.configPath, config)
+        return ConfigIO.ExportToFile(ConfigService.configPath, config)
     }
 
     static _Notify(message, type := "info", duration := 0) {
@@ -402,17 +402,4 @@ class ConfigService {
             return config._ERROR_SIGNAL
         return ""
     }
-}
-
-; =================================================================
-; 通用 IO 函数（委托基础设施层 ConfigIO，保持向后兼容）
-; 修复 I6: 配置 IO 逻辑已下沉到 infrastructure/config_io.ahk
-; =================================================================
-
-ImportConfigFromFile(filePath) {
-    return ConfigIO.LoadFromFile(filePath)
-}
-
-ExportConfigToFile(filePath, config) {
-    return ConfigIO.ExportToFile(filePath, config)
 }

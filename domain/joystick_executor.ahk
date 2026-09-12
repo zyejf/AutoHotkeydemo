@@ -22,6 +22,11 @@ class JoystickPeriodicExecutor extends IExecutor {
     }
 
     Execute(group) {
+        ; T3-06: 激活前注入检查——未注入一次性告警并阻止进入执行循环
+        if !JoystickExecutor._EnsureSenderReady() {
+            JoystickExecutor._WarnSenderMissingOnce()
+            return 100
+        }
         try {
             now := A_TickCount
             joyKeys := group.joyKeys
@@ -52,7 +57,7 @@ class JoystickPeriodicExecutor extends IExecutor {
                     capturedKey := k
                     capturedMethod := sendMethod
                     JoystickExecutor._SendJoyKey(capturedKey, "down", capturedMethod)
-                    SetTimer(((ck, cm) => () => JoystickExecutor._SendJoyKey(ck, "up", cm))(capturedKey, capturedMethod), -keyDuration)
+                    JoystickExecutor._ScheduleRelease(group, capturedKey, capturedMethod, keyDuration)
                     group._joyLastTriggerTimes[i] := group._joyLastTriggerTimes[i] + interval
                     if group._joyLastTriggerTimes[i] < A_TickCount - interval
                         group._joyLastTriggerTimes[i] := A_TickCount
@@ -77,6 +82,11 @@ class JoystickSequenceExecutor extends IExecutor {
     }
 
     Execute(group) {
+        ; T3-06: 激活前注入检查——未注入一次性告警并阻止进入执行循环
+        if !JoystickExecutor._EnsureSenderReady() {
+            JoystickExecutor._WarnSenderMissingOnce()
+            return 100
+        }
         try {
             now := A_TickCount
             joyKeys := group.joyKeys
@@ -104,7 +114,7 @@ class JoystickSequenceExecutor extends IExecutor {
             capturedKey := k
             capturedMethod := sendMethod
             JoystickExecutor._SendJoyKey(capturedKey, "down", capturedMethod)
-            SetTimer(((ck, cm) => () => JoystickExecutor._SendJoyKey(ck, "up", cm))(capturedKey, capturedMethod), -keyDuration)
+            JoystickExecutor._ScheduleRelease(group, capturedKey, capturedMethod, keyDuration)
             group._joyCurrentStep := Mod(step, joyKeys.Length) + 1
 
             nextDelay := (group._joyCurrentStep <= joyDelays.Length) ? joyDelays[group._joyCurrentStep] : 100
@@ -125,6 +135,11 @@ class JoystickHoldExecutor extends IExecutor {
     }
 
     Execute(group) {
+        ; T3-06: 激活前注入检查——未注入一次性告警并阻止进入执行循环
+        if !JoystickExecutor._EnsureSenderReady() {
+            JoystickExecutor._WarnSenderMissingOnce()
+            return 50
+        }
         try {
             joyKeys := group.joyKeys
             sendMethod := group.joySendMethod
@@ -149,15 +164,36 @@ class JoystickExecutor {
     ; 注入的手柄发送器实例（IJoySender 实现），由 main.ahk InitDependencies 注入
     static _joySender := ""
 
+    ; T6-02: 释放定时器引用: groupId => (key => timerRef)，组停止时统一取消
+    static _releaseTimers := Map()
+
+    ; T3-06: 注入缺失告警去重标记，避免每 tick 重复 ERROR 日志风暴
+    static _injectionWarned := false
+
     ; 依赖注入入口 - 设置手柄发送器实现
     static SetJoySender(sender) {
         this._joySender := sender
+        ; 重新注入后重置一次性告警标记，允许下次缺失时再次提示
+        JoystickExecutor._injectionWarned := false
+    }
+
+    ; T3-06: 激活前注入检查——已注入返回 true
+    static _EnsureSenderReady() {
+        return JoystickExecutor._joySender != ""
+    }
+
+    ; T3-06: 未注入时一次性告警（同一进程内仅记录一次）
+    static _WarnSenderMissingOnce() {
+        if !JoystickExecutor._injectionWarned {
+            ErrorSystem.LogError("JoySender 未注入，joystick 模式无法执行；请先调用 SetJoySender", "WARNING", A_ThisFunc, A_LineNumber)
+            JoystickExecutor._injectionWarned := true
+        }
     }
 
     static _SendJoyKey(key, state, sendMethod := "auto") {
-        ; 注入检查（位于 try 之外，确保未注入时异常向上传播而非被吞没）
+        ; T3-06: 防御性检查（激活前已前置检查），未注入时静默跳过，避免每 tick 抛异常
         if (this._joySender = "")
-            throw Error("JoySender 未注入，请先调用 SetJoySender", -1)
+            return
         try {
             sender := this._joySender
             if JoystickInput.IsButton(key) {
@@ -189,9 +225,43 @@ class JoystickExecutor {
         }
     }
 
+    ; T6-02: 登记逐键 up 一次性定时器，组停止时取消，消除「停止后滞后发一次 up」
+    static _ScheduleRelease(group, key, method, kpd) {
+        if !JoystickExecutor._releaseTimers.Has(group.id)
+            JoystickExecutor._releaseTimers[group.id] := Map()
+        groupTimers := JoystickExecutor._releaseTimers[group.id]
+        if groupTimers.Has(key)
+            SetTimer(groupTimers[key], 0)
+        timerFn := ((g, kk, mm) => () => JoystickExecutor._OnReleaseKey(g, kk, mm))(group, key, method)
+        groupTimers[key] := timerFn
+        SetTimer(timerFn, -kpd)
+    }
+
+    static _OnReleaseKey(group, key, method) {
+        JoystickExecutor._SendJoyKey(key, "up", method)
+        if JoystickExecutor._releaseTimers.Has(group.id) {
+            groupTimers := JoystickExecutor._releaseTimers[group.id]
+            if groupTimers.Has(key)
+                groupTimers.Delete(key)
+        }
+    }
+
+    static _CancelReleaseTimers(group) {
+        if !JoystickExecutor._releaseTimers.Has(group.id)
+            return
+        for key, timerRef in JoystickExecutor._releaseTimers[group.id]
+            SetTimer(timerRef, 0)
+        JoystickExecutor._releaseTimers.Delete(group.id)
+    }
+
     static _ReleaseJoyKeys(group) {
-        if (this._joySender = "")
-            throw Error("JoySender 未注入，请先调用 SetJoySender", -1)
+        ; T3-06: 防御性检查——未注入时静默跳过，不再在组停止路径抛异常
+        if (this._joySender = "") {
+            JoystickExecutor._CancelReleaseTimers(group)
+            return
+        }
+        ; T6-02: 取消该组的滞后 up 定时器，避免随后重复发 up
+        JoystickExecutor._CancelReleaseTimers(group)
         try {
             sender := this._joySender
             sendMethod := group.joySendMethod

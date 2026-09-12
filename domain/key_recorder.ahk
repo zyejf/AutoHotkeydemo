@@ -310,8 +310,7 @@ class KeyRecorder {
     }
 
     static _RemoveMouseHooks() {
-        if !this._mouseHotkeys
-            return
+        ; T3-09: 无条件遍历注销一轮，避免部分注册场景（_mouseHotkeys 未置位）下钩子残留
         mouseButtons := ["LButton", "RButton", "MButton", "XButton1", "XButton2"]
         for btn in mouseButtons {
             try Hotkey("~*" btn " Down", "Off")

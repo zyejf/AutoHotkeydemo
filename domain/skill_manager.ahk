@@ -66,6 +66,7 @@ class SkillManager {
     static _timers := Map()
     static _executionIds := Map()
     static _cleanupTimer := 0
+    static _resetEmergencyTimer := 0
     static _eventHooks := []        ; IEventHook 实例列表
     static _controlHotkeyBindings := Map()
 
@@ -450,7 +451,7 @@ class SkillManager {
 
             SkillManager._UpdateBriefInfo()
             this._DispatchEvent("onError", Map("type", "emergency"))
-            if SkillManager.HasProp("_resetEmergencyTimer") && SkillManager._resetEmergencyTimer {
+            if SkillManager._resetEmergencyTimer {
                 try
                     SetTimer(SkillManager._resetEmergencyTimer, 0)
             }
@@ -467,7 +468,7 @@ class SkillManager {
         try {
             if !this.EmergencyMode
                 return
-            if SkillManager.HasProp("_resetEmergencyTimer") && SkillManager._resetEmergencyTimer {
+            if SkillManager._resetEmergencyTimer {
                 try
                     SetTimer(SkillManager._resetEmergencyTimer, 0)
                 SkillManager._resetEmergencyTimer := 0

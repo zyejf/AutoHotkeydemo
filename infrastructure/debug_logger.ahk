@@ -19,7 +19,6 @@ class DebugLogger {
     static maxSize := 5 * 1024 * 1024
     static initialized := false
     static _lastHotPathLog := 0
-    static hotPathInterval := 50
     static _startupModeEndTick := 0
     static _writeCount := 0
     static _sizeCheckInterval := 100
@@ -41,6 +40,7 @@ class DebugLogger {
     ; ILogger 接口实现
     ; =================================================================
     static Log(level, message, context := "") {
+        global LOG_RATE_LIMIT_MS
         if !this.enabled
             return
 
@@ -50,7 +50,7 @@ class DebugLogger {
         inStartupMode := A_TickCount < this._startupModeEndTick
 
         if level = "DEBUG" && !inStartupMode {
-            if A_TickCount - this._lastHotPathLog < this.hotPathInterval
+            if A_TickCount - this._lastHotPathLog < LOG_RATE_LIMIT_MS
                 return
             this._lastHotPathLog := A_TickCount
         }

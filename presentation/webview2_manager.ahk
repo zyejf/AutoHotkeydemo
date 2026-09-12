@@ -1038,31 +1038,24 @@ class WebView2Manager extends IEventHook {
     }
 
     static _BridgeImportConfig(jsonStr) {
-        tempPath := ""
         preImportGs := ""
         try {
             if StrLen(jsonStr) > 5242880
                 return JSONSerializer.Stringify(Map("success", false, "error", "导入数据过大(>5MB)"))
+            ; T3-08+T6-12: 复用同一次 JSONParser.Parse 结果，避免二次解析
+            importedConfig := JSONParser.Parse(jsonStr)
             ; I17: 分组数量上限检查，防止超大配置导致性能问题或 OOM
-            preCheck := JSONParser.Parse(jsonStr)
-            if preCheck is Map && preCheck.Has("GroupSettings") {
-                preGs := preCheck["GroupSettings"]
+            if importedConfig is Map && importedConfig.Has("GroupSettings") {
+                preGs := importedConfig["GroupSettings"]
                 if preGs is Map && preGs.Count > 1000
                     return JSONSerializer.Stringify(Map("success", false, "error", "分组数量超过上限(1000)"))
             }
             ; I20: 导入前保存当前配置快照 + 强制备份
             preImportGs := ConfigService.ConfigStore.Get("GroupSettings")
             BackupService.CreateBackup(ConfigService.ConfigStore.Load(), "import")
-            ; M16: 扩大临时文件随机空间，使用 A_MSec + Random(1,999999) 避免碰撞
-            tempPath := A_Temp "\ahk_import_" A_Now A_MSec "_" Random(1, 999999) ".json"
-            FileAppend(jsonStr, tempPath, "UTF-8")
-            result := GroupService.ImportGroups(tempPath)
-            try FileDelete(tempPath)
-            tempPath := ""
+            result := GroupService.ImportGroups(importedConfig)
             return JSONSerializer.Stringify(Map("success", true, "groupsLoaded", GroupService.ConfigStore.GetGroupCount()))
         } catch as e {
-            if tempPath != ""
-                try FileDelete(tempPath)
             ; I20: 检测回滚失败 — 重新加载配置与导入前对比
             if preImportGs != "" {
                 try {

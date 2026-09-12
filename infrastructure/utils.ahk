@@ -10,7 +10,11 @@
 #Warn Unreachable, OutputDebug
 #Warn LocalSameAsGlobal, Off
 
-#Include "json_parser.ahk"
+; =================================================================
+; 日志限速统一阈值（毫秒）：热路径日志每秒最多落盘一次
+; 供 DebugLogger / ErrorSystem / JSONLogger 共享引用，避免口径分叉
+; =================================================================
+global LOG_RATE_LIMIT_MS := 1000
 
 StrJoin(sep, parts*) {
     result := ""
@@ -37,22 +41,6 @@ _GetField(obj, key, defaultVal := "") {
         }
         if IsObject(obj) && HasProp(obj, key) {
             return obj.%key%
-        }
-        if IsString(obj) {
-            trimmed := LTrim(obj)
-            firstChar := SubStr(trimmed, 1, 1)
-            if (firstChar = "{" || firstChar = "[") {
-                try {
-                    parsed := JSONParser.Parse(obj)
-                    if parsed is Map
-                        return parsed.Has(key) ? parsed[key] : defaultVal
-                    if IsObject(parsed) && HasProp(parsed, key)
-                        return parsed.%key%
-                } catch as e {
-                    ; best-effort: JSON 字符串解析失败时返回默认值
-                    OutputDebug("ASD [WARN] utils._GetField: " e.Message " at line " e.Line)
-                }
-            }
         }
         return defaultVal
     } catch {

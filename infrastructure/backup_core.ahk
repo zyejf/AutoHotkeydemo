@@ -15,7 +15,6 @@
 #Include "json_serializer.ahk"
 #Include "json_parser.ahk"
 #Include "config_io.ahk"
-#Include "utils.ahk"
 
 class BackupCore {
     static backupDir := "backups"
@@ -161,7 +160,17 @@ class BackupCore {
     }
 
     static _SortBackupsByTime(backups) {
-        ; M13: 调用通用 _SortByField 替代手动插入排序（降序：新备份在前）
-        return _SortByField(backups, "time", true)
+        n := backups.Length
+        loop n - 1 {
+            i := A_Index + 1
+            key := backups[i]
+            j := i - 1
+            while j >= 1 && backups[j]["time"] < key["time"] {
+                backups[j + 1] := backups[j]
+                j--
+            }
+            backups[j + 1] := key
+        }
+        return backups
     }
 }

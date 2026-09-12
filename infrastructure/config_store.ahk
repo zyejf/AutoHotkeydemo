@@ -12,6 +12,7 @@
 #Warn LocalSameAsGlobal, Off
 
 #Include "..\lib\ahk2_lib\deepclone.ahk"
+#Include "json_logger.ahk"
 
 class ConfigStore {
     static _groupSettings := Map()
@@ -82,13 +83,13 @@ class ConfigStore {
     static Set(key, value) {
         switch key {
             case "GroupSettings":
-                this._groupSettings := value
+                this._groupSettings := deepclone(value)
                 return true
             case "CONTROL_HOTKEYS":
-                this._controlHotkeys := value
+                this._controlHotkeys := deepclone(value)
                 return true
             case "HoldSettings":
-                this._holdSettings := value
+                this._holdSettings := deepclone(value)
                 return true
             default:
                 try

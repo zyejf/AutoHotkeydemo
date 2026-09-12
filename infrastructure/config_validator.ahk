@@ -12,6 +12,8 @@
 #Warn LocalSameAsGlobal, Off
 
 #Include "json_logger.ahk"
+; A1 已备案妥协 #1：基础设施层引用领域层纯工具类（JoystickInput 无副作用、无状态）
+#Include "../domain/joystick_input.ahk"
 
 class ConfigValidator {
     static _validModesMap := Map(
@@ -19,6 +21,8 @@ class ConfigValidator {
         "enhanced_periodic", true, "enhanced_sequence", true, "enhanced_hybrid", true, "hold", true,
         "joystick_periodic", true, "joystick_sequence", true, "joystick_hold", true
     )
+
+    static _validKeysMap := ""
 
     static Validate(config) {
         errors := []
@@ -108,8 +112,63 @@ class ConfigValidator {
         if hotkey = ""
             return false
         hotkeyStr := String(hotkey)
-        pattern := "^[!^+~*<>#]*(F(?:[1-9]|1[0-9]|2[0-4])|[A-Z][a-zA-Z0-9]+|[a-zA-Z]|[0-9])$"
+        pattern := "^[!^+~*<>#]*([fF](?:[1-9]|1[0-9]|2[0-4])|[A-Z][a-zA-Z0-9]+|[a-zA-Z]|[0-9])$"
         return RegExMatch(hotkeyStr, pattern) > 0
+    }
+
+    ; =================================================================
+    ; 按键名合法性校验（下沉共享工具，与 domain/skill_group.ahk 的
+    ; SkillGroup._IsValidKeyName 保持同步；修改任一侧须同步另一侧）
+    ; =================================================================
+    static _IsValidKeyName(key) {
+        if !IsSet(key) || key = ""
+            return false
+        baseKey := RegExReplace(key, "^[\^+!#]+", "")
+        if RegExMatch(baseKey, "^[a-zA-Z0-9]$")
+            return true
+        if RegExMatch(baseKey, "^[fF]([1-9]|1[0-9]|2[0-4])$")
+            return true
+        lowerKey := StrLower(baseKey)
+        return ConfigValidator._GetValidKeysMap().Has(lowerKey)
+    }
+
+    static _GetValidKeysMap() {
+        if ConfigValidator._validKeysMap = "" {
+            m := Map()
+            for k in ["Space", "Enter", "Tab", "Esc", "BackSpace", "Delete",
+                       "Insert", "Home", "End", "PgUp", "PgDn",
+                       "LButton", "RButton", "MButton", "XButton1", "XButton2",
+                       "WheelUp", "WheelDown",
+                       "Up", "Down", "Left", "Right",
+                       "LShift", "RShift", "LCtrl", "RCtrl", "LAlt", "RAlt", "LWin", "RWin",
+                       "Shift", "Ctrl", "Alt", "Win",
+                       "CapsLock", "ScrollLock", "NumLock", "PrintScreen", "Pause",
+                       "Numpad0", "Numpad1", "Numpad2", "Numpad3", "Numpad4",
+                       "Numpad5", "Numpad6", "Numpad7", "Numpad8", "Numpad9",
+                       "NumpadAdd", "NumpadSub", "NumpadMult", "NumpadDiv", "NumpadEnter",
+                       "NumpadDot", "NumpadIns", "NumpadEnd", "NumpadDown",
+                       "NumpadPgDn", "NumpadLeft", "NumpadClear", "NumpadRight",
+                       "NumpadHome", "NumpadUp", "NumpadPgUp", "NumpadDel"]
+                m[StrLower(k)] := true
+            ConfigValidator._validKeysMap := m
+        }
+        return ConfigValidator._validKeysMap
+    }
+
+    ; 逐元素校验按键数组：isJoystick 时用 JoystickInput.IsJoystickKey，否则用 _IsValidKeyName
+    static _ValidateKeyArray(id, arr, fieldLabel, isJoystick := false) {
+        errors := []
+        if !(arr is Array)
+            return errors
+        for i, key in arr {
+            if !(key is String) && !IsNumber(key)
+                continue
+            keyStr := String(key)
+            valid := isJoystick ? JoystickInput.IsJoystickKey(keyStr) : ConfigValidator._IsValidKeyName(keyStr)
+            if !valid
+                errors.Push(Map("type", "ERROR", "message", "分组" id " 的 " fieldLabel "[" i "] 非法按键名: " keyStr))
+        }
+        return errors
     }
 
     static ValidateGroupOnly(id, config) {
@@ -120,6 +179,12 @@ class ConfigValidator {
 
         if !ConfigValidator._HasField(config, "hotkey")
             errors.Push(Map("type", "ERROR", "message", "分组" id "缺少热键(hotkey)"))
+        else {
+            ; I18: 与 _ValidateGroup 一致，追加热键格式校验（Create/Update 分组入口缺口）
+            hotkey := _GetProp(config, "hotkey")
+            if !ConfigValidator._IsValidHotkeyFormat(hotkey)
+                errors.Push(Map("type", "ERROR", "message", "分组" id "热键格式无效: " hotkey))
+        }
 
         if !ConfigValidator._HasField(config, "mode") {
             errors.Push(Map("type", "ERROR", "message", "分组" id "缺少模式(mode)"))
@@ -146,6 +211,8 @@ class ConfigValidator {
                     errors.Push(Map("type", "ERROR", "message", "分组" id "周期性模式缺少按键(keys)"))
                 else if ConfigValidator._IsFieldEmpty(config, "keys")
                     errors.Push(Map("type", "ERROR", "message", "分组" id "周期性模式按键(keys)不能为空数组"))
+                else
+                    errors.Push(ConfigValidator._ValidateKeyArray(id, _GetProp(config, "keys"), "keys")*)
                 if !ConfigValidator._HasField(config, "intervals")
                     errors.Push(Map("type", "ERROR", "message", "分组" id "周期性模式缺少间隔(intervals)"))
                 else if ConfigValidator._IsFieldEmpty(config, "intervals")
@@ -158,6 +225,8 @@ class ConfigValidator {
                     errors.Push(Map("type", "ERROR", "message", "分组" id "序列模式缺少按键(keys)"))
                 else if ConfigValidator._IsFieldEmpty(config, "keys")
                     errors.Push(Map("type", "ERROR", "message", "分组" id "序列模式按键(keys)不能为空数组"))
+                else
+                    errors.Push(ConfigValidator._ValidateKeyArray(id, _GetProp(config, "keys"), "keys")*)
                 if !ConfigValidator._HasField(config, "delays")
                     errors.Push(Map("type", "ERROR", "message", "分组" id "序列模式缺少延迟(delays)"))
                 else
@@ -174,6 +243,8 @@ class ConfigValidator {
                     errors.Push(Map("type", "ERROR", "message", "分组" id "长按模式缺少按键(holdKeys)"))
                 else if ConfigValidator._IsFieldEmpty(config, "holdKeys")
                     errors.Push(Map("type", "ERROR", "message", "分组" id "长按模式按键(holdKeys)不能为空数组"))
+                else
+                    errors.Push(ConfigValidator._ValidateKeyArray(id, _GetProp(config, "holdKeys"), "holdKeys")*)
                 if ConfigValidator._HasField(config, "repeatInterval") {
                     ri := _GetProp(config, "repeatInterval")
                     if IsNumber(ri) && Number(ri) < 10
@@ -188,6 +259,8 @@ class ConfigValidator {
                     errors.Push(Map("type", "ERROR", "message", "分组" id "增强周期模式缺少按键(pressKeys)"))
                 else if ConfigValidator._IsFieldEmpty(config, "pressKeys")
                     errors.Push(Map("type", "ERROR", "message", "分组" id "增强周期模式按键(pressKeys)不能为空数组"))
+                else
+                    errors.Push(ConfigValidator._ValidateKeyArray(id, _GetProp(config, "pressKeys"), "pressKeys")*)
                 if !ConfigValidator._HasField(config, "intervals")
                     errors.Push(Map("type", "ERROR", "message", "分组" id "增强周期模式缺少间隔(intervals)"))
                 else
@@ -198,6 +271,8 @@ class ConfigValidator {
                     errors.Push(Map("type", "ERROR", "message", "分组" id "增强序列模式缺少按键(pressKeys)"))
                 else if ConfigValidator._IsFieldEmpty(config, "pressKeys")
                     errors.Push(Map("type", "ERROR", "message", "分组" id "增强序列模式按键(pressKeys)不能为空数组"))
+                else
+                    errors.Push(ConfigValidator._ValidateKeyArray(id, _GetProp(config, "pressKeys"), "pressKeys")*)
                 if !ConfigValidator._HasField(config, "pressDelays")
                     errors.Push(Map("type", "ERROR", "message", "分组" id "增强序列模式缺少延迟(pressDelays)"))
                 else
@@ -222,6 +297,8 @@ class ConfigValidator {
                     errors.Push(Map("type", "ERROR", "message", "分组" id "手柄周期模式缺少按键(joyKeys)"))
                 else if ConfigValidator._IsFieldEmpty(config, "joyKeys")
                     errors.Push(Map("type", "ERROR", "message", "分组" id "手柄周期模式按键(joyKeys)不能为空数组"))
+                else
+                    errors.Push(ConfigValidator._ValidateKeyArray(id, _GetProp(config, "joyKeys"), "joyKeys", true)*)
                 if !ConfigValidator._HasField(config, "intervals")
                     errors.Push(Map("type", "ERROR", "message", "分组" id "手柄周期模式缺少间隔(intervals)"))
                 else
@@ -232,6 +309,8 @@ class ConfigValidator {
                     errors.Push(Map("type", "ERROR", "message", "分组" id "手柄序列模式缺少按键(joyKeys)"))
                 else if ConfigValidator._IsFieldEmpty(config, "joyKeys")
                     errors.Push(Map("type", "ERROR", "message", "分组" id "手柄序列模式按键(joyKeys)不能为空数组"))
+                else
+                    errors.Push(ConfigValidator._ValidateKeyArray(id, _GetProp(config, "joyKeys"), "joyKeys", true)*)
                 if !ConfigValidator._HasField(config, "delays")
                     errors.Push(Map("type", "ERROR", "message", "分组" id "手柄序列模式缺少延迟(delays)"))
                 else
@@ -242,6 +321,8 @@ class ConfigValidator {
                     errors.Push(Map("type", "ERROR", "message", "分组" id "手柄长按模式缺少按键(joyKeys)"))
                 else if ConfigValidator._IsFieldEmpty(config, "joyKeys")
                     errors.Push(Map("type", "ERROR", "message", "分组" id "手柄长按模式按键(joyKeys)不能为空数组"))
+                else
+                    errors.Push(ConfigValidator._ValidateKeyArray(id, _GetProp(config, "joyKeys"), "joyKeys", true)*)
                 if ConfigValidator._HasField(config, "holdDuration") {
                     hd := _GetProp(config, "holdDuration")
                     if IsNumber(hd) && Number(hd) < 50
@@ -293,6 +374,9 @@ class ConfigValidator {
                 val := _GetProp(hotkeys, action)
                 if val = "" || !IsObject(val) && StrLen(String(val)) = 0
                     errors.Push(Map("type", "WARNING", "message", "热键配置 " action " 值为空"))
+                else if !IsObject(val) && !ConfigValidator._IsValidHotkeyFormat(String(val))
+                    ; I18: 控制热键非空时追加格式校验，非法格式升级为 ERROR
+                    errors.Push(Map("type", "ERROR", "message", "控制热键 " action " 格式无效: " String(val)))
             }
         }
         return errors
