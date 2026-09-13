@@ -24,6 +24,19 @@ class ConfigValidator {
 
     static _validKeysMap := ""
 
+    ; =================================================================
+    ; 可疑配置值阈值
+    ; 与 asd-domain::validator（asd-tauri/crates/asd-domain/src/validator.rs）同源，
+    ; BUG-6 的双栈对齐项；修改任一侧必须同步另一侧。
+    ; =================================================================
+    ; 单个间隔/延迟的「合理上界」（毫秒）。超过该值虽不违法（AHK 侧照常执行），
+    ; 但通常意味着单位写错（把秒当毫秒）。仅告警，不拦截。
+    static MAX_REASONABLE_INTERVAL_MS := 60000
+
+    ; 单个间隔/延迟的「硬错误上界」（毫秒）。超过即判定为非法。
+    ; (MAX_REASONABLE_INTERVAL_MS, MAX_INTERVAL_MS] 区间 = 「可疑但合法」，由 WARNING 覆盖。
+    static MAX_INTERVAL_MS := 86400000
+
     static Validate(config) {
         errors := []
 
@@ -97,8 +110,10 @@ class ConfigValidator {
             mode := _GetProp(config, "mode")
             if !ConfigValidator._validModesMap.Has(mode)
                 errors.Push(Map("type", "ERROR", "message", "分组" id "有无效的模式: " mode))
-            else
+            else {
                 errors.Push(ConfigValidator._ValidateModeFields(id, mode, config)*)
+                errors.Push(ConfigValidator._ValidateSuspiciousModeValues(id, mode, config)*)
+            }
         }
 
         return errors
@@ -196,6 +211,9 @@ class ConfigValidator {
                 fieldErrors := ConfigValidator._ValidateModeFields(id, mode, config)
                 for e in fieldErrors
                     errors.Push(e)
+                ; 与 _ValidateGroup 保持一致：Create/Update 入口同样输出可疑值告警
+                for e in ConfigValidator._ValidateSuspiciousModeValues(id, mode, config)
+                    errors.Push(e)
             }
         }
 
@@ -250,8 +268,8 @@ class ConfigValidator {
                     if IsNumber(ri) && Number(ri) < 10
                         errors.Push(Map("type", "ERROR", "message", "分组" id " repeatInterval=" ri " 过小，最小 10ms"))
                     ; M19: 数值上限检查，防止超大数值导致定时器间隔错误
-                    if IsNumber(ri) && Number(ri) > 86400000
-                        errors.Push(Map("type", "ERROR", "message", "分组" id " repeatInterval=" ri " 过大，最大 86400000ms(24小时)"))
+                    if IsNumber(ri) && Number(ri) > ConfigValidator.MAX_INTERVAL_MS
+                        errors.Push(Map("type", "ERROR", "message", "分组" id " repeatInterval=" ri " 过大，最大 " ConfigValidator.MAX_INTERVAL_MS "ms(24小时)"))
                 }
 
             case "enhanced_periodic":
@@ -288,8 +306,8 @@ class ConfigValidator {
                     if IsNumber(si) && Number(si) < 10
                         errors.Push(Map("type", "ERROR", "message", "分组" id " seqInterval=" si " 过小，最小 10ms"))
                     ; M19: 数值上限检查，防止超大数值导致定时器间隔错误
-                    if IsNumber(si) && Number(si) > 86400000
-                        errors.Push(Map("type", "ERROR", "message", "分组" id " seqInterval=" si " 过大，最大 86400000ms(24小时)"))
+                    if IsNumber(si) && Number(si) > ConfigValidator.MAX_INTERVAL_MS
+                        errors.Push(Map("type", "ERROR", "message", "分组" id " seqInterval=" si " 过大，最大 " ConfigValidator.MAX_INTERVAL_MS "ms(24小时)"))
                 }
 
             case "joystick_periodic":
@@ -328,8 +346,8 @@ class ConfigValidator {
                     if IsNumber(hd) && Number(hd) < 50
                         errors.Push(Map("type", "ERROR", "message", "分组" id " holdDuration=" hd " 过小，最小 50ms"))
                     ; M19: 数值上限检查，防止超大数值导致定时器间隔错误
-                    if IsNumber(hd) && Number(hd) > 86400000
-                        errors.Push(Map("type", "ERROR", "message", "分组" id " holdDuration=" hd " 过大，最大 86400000ms(24小时)"))
+                    if IsNumber(hd) && Number(hd) > ConfigValidator.MAX_INTERVAL_MS
+                        errors.Push(Map("type", "ERROR", "message", "分组" id " holdDuration=" hd " 过大，最大 " ConfigValidator.MAX_INTERVAL_MS "ms(24小时)"))
                 }
 
             default:
@@ -345,8 +363,8 @@ class ConfigValidator {
                     if IsNumber(vv) && Number(vv) < 10
                         errors.Push(Map("type", "ERROR", "message", "分组" id " holdPattern[" vi "]=" vv " 过小，最小 10ms"))
                     ; M19: 数值上限检查
-                    if IsNumber(vv) && Number(vv) > 86400000
-                        errors.Push(Map("type", "ERROR", "message", "分组" id " holdPattern[" vi "]=" vv " 过大，最大 86400000ms(24小时)"))
+                    if IsNumber(vv) && Number(vv) > ConfigValidator.MAX_INTERVAL_MS
+                        errors.Push(Map("type", "ERROR", "message", "分组" id " holdPattern[" vi "]=" vv " 过大，最大 " ConfigValidator.MAX_INTERVAL_MS "ms(24小时)"))
                 }
             }
         }
@@ -362,6 +380,168 @@ class ConfigValidator {
         }
 
         return errors
+    }
+
+    ; =================================================================
+    ; 可疑配置值检查
+    ; 对齐 asd-domain::validator::validate_suspicious_mode_values（BUG-6 双栈对齐）。
+    ;
+    ; 只输出 WARNING，不新增 ERROR：AHK 侧对「按键数 ↔ 时间序列长度不匹配」有兜底值、
+    ; 对超长间隔也会照常执行，功能不会崩；把这些值升级为 ERROR 会拒绝用户原本可用的
+    ; 配置，破坏性大于收益。
+    ;
+    ; 与 Rust 侧的三处刻意差异（改本函数前请先读 asd-domain/src/validator.rs）：
+    ;   1. 长度不匹配只在「时间序列比按键多」时告警 —— 「比按键少」已由
+    ;      _ValidateArrayLength / _ValidateSubGroups 输出同义 WARNING，避免重复刷屏；
+    ;   2. 超长值只覆盖 (MAX_REASONABLE_INTERVAL_MS, MAX_INTERVAL_MS] —— 超过硬上界
+    ;      已由既有 ERROR 拦截，同一数值不再叠一条 WARNING；
+    ;   3. 子组下标为 1-based（AHK 惯例），Rust 侧为 0-based，跨栈比对日志需 +1。
+    ;
+    ; hold / joystick_hold 无「按键数 ↔ 时间序列」配对关系，不适用本检查。
+    ; =================================================================
+    static _ValidateSuspiciousModeValues(id, mode, config) {
+        warnings := []
+        series := []
+
+        switch mode {
+            case "periodic":
+                series.Push(ConfigValidator._MakeSeries("intervals", config, "keys", "intervals"))
+            case "sequence":
+                series.Push(ConfigValidator._MakeSeries("delays", config, "keys", "delays"))
+            case "enhanced_periodic":
+                series.Push(ConfigValidator._MakeSeries("intervals", config, "pressKeys", "intervals"))
+            case "enhanced_sequence":
+                series.Push(ConfigValidator._MakeSeries("pressDelays", config, "pressKeys", "pressDelays"))
+            case "joystick_periodic":
+                series.Push(ConfigValidator._MakeSeries("intervals", config, "joyKeys", "intervals"))
+            case "joystick_sequence":
+                series.Push(ConfigValidator._MakeSeries("delays", config, "joyKeys", "delays"))
+            case "hybrid":
+                series.Push(ConfigValidator._CollectGroupItemSeries(config)*)
+            case "enhanced_hybrid":
+                series.Push(ConfigValidator._CollectGroupItemSeries(config)*)
+            default:
+                ; hold / joystick_hold：无配对关系，跳过
+        }
+
+        for s in series {
+            label := s["label"]
+            keysLen := s["keysLen"]
+            values := s["values"]
+
+            ; 1) 时间序列比按键多：多余的值永远用不上，多半是多写了一个
+            if keysLen > 0 && values.Length > keysLen
+                warnings.Push(Map("type", "WARNING", "message", "分组" id " " label " 的按键数 (" keysLen ") 与时间序列长度 (" values.Length ") 不匹配，多余的值将被忽略，请确认配置意图"))
+
+            ; 2) 超长间隔/延迟：多半是单位写错（把秒当毫秒）
+            ; 只在「未超过硬上界」的值里取最大值 —— 若直接取全局最大值，
+            ; [70000, 90000000] 会因最大值越过硬上界而被整体排除，导致漏报。
+            maxVal := ConfigValidator._MaxNumberWithin(values, ConfigValidator.MAX_INTERVAL_MS)
+            if IsNumber(maxVal) && maxVal > ConfigValidator.MAX_REASONABLE_INTERVAL_MS
+                warnings.Push(Map("type", "WARNING", "message", "分组" id " " label " 中存在超长时间值 " maxVal "ms（上限建议 " ConfigValidator.MAX_REASONABLE_INTERVAL_MS "ms），请确认单位是否为毫秒"))
+        }
+
+        return warnings
+    }
+
+    ; 组装 (标签, 按键数, 时间序列) 三元组。
+    ; 字段缺失或非数组时按键数记 0、序列记空数组 —— 调用方用「两者都非空」门槛自动跳过，
+    ; 因为空值已由 _ValidateModeFields 报错，此处不再重复提示。
+    static _MakeSeries(label, obj, keysField, valuesField, altKeysField := "") {
+        keysLen := 0
+        if ConfigValidator._HasField(obj, keysField) {
+            k := _GetProp(obj, keysField)
+            if k is Array
+                keysLen := k.Length
+        }
+        ; 回退必须是独立的 if，不能写成 else if：子组可能同时存在 pressKeys（空串/非数组）
+        ; 与 keys（数组），此时第一个分支虽命中却取不到数组，用 else if 会漏检。
+        if keysLen = 0 && altKeysField != "" && ConfigValidator._HasField(obj, altKeysField) {
+            k := _GetProp(obj, altKeysField)
+            if k is Array
+                keysLen := k.Length
+        }
+
+        values := []
+        if ConfigValidator._HasField(obj, valuesField) {
+            v := _GetProp(obj, valuesField)
+            if v is Array
+                values := v
+        }
+
+        return Map("label", label, "keysLen", keysLen, "values", values)
+    }
+
+    ; 从 hybrid / enhanced_hybrid 的子组中提取 (标签, 按键数, 时间序列)。
+    ; 对应 Rust 侧 collect_group_item_series。
+    static _CollectGroupItemSeries(config) {
+        series := []
+        if !ConfigValidator._HasField(config, "groups")
+            return series
+        groups := _GetProp(config, "groups")
+        if !(groups is Array)
+            return series
+
+        for i, grp in groups {
+            grpType := ""
+            if grp is Map && grp.Has("type")
+                grpType := grp["type"]
+            else if IsObject(grp) && HasProp(grp, "type")
+                grpType := grp.type
+
+            if grpType = "periodic"
+                series.Push(ConfigValidator._MakeSeries("groups[" i "].intervals", grp, "pressKeys", "intervals", "keys"))
+            else if grpType = "sequence"
+                series.Push(ConfigValidator._MakeSeries("groups[" i "].delays", grp, "pressKeys", "delays", "keys"))
+        }
+        return series
+    }
+
+    ; 返回数组中「不超过 ceiling」的最大数值；无符合条件的元素时返回 ""
+    ; （调用方用 IsNumber 判定结果）。非数值元素直接跳过。
+    static _MaxNumberWithin(arr, ceiling) {
+        found := false
+        maxVal := 0
+        for v in arr {
+            if !IsNumber(v)
+                continue
+            n := Number(v)
+            if n > ceiling
+                continue
+            if !found || n > maxVal {
+                maxVal := n
+                found := true
+            }
+        }
+        return found ? maxVal : ""
+    }
+
+    ; =================================================================
+    ; 按级别筛选校验结果（BUG-6 附带修复）
+    ;
+    ; Validate() 返回的是 ERROR 与 WARNING 混合的数组 —— 子组缺失 intervals/delays、
+    ; holdTriggers 非 0/1、以及本次新增的可疑值告警，都会产出 WARNING。
+    ; 历史上多处调用点直接用 `errors.Length > 0` 判定失败，导致「仅含 WARNING 的合法配置」
+    ; 被拒绝导入或保存。判定是否致命**必须只筛 ERROR**，且统一走本函数，
+    ; 避免各调用点手写循环时走偏。
+    ;
+    ; 兼容两种元素形态：Map（生产路径）与带 type 属性的 Object（测试/历史路径）。
+    ; =================================================================
+    static FilterByType(errors, typeName) {
+        result := []
+        if !(errors is Array)
+            return result
+        for e in errors {
+            eType := ""
+            if e is Map {
+                if e.Has("type")
+                    eType := e["type"]
+            } else if IsObject(e) && HasProp(e, "type")
+                eType := e.type
+            if eType = typeName
+                result.Push(e)
+        }
+        return result
     }
 
     static _ValidateHotkeys(hotkeys) {
@@ -501,8 +681,8 @@ class ConfigValidator {
                         if IsNumber(vv) && Number(vv) < 10
                             errors.Push(Map("type", "ERROR", "message", "分组" id "子组" i " intervals[" vi "]=" vv " 过小，最小 10ms"))
                         ; M19: 数值上限检查
-                        if IsNumber(vv) && Number(vv) > 86400000
-                            errors.Push(Map("type", "ERROR", "message", "分组" id "子组" i " intervals[" vi "]=" vv " 过大，最大 86400000ms(24小时)"))
+                        if IsNumber(vv) && Number(vv) > ConfigValidator.MAX_INTERVAL_MS
+                            errors.Push(Map("type", "ERROR", "message", "分组" id "子组" i " intervals[" vi "]=" vv " 过大，最大 " ConfigValidator.MAX_INTERVAL_MS "ms(24小时)"))
                     }
                 }
             } else if grpType = "sequence" {
@@ -522,8 +702,8 @@ class ConfigValidator {
                         if IsNumber(vv) && Number(vv) < 10
                             errors.Push(Map("type", "ERROR", "message", "分组" id "子组" i " delays[" vi "]=" vv " 过小，最小 10ms"))
                         ; M19: 数值上限检查
-                        if IsNumber(vv) && Number(vv) > 86400000
-                            errors.Push(Map("type", "ERROR", "message", "分组" id "子组" i " delays[" vi "]=" vv " 过大，最大 86400000ms(24小时)"))
+                        if IsNumber(vv) && Number(vv) > ConfigValidator.MAX_INTERVAL_MS
+                            errors.Push(Map("type", "ERROR", "message", "分组" id "子组" i " delays[" vi "]=" vv " 过大，最大 " ConfigValidator.MAX_INTERVAL_MS "ms(24小时)"))
                     }
                 }
             }
@@ -551,8 +731,8 @@ class ConfigValidator {
                 if IsNumber(v) && Number(v) < 10
                     errors.Push(Map("type", "ERROR", "message", "分组" id modeName " " valuesField "[" i "] 值 " v " 过小，最小 10ms"))
                 ; M19: 数值上限检查，防止超大数值导致定时器间隔错误
-                if IsNumber(v) && Number(v) > 86400000
-                    errors.Push(Map("type", "ERROR", "message", "分组" id modeName " " valuesField "[" i "] 值 " v " 过大，最大 86400000ms(24小时)"))
+                if IsNumber(v) && Number(v) > ConfigValidator.MAX_INTERVAL_MS
+                    errors.Push(Map("type", "ERROR", "message", "分组" id modeName " " valuesField "[" i "] 值 " v " 过大，最大 " ConfigValidator.MAX_INTERVAL_MS "ms(24小时)"))
             }
         }
         return errors
