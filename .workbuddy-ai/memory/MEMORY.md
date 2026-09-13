@@ -111,13 +111,22 @@ asd-domain 由 132 → 136 是 BUG-6 新增 4 个 validator warning 测试。
 - **换行符**：`.gitattributes` 强制文本文件 LF（`.ps1`/`.bat`/`.cmd` 除外）。
   ⚠️ Edit 工具在 Windows 上可能引入 CRLF，改完 `.md` 需用 Python 校验/转换。
 - **提交规范**：Conventional Commits，10 种 type，**描述用中文**。
-  `commit-msg` 钩子**同时校验 type 与 scope 白名单**（2026-09-13 实测：
-  `fix(e2e):` 被拒，报「提交信息不符合 Conventional Commits 规范」并列白名单）。
-  scope 白名单：`asd-domain` / `asd-ipc-protocol` / `asd-application` / `asd-tauri` /
-  `asd-test-harness` / `ahk` / `test` / `ci` / `docs` / `config`。
-  `asd-tauri/e2e/` 下的改动用 `test`（`e2e` 不是合法 scope）。
+  `commit-msg` 钩子只校验 type 与 scope **字符形态**，**不校验 scope 白名单**
+  （白名单只是 hook 打印的提示文本）。
+  ⚠️ 陷阱（2026-09-13 实测）：scope 正则为 `[a-z-]+`，**不允许数字**——
+  `fix(e2e):` 被拒不是因为不在白名单，而是 `e2e` 含数字 `2`。
+  同理 `v2`、`ipc2` 之类 scope 也会被拒。合法 scope 见 `docs/commit-convention.md`。
   长提交信息用 `git commit -F <file>`（写进 `.git/COMMIT_MSG_TMP` 后删除），
   避免 shell 转义问题。
+- ⚠️ **本环境禁用 `git rm`（以及会触发 safe-delete 的删除操作）删除仓库文件**：
+  删除包装器有路径拼接 bug（日志里出现过 `d:\1demo\AutoHotkeydemo\C:\Users\...`
+  这种「CWD + 绝对路径」的错误拼接），会把删除**放大到邻近目录**。
+  实测两次：执行 `git rm asd-tauri/.github/workflows/ci.yml` 后，
+  `asd-tauri/crates/**` 等 **54 个文件被连带删除**（命令行随后报 SIGTERM）。
+  **替代做法**：`mv <file> /tmp/xxx.bak` 移走，再 `git add -A <目录>` 暂存删除。
+  **误删恢复**：先 `mv .git/index.lock /tmp/`（残留锁会导致 git 报「另一个进程在运行」），
+  再 `git checkout -- .`；注意这会连同**未暂存的其它改动**一起还原，
+  所以重要改动要**及时提交**，不要长期留在工作区。
 - **提交信息中不写具体测试数字**（会立刻过期）。
 - **文档与代码改动必须在同一 PR**，禁止「代码先合、文档后补」。
 - AHK 测试前置检查：语法检查（stderr 重定向 + 退出码）→ 接管指令验证 → 运行时验证。

@@ -213,7 +213,14 @@ cd asd-tauri && cargo llvm-cov --workspace --summary-only
 
 ## 5. CI 流程说明
 
-CI 配置位于 [`asd-tauri/.github/workflows/ci.yml`](./.github/workflows/ci.yml)。
+CI 配置位于**仓库根目录** [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)。
+
+> ⚠️ 2026-09-13 迁移：配置曾位于 `asd-tauri/.github/workflows/ci.yml`，但
+> **GitHub Actions 只读取仓库根目录的 `.github/workflows`**，子目录那份从未被执行过。
+> 现已迁移并修复（补 `working-directory`、修正 `cargo fmt --all -- --check` 写法）。
+> 四闸门 job 为 `gates`（windows-latest，阻塞合并）；coverage/miri/fuzz/bench 为
+> 辅助 job，均 `continue-on-error` 不阻塞；e2e 仅 `workflow_dispatch` 手动触发。
+> 本地等价入口：`scripts/check-gates.sh` / `scripts/check-gates.ps1`。
 
 ### 5.1 test job
 

@@ -67,7 +67,7 @@ flowchart LR
 | §1 目录结构 | `developer-guide.md` §1.1–1.4 | 本规范侧重「职责 + 活跃度 + 约束」；ASCII 目录树见 developer-guide |
 | §2 依赖关系图 | `developer-guide.md` §1.5（ASCII 概览版） | **本节为权威分层版**，含 Mermaid 图与反向边白名单 |
 | §2 反向边清单 | `AGENTS.md` 两张「已知架构妥协」表 | 图上的逆向边必须与白名单逐条对齐 |
-| §5.4 CI 门禁 | `asd-tauri/.github/workflows/ci.yml` | 以 YAML 为准，本节为可读摘要 |
+| §5.4 CI 门禁 | `.github/workflows/ci.yml`（**仓库根目录**） | 以 YAML 为准，本节为可读摘要 |
 
 ### 0.4 命令约定
 
@@ -1042,7 +1042,16 @@ flowchart TD
 
 ### 5.2 Git 钩子行为现状
 
-两个钩子均已启用（可执行位）：
+钩子源文件位于 **`scripts/hooks/`**（已纳入版本控制），通过 `core.hooksPath` 生效。
+
+```bash
+scripts/install-hooks.sh      # 或 scripts/install-hooks.ps1
+scripts/install-hooks.sh --remove   # 取消，恢复使用 .git/hooks
+```
+
+> **为什么需要安装步骤**：`.git/hooks/` **不进版本库**，新克隆或换机器后钩子全部失效。
+> 安装脚本写入的是**绝对路径**——相对 `core.hooksPath` 会被 git 按「当前工作目录」解析，
+> 在子目录里执行 `git commit` 会找不到钩子。
 
 #### `commit-msg`
 
@@ -1053,9 +1062,15 @@ flowchart TD
 | 跳过条件 | 以 `Merge ` 或 `Revert ` 开头的提交 |
 | **不**校验 | scope 白名单；描述长度 |
 
+> ⚠️ **陷阱**：scope 正则为 `[a-z-]+`，**不含数字**。含数字的 scope（如 `e2e`、`v2`）会被拒，
+> 报错信息与「不在白名单」一模一样，容易误判。报错时先看 scope 里有没有数字。
+
 #### `pre-commit`
 
-执行 4 项检查（详见 `.git/hooks/pre-commit`）。
+执行 4 项检查：敏感文件 / 构建产物 / 大文件（>1MB，仅警告）/ 调试临时文件。
+
+可选：设置 `ASD_FULL_GATES=1` 会在上述检查通过后额外执行 `scripts/check-gates.sh --quick`
+（闸门①图谱 + ②fmt/clippy）。默认关闭，避免拖慢提交。
 
 > **提示**：首行超过 80 字符目前**仅警告**，不阻断。
 
@@ -1088,20 +1103,51 @@ flowchart TD
 
 > **原则**：审查报告只描述**靶点及其结论**，不重复叙述架构（引 `AGENTS.md`）与流程（引本文档）。
 
-### 5.4 CI 门禁
+### 5.4 CI 门禁与四闸门自动化
 
-CI 配置在 **`asd-tauri/.github/workflows/ci.yml`**（注意：**不在仓库根目录**，根目录无 `.github`）。
+#### 5.4.1 CI 配置位置
 
-| Job | 运行环境 | 触发条件 | PR 必过 |
-|-----|---------|---------|:------:|
-| `test` | matrix（多 OS） | `push` / `pull_request` | ✅ |
-| `coverage` | ubuntu | 仅 `push` | ❌ |
-| `ahk-test` | windows | `push` / `pull_request` | ✅ |
-| `miri` | ubuntu | `push` / `pull_request` | ✅ |
-| `fuzz` | ubuntu | **仅 cron（每周日 0 点 UTC）** | ❌ |
-| `bench` | ubuntu | 仅 `main` 分支 `push` | ❌ |
+CI 配置在**仓库根目录** `.github/workflows/ci.yml`。
 
-`fuzz` job 带注释「仅在 cron 触发时运行，不阻塞常规 CI」；`bench` 仅在 main 分支 push 时运行。
+> ⚠️ **历史坑**：配置曾位于 `asd-tauri/.github/workflows/ci.yml`。
+> **GitHub Actions 只读取仓库根目录的 `.github/workflows`**，子目录那份从未被执行过
+> （且 `test` job 未设 `working-directory`，在仓库根跑 `cargo` 会因无 Cargo.toml 直接失败；
+> 还有 `cargo fmt --all -- --check` 这种多一个 `--` 的错误写法）。
+> 已于 2026-09-13 迁移至根目录并修复，子目录那份删除。
+
+| Job | 运行环境 | 触发条件 | 阻塞合并 | 说明 |
+|-----|---------|---------|:------:|------|
+| `gates` | windows-latest | `push` / `pull_request` | ✅ | **四闸门**，任一红即失败 |
+| `coverage` | ubuntu | 仅 `push` | ❌ | `cargo llvm-cov`，`continue-on-error` |
+| `miri` | ubuntu | `push` / `pull_request` | ❌ | UB 检查，仅跑纯逻辑 crate |
+| `fuzz` | ubuntu | **仅 cron（每周日 0 点 UTC）** | ❌ | 3 个 fuzz target，各 600s |
+| `bench` | ubuntu | 仅 `main` 分支 `push` | ❌ | criterion 基准 |
+| `e2e` | windows-latest | **仅 `workflow_dispatch` 手动** | ❌ | 需 WebView2 + tauri-driver + msedgedriver |
+
+> 四闸门跑在 windows-latest（AHK 测试必须在 Windows 上跑）；`miri` / `fuzz` 依赖 nightly
+> 且 Windows 支持不佳，故留在 ubuntu，两者均为 `continue-on-error`，不阻塞合并。
+
+#### 5.4.2 本地一键跑四闸门
+
+```bash
+scripts/check-gates.sh            # 或 scripts/check-gates.ps1（Windows）
+scripts/check-gates.sh --quick    # 只跑 G1 + G2（秒级，改代码时频繁跑）
+scripts/check-gates.sh --skip-ahk # 跳过 AHK 套件
+```
+
+| 闸门 | 校验内容 | 实现 |
+|------|---------|------|
+| G1 | 无新增环、无白名单外依赖违规 | `scripts/check-graph-baseline.py`（对比 `.review-analysis/graph-baseline.json`） |
+| G2 | `cargo fmt --all --check` + `clippy -D warnings` | 直接调用 |
+| G3 | cargo test / AHK 套件 / JS 单测 + test-map 数字对账 | `scripts/check-test-map.py` |
+| G4 | 文档同步 | 无法自动化，输出人工核对清单 |
+
+G1 的判定策略：**硬失败**仅限环数增加、未解析 `#Include` 增加、出现白名单外新依赖违规；
+文件数/边数/孤点数变化**只警告**。基线需更新时：
+`python scripts/check-graph-baseline.py --update`（务必人工复核 diff）。
+
+G3 的登记对账分三段：A 文档内部自洽（各章节小计 = 明细之和）、B 各 crate 运行时注册数、
+C《汇总》表总数。CI 跑全量；本地 `--quick` 只跑 A。
 
 > **改动 CI 时**：必须同步 `docs/developer-guide.md` 与本规范 §5.4 的表格（见 §6 规则表）。
 
@@ -1123,7 +1169,8 @@ CI 配置在 **`asd-tauri/.github/workflows/ci.yml`**（注意：**不在仓库�
 | 4 | 新增 Tauri command | `AGENTS.md` Key Files、`src/api.js` | `command_contract_tests.rs` + `#[tauri::command]` 计数 |
 | 5 | 增删 crate | `Cargo.toml`、`build_graph.py` 的 `ALLOWED_CRATE_DEPS`、本规范 §2.2/2.3 | 图谱无新增违规 |
 | 6 | 新增架构妥协 / 反向依赖 | **`AGENTS.md` 两张妥协表** | 图谱逆向边与白名单条数一致 |
-| 7 | 改 CI job | `docs/developer-guide.md`、本规范 §5.4 | YAML 与表格一致 |
+| 7 | 改 CI job | `docs/developer-guide.md`、本规范 §5.4 | YAML 与表格一致（CI 只在**仓库根目录** `.github/workflows/` 生效） |
+| 13 | 改闸门脚本 / 图谱基线 | `.review-analysis/graph-baseline.json`、本规范 §5.4.2 | `scripts/check-gates.sh` 本地跑通 |
 | 8 | 文档结构大改 | 重跑脚本链，归档到 `docs/review/<date>/graph/` | HTML 可打开、JSON 可解析 |
 | 9 | 新增顶层目录 / 层 | 本规范 §1.1、`AGENTS.md` Subdirectories | 目录表与实际一致 |
 | 10 | 改分层 depth / 豁免规则 | `gen_graph_html.py`（**非** `build_graph.py`）+ 本规范 §2.6.2 | 图谱反向边判定正确 |

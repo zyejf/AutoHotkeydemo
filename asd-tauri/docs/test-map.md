@@ -104,7 +104,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | asd-tauri | 单元 | src-tauri/src/commands/group_cmd.rs | 20 | group_cmd Tauri 命令 |
 | asd-tauri | 单元 | src-tauri/src/commands/recording_cmd.rs | 21 | recording_cmd Tauri 命令 |
 | asd-tauri | 单元 | src-tauri/src/lib.rs | 6 | IPC_PIPE_NAME 常量验证 + try_acquire_shutdown_guard 关机锁纯函数 |
-| **小计** | — | — | **230** | — |
+| **小计** | — | — | **241** | — |
 
 ### 集成测试（`tests/` 目录）
 
@@ -164,7 +164,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 | 类别 | 统计 |
 |------|------|
-| Rust 测试（运行时注册数，`--all-targets -- --list`） | 612（asd-domain 132 + asd-ipc-protocol 72 + asd-application 163 + asd-test-harness 3 + asd-tauri 242；其中 `#[ignore]` 15 个） |
+| Rust 测试（运行时注册数，`--all-targets -- --list`） | 616（asd-domain 136 + asd-ipc-protocol 72 + asd-application 163 + asd-test-harness 3 + asd-tauri 242；其中 `#[ignore]` 15 个） |
 | AHK 执行器测试（`Test_` 方法数） | 59 套件 / 255 个 `Test_` 方法（`tests/test_ahk_executor/` 5 文件；不含 `test_joy_hotkey_manager_ahu.ahk` 的 7 套件） |
 | AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 616 个用例（通过 616 / 失败 0） |
 | 基准测试 | 7 个 criterion bench |

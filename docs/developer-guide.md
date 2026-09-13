@@ -807,17 +807,46 @@ cargo bench
 ### 4.6 代码质量检查
 
 ```powershell
-cd d:\1demo\AutoHotkeydemo\asd-tauri\src-tauri
+# 注意：工作目录是 workspace 根 asd-tauri（不是 src-tauri），否则 --all 只覆盖单个包
+cd d:\1demo\AutoHotkeydemo\asd-tauri
 
-# Clippy 静态分析
-cargo clippy -- -W clippy::all
+# Clippy 静态分析（与 CI 一致：全 workspace + 全 target + 告警即失败）
+cargo clippy --workspace --all-targets -- -D warnings
 
 # 格式化检查
-cargo fmt -- --check
+cargo fmt --all --check
 
 # 自动格式化
-cargo fmt
+cargo fmt --all
 ```
+
+> ⚠️ 旧写法 `cargo fmt -- --check`（多一个 `--`）会把 `--check` 传给 rustfmt 而报错；
+> `cargo clippy -- -W clippy::all` 既不覆盖全部 target 也不会让告警失败。请以本节为准。
+
+### 4.6.1 DoD 四闸门一键校验
+
+提交/提 PR 前建议跑一次，等价于 CI 的 `gates` job：
+
+```bash
+# Git Bash / Linux
+scripts/check-gates.sh            # 全量
+scripts/check-gates.sh --quick    # 只跑 G1 图谱 + G2 fmt/clippy（秒级）
+
+# Windows
+scripts\check-gates.ps1 -Quick
+```
+
+| 闸门 | 校验内容 |
+|------|---------|
+| G1 | 图谱基线：无新增环、无白名单外依赖违规（`scripts/check-graph-baseline.py`） |
+| G2 | `cargo fmt --all --check` + `cargo clippy -- -D warnings` |
+| G3 | `cargo test --workspace` / AHK 完整套件 / JS 单测 + `test-map.md` 数字对账 |
+| G4 | 文档同步（无法自动化，脚本输出人工核对清单） |
+
+另有 `scripts/install-hooks.ps1`（或 `.sh`）用于安装版本化 git 钩子——
+`.git/hooks/` 不进版本库，新克隆后必须执行一次。
+
+> 闸门定义、判定策略与基线更新方式详见 `docs/graph-driven-workflow.md` §5.4。
 
 ### 4.7 发布构建
 
@@ -859,9 +888,11 @@ cd src-tauri && cargo test -- --nocapture  # 显示测试输出
 cd src-tauri && cargo bench           # 运行基准测试
 
 # === 代码质量 ===
-cd src-tauri && cargo clippy -- -W clippy::all  # Clippy 检查
-cd src-tauri && cargo fmt -- --check             # 格式化检查
-cd src-tauri && cargo fmt                        # 自动格式化
+# 注意：工作目录为 workspace 根 asd-tauri（不是 src-tauri）
+cargo clippy --workspace --all-targets -- -D warnings  # Clippy 检查（与 CI 一致）
+cargo fmt --all --check                          # 格式化检查
+cargo fmt --all                                  # 自动格式化
+scripts/check-gates.sh                           # 一键跑 DoD 四闸门
 
 # === AHK ===
 .\src-tauri\build_ahk.ps1            # 编译 AHK 子进程
