@@ -131,26 +131,37 @@ jobs:
           AHK_EXE: ${{ steps.ahk.outputs.ahk64 }}
         run: |
           $log = Join-Path $env:RUNNER_TEMP 'ahk-gate.log'
-          & $env:AHK_EXE "tests/run_all_tests.ahk" *> $log
-          $exit = $LASTEXITCODE
+          $errLog = Join-Path $env:RUNNER_TEMP 'ahk-gate.err.log'
           $resultLog = "tests/test_results.log"
+
+          # AutoHotkey64.exe 是 GUI 子系统程序。用 `& $exe ...` 调用时 PowerShell
+          # **不会等待**它结束，$LASTEXITCODE 也不会被设置 —— 实测表现为日志 0 字节、
+          # 退出码为空。必须 Start-Process -Wait -PassThru 才能拿到真实退出码。
+          $p = Start-Process -FilePath $env:AHK_EXE `
+            -ArgumentList @('tests/run_all_tests.ahk') `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput $log -RedirectStandardError $errLog
+          $exit = $p.ExitCode
 
           # 显式指定 utf8：Windows runner 上 Get-Content 否则按系统 ANSI 代码页解码，
           # 中文汇总行会乱码，导致下面的正则匹配不到而误判为「无法解析」。
           # 另外不要依赖自动变量 $Matches 取值：左操作数为 $null 或数组时它不会被填充，
           # 实测会走到 "Cannot index into a null array" 而不是这里的报错分支。
           # 统一用 [regex]::Match 显式取分组；$text 先初始化为 '' 避免 $null 参与比较。
+          # 汇总以 tests/test_results.log 为准（runner 自己写的），stdout 只是兜底
           $text = ''
-          if (Test-Path $log) { $text = [string](Get-Content $log -Raw -Encoding utf8) }
-          # 汇总可能只在 tests/test_results.log 里，两边都兜
-          if ($text -notmatch '总计:' -and (Test-Path $resultLog)) {
-            $text = [string](Get-Content $resultLog -Raw -Encoding utf8)
+          if (Test-Path $resultLog) { $text = [string](Get-Content $resultLog -Raw -Encoding utf8) }
+          if ($text -notmatch '总计:' -and (Test-Path $log)) {
+            $text = [string](Get-Content $log -Raw -Encoding utf8)
           }
 
-          # 诊断：AHK 是否真的跑起来，先看退出码与两份日志的字节数
+          # 诊断：AHK 是否真的跑起来，先看退出码与三份日志的字节数
           Write-Host "AHK 退出码: $exit"
-          Write-Host "ahk-gate.log 字节: $((Get-Item $log -ErrorAction SilentlyContinue).Length)"
           Write-Host "test_results.log 字节: $((Get-Item $resultLog -ErrorAction SilentlyContinue).Length)"
+          Write-Host "ahk-gate.log 字节: $((Get-Item $log -ErrorAction SilentlyContinue).Length)"
+          Write-Host "ahk-gate.err.log 字节: $((Get-Item $errLog -ErrorAction SilentlyContinue).Length)"
+          Write-Host "--- ahk-gate.err.log 尾部 ---"
+          if (Test-Path $errLog) { Get-Content $errLog -Tail 20 -Encoding utf8 }
           Write-Host "--- ahk-gate.log 尾部 ---"
           if (Test-Path $log) { Get-Content $log -Tail 40 -Encoding utf8 }
           Write-Host "--- test_results.log 尾部 ---"
