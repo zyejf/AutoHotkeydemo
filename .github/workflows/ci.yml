@@ -315,7 +315,10 @@ jobs:
 
       - name: 运行基准测试
         working-directory: asd-tauri/src-tauri
-        run: cargo bench -- --save-baseline current
+        # 必须限定 --bench benchmarks：cargo bench 默认还会跑 lib / bin 目标的
+        # libtest bench，`--save-baseline` 是 criterion 专属参数，传给 libtest 会
+        # 直接报 `Unrecognized option: 'save-baseline'`。
+        run: cargo bench --bench benchmarks -- --save-baseline current
 
   e2e:
     name: E2E（仅手动触发）
