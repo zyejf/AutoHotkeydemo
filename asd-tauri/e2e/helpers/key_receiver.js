@@ -169,6 +169,59 @@ export function assertKeySequence(actualKeys, expectedKeys, options = {}) {
 }
 
 /**
+ * 在带时间戳的 down 事件中查找「与期望间隔最接近」的完整按键序列起始索引。
+ *
+ * 为什么不用「首个匹配」：
+ * 观察窗口的起止边界会把一个周期**切碎**（如只截到 2、3 而 1 落在窗口外），
+ * 取首个匹配时正好可能取到这个残帧，导致间隔读数失真 —— 这是按键时序类
+ * E2E 用例偶发失败的主要来源（表现为每次失败的用例还不一样）。
+ * 这里遍历所有候选，选各段间隔与期望值**总偏差最小**的那个完整周期。
+ *
+ * @param {Array<{key: string, timestamp: number}>} downEntries down 事件数组
+ * @param {string[]} seq 期望按键序列
+ * @param {number} expectedIntervalMs 期望的相邻按键间隔
+ * @returns {number} 最佳匹配起始索引，未找到返回 -1
+ */
+export function findBestSequenceIndex(downEntries, seq, expectedIntervalMs) {
+  const keys = downEntries.map((e) => e.key);
+  let bestIndex = -1;
+  let bestDeviation = Infinity;
+  for (let i = 0; i <= keys.length - seq.length; i++) {
+    let match = true;
+    for (let j = 0; j < seq.length; j++) {
+      if (keys[i + j] !== seq[j]) {
+        match = false;
+        break;
+      }
+    }
+    if (!match) continue;
+    let deviation = 0;
+    for (let j = 0; j < seq.length - 1; j++) {
+      const gap = downEntries[i + j + 1].timestamp - downEntries[i + j].timestamp;
+      deviation += Math.abs(gap - expectedIntervalMs);
+    }
+    if (deviation < bestDeviation) {
+      bestDeviation = deviation;
+      bestIndex = i;
+    }
+  }
+  return bestIndex;
+}
+
+/**
+ * 计算中位数（对调度抖动稳健）。
+ *
+ * 时序断言用中位数而非「逐个样本」：偶发的单次调度延迟（OS/负载引起）
+ * 不代表周期配置错误，逐个样本硬断言会让用例在高负载下随机失败。
+ */
+export function median(values) {
+  if (!values || values.length === 0) return NaN;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+/**
  * 检查 actual 数组是否包含 expected 子序列
  */
 function containsSubsequence(actual, expected) {

@@ -23,6 +23,16 @@
      已解决问题：16 个；未解决问题：1 个；环境限制记录：2 个
 -->
 
+<!-- 更新说明（2026-09-13）：
+     1. 清理本次修复过程中 E2E 自动追加的 13 条记录（均为重复或已证伪）：
+        - E2E-MODE-006 / E2E-KEY-005 / E2E-MODE-005 / E2E-KEY-003 等 [HIGH] 条目
+          已确认是**测试脆弱性而非产品缺陷**（见 BUG-7）：失败项每次都不同、隔离运行必过。
+          现已修复观察窗口与断言方式，E2E 全量连续 2 轮 9/9，故不登记为 ISSUE。
+        - E2E-IPC-004/006-NO-EVENT 重复追加多份，保留原有唯一记录（在"环境限制"段）。
+     2. **ISSUE-012 于本次回归并已彻底解决**（详见下方补充说明）。
+     更新前：198 行；更新后：185 行
+-->
+
 ## 已解决问题
 
 ### ISSUE-011 [RESOLVED] msedgedriver.exe 缺失
@@ -38,6 +48,23 @@
 - **原描述**: `cargo build --release` 构建的 binary 使用 `devUrl`（http://127.0.0.1:5173）而非 `frontendDist`（../dist），导致 webview 无法加载页面，msedgedriver 报 "Origin header is not a valid URL" 错误
 - **解决方案**: 改用 `npx tauri build --debug --no-bundle` 构建 binary，正确嵌入前端
 - **验证**: 页面标题返回 "技能管理器 v3.0"，executeScript 调用成功
+
+> **⚠️ 2026-09-13 回归记录与最终修复**
+>
+> 本问题于 2026-09-13 **再次回归**（E2E 1/9 通过）。根因与本次实测一致，
+> 但**原解决方案存在缺陷**：它依赖**构建方式**（必须 `tauri build`），
+> 一旦有人用 `cargo build` 重建 `target/debug/asd-tauri.exe`，运行时仍会走 `devUrl`，
+> 且**二进制内是否含前端 HTML 无法用来判定运行模式** —— debug 构建即使内嵌资源也走 devUrl。
+>
+> **最终修复（运行时保障，不依赖构建方式）**：
+> `wdio.conf.js` 的 `onPrepare` **自动托管 Vite dev server**（未监听则启动并等待就绪），
+> `onComplete` 回收；`helpers/tauri.js` 的 `startApp()` 增加**页面加载健全性检查**
+> （断言 `location.protocol !== 'chrome-error:'`），使同类故障立即报出可读根因。
+>
+> **排错要点**：`window.__TAURI__` 在错误页上**依然存在**（`withGlobalTauri` 注入对任何文档生效），
+> 且**窗口标题非空 ≠ 页面加载成功**（标题取自 `tauri.conf.json`）—— 两者都曾误导定位。
+>
+> **验证**: E2E 全量 **9/9 通过（60/60 用例）**，连续两轮稳定。
 
 ### ISSUE-013 [RESOLVED] build_ahk.ps1 PowerShell 语法错误
 

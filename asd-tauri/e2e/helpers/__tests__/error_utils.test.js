@@ -14,11 +14,15 @@ import { test, describe, before } from 'node:test';
 import assert from 'node:assert/strict';
 
 let extractErrorMessage;
+let extractDeepErrorMessage;
+let isFatalProtocolError;
 
 before(async () => {
   // 动态导入模块（模块不存在时此处抛错，所有 describe 的测试会标记为失败 = RED）
   const mod = await import('../error_utils.js');
   extractErrorMessage = mod.extractErrorMessage;
+  extractDeepErrorMessage = mod.extractDeepErrorMessage;
+  isFatalProtocolError = mod.isFatalProtocolError;
 });
 
 // -----------------------------------------------------------------
@@ -120,5 +124,82 @@ describe('extractErrorMessage — 空 message 但有 kind 时保留 kind 信息'
     const result = extractErrorMessage({ kind: 'Config', message: '' });
     assert.notEqual(result, '[object Object]');
     assert.ok(!result.includes('[object Object]'));
+  });
+});
+
+// -----------------------------------------------------------------
+// WebDriver 协议层错误深度展开（BUG-5）
+// -----------------------------------------------------------------
+// 背景：协议层错误（如 Tauri 自定义协议导致 msedgedriver 报
+// "Origin header is not a valid URL"）被 WebDriverIO 包装后，
+// 顶层 message 退化为 "unknown error"，真实原因藏进嵌套字段。
+// 旧实现 String(err) 得到 "[object Object]: unknown error"，无法定位。
+describe('extractDeepErrorMessage — 深度展开协议层包装错误', () => {
+  test('从嵌套 cause 中提取真实原因', () => {
+    const err = new Error('unknown error');
+    err.cause = { message: 'Origin header is not a valid URL' };
+    assert.equal(
+      extractDeepErrorMessage(err),
+      'Origin header is not a valid URL'
+    );
+  });
+
+  test('从嵌套 originalError 中提取真实原因', () => {
+    const err = { message: 'unknown error', originalError: { message: 'no such window' } };
+    assert.equal(extractDeepErrorMessage(err), 'no such window');
+  });
+
+  test('顶层为退化消息时继续向嵌套层挖掘', () => {
+    const err = {
+      message: 'unknown error',
+      value: { error: 'session not created: This version of Microsoft Edge WebDriver' },
+    };
+    assert.ok(
+      extractDeepErrorMessage(err).includes('session not created'),
+      '应跳过退化的 unknown error，挖出真实原因'
+    );
+  });
+
+  test('字符串输入且非退化时直接返回', () => {
+    assert.equal(extractDeepErrorMessage('Origin header is not a valid URL'), 'Origin header is not a valid URL');
+  });
+
+  test('退化字符串输入返回 fallback', () => {
+    assert.equal(extractDeepErrorMessage('unknown error', '默认'), '默认');
+  });
+
+  test('null / undefined 返回 fallback', () => {
+    assert.equal(extractDeepErrorMessage(null), '未知错误');
+    assert.equal(extractDeepErrorMessage(undefined, '兜底'), '兜底');
+  });
+
+  test('返回值绝不为 [object Object]', () => {
+    const result = extractDeepErrorMessage({ message: 'unknown error', value: {} });
+    assert.ok(!result.includes('[object Object]'));
+  });
+
+  test('循环引用不导致栈溢出', () => {
+    const err = { message: 'unknown error' };
+    err.self = err;
+    assert.doesNotThrow(() => extractDeepErrorMessage(err));
+  });
+});
+
+describe('isFatalProtocolError — 识别协议层确定性错误', () => {
+  test('识别 Origin header 错误', () => {
+    assert.equal(isFatalProtocolError('Origin header is not a valid URL'), true);
+  });
+
+  test('识别 session not created', () => {
+    assert.equal(isFatalProtocolError('session not created: version mismatch'), true);
+  });
+
+  test('普通业务错误不判定为协议错误', () => {
+    assert.equal(isFatalProtocolError('验证失败: 热键不能为空'), false);
+  });
+
+  test('空串与 null 返回 false', () => {
+    assert.equal(isFatalProtocolError(''), false);
+    assert.equal(isFatalProtocolError(null), false);
   });
 });

@@ -89,6 +89,11 @@ AutoHotkeydemo.zip
 asd-tauri/e2e/node_modules/
 asd-tauri/e2e/reports/
 
+# E2E 浏览器驱动目录：driver 与机器的 WebView2 运行时版本强绑定，
+# 且随包附带的 Driver_Notes/（EULA/LICENSE/credits）约 21MB，均不应入版本控制。
+# （msedgedriver.exe 另由上方 `*.exe` 覆盖，此处显式排除整个目录以免漏掉 Driver_Notes）
+asd-tauri/e2e/drivers/
+
 # ============================================================
 # Git Worktree 隔离工作区
 # ============================================================

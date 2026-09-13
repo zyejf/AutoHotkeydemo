@@ -5,7 +5,10 @@
 > **唯一权威来源**：本文档是测试统计的**单一权威来源**。AGENTS.md 为架构/执行模式/依赖的唯一权威；TESTING.md、developer-guide.md、migration-guide.md 仅引用本文档、不自行复制测试数字。
 
 统计口径（截至 2026-09-13，实测）：
-- Rust：`#[test]` + `#[tokio::test]` 属性数（`cargo test --workspace` 实测）
+- Rust：**`cargo test -p <crate> --all-targets -- --list` 运行时注册数**（唯一权威）
+  > ⚠️ **2026-09-13 修正（BUG-3）**：此前以「`#[test]` + `#[tokio::test]` 属性数」为口径，
+  > 用正则静态统计。实测证明**任何正则计数都不可靠**，已废弃，改用运行时注册数。
+  > 详见文末「统计命令」章节的原因说明。
 - AHK 执行器：`Test_` 方法数（`tests/test_ahk_executor/*.ahk` 中以 `Test_` 开头的方法定义数）
 - 运行用例：AHK v2 完整套件（`tests/run_all_tests.ahk` 汇总）与 E2E（WebDriverIO 用例数）
 
@@ -25,10 +28,10 @@
 | Crate | 类型 | 文件路径 | 测试数 | 覆盖范围 |
 |-------|------|---------|-------|---------|
 | asd-domain | 单元 | crates/asd-domain/src/config.rs | 35 | Config / GroupConfig / ModeData / ControlHotkeys 序列化与默认值 |
-| asd-domain | 单元 | crates/asd-domain/src/validator.rs | 51 | ConfigValidator 配置验证规则（按键、间隔、模式、热键） |
+| asd-domain | 单元 | crates/asd-domain/src/validator.rs | 55 | ConfigValidator 配置验证规则（按键、间隔、模式、热键）+ BUG-6 可疑值 warning（长度不匹配／超长间隔／超长热键） |
 | asd-domain | 单元 | crates/asd-domain/src/models.rs | 3 | SkillGroup 领域模型构造与字段访问 |
 | asd-domain | 集成 | crates/asd-domain/tests/integration_tests.rs | 43 | 跨模块配置解析与验证集成 |
-| **小计** | — | — | **132** | — |
+| **小计** | — | — | **136** | — |
 
 ## asd-ipc-protocol
 
@@ -91,8 +94,8 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | asd-tauri | 单元 | src-tauri/src/infrastructure/ipc.rs | 52 | IpcManager named pipe 通信 |
 | asd-tauri | 单元 | src-tauri/src/infrastructure/watchdog.rs | 32 | ProcessWatchdog + WatchdogRunner 进程管理 |
 | asd-tauri | 集成 | src-tauri/src/tests/ipc_tests.rs | 26 | IPC 边界条件与错误处理 |
-| asd-tauri | 集成 | src-tauri/src/tests/bridge_tests.rs | 4 | IpcBridge / TauriEventBridge / WatchdogBridge trait 实现 + build_hotkey_event_payload 纯函数（1 个 `#[ignore]`） |
-| asd-tauri | 集成 | src-tauri/src/tests/watchdog_integration_tests.rs | 14 | ProcessWatchdog 跨平台集成（`#![cfg(windows)]` gating，15 个 `#[ignore]` 需 `--ignored` 手动运行；本行按 `#[test]` 属性数计，`fn` 数为 17，见文首口径差异提示） |
+| asd-tauri | 集成 | src-tauri/src/tests/bridge_tests.rs | 12 | IpcBridge / WatchdogBridge trait 实现 + build_hotkey_event_payload 纯函数（原 13 个，2026-09-13 删除必然 panic 的死测试 `test_tauri_event_bridge_emit`，见 BUG-4） |
+| asd-tauri | 集成 | src-tauri/src/tests/watchdog_integration_tests.rs | 17 | ProcessWatchdog 跨平台集成（`#![cfg(windows)]` gating，15 个 `#[ignore]` 需 `--ignored` 手动运行；本行为运行时注册数，与 `TESTING.md` 的 `fn` 口径 17 一致；旧口径按 `#[test]` 属性数记为 14，见文首口径差异提示） |
 | asd-tauri | 集成 | src-tauri/src/tests/config_compat_tests.rs | 11 | Rust Config 与 AHK config.json 格式兼容性 |
 | asd-tauri | 集成 | src-tauri/src/tests/command_contract_tests.rs | 3 | Tauri 命令契约守护（命令名/签名与前端 api.js 调用一致性） |
 | asd-tauri | 单元 | src-tauri/src/commands/config_cmd.rs | 29 | config_cmd Tauri 命令 |
@@ -108,7 +111,12 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | Crate | 类型 | 文件路径 | 测试数 | 覆盖范围 |
 |-------|------|---------|-------|---------|
 | asd-tauri | 集成 | src-tauri/tests/test_manifest_feature_removed.rs | 1 | 验证已废弃的 feature 已从 Cargo.toml 移除 |
-| **asd-tauri 总计** | — | — | **231** | — |
+| **asd-tauri 总计** | — | — | **242** | — |
+
+> 注：`--lib` 明细之和 241 与 `cargo test -p asd-tauri --lib -- --list` 运行时注册数一致；
+> benches 使用 criterion（`harness = false`），在 `--all-targets -- --list` 下**不注册**为测试，
+> 故 `--all-targets` = 241（lib）+ 1（tests/test_manifest_feature_removed.rs）= **242**，
+> 与基准测试的 7 个 criterion 微基准**互不计入**（口径隔离，避免重复计数）。
 
 ## 基准测试
 
@@ -156,14 +164,14 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 | 类别 | 统计 |
 |------|------|
-| Rust 测试函数（`#[test]` + `#[tokio::test]` 属性数） | 601（asd-domain 132 + asd-ipc-protocol 72 + asd-application 163 + asd-test-harness 3 + asd-tauri 231；其中 `#[ignore]` 16 个） |
+| Rust 测试（运行时注册数，`--all-targets -- --list`） | 612（asd-domain 132 + asd-ipc-protocol 72 + asd-application 163 + asd-test-harness 3 + asd-tauri 242；其中 `#[ignore]` 15 个） |
 | AHK 执行器测试（`Test_` 方法数） | 59 套件 / 255 个 `Test_` 方法（`tests/test_ahk_executor/` 5 文件；不含 `test_joy_hotkey_manager_ahu.ahk` 的 7 套件） |
 | AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 616 个用例（通过 616 / 失败 0） |
 | 基准测试 | 7 个 criterion bench |
 | 模糊测试 | 5 个 fuzz target |
 | E2E 测试 | 9 suite / 53 用例 |
 
-自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 132 + 72 + 163 + 3 + 231 = 601。
+自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 136 + 72 + 163 + 3 + 242 = 616。
 
 > **备注（T8-07† 处置）**：`docs/review/2026-08-20/task-8-tests.md` 分报告《总结》自报「发现总数 7（Important 3 + Minor 4）」，但正文仅列 T8-01~T8-06 共 6 条（其中 Minor 3 条：T8-04/T8-05/T8-06）。已核实第 4 条 Minor 无正文，属该报告自报计数笔误（正文实际为 Important 3 + Minor 3 = 6 条），无遗漏问题，占位 `T8-07†` 予以关闭。
 
@@ -229,17 +237,43 @@ cd asd-tauri/e2e && npm test
 
 1. **新增测试文件**：在本地图的对应 crate 小节追加一行，记录文件路径、测试数、覆盖范围。
 2. **新增测试固件**：在「测试固件」章节登记路径、用途、引用方。
-3. **测试数变更**：每次合并 PR 后更新本地图的测试数列，保持与实际 `#[test]` 计数一致，并同步校验「小计 = 明细之和 = 汇总」。
+3. **测试数变更**：每次合并 PR 后更新本地图的测试数列，保持与**运行时注册数**一致，并同步校验「小计 = 明细之和 = 汇总」。
 4. **统计命令**：
+   ```bash
+   # ✅ 权威：各 crate 运行时注册数（推荐，唯一可信）
+   for c in asd-domain asd-ipc-protocol asd-application asd-test-harness asd-tauri; do
+     n=$(cargo test -p $c --all-targets -- --list 2>/dev/null | grep -c ": test$")
+     echo "$c = $n"
+   done
+
+   # 单个文件明细（如 bridge_tests）
+   cargo test -p asd-tauri --all-targets -- --list 2>/dev/null | grep "bridge_tests" | wc -l
+   ```
    ```powershell
-   # 各 crate 实际测试数（权威）：运行测试并查看 test result
-   cargo test --workspace 2>&1 | Select-String "test result"
-   # 各 crate 的 #[test] + #[tokio::test] 属性数（用于明细表）
-   Get-ChildItem -Path .\crates,.\src-tauri\src -Recurse -Filter *.rs | ForEach-Object {
-     $content = Get-Content $_.FullName -Raw
-     $count = ([regex]::Matches($content, '#\[test\]|#\[tokio::test')).Count
-     if ($count -gt 0) { "$($_.FullName): $count" }
+   # PowerShell 等价写法
+   foreach ($c in @('asd-domain','asd-ipc-protocol','asd-application','asd-test-harness','asd-tauri')) {
+     $n = (cargo test -p $c --all-targets -- --list 2>$null | Select-String ": test$").Count
+     "$c = $n"
    }
+   # 全量运行（查看 test result）
+   cargo test --workspace 2>&1 | Select-String "test result"
    # AHK 执行器 Test_ 方法数
    (Get-ChildItem .\tests\test_ahk_executor\*.ahk | ForEach-Object { (Select-String -Path $_.FullName -Pattern '^\s*Test_[A-Za-z0-9_]+').Count } )
    ```
+
+> #### ⚠️ 为什么废弃正则计数（2026-09-13 BUG-3 根因记录）
+>
+> 曾用正则 `#\[test\]|#\[tokio::test` 或 `^\s*#\[(tokio::)?test\]` 静态统计属性数。实测证明
+> **两者都不可靠**，且失败方向相反：
+>
+> | 正则 | `src-tauri/src` 计数 | 问题 |
+> |------|:---:|------|
+> | `^\s*#\[(tokio::)?test\]`（`MEMORY.md` 曾用） | **230** | 带 `\]` 与 `^` 锚点 → **漏计**带参属性 `#[tokio::test(flavor = "multi_thread")]` |
+> | `#\[test\]\|#\[tokio::test`（本文件曾用） | **242** | 无 `\]` 故能匹配带参属性，但在 `asd-test-harness` 上**多计 1**（4 vs 实际 3） |
+>
+> `bridge_tests.rs` 最能说明问题：严格正则得 **4**（即旧登记值），宽松正则得 **13**，
+> 运行时实际 **13** —— 差的 9 个全是 `#[tokio::test(flavor = "multi_thread")]`。
+>
+> **根因**：正则无法感知 `#[cfg]` 条件编译、宏展开、doc-test 等，
+> 属**方法论缺陷**，不是「换个正则就能修好」。
+> 因此改为以 **`cargo test -- --list` 运行时注册数**为唯一权威。

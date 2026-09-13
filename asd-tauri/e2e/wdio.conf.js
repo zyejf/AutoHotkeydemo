@@ -44,6 +44,26 @@ const msedgedriverExePath = resolve(driversDir, 'msedgedriver.exe');
 
 // 全局引用：保存 tauri-driver 子进程，供 onComplete 关闭
 let tauriDriverProcess = null;
+// 全局引用：保存由本配置启动的 Vite dev server 子进程，供 onComplete 关闭。
+// 复用外部已运行的实例时不持有句柄（不关闭别人的进程）。
+let viteProcess = null;
+
+const VITE_HOST = '127.0.0.1';
+const VITE_PORT = 5173;
+// 前端项目根（asd-tauri/），Vite 需以此为 cwd 才能读到 vite.config.js
+const projectRoot = resolve(__dirname, '..');
+// 直接以 node 执行 vite 的 JS 入口：跨平台、无需 shell、无 .cmd/.ps1 扩展名歧义
+const viteBinPath = resolve(projectRoot, 'node_modules/vite/bin/vite.js');
+
+// 轮询等待端口进入监听状态
+async function waitForPort(host, port, timeoutMs = 40000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await checkPort(host, port)) return true;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  return false;
+}
 
 export const config = {
   runner: 'local',
@@ -102,16 +122,55 @@ export const config = {
       diagLines.push(`[WARN] 前端 dist 不存在: ${distPath}`);
     }
 
-    // 3. 检查 Vite dev server (5173 端口)
-    // 如果 binary 是用 "cargo build" 构建的 debug binary，Tauri 会使用 devUrl 连接 5173
-    // 如果 Vite 未运行，WebView 会显示 "127.0.0.1 拒绝连接"
-    const viteRunning = await checkPort('127.0.0.1', 5173);
+    // 3. Vite dev server (5173 端口) —— BUG-1 关键修复点
+    // debug 构建的 Tauri 二进制走 devUrl（tauri.conf.json build.devUrl），
+    // Vite 未运行时 WebView 加载失败 → chrome-error://chromewebdata/ →
+    // window.location.origin 为 null → Tauri IPC 自定义协议拒绝 →
+    // 所有 invoke 报 "Origin header is not a valid URL"（BUG-1 真因）。
+    // 因此这里必须**主动托管** Vite，而不是只告警。
+    let viteRunning = await checkPort(VITE_HOST, VITE_PORT);
     if (viteRunning) {
-      diagLines.push(`[OK] Vite dev server 运行中 (127.0.0.1:5173)`);
+      diagLines.push(`[OK] Vite dev server 已在运行 (${VITE_HOST}:${VITE_PORT})，复用现有实例`);
     } else {
-      diagLines.push(`[WARN] Vite dev server 未运行 (127.0.0.1:5173)`);
-      diagLines.push(`      如果 binary 是用 "cargo build" 构建的，WebView 会显示 "连接被拒绝"`);
-      diagLines.push(`      解决方案: 用 "npx tauri build --debug --no-bundle" 重新构建，内嵌前端资源`);
+      diagLines.push(`[INFO] Vite dev server 未运行，自动启动...`);
+      if (!existsSync(viteBinPath)) {
+        diagLines.push(`[FAIL] 未找到 vite 入口: ${viteBinPath}（请先在项目根执行 npm install）`);
+      } else {
+        viteProcess = spawn(process.execPath, [viteBinPath], {
+          cwd: projectRoot,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          shell: false,
+          env: { ...process.env },
+        });
+        const viteLog = [];
+        viteProcess.stdout?.on('data', (d) => viteLog.push(String(d)));
+        viteProcess.stderr?.on('data', (d) => viteLog.push(String(d)));
+        viteProcess.on('error', (err) => viteLog.push(`spawn error: ${err.message}`));
+
+        viteRunning = await waitForPort(VITE_HOST, VITE_PORT, 40000);
+        if (viteRunning) {
+          diagLines.push(`[OK] Vite dev server 已启动 (PID ${viteProcess.pid})`);
+        } else {
+          diagLines.push(`[FAIL] Vite dev server 启动超时（40s）`);
+          diagLines.push(viteLog.join('').slice(-2000));
+        }
+      }
+    }
+    if (!viteRunning) {
+      const fatal = [
+        '',
+        '========================================',
+        'FATAL: Vite dev server 不可用（127.0.0.1:5173 未监听）',
+        '========================================',
+        'debug 构建的 Tauri 二进制走 devUrl，必须依赖 Vite dev server。',
+        '未启动时 WebView 会停留在 chrome-error://chromewebdata/，',
+        '导致所有 invoke 报 "Origin header is not a valid URL"。',
+        '',
+        '排查: 在项目根手动执行 `npx vite` 观察是否能正常监听 5173。',
+        '',
+      ].join('\n');
+      writeFileSync(resolve(reportsDir, 'FATAL-vite-not-running.txt'), fatal, 'utf-8');
+      throw new Error(fatal);
     }
 
     // 4. 检查 msedgedriver.exe
@@ -147,38 +206,15 @@ export const config = {
       diagLines.push(`[INFO] 含 devUrl 字符串: ${hasDevUrl}`);
       diagLines.push(`[INFO] 含前端 HTML (<!DOCTYPE html>): ${hasFrontendHtml}`);
 
-      // devUrl 模式判断: 不含前端 HTML (纯 cargo build 构建的 debug 版本)
-      const isDevUrlMode = !hasFrontendHtml;
-
-      if (isDevUrlMode && !viteRunning) {
-        // devUrl 模式 + Vite 未运行 → WebView 必然显示"拒绝连接"
-        const errorMsg = [
-          '',
-          '========================================',
-          'FATAL: 二进制为 devUrl 模式且 Vite dev server 未运行',
-          '========================================',
-          `二进制路径: ${binaryAbsPath}`,
-          `构建时间: ${stat.mtime.toISOString()}`,
-          `大小: ${Math.round(exeBuffer.length / 1024 / 1024 * 100) / 100} MB`,
-          '',
-          '原因: 二进制文件用 "cargo build" 构建的 debug 版本,',
-          '      运行时连接 http://127.0.0.1:5173 (Vite dev server),',
-          '      但 E2E 测试未启动 Vite,导致 WebView 显示 "127.0.0.1 拒绝连接"',
-          '',
-          '修复: 用 "npx tauri build --debug --no-bundle" 重新构建,嵌入前端资源',
-          '  cd asd-tauri',
-          '  npx tauri build --debug --no-bundle',
-          '',
-        ].join('\n');
-
-        writeFileSync(resolve(reportsDir, 'FATAL-devurl-mode.txt'), errorMsg, 'utf-8');
-        throw new Error(errorMsg);
+      // 注意: 二进制内是否含 "<!DOCTYPE html>" **不能**用来判定运行模式。
+      // debug 构建（debug_assertions 开启）即使内嵌了前端资源，运行时仍优先走 devUrl。
+      // 实际运行模式的唯一可靠判据是 WebView 加载后的 window.location.href,
+      // 由 helpers/tauri.js 的 startApp() 做健全性检查（见 BUG-1）。
+      if (hasDevUrl) {
+        diagLines.push(`[OK] 二进制含 devUrl 配置: ${hasDevUrl}（debug 构建运行时走 devUrl，已由上方确保 Vite 就绪）`);
       }
-
       if (hasFrontendHtml) {
-        diagLines.push(`[OK] 二进制构建模式: frontendDist (前端已嵌入)`);
-      } else if (viteRunning) {
-        diagLines.push(`[OK] 二进制构建模式: devUrl (Vite 运行中,可加载前端)`);
+        diagLines.push(`[INFO] 二进制含前端 HTML 片段（不据此判定运行模式）`);
       }
     } catch (e) {
       // 重新抛出 FATAL 错误（来自上面的 throw）
@@ -293,6 +329,19 @@ export const config = {
   // onComplete: 关闭 tauri-driver 子进程
   // ----------------------------------------------------------------
   onComplete: () => {
+    if (viteProcess) {
+      try {
+        // Windows: /T 终止整个子进程树，避免残留 esbuild / node 子进程占用 5173
+        execSync(`taskkill /PID ${viteProcess.pid} /T /F`, { stdio: 'ignore' });
+      } catch {
+        try {
+          viteProcess.kill();
+        } catch {
+          // 进程可能已退出
+        }
+      }
+      viteProcess = null;
+    }
     if (tauriDriverProcess) {
       try {
         tauriDriverProcess.kill();
