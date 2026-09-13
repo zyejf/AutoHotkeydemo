@@ -6,13 +6,13 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use indexmap::IndexMap;
 
-use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use asd_domain::config::{
     Config, ControlHotkeys, EnhancedHybridData, EnhancedPeriodicData, EnhancedSequenceData,
     GroupConfig, GroupItem, HoldData, HoldSettings, HybridData, ModeData, PeriodicData,
     SequenceData,
 };
 use asd_domain::validator::ConfigValidator;
+use asd_ipc_protocol::{IpcCommand, IpcMessage};
 
 // =================================================================
 // 辅助函数：生成模拟数据
@@ -235,8 +235,7 @@ fn bench_group_scheduling(c: &mut Criterion) {
         b.iter(|| {
             // 模拟 10 个分组的 toggle 操作
             for (id, group_config) in &groups_config {
-                let _skill_group =
-                    asd_domain::models::SkillGroup::from((id, group_config));
+                let _skill_group = asd_domain::models::SkillGroup::from((id, group_config));
             }
         });
     });

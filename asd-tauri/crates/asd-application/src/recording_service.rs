@@ -61,10 +61,15 @@ pub fn start_recording(state: &AppState, group_id: &str, mode: &str) -> Result<(
     {
         let mut mode_guard = state.recording_mode.write();
         if mode_guard.is_some() {
-            return Err(AppError::Validation("已有录制正在进行，请先停止当前录制".to_string()));
+            return Err(AppError::Validation(
+                "已有录制正在进行，请先停止当前录制".to_string(),
+            ));
         }
         // 在同一写锁内检查验证状态，防止录制和验证同时进行
-        if state.validation_in_progress.load(std::sync::atomic::Ordering::SeqCst) {
+        if state
+            .validation_in_progress
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
             return Err(AppError::Validation("验证进行中，无法启动录制".to_string()));
         }
         // 在写锁内验证分组存在性，防止与 delete_group_atomic 的 TOCTOU
@@ -156,7 +161,8 @@ pub fn stop_recording(state: &AppState) -> Result<RecordingResult, AppError> {
             if req_mode != &mode {
                 tracing::warn!(
                     "录制模式不一致: 请求='{}', AHK 返回='{}'，使用 AHK 返回值",
-                    req_mode, mode
+                    req_mode,
+                    mode
                 );
             }
         }
@@ -241,20 +247,31 @@ pub fn resume_recording(state: &AppState) -> Result<u64, AppError> {
     Ok(response.seq)
 }
 
-fn validate_recording_data(mode: &str, keys: &[String], intervals: &[u64], delays: &[u64]) -> Result<(), AppError> {
+fn validate_recording_data(
+    mode: &str,
+    keys: &[String],
+    intervals: &[u64],
+    delays: &[u64],
+) -> Result<(), AppError> {
     if keys.iter().any(|k| k.trim().is_empty()) {
-        return Err(AppError::Validation("按键序列中不能包含空字符串".to_string()));
+        return Err(AppError::Validation(
+            "按键序列中不能包含空字符串".to_string(),
+        ));
     }
 
     let needs_intervals = PERIODIC_MODES.contains(&mode);
     let needs_delays = SEQUENCE_MODES.contains(&mode);
 
     if needs_intervals && intervals.is_empty() {
-        return Err(AppError::Validation("periodic 模式需要至少一个间隔".to_string()));
+        return Err(AppError::Validation(
+            "periodic 模式需要至少一个间隔".to_string(),
+        ));
     }
 
     if needs_delays && delays.is_empty() {
-        return Err(AppError::Validation("sequence 模式需要至少一个延迟".to_string()));
+        return Err(AppError::Validation(
+            "sequence 模式需要至少一个延迟".to_string(),
+        ));
     }
 
     if intervals.contains(&0) {
@@ -284,7 +301,8 @@ pub fn export_recording(
     if !VALID_MODES.contains(&mode) {
         return Err(AppError::Validation(format!(
             "不支持的模式: '{}'，有效模式: {}",
-            mode, VALID_MODES.join(", ")
+            mode,
+            VALID_MODES.join(", ")
         )));
     }
 
@@ -302,7 +320,8 @@ pub fn export_recording(
         .map_err(|e| AppError::Config(format!("序列化录制数据失败: {e}")))?;
 
     let p = std::path::Path::new(path);
-    ConfigRepository::atomic_write(p, &json).map_err(|e| AppError::Internal(format!("导出录制数据失败: {e}")))?;
+    ConfigRepository::atomic_write(p, &json)
+        .map_err(|e| AppError::Internal(format!("导出录制数据失败: {e}")))?;
 
     tracing::info!("录制结果已导出: {}", path);
     Ok(())
@@ -312,8 +331,7 @@ pub fn import_recording(path: &str) -> Result<ImportedRecording, AppError> {
     validate_file_path(path)?;
 
     // I26: 通过 ConfigRepository 委托文件 I/O（含 BOM 剥离）
-    let cleaned = ConfigRepository::read_file_to_string(path)
-        .map_err(AppError::Config)?;
+    let cleaned = ConfigRepository::read_file_to_string(path).map_err(AppError::Config)?;
     let data: serde_json::Value = serde_json::from_str(&cleaned)
         .map_err(|e| AppError::Config(format!("解析录制数据失败: {e}")))?;
 
@@ -345,7 +363,8 @@ pub fn import_recording(path: &str) -> Result<ImportedRecording, AppError> {
     if !VALID_MODES.contains(&mode.as_str()) {
         return Err(AppError::Validation(format!(
             "不支持的模式: '{}'，有效模式: {}",
-            mode, VALID_MODES.join(", ")
+            mode,
+            VALID_MODES.join(", ")
         )));
     }
 
@@ -378,9 +397,11 @@ pub fn start_validation(state: &AppState, group_id: &str) -> Result<u64, AppErro
         }
         // recording_mode 为 None 时，在释放写锁前设置 validation_in_progress
         // 注意：此处使用 compare_exchange 而非直接 store，防止并发验证
-        state.validation_in_progress
+        state
+            .validation_in_progress
             .compare_exchange(
-                false, true,
+                false,
+                true,
                 std::sync::atomic::Ordering::SeqCst,
                 std::sync::atomic::Ordering::SeqCst,
             )
@@ -398,11 +419,15 @@ pub fn start_validation(state: &AppState, group_id: &str) -> Result<u64, AppErro
             // 防止并发 stop_validation 或重连回调同时操作 validation_in_progress
             {
                 let _guard = state.recording_mode.write();
-                state.validation_in_progress.compare_exchange(
-                    true, false,
-                    std::sync::atomic::Ordering::SeqCst,
-                    std::sync::atomic::Ordering::SeqCst,
-                ).ok();
+                state
+                    .validation_in_progress
+                    .compare_exchange(
+                        true,
+                        false,
+                        std::sync::atomic::Ordering::SeqCst,
+                        std::sync::atomic::Ordering::SeqCst,
+                    )
+                    .ok();
             }
             return Err(e);
         }
@@ -411,11 +436,15 @@ pub fn start_validation(state: &AppState, group_id: &str) -> Result<u64, AppErro
     if response.is_error() {
         {
             let _guard = state.recording_mode.write();
-            state.validation_in_progress.compare_exchange(
-                true, false,
-                std::sync::atomic::Ordering::SeqCst,
-                std::sync::atomic::Ordering::SeqCst,
-            ).ok();
+            state
+                .validation_in_progress
+                .compare_exchange(
+                    true,
+                    false,
+                    std::sync::atomic::Ordering::SeqCst,
+                    std::sync::atomic::Ordering::SeqCst,
+                )
+                .ok();
         }
         return Err(extract_ipc_error(&response));
     }
@@ -425,7 +454,10 @@ pub fn start_validation(state: &AppState, group_id: &str) -> Result<u64, AppErro
 
 pub fn stop_validation(state: &AppState) -> Result<u64, AppError> {
     // 前置检查：验证是否正在进行
-    if !state.validation_in_progress.load(std::sync::atomic::Ordering::SeqCst) {
+    if !state
+        .validation_in_progress
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
         return Err(AppError::Validation("没有正在进行的验证".to_string()));
     }
     let cmd = IpcCommand::StopValidation;
@@ -436,11 +468,15 @@ pub fn stop_validation(state: &AppState) -> Result<u64, AppError> {
             // 在 recording_mode 写锁内清除 validation_in_progress，
             // 防止并发 start_validation 在此窗口内设置 true 被错误清除
             let _guard = state.recording_mode.write();
-            state.validation_in_progress.compare_exchange(
-                true, false,
-                std::sync::atomic::Ordering::SeqCst,
-                std::sync::atomic::Ordering::SeqCst,
-            ).ok();
+            state
+                .validation_in_progress
+                .compare_exchange(
+                    true,
+                    false,
+                    std::sync::atomic::Ordering::SeqCst,
+                    std::sync::atomic::Ordering::SeqCst,
+                )
+                .ok();
             return Err(e);
         }
     };
@@ -448,11 +484,15 @@ pub fn stop_validation(state: &AppState) -> Result<u64, AppError> {
     if response.is_error() {
         tracing::warn!("stop_validation AHK 返回错误，强制清理验证状态");
         let _guard = state.recording_mode.write();
-        state.validation_in_progress.compare_exchange(
-            true, false,
-            std::sync::atomic::Ordering::SeqCst,
-            std::sync::atomic::Ordering::SeqCst,
-        ).ok();
+        state
+            .validation_in_progress
+            .compare_exchange(
+                true,
+                false,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+            )
+            .ok();
         return Err(extract_ipc_error(&response));
     }
     // 在 recording_mode 写锁内清除 validation_in_progress，
@@ -464,11 +504,16 @@ pub fn stop_validation(state: &AppState) -> Result<u64, AppError> {
     // IPC 已成功，验证确实已停止，因此不返回错误，仅记录警告。
     {
         let _guard = state.recording_mode.write();
-        if state.validation_in_progress.compare_exchange(
-            true, false,
-            std::sync::atomic::Ordering::SeqCst,
-            std::sync::atomic::Ordering::SeqCst,
-        ).is_err() {
+        if state
+            .validation_in_progress
+            .compare_exchange(
+                true,
+                false,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+            )
+            .is_err()
+        {
             tracing::warn!("stop_validation: validation_in_progress 已被并发清除（如 AHK 重连回调），IPC 已成功，验证已停止");
         }
     }

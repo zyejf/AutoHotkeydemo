@@ -72,9 +72,7 @@ async fn perform_graceful_shutdown(
             // 通知 WatchdogRunner 退出 MaxRetriesExceeded 等待循环
             runner_shutting_down.store(true, Ordering::SeqCst);
         },
-        async move {
-            infrastructure::watchdog::graceful_shutdown_watchdog(&watchdog).await
-        },
+        async move { infrastructure::watchdog::graceful_shutdown_watchdog(&watchdog).await },
     )
     .await;
 }

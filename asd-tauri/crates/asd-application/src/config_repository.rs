@@ -37,10 +37,7 @@ impl ConfigRepository {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default();
-        let tmp_file_name = format!(".tmp_{file_name}_{}_{}",
-            std::process::id(),
-            now.as_nanos()
-        );
+        let tmp_file_name = format!(".tmp_{file_name}_{}_{}", std::process::id(), now.as_nanos());
         let tmp_path = path.with_file_name(&tmp_file_name);
 
         fs::write(&tmp_path, content).map_err(|e| format!("写入临时文件失败: {e}"))?;
@@ -52,7 +49,10 @@ impl ConfigRepository {
                 format!("重命名和复制均失败: rename={e}, copy={e2}")
             })?;
             if let Err(e) = fs::remove_file(&tmp_path) {
-                tracing::warn!("atomic_write: 临时文件删除失败（可能被锁定）: {} : {e}", tmp_path.display());
+                tracing::warn!(
+                    "atomic_write: 临时文件删除失败（可能被锁定）: {} : {e}",
+                    tmp_path.display()
+                );
             }
         }
 
@@ -61,14 +61,17 @@ impl ConfigRepository {
 }
 
 fn cleanup_stale_temp_files(dir: &Path) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
         if name_str.starts_with(".tmp_") {
             if let Ok(metadata) = entry.metadata() {
                 if let Ok(modified) = metadata.modified() {
-                    if modified.elapsed().unwrap_or_default() > std::time::Duration::from_secs(3600) {
+                    if modified.elapsed().unwrap_or_default() > std::time::Duration::from_secs(3600)
+                    {
                         let _ = fs::remove_file(entry.path());
                     }
                 }
@@ -544,7 +547,11 @@ mod tests {
             .into_iter()
             .filter_map(|e| {
                 let name = e.file_name().to_string_lossy().to_string();
-                if name.ends_with(".json") { Some(name) } else { None }
+                if name.ends_with(".json") {
+                    Some(name)
+                } else {
+                    None
+                }
             })
             .collect();
         assert_eq!(json_names.len(), 2);

@@ -40,8 +40,7 @@ const EXPECTED_PER_MODULE: &[(&str, usize)] = &[
 fn read_lib_rs() -> String {
     // CARGO_MANIFEST_DIR 指向 src-tauri/
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs");
-    std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("无法读取 {}: {e}", path.display()))
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("无法读取 {}: {e}", path.display()))
 }
 
 /// 提取 `tauri::generate_handler![...]` 块内的全部 `commands::<module>::<func>` 完整路径。
@@ -50,10 +49,9 @@ fn read_lib_rs() -> String {
 /// 因此这里提取 `module` 与 `func` 两段，用于精确的重复注册检测。
 fn extract_command_paths(src: &str) -> Vec<(String, String)> {
     let start_marker = "generate_handler![";
-    let start = src
-        .find(start_marker)
-        .expect("src/lib.rs 中未找到 tauri::generate_handler![。若已重命名该调用，请同步更新本测试。")
-        + start_marker.len();
+    let start = src.find(start_marker).expect(
+        "src/lib.rs 中未找到 tauri::generate_handler![。若已重命名该调用，请同步更新本测试。",
+    ) + start_marker.len();
 
     let bytes = src.as_bytes();
     let mut depth = 1usize;
@@ -71,7 +69,10 @@ fn extract_command_paths(src: &str) -> Vec<(String, String)> {
             _ => {}
         }
     }
-    assert!(depth == 0, "generate_handler![ 的方括号未闭合，源码可能被截断");
+    assert!(
+        depth == 0,
+        "generate_handler![ 的方括号未闭合，源码可能被截断"
+    );
 
     let block = &src[start..end];
     block
@@ -83,8 +84,8 @@ fn extract_command_paths(src: &str) -> Vec<(String, String)> {
             let mut parts = rest.split("::");
             let module = parts.next()?.trim().to_string();
             let func = parts.next()?.trim().to_string();
-            let ok = |s: &str| !s.is_empty()
-                && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            let ok =
+                |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
             if ok(&module) && ok(&func) {
                 Some((module, func))
             } else {
