@@ -84,6 +84,25 @@ jobs:
           version: '2.0.26'
           destination: ${{ runner.temp }}
 
+      - name: 准备 ahk_executor 的 AHK 运行时资源
+        shell: pwsh
+        env:
+          AHK_EXE: ${{ steps.ahk.outputs.ahk64 }}
+        run: |
+          # tauri.conf.json 的 bundle.resources 声明了 ahk_executor/AutoHotkey64.exe
+          # （路径相对 src-tauri）。该 exe 被 .gitignore 的 `*.exe` 排除，全新 clone
+          # 里并不存在，src-tauri 的 build.rs 会直接失败：
+          #   resource path `ahk_executor\AutoHotkey64.exe` doesn't exist
+          # 本地之所以不明显，是因为 build.rs 有缓存指纹、不会重跑。
+          # CI 上把上一步装好的 AHK 复制过去，等价于开发者本地放置该文件。
+          $dst = Join-Path 'asd-tauri' 'src-tauri' 'ahk_executor' 'AutoHotkey64.exe'
+          if (-not (Test-Path $dst)) {
+            Copy-Item $env:AHK_EXE $dst
+            Write-Host "已放置 AHK 运行时: $dst"
+          } else {
+            Write-Host "AHK 运行时已存在，跳过: $dst"
+          }
+
       - name: 安装版本化 git 钩子
         shell: pwsh
         run: .\scripts\install-hooks.ps1
