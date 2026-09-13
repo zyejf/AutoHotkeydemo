@@ -107,11 +107,23 @@ if triggerTimes[i] < now - interval
 
 ### 5.1 方法
 
-- 脚本：`ahk_executor` 下以 `_sendHook` 替换发送原语（跳过真实 `SendInput`，消除副作用），
+- 脚本（已入库，可复现）：**`scripts/perf/bench_periodic_latency.ahk`**
+  ```bash
+  "D:/Program Files/AutoHotkey/v2/AutoHotkey.exe" scripts/perf/bench_periodic_latency.ahk 100 15 3000
+  ```
+  参数依次 `interval kpd runMs outFile`。复现「优化前」基线的方法与坑见 `scripts/perf/README.md`。
+- 观测方式：以 `_sendHook` 替换发送原语（跳过真实 `SendInput`，消除副作用），
   IPC 上报替换为空实现（消除 I/O 干扰）。**调度与释放逻辑保持原样**，故测得的是真实调度时延。
 - 口径：`planned_i = firstDown + (i-1) * interval`，时延 `= up_i - planned_i`；
   另统计单次保持时长 `up_i - down_i` 与相邻按下间隔。
+  > 计划时刻**不能**读内部状态 `state["lastTriggerTimes"]`：旧版内部基准是 `A_TickCount`、
+  > 新版是 QPC，纪元不同，直接相减会得到无意义的结果。
 - 环境：Windows / AutoHotkey v2（`D:\Program Files\AutoHotkey\v2\AutoHotkey.exe`），每档 3000 ms。
+
+> 关于 criterion：本轮优化**全部落在 AHK 侧**（`high_res_clock.ahk` / `sender.ahk`），
+> Rust 侧无任何改动，也没有 Rust 侧的按键时序热路径可供 criterion 度量。
+> 因此回归防护由新增的 AHK 单测（断言 P95 ≤ 20 ms、零漏发）承担，
+> criterion 微基准（7 个）未改动、仍按原样守护 Rust 侧热路径。
 
 ### 5.2 唤醒提前量选参（interval=100 / kpd=15，各 3 轮）
 
