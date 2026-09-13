@@ -120,6 +120,8 @@ interval=20 时旧 P95 竟达 **~2000ms**（误差线性累积），新仍 15.0m
 
 1. 推送：`git -c credential.helper= push "https://x-access-token:$(gh auth token)@github.com/zyejf/AutoHotkeydemo.git" main`；
    失败多为代理 502，**直接重试 1–3 次**，别改凭据。远端真实状态用 `gh api repos/zyejf/AutoHotkeydemo/commits/main`。
+   ⚠️ 重试循环里 **`git push ... | tail -3 && break` 是错的**（`&&` 取 `tail` 的退出码，恒 0 → 首次失败也 break）。
+   必须判 `${PIPESTATUS[0]}`。`gh` 需 `GH_TOKEN=$(gh auth token) gh ...`（否则报未登录）。
 2. ⚠️ **禁用 `git rm`/safe-delete**（路径拼接 bug 会连带删 54 文件）→ `mv` 到 /tmp + `git add -A`。
    误删恢复先 `mv .git/index.lock /tmp/` 再 `git checkout -- .`（会连未暂存改动还原 → 及时提交）。
 3. ⚠️ Bash 命令里**不要出现 `powershell`/`pwsh`/`reg.exe`**（整体拦截）→ 用 PowerShell/Grep 工具。
