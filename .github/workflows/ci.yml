@@ -292,6 +292,27 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: asd-tauri
+      # 与 gates job 同样的两个前置：src-tauri 的 build.rs 需要
+      # ahk_executor/AutoHotkey64.exe（被 .gitignore 的 `*.exe` 排除，全新 clone 没有），
+      # 缺了会直接 `failed to run custom build command`。cargo bench 同样会构建它。
+      - name: 安装 AutoHotkey v2
+        id: ahk
+        uses: holy-tao/install-autohotkey@v2.1.0
+        with:
+          version: '2.0.26'
+          destination: ${{ runner.temp }}
+
+      - name: 准备 ahk_executor 的 AHK 运行时资源
+        shell: pwsh
+        env:
+          AHK_EXE: ${{ steps.ahk.outputs.ahk64 }}
+        run: |
+          $dst = Join-Path 'asd-tauri' 'src-tauri' 'ahk_executor' 'AutoHotkey64.exe'
+          if (-not (Test-Path $dst)) {
+            Copy-Item $env:AHK_EXE $dst
+            Write-Host "已放置 AHK 运行时: $dst"
+          }
+
       - name: 运行基准测试
         working-directory: asd-tauri/src-tauri
         run: cargo bench -- --save-baseline current
