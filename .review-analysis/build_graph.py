@@ -5,7 +5,9 @@ import json
 import io
 import sys
 
-ROOT = r"D:\1demo\AutoHotkeydemo"
+# 项目根由脚本自身位置推导（.review-analysis/ 的上一级），
+# 避免硬编码绝对路径导致 CI（不同 checkout 目录）上 FileNotFoundError。
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, ".review-analysis")
 EXCLUDE_DIRS = {"AutoHotkey-2.0.26", "target", "node_modules", ".git", "dist"}
 EXCLUDE_SEG = ("AutoHotkey-2.0.26", "asd-tauri/target", "node_modules", "/.git")

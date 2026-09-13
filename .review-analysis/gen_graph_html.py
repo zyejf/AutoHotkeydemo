@@ -10,7 +10,9 @@ import json
 import os
 from collections import Counter, defaultdict
 
-ROOT = r"D:\1demo\AutoHotkeydemo"
+# 项目根由脚本自身位置推导（.review-analysis/ 的上一级），
+# 避免硬编码绝对路径导致 CI（不同 checkout 目录）上路径失效。
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, ".review-analysis", "graph-raw.json")
 OUTDIR = os.path.join(ROOT, "docs", "review", "2026-09-12", "graph")
 
