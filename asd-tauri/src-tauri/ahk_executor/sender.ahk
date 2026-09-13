@@ -175,7 +175,7 @@ class Sender {
         }
 
         Sender._activeGroups[groupId] := Map(
-            "startTime", A_TickCount,
+            "startTime", HighResClock.Now(),
             "lastTriggerTimes", Map(),
             "currentStep", 1,
             "nextStepTime", 0
@@ -260,7 +260,11 @@ class Sender {
         state["keyPressDuration"] := keyPressDuration
         state["seqInterval"] := seqInterval
         state["currentStep"] := 1
-        state["nextStepTime"] := A_TickCount
+        ; 0 = 未初始化，由 _ExecuteSequence 在**首次执行**时建立基准。
+        ; 不能在这里直接写当前时刻：定时器首次回调可能远晚于本次调用（实测可达 100ms+），
+        ; 若基准已过期，首次按下会立刻超时（保持时长被压成 ~0ms），
+        ; 并且会被误判为「已落后」而白跳一步。
+        state["nextStepTime"] := 0
 
         timerFn := () => Sender._ExecuteSequence(groupId)
         Sender._timers[groupId] := timerFn
@@ -398,14 +402,41 @@ class Sender {
         return interval < Sender.MIN_INTERVAL_MS ? Sender.MIN_INTERVAL_MS : interval
     }
 
+    ; 取序列第 i 步的延时（含下限夹紧）。默认值与旧实现一致（100ms）
+    static _DelayOf(delays, i) {
+        delay := i <= delays.Length ? delays[i] : 100
+        return delay < Sender.MIN_INTERVAL_MS ? Sender.MIN_INTERVAL_MS : delay
+    }
+
     ; 精确执行一次「按下 → 保持 kpd → 抬起」。
     ; plannedAt 是本次按下的计划时刻，抬起按 plannedAt + kpd 定位，
     ; 使「计划时刻 → 抬起完成」恰好等于 kpd（+ 微秒级误差）。
     static _PressPrecise(groupId, key, plannedAt, kpd) {
-        Sender._SendKeyDown(key)
+        Sender._PressPreciseBatch(groupId, [key], plannedAt, kpd)
+    }
+
+    ; 同一计划时刻的多个键必须批量处理：全部 Down → 统一等到 plannedAt + kpd → 全部 Up。
+    ; 若逐键做「Down → 等 → Up」，第二个键的等待会立刻超时（已过 plannedAt + kpd），
+    ; 保持时长被压成 ~0ms，且各键被串行推迟。旧实现是各键独立释放定时器（天然并行），
+    ; 批量化既保持了该语义，又让每个键的保持时长都精确等于 kpd。
+    static _PressPreciseBatch(groupId, keys, plannedAt, kpd) {
+        for k in keys
+            Sender._SendKeyDown(k)
         if kpd > 0
             HighResClock.SleepUntil(plannedAt + kpd)
-        Sender._SendKeyUp(key)
+        for k in keys
+            Sender._SendKeyUp(k)
+    }
+
+    ; 以批量或异步方式释放一批同刻按键（kpd 超出精确定刻范围时走此路径）
+    static _PressAsyncBatch(groupId, keys, kpd) {
+        for k in keys {
+            Sender._SendKeyDown(k)
+            if kpd > 0
+                Sender._ScheduleRelease(groupId, k, kpd)
+            else
+                Sender._SendKeyUp(k)
+        }
     }
 
     static _ExecutePeriodic(groupId) {
@@ -444,30 +475,20 @@ class Sender {
         if target > now
             now := HighResClock.SleepUntil(target)
 
-        ; ---- 4. 发送所有已到期的键 ----
-        minRemaining := 0x7FFFFFFF
+        ; ---- 4. 收集已到期的键，按「计划时刻」分桶，并保相位推进基准 ----
+        ; 分桶是必需的：计划时刻相同的键必须批量按下/释放，否则后一个键的保持时长
+        ; 会被压成 ~0ms（详见 _PressPreciseBatch 注释）。
+        dueBuckets := Map()          ; dueAt -> [keys]
         for i, k in keys {
             interval := Sender._IntervalOf(intervals, i)
             dueAt := triggerTimes[i] + interval
 
-            if now < dueAt - Sender.TIMING_EPSILON_MS {
-                remaining := dueAt - now
-                if remaining < minRemaining
-                    minRemaining := remaining
+            if now < dueAt - Sender.TIMING_EPSILON_MS
                 continue
-            }
 
-            capturedKey := k
-            if kpd <= Sender.PRECISE_HOLD_MAX_MS {
-                Sender._PressPrecise(groupId, capturedKey, dueAt, kpd)
-            } else {
-                ; 超长保持：该配置下「计划时刻→抬起完成」必然 > 20ms，精确定刻已无意义
-                Sender._SendKeyDown(capturedKey)
-                if kpd > 0
-                    Sender._ScheduleRelease(groupId, capturedKey, kpd)
-                else
-                    Sender._SendKeyUp(capturedKey)
-            }
+            if !dueBuckets.Has(dueAt)
+                dueBuckets[dueAt] := []
+            dueBuckets[dueAt].Push(k)
 
             ; 计划时刻单调推进并保持相位。
             ; 原实现 `if triggerTimes[i] < now - interval then triggerTimes[i] := now`
@@ -483,8 +504,23 @@ class Sender {
                 last := next - interval
             }
             triggerTimes[i] := last
+        }
 
-            remaining := next - HighResClock.Now()
+        ; ---- 4b. 逐个计划时刻批量按下/释放 ----
+        ; 超长保持（kpd > PRECISE_HOLD_MAX_MS）下「计划时刻→抬起完成」必然 > 20ms，
+        ; 精确定刻已无意义，退回异步释放。
+        for dueAt, batch in dueBuckets {
+            if kpd > 0 && kpd <= Sender.PRECISE_HOLD_MAX_MS
+                Sender._PressPreciseBatch(groupId, batch, dueAt, kpd)
+            else
+                Sender._PressAsyncBatch(groupId, batch, kpd)
+        }
+
+        ; ---- 4c. 按推进后的基准重算最小剩余时间（须在发送之后取时刻）----
+        minRemaining := 0x7FFFFFFF
+        nowAfter := HighResClock.Now()
+        for i, k in keys {
+            remaining := triggerTimes[i] + Sender._IntervalOf(intervals, i) - nowAfter
             if remaining < minRemaining
                 minRemaining := remaining
         }
@@ -495,6 +531,14 @@ class Sender {
             SetTimer(Sender._timers[groupId], -nextPoll)
     }
 
+    ; 序列模式的精确定刻执行（策略与 _ExecutePeriodic 一致）
+    ;
+    ; 原实现有两个缺陷：
+    ;   ① 时间基准用 A_TickCount（步进 15.52ms），释放走 SetTimer(-kpd)（15.625ms 网格）；
+    ;   ② `nextStepTime := A_TickCount + nextDelay` 用「发送完成后的当前时刻」推进基准，
+    ;      把每一步的实际超时累积进下一步。实测 delay=100ms 时步进退化成 111.9ms，
+    ;      「计划时刻 → 抬起完成」随时长线性增长（3 秒内 P95 达 248~263ms）。
+    ; 现改为：QPC 基准 + 提前唤醒 + SleepUntil 精修 + 保相位推进。
     static _ExecuteSequence(groupId) {
         if !Sender._activeGroups.Has(groupId)
             return
@@ -503,40 +547,62 @@ class Sender {
         keys := state["keys"]
         delays := state["delays"]
         kpd := state["keyPressDuration"]
-        now := A_TickCount
+
+        now := HighResClock.Now()
 
         step := state["currentStep"]
         if step > keys.Length
             step := 1
 
-        delay := step <= delays.Length ? delays[step] : 100
-        if delay < 10
-            delay := 10
+        ; 首次进入：以当前时刻作为本步的计划时刻（与旧实现一致，首步立即触发）
+        if !state.Has("nextStepTime") || state["nextStepTime"] = 0
+            state["nextStepTime"] := now
 
-        if state["nextStepTime"] = 0
-            state["nextStepTime"] := now + delay
+        dueAt := state["nextStepTime"]
 
-        if now < state["nextStepTime"] - 2 {
-            remaining := Max(1, state["nextStepTime"] - now - 2)
+        ; ---- 精确定位到计划时刻 ----
+        if dueAt - now > Sender.WAKE_LEAD_MS {
             if Sender._timers.Has(groupId)
-                SetTimer(Sender._timers[groupId], -remaining)
+                SetTimer(Sender._timers[groupId], -Max(1, Round(dueAt - now - Sender.WAKE_LEAD_MS)))
             return
         }
+        if dueAt > now
+            now := HighResClock.SleepUntil(dueAt)
 
+        ; ---- 发送当前步 ----
         k := keys[step]
-        Sender._SendKeyDown(k)
-        Sender._ScheduleRelease(groupId, k, kpd)
+        if kpd > 0 && kpd <= Sender.PRECISE_HOLD_MAX_MS
+            Sender._PressPreciseBatch(groupId, [k], dueAt, kpd)
+        else
+            Sender._PressAsyncBatch(groupId, [k], kpd)
 
-        state["currentStep"] := Mod(step, keys.Length) + 1
-        nextDelay := state["currentStep"] <= delays.Length ? delays[state["currentStep"]] : 100
-        if nextDelay < 10
-            nextDelay := 10
-        state["nextStepTime"] := A_TickCount + nextDelay
+        ; ---- 保相位推进：基准用本次的计划时刻 dueAt，不用发送后的当前时刻 ----
+        nextStep := Mod(step, keys.Length) + 1
+        nextDelay := Sender._DelayOf(delays, nextStep)
 
+        advance := 1
+        next := dueAt + nextDelay
+        if next <= now {
+            skipped := Floor((now - next) / nextDelay) + 1
+            next += skipped * nextDelay
+            state["droppedTriggers"] := (state.Has("droppedTriggers") ? state["droppedTriggers"] : 0) + skipped
+            advance += skipped
+        }
+        state["nextStepTime"] := next
+        state["currentStep"] := Mod(step - 1 + advance, keys.Length) + 1
+
+        remaining := next - HighResClock.Now()
         if Sender._timers.Has(groupId)
-            SetTimer(Sender._timers[groupId], -Max(1, nextDelay))
+            SetTimer(Sender._timers[groupId], -Max(1, Round(remaining - Sender.WAKE_LEAD_MS)))
     }
 
+    ; 混合模式的精确定刻执行。
+    ; 子组可能是 periodic 或 sequence，两者统一按 QPC 策略调度。
+    ;
+    ; 原实现的三个问题与 _ExecutePeriodic / _ExecuteSequence 同源：
+    ;   ① A_TickCount 基准（步进 15.52ms）+ SetTimer(-kpd) 释放（15.625ms 网格）；
+    ;   ② periodic 子组允许提前 5% 触发，且触发后把基准写成 now（丢相位）；
+    ;   ③ sequence 子组从发送完成后的当前时刻推进基准，误差逐步累积。
     static _ExecuteHybrid(groupId) {
         if !Sender._activeGroups.Has(groupId)
             return
@@ -544,10 +610,15 @@ class Sender {
         state := Sender._activeGroups[groupId]
         groups := state["groups"]
         kpd := state["keyPressDuration"]
-        now := A_TickCount
         triggerTimes := state["groupTriggerTimes"]
-        minRemaining := 0x7FFFFFFF
 
+        now := HighResClock.Now()
+
+        ; ---- 1. 初始化基准，并构造子项列表 ----
+        ; 子项 = [kind, grpIdx, idx, dueAt, params, key, keyCount]
+        ;   periodic: idx = 键序号，params = intervals
+        ;   sequence: idx = 当前步，params = delays，keyCount = 键总数
+        items := []
         for grpIdx, grp in groups {
             grpType := grp.Has("type") ? grp["type"] : "periodic"
             grpKeys := grp.Has("pressKeys") ? grp["pressKeys"] : (grp.Has("keys") ? grp["keys"] : [])
@@ -555,63 +626,114 @@ class Sender {
             if grpKeys.Length = 0
                 continue
 
-            switch grpType {
-                case "periodic":
-                    grpIntervals := grp.Has("intervals") ? grp["intervals"] : [50]
-                    for i, k in grpKeys {
-                        triggerKey := grpIdx "." i
-                        ; 首次触发：记录当前时间并跳过本次发送（与 _ExecutePeriodic 一致）
-                        ; 不这样做会导致 lastTime := now，elapsed=0，永远不满足 threshold
-                        if !triggerTimes.Has(triggerKey) {
-                            triggerTimes[triggerKey] := now
-                            minRemaining := 1
-                            continue
-                        }
-                        lastTime := triggerTimes[triggerKey]
-                        interval := i <= grpIntervals.Length ? grpIntervals[i] : 50
-                        if interval < 10
-                            interval := 10
-                        elapsed := now - lastTime
-                        threshold := interval - Max(1, Round(interval * 0.05))
-                        if elapsed >= threshold {
-                            Sender._SendKeyDown(k)
-                            Sender._ScheduleRelease(groupId, k, kpd)
-                            triggerTimes[triggerKey] := now
-                            minRemaining := 1
-                        } else {
-                            remaining := threshold - elapsed
-                            if remaining < minRemaining
-                                minRemaining := remaining
-                        }
-                    }
-                case "sequence":
-                    grpDelays := grp.Has("delays") ? grp["delays"] : [100]
-                    stepKey := grpIdx ".step"
-                    step := triggerTimes.Has(stepKey) ? triggerTimes[stepKey] : 1
-                    if step > grpKeys.Length
-                        step := 1
-                    nextTimeKey := grpIdx ".nextTime"
-                    nextTime := triggerTimes.Has(nextTimeKey) ? triggerTimes[nextTimeKey] : now
-                    if now >= nextTime {
-                        k := grpKeys[step]
-                        Sender._SendKeyDown(k)
-                        Sender._ScheduleRelease(groupId, k, kpd)
-                        triggerTimes[stepKey] := Mod(step, grpKeys.Length) + 1
-                        nextStep := triggerTimes[stepKey]
-                        nextDelay := nextStep <= grpDelays.Length ? grpDelays[nextStep] : 100
-                        triggerTimes[nextTimeKey] := A_TickCount + nextDelay
-                        minRemaining := 1
-                    } else {
-                        remaining := Max(1, nextTime - now)
-                        if remaining < minRemaining
-                            minRemaining := remaining
-                    }
+            if grpType = "sequence" {
+                stepKey := grpIdx ".step"
+                if !triggerTimes.Has(stepKey)
+                    triggerTimes[stepKey] := 1
+                nextTimeKey := grpIdx ".nextTime"
+                if !triggerTimes.Has(nextTimeKey)
+                    triggerTimes[nextTimeKey] := now
+                grpDelays := grp.Has("delays") ? grp["delays"] : [100]
+                step := triggerTimes[stepKey]
+                if step > grpKeys.Length
+                    step := 1
+                items.Push(["sequence", grpIdx, step, triggerTimes[nextTimeKey], grpDelays, grpKeys[step], grpKeys.Length])
+            } else {
+                grpIntervals := grp.Has("intervals") ? grp["intervals"] : [50]
+                for i, k in grpKeys {
+                    triggerKey := grpIdx "." i
+                    if !triggerTimes.Has(triggerKey)
+                        triggerTimes[triggerKey] := now
+                    interval := Sender._IntervalOf(grpIntervals, i)
+                    items.Push(["periodic", grpIdx, i, triggerTimes[triggerKey] + interval, grpIntervals, k, grpKeys.Length])
+                }
             }
         }
 
-        nextPoll := Max(1, minRemaining)
+        if items.Length = 0 {
+            if Sender._timers.Has(groupId)
+                SetTimer(Sender._timers[groupId], 0)
+            return
+        }
+
+        ; ---- 2. 求最近的计划时刻 ----
+        target := 0
+        for it in items {
+            if target = 0 || it[4] < target
+                target := it[4]
+        }
+
+        ; ---- 3. 精确定位到计划时刻 ----
+        if target - now > Sender.WAKE_LEAD_MS {
+            if Sender._timers.Has(groupId)
+                SetTimer(Sender._timers[groupId], -Max(1, Round(target - now - Sender.WAKE_LEAD_MS)))
+            return
+        }
+        if target > now
+            now := HighResClock.SleepUntil(target)
+
+        ; ---- 4. 收集已到期子项（按计划时刻分桶），并保相位推进基准 ----
+        dueBuckets := Map()      ; dueAt -> [子项]
+        nextDues := []           ; 每个子项下一次的计划时刻
+        for it in items {
+            dueAt := it[4]
+            if now < dueAt - Sender.TIMING_EPSILON_MS {
+                nextDues.Push(dueAt)
+                continue
+            }
+
+            if !dueBuckets.Has(dueAt)
+                dueBuckets[dueAt] := []
+            dueBuckets[dueAt].Push(it)
+
+            if it[1] = "periodic" {
+                interval := Sender._IntervalOf(it[5], it[3])
+                last := dueAt
+                next := dueAt + interval
+                if next <= now {
+                    steps := Floor((now - next) / interval) + 1
+                    next += steps * interval
+                    state["droppedTriggers"] := (state.Has("droppedTriggers") ? state["droppedTriggers"] : 0) + steps
+                    last := next - interval
+                }
+                triggerTimes[it[2] "." it[3]] := last
+            } else {
+                nextStep := Mod(it[3], it[7]) + 1
+                nextDelay := Sender._DelayOf(it[5], nextStep)
+                advance := 1
+                next := dueAt + nextDelay
+                if next <= now {
+                    skipped := Floor((now - next) / nextDelay) + 1
+                    next += skipped * nextDelay
+                    state["droppedTriggers"] := (state.Has("droppedTriggers") ? state["droppedTriggers"] : 0) + skipped
+                    advance += skipped
+                }
+                triggerTimes[it[2] ".nextTime"] := next
+                triggerTimes[it[2] ".step"] := Mod(it[3] - 1 + advance, it[7]) + 1
+            }
+            nextDues.Push(next)
+        }
+
+        ; ---- 5. 逐个计划时刻批量按下/释放（同刻必须批量，见 _PressPreciseBatch）----
+        for dueAt, batch in dueBuckets {
+            batchKeys := []
+            for it in batch
+                batchKeys.Push(it[6])
+            if kpd > 0 && kpd <= Sender.PRECISE_HOLD_MAX_MS
+                Sender._PressPreciseBatch(groupId, batchKeys, dueAt, kpd)
+            else
+                Sender._PressAsyncBatch(groupId, batchKeys, kpd)
+        }
+
+        ; ---- 6. 按推进后的基准排下一次唤醒（须在发送之后取时刻）----
+        minRemaining := 0x7FFFFFFF
+        nowAfter := HighResClock.Now()
+        for d in nextDues {
+            if d - nowAfter < minRemaining
+                minRemaining := d - nowAfter
+        }
         if Sender._timers.Has(groupId)
-            SetTimer(Sender._timers[groupId], -nextPoll)
+            SetTimer(Sender._timers[groupId], -Max(1, Round(minRemaining - Sender.WAKE_LEAD_MS)))
     }
 
     ; =================================================================

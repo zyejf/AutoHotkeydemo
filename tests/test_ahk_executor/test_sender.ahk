@@ -540,8 +540,11 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
         Sleep 40
         t0 := Sender._activeGroups[gid]["lastTriggerTimes"][1]
 
+        ; 采样量必须足够大：样本数 7 时 _Pct(0.95) 的索引 = 7，等同断言「最大值」，
+        ; 宿主一次调度抖动就会失败，测的其实是 P100 而非 P95。
+        ; 取 ~42 个样本后，P95 索引 = 40，才真正容忍 5%（2 个）离群。
         try {
-            Sleep 700
+            Sleep 4200
         } finally {
             Sender.ToggleGroup(gid, false)
             Sender._sendHook := ""
@@ -555,7 +558,7 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
             else if e[1] = "up"
                 ups.Push(e[2])
         }
-        this.assert.isAtLeast(downs.Length, 5)
+        this.assert.isAtLeast(downs.Length, 20)
 
         ; 第 i 次按下的计划时刻 = t0 + i * interval
         latencies := []
@@ -566,6 +569,16 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
         }
         this._Sort(latencies)
         this.assert.isAtMost(this._Pct(latencies, 0.95), 20.0)
+    }
+
+    _Join(arr) {
+        s := "["
+        i := 1
+        while i <= arr.Length {
+            s .= Round(arr[i], 3) (i < arr.Length ? ", " : "")
+            i++
+        }
+        return s "]"
     }
 
     ; 不遗漏触发：正常周期（≥ 一个定时器网格）下 droppedTriggers 必须恒为 0。
@@ -584,5 +597,187 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
         } finally {
             Sender.ToggleGroup(gid, false)
         }
+    }
+
+    ; 回归：计划时刻相同的多个键必须「批量 Down → 统一等待 → 批量 Up」。
+    ; 若逐键串行执行「Down → 等 → Up」，第二个键的等待会立刻超时（已过 plannedAt + kpd），
+    ; 保持时长被压成 ~0ms —— 实测过该退化为 0.022ms。
+    Test_MultiKeySameSchedule_AllKeysHoldFullKpd() {
+        gid := "__prec_multi"
+        events := []
+        Sender.EmergencyRelease()
+        Sender._sendHook := (key, st) => events.Push([key, st, HighResClock.Now()])
+        Sender.StartPeriodic(gid, ["F1", "F2"], [100, 100], 15)
+        ; 足量样本 + P95：旧写法逐个样本断言（等价 P100），一次宿主抖动即失败
+        try {
+            Sleep 2200
+        } finally {
+            Sender.ToggleGroup(gid, false)
+            Sender._sendHook := ""
+        }
+
+        lastDown := Map()
+        holds := []
+        for e in events {
+            if e[2] = "down"
+                lastDown[e[1]] := e[3]
+            else if lastDown.Has(e[1]) {
+                holds.Push(Abs(e[3] - lastDown[e[1]] - 15))
+                lastDown.Delete(e[1])
+            }
+        }
+        this.assert.isAtLeast(holds.Length, 20)
+        this._Sort(holds)
+        this.assert.isAtMost(this._Pct(holds, 0.95), 1.0)
+    }
+
+    ; 端到端：sequence 模式下「计划时刻 → 抬起完成」P95 ≤ 20ms。
+    ; 原实现从「发送完成后的当前时刻」推进基准，误差逐步累积：
+    ; 实测 delay=100ms 时步进退化成 111.9ms，3 秒内 P95 达 248~263ms。
+    Test_ExecuteSequence_EndToEndLatencyP95Within20ms() {
+        gid := "__prec_seq_e2e"
+        delay := 100
+        events := []
+        Sender.EmergencyRelease()
+        Sender._sendHook := (key, st) => events.Push([st, HighResClock.Now()])
+        Sender.StartSequence(gid, ["F1", "F2"], [delay, delay], 15)
+        ; 同 periodic：样本量 ~42，保证 P95 是真正的 P95（可容忍 2 个宿主抖动离群）
+        try {
+            Sleep 4200
+        } finally {
+            Sender.ToggleGroup(gid, false)
+            Sender._sendHook := ""
+        }
+
+        downs := []
+        ups := []
+        for e in events {
+            if e[1] = "down"
+                downs.Push(e[2])
+            else if e[1] = "up"
+                ups.Push(e[2])
+        }
+        this.assert.isAtLeast(downs.Length, 20)
+
+        ; 第 i 次按下的计划时刻 = 首次按下 + (i-1) * delay
+        latencies := []
+        i := 1
+        while i <= ups.Length {
+            latencies.Push(ups[i] - (downs[1] + (i - 1) * delay))
+            i++
+        }
+        this._Sort(latencies)
+        this.assert.isAtMost(this._Pct(latencies, 0.95), 20.0)
+    }
+
+    ; sequence 步进必须等于配置的 delay，且不随时间漂移
+    Test_ExecuteSequence_StepIntervalMatchesDelay_NoDrift() {
+        gid := "__prec_seq_step"
+        delay := 100
+        events := []
+        Sender.EmergencyRelease()
+        Sender._sendHook := (key, st) => events.Push([st, HighResClock.Now()])
+        Sender.StartSequence(gid, ["F1", "F2"], [delay, delay], 15)
+        ; 同样需要足量样本：旧窗口只有 ~6 步，且断言的是「最大偏差」（P100）
+        try {
+            Sleep 4200
+        } finally {
+            Sender.ToggleGroup(gid, false)
+            Sender._sendHook := ""
+        }
+
+        downs := []
+        for e in events {
+            if e[1] = "down"
+                downs.Push(e[2])
+        }
+        this.assert.isAtLeast(downs.Length, 20)
+
+        ; 每一步的间隔都要贴近 delay：漂移会表现为「后期偏差明显大于前期」。
+        ; 统计口径取**中位数**而非 P95：漂移是系统性偏移，会把全部样本一起推走，
+        ; 中位数即可检出；而宿主调度抖动只会污染个别样本，不应让本用例失败。
+        devs := []
+        i := 2
+        while i <= downs.Length {
+            devs.Push(Abs(downs[i] - downs[i - 1] - delay))
+            i++
+        }
+        this._Sort(devs)
+        this.assert.isAtMost(this._Pct(devs, 0.5), 2.0)
+    }
+
+    ; hybrid：periodic 子组与 sequence 子组各自按配置节奏触发，且保持时长都等于 kpd
+    Test_ExecuteHybrid_SubGroupsKeepTheirOwnRhythm() {
+        gid := "__prec_hybrid"
+        events := []
+        Sender.EmergencyRelease()
+        Sender._sendHook := (key, st) => events.Push([key, st, HighResClock.Now()])
+        groups := [
+            Map("type", "periodic", "pressKeys", ["F1"], "intervals", [100]),
+            Map("type", "sequence", "pressKeys", ["F2", "F3"], "delays", [150, 150])
+        ]
+        Sender.StartHybrid(gid, groups, 15)
+        ; 同 periodic / sequence：用足量样本（窗口 ~3.2s），避免 P95 退化成「最大值」。
+        ; 旧写法把 holds / steps 存进 Map，只留下最后一个样本 —— 一次宿主抖动即失败。
+        try {
+            Sleep 3200
+        } finally {
+            Sender.ToggleGroup(gid, false)
+            Sender._sendHook := ""
+        }
+
+        lastDown := Map()
+        holds := []          ; 所有保持时长
+        perSteps := Map()    ; key -> 该键自身的步进数组
+        seqSteps := []       ; sequence 子组内部相邻按下的步进
+        prevSeqDown := 0
+        seqKeys := Map("F2", true, "F3", true)
+        for e in events {
+            k := e[1], st := e[2], t := e[3]
+            if st = "down" {
+                if !perSteps.Has(k)
+                    perSteps[k] := []
+                perSteps[k].Push(t)
+                if seqKeys.Has(k) {
+                    if prevSeqDown != 0
+                        seqSteps.Push(t - prevSeqDown)
+                    prevSeqDown := t
+                }
+                lastDown[k] := t
+            } else if lastDown.Has(k) {
+                holds.Push(t - lastDown[k])
+                lastDown.Delete(k)
+            }
+        }
+
+        ; 两个子组都应有足够产出
+        this.assert.isAtLeast(holds.Length, 20)
+        this.assert.isAtLeast(seqSteps.Length, 15)
+
+        ; 保持时长都精确等于 kpd（P95，容忍个别宿主抖动）
+        holdErr := []
+        for h in holds
+            holdErr.Push(Abs(h - 15))
+        this._Sort(holdErr)
+        this.assert.isAtMost(this._Pct(holdErr, 0.95), 1.0)
+
+        ; periodic 子组保持 100ms 节奏（中位数判漂移，理由同 sequence 步进用例）
+        f1 := perSteps.Has("F1") ? perSteps["F1"] : []
+        f1Steps := []
+        i := 2
+        while i <= f1.Length {
+            f1Steps.Push(Abs(f1[i] - f1[i - 1] - 100))
+            i++
+        }
+        this.assert.isAtLeast(f1Steps.Length, 20)
+        this._Sort(f1Steps)
+        this.assert.isAtMost(this._Pct(f1Steps, 0.5), 2.0)
+
+        ; sequence 子组内部相邻按下保持 150ms 节奏
+        seqErr := []
+        for s in seqSteps
+            seqErr.Push(Abs(s - 150))
+        this._Sort(seqErr)
+        this.assert.isAtMost(this._Pct(seqErr, 0.5), 2.0)
     }
 }
