@@ -8,7 +8,10 @@ name: CI
 # 本地等价入口：scripts/check-gates.ps1 或 scripts/check-gates.sh
 #
 # 其余 job（coverage / miri / fuzz / bench）为辅助质量信号，均 continue-on-error，
-# 不阻塞合并；其中 miri 与 fuzz 依赖 nightly 且 Windows 支持不佳，故跑在 ubuntu。
+# 不阻塞合并。平台选择（踩过坑，勿随意改）：
+#   - miri / fuzz：依赖 nightly 且 Windows 支持不佳 → ubuntu
+#   - coverage：只覆盖纯逻辑 crate（Linux 可编译）→ ubuntu
+#   - bench：位于 src-tauri，Linux 需 glib/GTK 系统库才能构建 → windows-latest
 #
 # 历史说明：本文件曾位于 asd-tauri/.github/workflows/ci.yml。GitHub Actions 只读取
 # **仓库根目录**的 .github/workflows，子目录那份从未被执行过，已迁移至此并修复
@@ -69,7 +72,9 @@ jobs:
 
       - name: 安装 AutoHotkey v2
         id: ahk
-        uses: holy-tao/install-autohotkey@v2
+        # 注意：该 action 只发布了 v2.1.0 / v2.0.0 等具体标签，**没有 `v2` 浮动标签**
+        # （v1 才有）。写 @v2 会在 "Set up job" 阶段直接失败：unable to find version。
+        uses: holy-tao/install-autohotkey@v2.1.0
         with:
           version: '2.0.26'
           destination: ${{ runner.temp }}
@@ -143,7 +148,7 @@ jobs:
 
   # ============================================================ 辅助（不阻塞）
   coverage:
-    name: Coverage
+    name: Coverage（纯逻辑 crate）
     runs-on: ubuntu-latest
     continue-on-error: true
     if: github.event_name == 'push'
@@ -155,15 +160,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: asd-tauri
-      - name: 安装 Linux 依赖
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
       - name: 安装 cargo-llvm-cov
         run: cargo install cargo-llvm-cov --locked
       - name: 生成 lcov
         working-directory: asd-tauri
-        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+        # 只覆盖三个纯逻辑 crate。workspace 里的 src-tauri 依赖 windows / tauri 系列
+        # crate，在 Linux 上无法编译（windows-future 报 E0425），`--workspace` 必失败；
+        # 纯逻辑 crate 按分层规则不引入 tauri / tokio / interprocess / windows，可安全跑。
+        run: cargo llvm-cov --package asd-domain --package asd-ipc-protocol --package asd-application --lcov --output-path lcov.info
       - name: 上传覆盖率报告
         uses: actions/upload-artifact@v4
         with:
@@ -222,7 +226,9 @@ jobs:
 
   bench:
     name: Benchmark Regression
-    runs-on: ubuntu-latest
+    # bench 位于 src-tauri（依赖 tauri / windows 系列 crate），Linux 上需要
+    # glib / GTK 系统库才能构建，故与四闸门一样跑在 windows-latest。
+    runs-on: windows-latest
     continue-on-error: true
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
