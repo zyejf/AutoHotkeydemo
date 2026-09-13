@@ -1,0 +1,70 @@
+#!/bin/sh
+# ============================================================
+# pre-commit hook（版本化，位于 scripts/hooks/）
+# 安装：scripts/install-hooks.sh 或 scripts/install-hooks.ps1
+# 作用：提交前的快速卫生检查（敏感文件 / 构建产物 / 大文件 / 临时文件）
+#
+# 可选：设置环境变量 ASD_FULL_GATES=1 会在上述检查通过后
+#       额外执行 scripts/check-gates.sh --quick（闸门①图谱 + ②fmt/clippy）。
+#       默认关闭，因为会显著拉长提交耗时。
+# ============================================================
+
+exit_code=0
+
+# 检查 1: 防止提交敏感文件
+sensitive_files=$(git diff --cached --name-only --diff-filter=A | grep -iE '\.(env|key|pem|p12|crt)$|credentials|secrets' || true)
+if [ -n "$sensitive_files" ]; then
+    echo "ERROR: 检测到敏感文件被暂存:"
+    echo "$sensitive_files"
+    echo "请从暂存区移除: git reset HEAD <file>"
+    exit_code=1
+fi
+
+# 检查 2: 防止提交构建产物（target/、node_modules/、dist/）
+build_artifacts=$(git diff --cached --name-only --diff-filter=A | grep -iE '^target/|^node_modules/|^dist/|\.exe$' || true)
+if [ -n "$build_artifacts" ]; then
+    echo "ERROR: 检测到构建产物被暂存:"
+    echo "$build_artifacts"
+    echo "这些文件应在 .gitignore 中忽略"
+    exit_code=1
+fi
+
+# 检查 3: 防止提交大文件（超过 1MB）
+large_files=""
+for file in $(git diff --cached --name-only --diff-filter=A); do
+    if [ -f "$file" ]; then
+        size=$(wc -c < "$file" 2>/dev/null || echo 0)
+        if [ "$size" -gt 1048576 ]; then
+            large_files="$large_files\n  $file ($(( size / 1024 )) KB)"
+        fi
+    fi
+done
+if [ -n "$large_files" ]; then
+    echo "WARNING: 检测到大文件（超过 1MB）:$large_files"
+    echo "建议使用 Git LFS 或确认是否需要提交"
+fi
+
+# 检查 4: 防止提交调试用临时文件
+temp_files=$(git diff --cached --name-only --diff-filter=A | grep -iE 'tmp_|test_err\.txt|test_out\.txt|test_stderr\.txt|\.bak$' || true)
+if [ -n "$temp_files" ]; then
+    echo "ERROR: 检测到临时文件被暂存:"
+    echo "$temp_files"
+    echo "这些文件应在 .gitignore 中忽略"
+    exit_code=1
+fi
+
+# 可选：快速闸门（需 ASD_FULL_GATES=1）
+if [ "$exit_code" -eq 0 ] && [ "${ASD_FULL_GATES:-0}" = "1" ]; then
+    repo_root=$(git rev-parse --show-toplevel)
+    echo "ASD_FULL_GATES=1 -> 执行快速闸门..."
+    if ! sh "$repo_root/scripts/check-gates.sh" --quick; then
+        echo "ERROR: 快速闸门未通过（详见上方输出）"
+        exit_code=1
+    fi
+fi
+
+if [ "$exit_code" -eq 0 ]; then
+    echo "OK: pre-commit 检查通过"
+fi
+
+exit $exit_code

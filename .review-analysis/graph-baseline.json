@@ -1,0 +1,49 @@
+{
+  "generated_at": "2026-09-13",
+  "generated_by": "python .review-analysis/build_graph.py -> .review-analysis/graph-raw.json",
+  "purpose": "闸门①的输入基线：图谱结构快照。改动后与此对比，环数/违规数增加必须处理或登记白名单。",
+  "counts": {
+    "ahk_files": 72,
+    "ahk_edges_total": 260,
+    "ahk_edges_in_scope": 254,
+    "ahk_missing": 0,
+    "ahk_cycles": 0,
+    "ahk_orphans": 9,
+    "rust_files": 64,
+    "rust_edges": 163,
+    "rust_crate_edges": 11,
+    "rust_crate_cycles": 0,
+    "rust_crate_violations": 3,
+    "js_files": 5,
+    "js_edges": 9
+  },
+  "allowed_violations": [
+    {
+      "from": "asd-test-harness",
+      "to": "asd-application",
+      "reason": "测试夹具反向依赖被测 crate 是 asd-test-harness 的设计意图，属已知可接受偏差"
+    },
+    {
+      "from": "asd-test-harness",
+      "to": "asd-domain",
+      "reason": "同上"
+    },
+    {
+      "from": "asd-test-harness",
+      "to": "asd-ipc-protocol",
+      "reason": "同上"
+    }
+  ],
+  "policy": {
+    "hard_fail": [
+      "ahk_cycles 增加",
+      "rust_crate_cycles 增加",
+      "ahk_missing 增加（出现未解析的 #Include）",
+      "出现不在 allowed_violations 白名单内的 rust_crate_violations"
+    ],
+    "warn_only": [
+      "文件数 / 边数变化（正常开发必然发生）",
+      "ahk_orphans 变化（新增独立脚本会抬高）"
+    ]
+  }
+}
