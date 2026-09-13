@@ -13,6 +13,7 @@
 #Warn LocalSameAsGlobal, Off
 
 #Include "ipc_client.ahk"
+#Include "high_res_clock.ahk"
 
 class Sender {
     ; 活跃的执行组: groupId => 执行状态
@@ -35,6 +36,32 @@ class Sender {
 
     ; 逐键事件发送函数注入点（默认为空=使用 IpcClient._SendMsg；测试可注入 mock 避免真实 IPC）
     static _keyEventSender := ""
+
+    ; 发送原语注入点（默认为空=使用 SendInput；测试可注入 mock 避免真实按键副作用）
+    static _sendHook := ""
+
+    ; =================================================================
+    ; 精确定刻常量（背景与实测数据见 _ExecutePeriodic 注释）
+    ; =================================================================
+
+    ; 最小周期间隔（ms），与既有行为一致
+    static MIN_INTERVAL_MS := 10
+
+    ; 定时器提前唤醒量（ms）。必须显著大于 15.625（Windows 定时器网格），
+    ; 保证定时唤醒一定落在 [目标-提前量, 目标) 内，再由 SleepUntil 精修到点。
+    ; 实测（interval=100/kpd=15，各 3 轮）选参依据：
+    ;   18 → 定时器偶发迟到 ~7ms，保持时长被压缩到最低 8.0ms，周期最大 107ms
+    ;   28 → 保持时长最低 14.8ms，周期最大 100.17ms
+    ;   40 → 与 28 持平（14.9 / 100.23），但让出式等待窗口更长
+    ; 28 ≈ 1.8 个网格，足以吸收一整格唤醒抖动 + 系统调度抖动，代价最小
+    static WAKE_LEAD_MS := 28
+
+    ; 判定"已到期"的容差（ms）
+    static TIMING_EPSILON_MS := 0.5
+
+    ; 精确定刻保持时长的上限（ms）。超过此值的 keyPressDuration 退回异步释放 ——
+    ; 该配置下「计划时刻 → 抬起完成」必然 > 20ms，精确定刻已无意义
+    static PRECISE_HOLD_MAX_MS := 20
 
     ; 按键白名单
     static ALLOWED_KEYS := Map(
@@ -348,6 +375,39 @@ class Sender {
     ; 执行引擎
     ; =================================================================
 
+    ; =================================================================
+    ; 周期模式的精确定刻执行
+    ;
+    ; 目标：每一次模拟按键「计划时刻 → 抬起完成」P95 ≤ 20ms，且不遗漏触发。
+    ;
+    ; 背景（2026-09-13 本机实测，勿凭直觉回退）：
+    ;   · SetTimer 与 Sleep 被锁死在 15.625ms 网格：请求 1/5/10/15ms 全部得到
+    ;     ~15.6ms；请求 16ms 反而得到 ~31.25ms（跨过网格阈值直接跳两格）。
+    ;   · A_TickCount 步进中位 15.52ms，不能作为 20ms 预算内的时间基准。
+    ;   · timeBeginPeriod(1) 对 AHK 无效。
+    ;   · 唯一能突破网格的是 QPC 定位（实测末段忙等误差约 0.002ms）。
+    ;
+    ; 因此：① 计划时刻一律用 HighResClock(QPC) 表示；
+    ;       ② 定时器只负责“提前唤醒”（提前量 > 一个网格），到点由 SleepUntil 精修；
+    ;       ③ 保持时长 kpd 同样用 SleepUntil 控制，不再走 SetTimer(-kpd)。
+    ; =================================================================
+
+    ; 取第 i 个键的周期间隔（含下限夹紧）
+    static _IntervalOf(intervals, i) {
+        interval := i <= intervals.Length ? intervals[i] : 50
+        return interval < Sender.MIN_INTERVAL_MS ? Sender.MIN_INTERVAL_MS : interval
+    }
+
+    ; 精确执行一次「按下 → 保持 kpd → 抬起」。
+    ; plannedAt 是本次按下的计划时刻，抬起按 plannedAt + kpd 定位，
+    ; 使「计划时刻 → 抬起完成」恰好等于 kpd（+ 微秒级误差）。
+    static _PressPrecise(groupId, key, plannedAt, kpd) {
+        Sender._SendKeyDown(key)
+        if kpd > 0
+            HighResClock.SleepUntil(plannedAt + kpd)
+        Sender._SendKeyUp(key)
+    }
+
     static _ExecutePeriodic(groupId) {
         if !Sender._activeGroups.Has(groupId)
             return
@@ -356,40 +416,81 @@ class Sender {
         keys := state["keys"]
         intervals := state["intervals"]
         kpd := state["keyPressDuration"]
-        now := A_TickCount
         triggerTimes := state["lastTriggerTimes"]
-        minRemaining := 0x7FFFFFFF
 
+        ; ---- 1. 首次出现的键建立基准时刻 ----
+        now := HighResClock.Now()
         for i, k in keys {
-            if !triggerTimes.Has(i) {
+            if !triggerTimes.Has(i)
                 triggerTimes[i] := now
-                minRemaining := 1
+        }
+
+        ; ---- 2. 求最近的到期时刻（计划时刻）----
+        target := 0
+        for i, k in keys {
+            t := triggerTimes[i] + Sender._IntervalOf(intervals, i)
+            if target = 0 || t < target
+                target := t
+        }
+
+        ; ---- 3. 精确定位到计划时刻 ----
+        ; 还早 → 交给定时器提前唤醒（提前量覆盖最坏量化误差），本轮不阻塞主线程；
+        ; 已近 → 让出式等待 + 末段忙等到点。
+        if target - now > Sender.WAKE_LEAD_MS {
+            if Sender._timers.Has(groupId)
+                SetTimer(Sender._timers[groupId], -Max(1, Round(target - now - Sender.WAKE_LEAD_MS)))
+            return
+        }
+        if target > now
+            now := HighResClock.SleepUntil(target)
+
+        ; ---- 4. 发送所有已到期的键 ----
+        minRemaining := 0x7FFFFFFF
+        for i, k in keys {
+            interval := Sender._IntervalOf(intervals, i)
+            dueAt := triggerTimes[i] + interval
+
+            if now < dueAt - Sender.TIMING_EPSILON_MS {
+                remaining := dueAt - now
+                if remaining < minRemaining
+                    minRemaining := remaining
                 continue
             }
 
-            interval := i <= intervals.Length ? intervals[i] : 50
-            if interval < 10
-                interval := 10
-
-            elapsed := now - triggerTimes[i]
-            threshold := interval - Max(1, Round(interval * 0.05))
-
-            if elapsed >= threshold {
-                capturedKey := k
-                Sender._SendKeyDown(capturedKey)
-                Sender._ScheduleRelease(groupId, capturedKey, kpd)
-                triggerTimes[i] := triggerTimes[i] + interval
-                if triggerTimes[i] < now - interval
-                    triggerTimes[i] := now
-                minRemaining := 1
+            capturedKey := k
+            if kpd <= Sender.PRECISE_HOLD_MAX_MS {
+                Sender._PressPrecise(groupId, capturedKey, dueAt, kpd)
             } else {
-                remaining := threshold - elapsed
-                if remaining < minRemaining
-                    minRemaining := remaining
+                ; 超长保持：该配置下「计划时刻→抬起完成」必然 > 20ms，精确定刻已无意义
+                Sender._SendKeyDown(capturedKey)
+                if kpd > 0
+                    Sender._ScheduleRelease(groupId, capturedKey, kpd)
+                else
+                    Sender._SendKeyUp(capturedKey)
             }
+
+            ; 计划时刻单调推进并保持相位。
+            ; 原实现 `if triggerTimes[i] < now - interval then triggerTimes[i] := now`
+            ; 会在滞后时把基准直接重置为当前时刻 —— 既丢相位，又吞掉本应发生的触发。
+            ; 注意：推进基准必须用「本次触发的计划时刻 dueAt」，而不是发送完成后的当前时刻 ——
+            ; 后者已被 kpd 保持时长推后，会让每次都被误判为"已落后"而白跳一个周期。
+            last := dueAt
+            next := dueAt + interval
+            if next <= now {
+                steps := Floor((now - next) / interval) + 1
+                next += steps * interval
+                state["droppedTriggers"] := (state.Has("droppedTriggers") ? state["droppedTriggers"] : 0) + steps
+                last := next - interval
+            }
+            triggerTimes[i] := last
+
+            remaining := next - HighResClock.Now()
+            if remaining < minRemaining
+                minRemaining := remaining
         }
 
-        nextPoll := Max(1, minRemaining)
+        ; ---- 5. 排下一次唤醒（同样扣掉提前量，保证唤醒落在目标之前）----
+        nextPoll := Max(1, Round(minRemaining - Sender.WAKE_LEAD_MS))
         if Sender._timers.Has(groupId)
             SetTimer(Sender._timers[groupId], -nextPoll)
     }
@@ -527,20 +628,28 @@ class Sender {
     static _SendKeyDown(key) {
         if !Sender._ValidateKey(key)
             return
-        try
-            SendInput("{Blind}{" key " Down}")
-        catch as e
-            OutputDebug("Sender: 按键按下失败 key=" key " err=" e.Message)
+        if Sender._sendHook != "" {
+            Sender._sendHook.Call(key, "down")
+        } else {
+            try
+                SendInput("{Blind}{" key " Down}")
+            catch as e
+                OutputDebug("Sender: 按键按下失败 key=" key " err=" e.Message)
+        }
         Sender._ReportKeyEvent(key, "down")
     }
 
     static _SendKeyUp(key) {
         if !Sender._ValidateKey(key)
             return
-        try
-            SendInput("{Blind}{" key " Up}")
-        catch as e
-            OutputDebug("Sender: 按键释放失败 key=" key " err=" e.Message)
+        if Sender._sendHook != "" {
+            Sender._sendHook.Call(key, "up")
+        } else {
+            try
+                SendInput("{Blind}{" key " Up}")
+            catch as e
+                OutputDebug("Sender: 按键释放失败 key=" key " err=" e.Message)
+        }
         Sender._ReportKeyEvent(key, "up")
     }
 

@@ -215,6 +215,7 @@ testManager.RegisterSuite(
     SenderShutdownTests,
     SenderInitTests,
     SenderReportKeyEventsTests,
+    SenderPreciseTimingTests,
     JoystickAllowedKeysTests,
     JoystickValidateKeyTests,
     JoystickIsButtonTests,

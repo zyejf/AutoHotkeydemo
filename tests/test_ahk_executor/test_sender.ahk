@@ -451,3 +451,138 @@ class SenderReportKeyEventsTests extends AutoHotUnitSuite {
         this.assert.equal(captured["last"]["data"]["state"], "down")
     }
 }
+
+; =================================================================
+; 测试套件：周期模式精确定刻
+; 目标：每一次模拟按键「计划时刻 → 抬起完成」P95 ≤ 20ms，且不遗漏触发
+;
+; 注意：A_TickCount 步进实测约 15.5ms，不能用于 20ms 预算内的判定，
+;       本套件一律用 HighResClock(QPC) 采样。
+; =================================================================
+
+class SenderPreciseTimingTests extends AutoHotUnitSuite {
+    afterAll() {
+        Sender.EmergencyRelease()
+    }
+
+    ; 升序排序（插入排序，样本量小）；下划线开头，不会被收集为用例
+    _Sort(arr) {
+        i := 2
+        while i <= arr.Length {
+            v := arr[i], j := i - 1
+            while j >= 1 && arr[j] > v {
+                arr[j + 1] := arr[j]
+                j--
+            }
+            arr[j + 1] := v
+            i++
+        }
+        return arr
+    }
+
+    ; 取第 p 分位数（输入必须已升序）
+    _Pct(arr, p) {
+        idx := Ceil(arr.Length * p)
+        idx := Max(1, Min(idx, arr.Length))
+        return arr[idx]
+    }
+
+    ; QPC 分辨率必须远细于 1ms，否则无法支撑 20ms 预算内的度量
+    Test_HighResClock_Now_ResolutionFarBelow1ms() {
+        prev := HighResClock.Now()
+        minDelta := 999999.0
+        Loop 2000 {
+            cur := HighResClock.Now()
+            d := cur - prev
+            if d > 0 && d < minDelta
+                minDelta := d
+            prev := cur
+        }
+        this.assert.isAtMost(minDelta, 0.05)
+    }
+
+    ; SleepUntil 的定位误差 P95 应 < 1ms
+    Test_HighResClock_SleepUntil_ErrorBelow1ms() {
+        errs := []
+        Loop 30 {
+            t0 := HighResClock.Now()
+            HighResClock.SleepUntil(t0 + 12)
+            errs.Push(Abs(HighResClock.Now() - t0 - 12))
+        }
+        this._Sort(errs)
+        this.assert.isAtMost(this._Pct(errs, 0.95), 1.0)
+    }
+
+    ; 一次精确定刻按压的保持时长应等于 kpd（原实现走 SetTimer(-kpd)，误差 0~15.6ms）
+    Test_PressPrecise_HoldDurationMatchesKpd() {
+        events := []
+        Sender._sendHook := (key, st) => events.Push(HighResClock.Now())
+        try {
+            t0 := HighResClock.Now()
+            Sender._PressPrecise("__prec_hold", "F1", t0, 15)
+        } finally {
+            Sender._sendHook := ""
+        }
+        this.assert.equal(events.Length, 2)
+        this.assert.isAtMost(Abs(events[2] - events[1] - 15), 1.0)
+    }
+
+    ; 端到端：periodic 模式下「计划时刻 → 抬起完成」P95 ≤ 20ms
+    Test_ExecutePeriodic_EndToEndLatencyP95Within20ms() {
+        gid := "__prec_e2e"
+        interval := 100
+        events := []
+
+        Sender.EmergencyRelease()
+        Sender._sendHook := (key, st) => events.Push([st, HighResClock.Now()])
+        Sender.StartPeriodic(gid, ["F1"], [interval], 15)
+        ; 等第一次 _ExecutePeriodic 建立基准时刻
+        Sleep 40
+        t0 := Sender._activeGroups[gid]["lastTriggerTimes"][1]
+
+        try {
+            Sleep 700
+        } finally {
+            Sender.ToggleGroup(gid, false)
+            Sender._sendHook := ""
+        }
+
+        downs := []
+        ups := []
+        for i, e in events {
+            if e[1] = "down"
+                downs.Push(e[2])
+            else if e[1] = "up"
+                ups.Push(e[2])
+        }
+        this.assert.isAtLeast(downs.Length, 5)
+
+        ; 第 i 次按下的计划时刻 = t0 + i * interval
+        latencies := []
+        i := 1
+        while i <= downs.Length && i <= ups.Length {
+            latencies.Push(ups[i] - (t0 + i * interval))
+            i++
+        }
+        this._Sort(latencies)
+        this.assert.isAtMost(this._Pct(latencies, 0.95), 20.0)
+    }
+
+    ; 不遗漏触发：正常周期（≥ 一个定时器网格）下 droppedTriggers 必须恒为 0。
+    ; 原实现在滞后时把基准重置为 now，既丢相位又吞掉触发。
+    Test_ExecutePeriodic_NoDroppedTrigger_AtNormalInterval() {
+        gid := "__prec_drop"
+        Sender.EmergencyRelease()
+        Sender.StartPeriodic(gid, ["F1"], [100], 15)
+        Sleep 40
+        try {
+            Sleep 620
+            dropped := 0
+            if Sender._activeGroups.Has(gid) && Sender._activeGroups[gid].Has("droppedTriggers")
+                dropped := Sender._activeGroups[gid]["droppedTriggers"]
+            this.assert.equal(dropped, 0)
+        } finally {
+            Sender.ToggleGroup(gid, false)
+        }
+    }
+}

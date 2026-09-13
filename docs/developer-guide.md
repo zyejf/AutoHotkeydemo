@@ -823,6 +823,33 @@ cargo fmt --all
 > ⚠️ 旧写法 `cargo fmt -- --check`（多一个 `--`）会把 `--check` 传给 rustfmt 而报错；
 > `cargo clippy -- -W clippy::all` 既不覆盖全部 target 也不会让告警失败。请以本节为准。
 
+#### 排障：`cargo clippy` 报 `the compiler unexpectedly panicked`（ICE）
+
+**症状**：`cargo clippy` 或 `cargo test` 在 `asd-tauri` lib 上崩溃，输出
+`error: the compiler unexpectedly panicked`、`query stack during panic`、
+`note: rustc 1.95.0 ...`（或 `note: Clippy version: ...`），退出码 101。
+崩溃点常见于 `rustc_metadata::rmeta::encoder::encode_metadata`。
+
+**判定**：这是 **编译器缺陷 / 增量缓存损坏**，**不是代码告警，也不是测试失败**。
+先确认 `git status` 里没有 `.rs` 改动；若确实没改 Rust 代码，则与本次改动无关。
+
+**解法**：关闭增量编译重跑即可通过（实测对 clippy 与 test 均有效）：
+
+```powershell
+cd d:\1demo\AutoHotkeydemo\asd-tauri
+$env:CARGO_INCREMENTAL = 0
+cargo clippy -p asd-tauri --all-targets -- -D warnings
+cargo test --workspace
+```
+
+也可先单独验证未受影响的纯逻辑 crate，确认告警面干净：
+
+```powershell
+cargo clippy -p asd-domain -p asd-ipc-protocol -p asd-application -p asd-test-harness --all-targets -- -D warnings
+```
+
+> 若关闭增量后仍 ICE，再考虑 `cargo clean -p asd-tauri`。
+
 ### 4.6.1 DoD 四闸门一键校验
 
 提交/提 PR 前建议跑一次，等价于 CI 的 `gates` job：

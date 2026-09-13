@@ -5,13 +5,13 @@
   "meta": {
     "root": "D:\\1demo\\AutoHotkeydemo",
     "counts": {
-      "ahk_files": 79,
-      "ahk_edges_total": 316,
-      "ahk_edges_in_scope": 307,
-      "ahk_missing": 3,
+      "ahk_files": 73,
+      "ahk_edges_total": 262,
+      "ahk_edges_in_scope": 256,
+      "ahk_missing": 0,
       "ahk_cycles": 0,
-      "ahk_orphans": 7,
-      "rust_files": 63,
+      "ahk_orphans": 9,
+      "rust_files": 64,
       "rust_edges": 163,
       "rust_crate_edges": 11,
       "rust_crate_cycles": 0,
@@ -79,8 +79,8 @@
     }
   },
   "ahk": {
-    "nodeCount": 79,
-    "edgeCount": 307,
+    "nodeCount": 73,
+    "edgeCount": 256,
     "nodes": [
       {
         "id": "SkillMgrDebugLogger.ahk",
@@ -142,6 +142,13 @@
         "id": "asd-tauri/src-tauri/ahk_executor/executor.ahk",
         "label": "executor.ahk",
         "path": "asd-tauri/src-tauri/ahk_executor/executor.ahk",
+        "layer": "executor",
+        "layerLabel": "AHK 执行器"
+      },
+      {
+        "id": "asd-tauri/src-tauri/ahk_executor/high_res_clock.ahk",
+        "label": "high_res_clock.ahk",
+        "path": "asd-tauri/src-tauri/ahk_executor/high_res_clock.ahk",
         "layer": "executor",
         "layerLabel": "AHK 执行器"
       },
@@ -242,13 +249,6 @@
         "path": "domain/skill_manager.ahk",
         "layer": "domain",
         "layerLabel": "领域层"
-      },
-      {
-        "id": "gui.ahk",
-        "label": "gui.ahk",
-        "path": "gui.ahk",
-        "layer": "entry",
-        "layerLabel": "入口层"
       },
       {
         "id": "infrastructure/backup_core.ahk",
@@ -517,44 +517,9 @@
         "layerLabel": "测试层"
       },
       {
-        "id": "tests/test_application.ahk",
-        "label": "test_application.ahk",
-        "path": "tests/test_application.ahk",
-        "layer": "tests",
-        "layerLabel": "测试层"
-      },
-      {
-        "id": "tests/test_boundary.ahk",
-        "label": "test_boundary.ahk",
-        "path": "tests/test_boundary.ahk",
-        "layer": "tests",
-        "layerLabel": "测试层"
-      },
-      {
-        "id": "tests/test_domain.ahk",
-        "label": "test_domain.ahk",
-        "path": "tests/test_domain.ahk",
-        "layer": "tests",
-        "layerLabel": "测试层"
-      },
-      {
-        "id": "tests/test_error_captor.ahk",
-        "label": "test_error_captor.ahk",
-        "path": "tests/test_error_captor.ahk",
-        "layer": "tests",
-        "layerLabel": "测试层"
-      },
-      {
         "id": "tests/test_error_system.ahk",
         "label": "test_error_system.ahk",
         "path": "tests/test_error_system.ahk",
-        "layer": "tests",
-        "layerLabel": "测试层"
-      },
-      {
-        "id": "tests/test_infrastructure.ahk",
-        "label": "test_infrastructure.ahk",
-        "path": "tests/test_infrastructure.ahk",
         "layer": "tests",
         "layerLabel": "测试层"
       },
@@ -604,13 +569,6 @@
         "id": "tests/test_key_validator.ahk",
         "label": "test_key_validator.ahk",
         "path": "tests/test_key_validator.ahk",
-        "layer": "tests",
-        "layerLabel": "测试层"
-      },
-      {
-        "id": "tests/test_presentation.ahk",
-        "label": "test_presentation.ahk",
-        "path": "tests/test_presentation.ahk",
         "layer": "tests",
         "layerLabel": "测试层"
       },
@@ -855,6 +813,13 @@
         "layerCross": false
       },
       {
+        "from": "asd-tauri/src-tauri/ahk_executor/sender.ahk",
+        "to": "asd-tauri/src-tauri/ahk_executor/high_res_clock.ahk",
+        "fromLayer": "executor",
+        "toLayer": "executor",
+        "layerCross": false
+      },
+      {
         "from": "asd.ahk",
         "to": "main.ahk",
         "fromLayer": "entry",
@@ -993,20 +958,6 @@
         "fromLayer": "domain",
         "toLayer": "infrastructure",
         "layerCross": true
-      },
-      {
-        "from": "gui.ahk",
-        "to": "config.ahk",
-        "fromLayer": "entry",
-        "toLayer": "entry",
-        "layerCross": false
-      },
-      {
-        "from": "gui.ahk",
-        "to": "SkillMgrDebugLogger.ahk",
-        "fromLayer": "entry",
-        "toLayer": "entry",
-        "layerCross": false
       },
       {
         "from": "infrastructure/backup_core.ahk",
@@ -1429,6 +1380,13 @@
         "layerCross": true
       },
       {
+        "from": "presentation/debug_panel.ahk",
+        "to": "application/config_service.ahk",
+        "fromLayer": "presentation",
+        "toLayer": "application",
+        "layerCross": true
+      },
+      {
         "from": "presentation/group_editor.ahk",
         "to": "application/group_service.ahk",
         "fromLayer": "presentation",
@@ -1668,6 +1626,13 @@
       },
       {
         "from": "tests/run_all_tests.ahk",
+        "to": "infrastructure/migration_logger.ahk",
+        "fromLayer": "tests",
+        "toLayer": "infrastructure",
+        "layerCross": true
+      },
+      {
+        "from": "tests/run_all_tests.ahk",
         "to": "application/config_service.ahk",
         "fromLayer": "tests",
         "toLayer": "application",
@@ -1891,239 +1856,8 @@
         "layerCross": false
       },
       {
-        "from": "tests/test_application.ahk",
-        "to": "tests/test_result_reporter.ahk",
-        "fromLayer": "tests",
-        "toLayer": "tests",
-        "layerCross": false
-      },
-      {
-        "from": "tests/test_application.ahk",
-        "to": "domain/interfaces.ahk",
-        "fromLayer": "tests",
-        "toLayer": "domain",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_application.ahk",
-        "to": "domain/skill_group.ahk",
-        "fromLayer": "tests",
-        "toLayer": "domain",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_application.ahk",
-        "to": "domain/skill_manager.ahk",
-        "fromLayer": "tests",
-        "toLayer": "domain",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_application.ahk",
-        "to": "infrastructure/config_store.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_application.ahk",
-        "to": "infrastructure/json_logger.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_application.ahk",
-        "to": "infrastructure/json_serializer.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_application.ahk",
-        "to": "infrastructure/json_parser.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_application.ahk",
-        "to": "infrastructure/debug_logger.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_application.ahk",
-        "to": "application/group_service.ahk",
-        "fromLayer": "tests",
-        "toLayer": "application",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_application.ahk",
-        "to": "application/config_service.ahk",
-        "fromLayer": "tests",
-        "toLayer": "application",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_boundary.ahk",
-        "to": "tests/test_result_reporter.ahk",
-        "fromLayer": "tests",
-        "toLayer": "tests",
-        "layerCross": false
-      },
-      {
-        "from": "tests/test_boundary.ahk",
-        "to": "domain/interfaces.ahk",
-        "fromLayer": "tests",
-        "toLayer": "domain",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_boundary.ahk",
-        "to": "domain/mode_registry.ahk",
-        "fromLayer": "tests",
-        "toLayer": "domain",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_boundary.ahk",
-        "to": "domain/skill_group.ahk",
-        "fromLayer": "tests",
-        "toLayer": "domain",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_boundary.ahk",
-        "to": "infrastructure/json_parser.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_boundary.ahk",
-        "to": "infrastructure/json_serializer.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_boundary.ahk",
-        "to": "infrastructure/config_store.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_boundary.ahk",
-        "to": "infrastructure/config_validator.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_domain.ahk",
-        "to": "tests/test_result_reporter.ahk",
-        "fromLayer": "tests",
-        "toLayer": "tests",
-        "layerCross": false
-      },
-      {
-        "from": "tests/test_domain.ahk",
-        "to": "domain/interfaces.ahk",
-        "fromLayer": "tests",
-        "toLayer": "domain",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_domain.ahk",
-        "to": "domain/mode_registry.ahk",
-        "fromLayer": "tests",
-        "toLayer": "domain",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_domain.ahk",
-        "to": "domain/skill_group.ahk",
-        "fromLayer": "tests",
-        "toLayer": "domain",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_error_captor.ahk",
-        "to": "tests/test_result_reporter.ahk",
-        "fromLayer": "tests",
-        "toLayer": "tests",
-        "layerCross": false
-      },
-      {
-        "from": "tests/test_error_captor.ahk",
-        "to": "infrastructure/json_parser.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
         "from": "tests/test_error_system.ahk",
         "to": "infrastructure/error_system.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_infrastructure.ahk",
-        "to": "tests/test_result_reporter.ahk",
-        "fromLayer": "tests",
-        "toLayer": "tests",
-        "layerCross": false
-      },
-      {
-        "from": "tests/test_infrastructure.ahk",
-        "to": "infrastructure/json_parser.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_infrastructure.ahk",
-        "to": "infrastructure/json_serializer.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_infrastructure.ahk",
-        "to": "infrastructure/config_validator.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_infrastructure.ahk",
-        "to": "infrastructure/config_store.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_infrastructure.ahk",
-        "to": "infrastructure/error_handler.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_infrastructure.ahk",
-        "to": "infrastructure/backup_core.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_infrastructure.ahk",
-        "to": "infrastructure/ipc_channel.ahk",
         "fromLayer": "tests",
         "toLayer": "infrastructure",
         "layerCross": true
@@ -2514,139 +2248,6 @@
         "layerCross": true
       },
       {
-        "from": "tests/test_presentation.ahk",
-        "to": "tests/test_result_reporter.ahk",
-        "fromLayer": "tests",
-        "toLayer": "tests",
-        "layerCross": false
-      },
-      {
-        "from": "tests/test_presentation.ahk",
-        "to": "infrastructure/json_logger.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_presentation.ahk",
-        "to": "infrastructure/json_parser.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_presentation.ahk",
-        "to": "infrastructure/json_serializer.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_presentation.ahk",
-        "to": "infrastructure/debug_logger.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_presentation.ahk",
-        "to": "infrastructure/utils.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_presentation.ahk",
-        "to": "infrastructure/config_validator.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_presentation.ahk",
-        "to": "infrastructure/config_store.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_presentation.ahk",
-        "to": "infrastructure/error_handler.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_presentation.ahk",
-        "to": "infrastructure/error_system.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_presentation.ahk",
-        "to": "infrastructure/backup_core.ahk",
-        "fromLayer": "tests",
-        "toLayer": "infrastructure",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_presentation.ahk",
-        "to": "domain/interfaces.ahk",
-        "fromLayer": "tests",
-        "toLayer": "domain",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_presentation.ahk",
-        "to": "domain/mode_registry.ahk",
-        "fromLayer": "tests",
-        "toLayer": "domain",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_presentation.ahk",
-        "to": "domain/skill_group.ahk",
-        "fromLayer": "tests",
-        "toLayer": "domain",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_presentation.ahk",
-        "to": "domain/skill_manager.ahk",
-        "fromLayer": "tests",
-        "toLayer": "domain",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_presentation.ahk",
-        "to": "application/group_service.ahk",
-        "fromLayer": "tests",
-        "toLayer": "application",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_presentation.ahk",
-        "to": "application/config_service.ahk",
-        "fromLayer": "tests",
-        "toLayer": "application",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_presentation.ahk",
-        "to": "presentation/ui_manager.ahk",
-        "fromLayer": "tests",
-        "toLayer": "presentation",
-        "layerCross": true
-      },
-      {
-        "from": "tests/test_presentation.ahk",
-        "to": "presentation/webview2_manager.ahk",
-        "fromLayer": "tests",
-        "toLayer": "presentation",
-        "layerCross": true
-      },
-      {
         "from": "tests/test_result_reporter.ahk",
         "to": "infrastructure/json_serializer.ahk",
         "fromLayer": "tests",
@@ -2789,14 +2390,14 @@
     ],
     "layerSummary": {
       "entry": {
-        "files": 12,
-        "out": 38,
-        "in": 3
+        "files": 11,
+        "out": 36,
+        "in": 1
       },
       "application": {
         "files": 3,
         "out": 19,
-        "in": 20
+        "in": 17
       },
       "other": {
         "files": 1,
@@ -2804,42 +2405,42 @@
         "in": 0
       },
       "executor": {
-        "files": 5,
-        "out": 5,
-        "in": 10
+        "files": 6,
+        "out": 6,
+        "in": 11
       },
       "domain": {
         "files": 8,
         "out": 19,
-        "in": 76
+        "in": 63
       },
       "infrastructure": {
         "files": 15,
         "out": 27,
-        "in": 152
+        "in": 126
       },
       "presentation": {
         "files": 6,
-        "out": 22,
-        "in": 18
+        "out": 23,
+        "in": 16
       },
       "tests": {
-        "files": 29,
-        "out": 177,
-        "in": 28
+        "files": 23,
+        "out": 126,
+        "in": 22
       }
     },
     "layerEdges": [
       {
         "from": "tests",
         "to": "infrastructure",
-        "count": 77,
+        "count": 51,
         "reverse": false
       },
       {
         "from": "tests",
         "to": "domain",
-        "count": 44,
+        "count": 31,
         "reverse": false
       },
       {
@@ -2857,13 +2458,7 @@
       {
         "from": "tests",
         "to": "presentation",
-        "count": 12,
-        "reverse": false
-      },
-      {
-        "from": "tests",
-        "to": "application",
-        "count": 11,
+        "count": 10,
         "reverse": false
       },
       {
@@ -2879,6 +2474,12 @@
         "reverse": false
       },
       {
+        "from": "tests",
+        "to": "application",
+        "count": 7,
+        "reverse": false
+      },
+      {
         "from": "domain",
         "to": "infrastructure",
         "count": 6,
@@ -2886,14 +2487,14 @@
       },
       {
         "from": "presentation",
-        "to": "domain",
+        "to": "application",
         "count": 6,
         "reverse": false
       },
       {
         "from": "presentation",
-        "to": "application",
-        "count": 5,
+        "to": "domain",
+        "count": 6,
         "reverse": false
       },
       {
@@ -2931,15 +2532,11 @@
       "topOut": [
         {
           "node": "tests/run_all_tests.ahk",
-          "degree": 35
+          "degree": 36
         },
         {
           "node": "main.ahk",
           "degree": 28
-        },
-        {
-          "node": "tests/test_presentation.ahk",
-          "degree": 19
         },
         {
           "node": "tests/test_webview2_bridge.ahk",
@@ -2952,10 +2549,6 @@
         {
           "node": "tests/test_key_validator.ahk",
           "degree": 12
-        },
-        {
-          "node": "tests/test_application.ahk",
-          "degree": 11
         },
         {
           "node": "tests/test_integration_error_system.ahk",
@@ -2978,78 +2571,86 @@
           "degree": 8
         },
         {
-          "node": "tests/test_boundary.ahk",
-          "degree": 8
-        },
-        {
-          "node": "tests/test_infrastructure.ahk",
-          "degree": 8
-        },
-        {
           "node": "tests/test_joystick.ahk",
           "degree": 7
+        },
+        {
+          "node": "_diag.ahk",
+          "degree": 6
+        },
+        {
+          "node": "domain/skill_group.ahk",
+          "degree": 5
+        },
+        {
+          "node": "asd-tauri/src-tauri/ahk_executor/executor.ahk",
+          "degree": 4
+        },
+        {
+          "node": "domain/skill_manager.ahk",
+          "degree": 4
         }
       ],
       "topIn": [
         {
           "node": "infrastructure/error_system.ahk",
-          "degree": 28
+          "degree": 27
         },
         {
           "node": "domain/interfaces.ahk",
-          "degree": 22
+          "degree": 18
         },
         {
           "node": "infrastructure/json_serializer.ahk",
-          "degree": 19
-        },
-        {
-          "node": "infrastructure/json_parser.ahk",
-          "degree": 17
+          "degree": 15
         },
         {
           "node": "infrastructure/json_logger.ahk",
-          "degree": 17
+          "degree": 15
         },
         {
-          "node": "infrastructure/config_store.ahk",
-          "degree": 13
+          "node": "infrastructure/json_parser.ahk",
+          "degree": 12
         },
         {
           "node": "domain/skill_manager.ahk",
-          "degree": 12
-        },
-        {
-          "node": "domain/mode_registry.ahk",
-          "degree": 12
-        },
-        {
-          "node": "domain/skill_group.ahk",
-          "degree": 12
-        },
-        {
-          "node": "tests/test_result_reporter.ahk",
-          "degree": 11
+          "degree": 10
         },
         {
           "node": "infrastructure/utils.ahk",
-          "degree": 10
-        },
-        {
-          "node": "infrastructure/config_validator.ahk",
-          "degree": 10
-        },
-        {
-          "node": "infrastructure/error_handler.ahk",
-          "degree": 10
-        },
-        {
-          "node": "application/config_service.ahk",
           "degree": 9
         },
         {
-          "node": "infrastructure/backup_core.ahk",
+          "node": "infrastructure/config_store.ahk",
+          "degree": 9
+        },
+        {
+          "node": "domain/mode_registry.ahk",
+          "degree": 9
+        },
+        {
+          "node": "infrastructure/error_handler.ahk",
           "degree": 8
+        },
+        {
+          "node": "application/config_service.ahk",
+          "degree": 8
+        },
+        {
+          "node": "domain/skill_group.ahk",
+          "degree": 8
+        },
+        {
+          "node": "infrastructure/config_validator.ahk",
+          "degree": 7
+        },
+        {
+          "node": "tests/AutoHotUnit.ahk",
+          "degree": 7
+        },
+        {
+          "node": "infrastructure/backup_core.ahk",
+          "degree": 6
         }
       ]
     }
@@ -3131,15 +2732,15 @@
       },
       {
         "from": "src-tauri",
-        "to": "asd-ipc-protocol",
-        "kind": "prod",
-        "sites": 14
-      },
-      {
-        "from": "src-tauri",
         "to": "asd-domain",
         "kind": "prod",
         "sites": 19
+      },
+      {
+        "from": "src-tauri",
+        "to": "asd-ipc-protocol",
+        "kind": "prod",
+        "sites": 14
       },
       {
         "from": "src-tauri",
@@ -3197,28 +2798,17 @@
     "ahk_cycle_count": 0,
     "rust_prod_cycle_count": 0,
     "ahk_orphans": [
+      "SkillMgrDebugLogger.ahk",
       "_mock.ahk",
       "asd-tauri/e2e/fixtures/key_receiver.ahk",
+      "config.ahk",
       "test_ob.ahk",
       "test_simple.ahk",
       "test_val_btn.ahk",
       "tests/legacy/json.ahk",
       "ui_manager.ahk"
     ],
-    "ahk_missing_includes": [
-      {
-        "from": "gui.ahk",
-        "to": "json.ahk"
-      },
-      {
-        "from": "tests/test_error_captor.ahk",
-        "to": "infrastructure/error_captor.ahk"
-      },
-      {
-        "from": "tests/test_error_captor.ahk",
-        "to": "infrastructure/error_watchdog.ahk"
-      }
-    ],
+    "ahk_missing_includes": [],
     "rust_prod_violations": [
       {
         "from": "asd-test-harness",

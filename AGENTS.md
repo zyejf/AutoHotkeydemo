@@ -49,7 +49,7 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 | `asd-tauri/src-tauri/src/infrastructure/shutdown.rs` | 关机锁 `try_acquire_shutdown_guard` 纯函数 |
 | `asd-tauri/src-tauri/src/commands/` | config_cmd, group_cmd, hotkey_cmd, recording_cmd, system_cmd |
 | `asd-tauri/src-tauri/src/tests/` | ipc_tests, config_compat_tests, bridge_tests, command_contract_tests, watchdog_integration_tests, mod |
-| `asd-tauri/src-tauri/ahk_executor/` | AHK 子进程执行器（executor.ahk, ipc_client.ahk, hotkey_hook.ahk 等） |
+| `asd-tauri/src-tauri/ahk_executor/` | AHK 子进程执行器（executor.ahk, ipc_client.ahk, hotkey_hook.ahk, sender.ahk, joystick.ahk, high_res_clock.ahk 等） |
 | `asd-tauri/src/main.js` | Vite 前端入口 |
 | `asd-tauri/src/api.js` | 前端 API 封装（Tauri invoke） |
 
@@ -344,7 +344,7 @@ cd asd-tauri/src-tauri/fuzz && cargo +nightly fuzz run fuzz_config_deserialize
   - `test_executor.ahk`：executor.ahk CommandDispatcher 命令解析与辅助方法
   - `test_ipc_client.ahk`：ipc_client.ahk MiniJson 解析/序列化、IpcClient 状态与去重
   - `test_hotkey_hook.ahk`：hotkey_hook.ahk 热键规范化、注册/注销、回调
-  - `test_sender.ahk`：sender.ahk 按键发送、模式切换、紧急释放
+  - `test_sender.ahk`：sender.ahk 按键发送、模式切换、紧急释放、QPC 精确定刻
   - `test_joystick.ahk`：joystick.ahk 摇杆输入读取、VJoy 映射、模式启动
 - 各文件套件数、用例总数与统计口径：**见 `asd-tauri/docs/test-map.md`（唯一权威）**。
   本文档不再复制这些数字 —— 此前此处逐文件记录并汇总出的结果与权威值不符，
@@ -1133,6 +1133,34 @@ class SkillManager {
     }
 }
 ```
+
+### 高精度定刻规范（重要！）
+
+AHK/Windows 下**没有任何亚 15.625 ms 的唤醒手段**（本机实测，AutoHotkey v2）：
+
+| 机制 | 实测 |
+|------|------|
+| `A_TickCount` 步进 | 中位 **15.52 ms** —— 无法度量 20 ms 以内的时延 |
+| `SetTimer` / `Sleep` | 锁死 **15.625 ms 网格**；请求 1/5/10/15 ms 均得 ~15.6 ms，**请求 16 ms 反而得 ~31 ms**（跨格跳 2 格） |
+| `timeBeginPeriod(1)` | 对 AHK **完全无效** |
+| 一次性 `SetTimer(-1)` 自轮询 | 空闲时中位 **15.67 ms** |
+| QPC 忙等 | 目标 20 ms → 中位 20.0017 ms（误差 0.0017 ms）—— **唯一精确手段** |
+
+规范：
+
+1. **需要 < 50 ms 精度的时间基准，一律用 `HighResClock`（`ahk_executor/high_res_clock.ahk`），
+   禁止用 `A_TickCount`。** 后者 15.5 ms 的步进会让任何亚 20 ms 的断言失真。
+2. **等待到点用 `HighResClock.SleepUntil(target)`，禁止 `Sleep` 收尾。**
+   `Sleep` 只能落在 15.625 ms 网格上，末段误差不可控。
+3. **定时器提前唤醒量必须 ≥ 一个网格周期 + 抖动余量**（`Sender.WAKE_LEAD_MS = 28`）。
+   提前量太小会让定时器偶发迟到，进而压缩按键保持时长（实测提前量 18 时保持时长最短被压到 8 ms）。
+4. **推进周期基准必须用「本次触发的计划时刻」，不能用发送完成后的当前时刻** ——
+   后者已被保持时长推后，会让每轮都误判为「已落后」而白跳一个周期。
+5. **滞后时禁止把基准重置为当前时刻**（旧 `sender.ahk` 的缺陷）：既丢相位又吞触发。
+   应保相位单调推进，并把跳过的周期计入 `droppedTriggers` 使其可观测。
+
+> 精确定刻会占用主线程（末段 1 ms 忙等）。引入新的精确定刻点前先评估并发组数。
+> 实测数据与方法见 `docs/perf/key-latency-benchmark-2026-09-13.md`。
 
 ### GUI 控件规范
 
