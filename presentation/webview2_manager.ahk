@@ -570,15 +570,19 @@ class WebView2Manager extends IEventHook {
             }
             if ch != "" {
                 errors := ConfigValidator._ValidateHotkeys(ch)
-                if errors.Length > 0 {
-                    ErrorSystem.LogError("SaveSettings 验证失败: " ConfigValidator.GetErrorMessage(errors[1]), "ERROR", A_ThisFunc, A_LineNumber)
+                ; 只按 ERROR 拦截：控制热键值为空只产出 WARNING，不应阻断保存设置
+                criticalErrors := ConfigValidator.FilterByType(errors, "ERROR")
+                if criticalErrors.Length > 0 {
+                    ErrorSystem.LogError("SaveSettings 验证失败: " ConfigValidator.GetErrorMessage(criticalErrors[1]), "ERROR", A_ThisFunc, A_LineNumber)
                     return false
                 }
             }
             if hs != "" {
                 errors := ConfigValidator._ValidateHoldSettings(hs)
-                if errors.Length > 0 {
-                    ErrorSystem.LogError("SaveSettings 验证失败: " ConfigValidator.GetErrorMessage(errors[1]), "ERROR", A_ThisFunc, A_LineNumber)
+                ; 只按 ERROR 拦截：debounceDelay 越界、allowOverlap 非布尔等只产出 WARNING
+                criticalErrors := ConfigValidator.FilterByType(errors, "ERROR")
+                if criticalErrors.Length > 0 {
+                    ErrorSystem.LogError("SaveSettings 验证失败: " ConfigValidator.GetErrorMessage(criticalErrors[1]), "ERROR", A_ThisFunc, A_LineNumber)
                     return false
                 }
             }

@@ -79,16 +79,8 @@ class GroupService {
     static CreateGroup(id, config) {
         try {
             errors := ConfigValidator.ValidateGroupOnly(id, config)
-            criticalErrors := []
-            for e in errors {
-                eType := ""
-                if e is Map && e.Has("type")
-                    eType := e["type"]
-                else if HasProp(e, "type")
-                    eType := e.type
-                if eType = "ERROR"
-                    criticalErrors.Push(e)
-            }
+            ; 只按 ERROR 拦截：WARNING（可疑配置值、子组缺默认值等）不应阻断创建/更新
+            criticalErrors := ConfigValidator.FilterByType(errors, "ERROR")
             if criticalErrors.Length > 0
                 throw Error("配置验证失败: " ConfigValidator.GetErrorMessage(criticalErrors[1]))
 
@@ -119,16 +111,8 @@ class GroupService {
     static UpdateGroup(id, config) {
         try {
             errors := ConfigValidator.ValidateGroupOnly(id, config)
-            criticalErrors := []
-            for e in errors {
-                eType := ""
-                if e is Map && e.Has("type")
-                    eType := e["type"]
-                else if HasProp(e, "type")
-                    eType := e.type
-                if eType = "ERROR"
-                    criticalErrors.Push(e)
-            }
+            ; 只按 ERROR 拦截：WARNING（可疑配置值、子组缺默认值等）不应阻断创建/更新
+            criticalErrors := ConfigValidator.FilterByType(errors, "ERROR")
             if criticalErrors.Length > 0
                 throw Error("配置验证失败: " ConfigValidator.GetErrorMessage(criticalErrors[1]))
 
@@ -236,8 +220,12 @@ class GroupService {
             ; T3-08+T6-12: 支持传入已解析的 Map，避免对同一份 JSON 二次解析
             config := filePathOrConfig is Map ? filePathOrConfig : ConfigIO.LoadFromFile(filePathOrConfig)
             errors := ConfigValidator.Validate(config)
-            if errors.Length > 0
-                throw Error("导入配置验证失败: " ConfigValidator.GetErrorMessage(errors[1]))
+            ; 只按 ERROR 拦截：Validate() 会返回 WARNING（可疑配置值、子组缺少 intervals/delays
+            ; 等），用 errors.Length > 0 判定会让合法配置无法导入。且 _ReplaceAllConfig 是
+            ; 破坏性替换，被 WARNING 误杀的代价远高于放过一条可疑值。
+            criticalErrors := ConfigValidator.FilterByType(errors, "ERROR")
+            if criticalErrors.Length > 0
+                throw Error("导入配置验证失败: " ConfigValidator.GetErrorMessage(criticalErrors[1]))
 
             GroupService._ReplaceAllConfig(config)
             return Map("success", true, "groupsLoaded", GroupService.ConfigStore.GetGroupCount())
