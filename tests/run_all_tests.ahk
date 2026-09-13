@@ -165,7 +165,9 @@ testManager.RegisterSuite(
     WebView2PushStateNoRedundantParseTests,
     FixtureUsageTests,
     JoystickExecutorInjectionTimerTests,
-    LogRateLimitTests
+    LogRateLimitTests,
+    ConfigValidatorSuspiciousValuesTests,
+    ConfigValidatorFilterByTypeTests
 )
 
 ; ============================================================

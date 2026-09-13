@@ -766,3 +766,153 @@ class LogRateLimitTests extends AutoHotUnitSuite {
         ErrorSystem.logFile := origFile
     }
 }
+
+; =================================================================
+; BUG-6 双栈对齐：AHK 侧可疑配置值告警
+; 对齐 asd-domain::validator::validate_suspicious_mode_values
+; =================================================================
+class ConfigValidatorSuspiciousValuesTests extends AutoHotUnitSuite {
+    ; 辅助方法（下划线开头，不会被当作用例收集）
+
+    _suspicious(cfg, mode) {
+        return ConfigValidator._ValidateSuspiciousModeValues("1", mode, cfg)
+    }
+
+    _hasMsg(items, needle) {
+        for e in items {
+            if e is Map && e.Has("message") && InStr(e["message"], needle)
+                return true
+        }
+        return false
+    }
+
+    Test_Periodic_SeriesLongerThanKeys_Warns() {
+        cfg := Map("hotkey", "F1", "mode", "periodic", "keys", ["a", "b"], "intervals", [50, 60, 70, 80])
+        w := this._suspicious(cfg, "periodic")
+        this.assert.equal(w.Length, 1)
+        this.assert.isTrue(this._hasMsg(w, "不匹配"))
+    }
+
+    Test_Periodic_SeriesShorterThanKeys_NoWarn() {
+        ; 「序列 < 按键」已由 _ValidateArrayLength 告警，此处刻意不重复输出
+        cfg := Map("hotkey", "F1", "mode", "periodic", "keys", ["a", "b", "c"], "intervals", [50, 60])
+        this.assert.equal(this._suspicious(cfg, "periodic").Length, 0)
+    }
+
+    Test_Interval_AtLimit_NoWarn() {
+        cfg := Map("hotkey", "F1", "mode", "periodic", "keys", ["a"], "intervals", [60000])
+        this.assert.equal(this._suspicious(cfg, "periodic").Length, 0)
+    }
+
+    Test_Interval_OverLimit_Warns() {
+        cfg := Map("hotkey", "F1", "mode", "periodic", "keys", ["a"], "intervals", [60001])
+        w := this._suspicious(cfg, "periodic")
+        this.assert.equal(w.Length, 1)
+        this.assert.isTrue(this._hasMsg(w, "超长时间值 60001ms"))
+    }
+
+    Test_Interval_OverHardLimit_NoDuplicateWarn() {
+        ; 超过硬上界已由既有 ERROR 拦截，不再叠一条 WARNING
+        cfg := Map("hotkey", "F1", "mode", "periodic", "keys", ["a"], "intervals", [90000000])
+        this.assert.equal(this._suspicious(cfg, "periodic").Length, 0)
+    }
+
+    Test_Interval_MixedOverHardLimit_StillWarns() {
+        ; 回归：不能只取全局最大值，否则 [70000, 90000000] 会因最大值越过硬上界而整体漏报
+        cfg := Map("hotkey", "F1", "mode", "periodic", "keys", ["a"], "intervals", [70000, 90000000])
+        this.assert.isTrue(this._hasMsg(this._suspicious(cfg, "periodic"), "超长时间值 70000ms"))
+    }
+
+    Test_Hybrid_SubGroupDelaysLonger_Warns() {
+        cfg := Map("hotkey", "F1", "mode", "hybrid", "groups",
+            [Map("type", "sequence", "pressKeys", ["a", "b"], "delays", [10, 20, 30])])
+        this.assert.isTrue(this._hasMsg(this._suspicious(cfg, "hybrid"), "groups[1].delays"))
+    }
+
+    Test_Hybrid_SubGroupLegacyKeysField_Warns() {
+        ; 回归：pressKeys 存在但非数组时必须回退到 keys，否则漏检
+        cfg := Map("hotkey", "F1", "mode", "hybrid", "groups",
+            [Map("type", "periodic", "pressKeys", "", "keys", ["a"], "intervals", [50, 60])])
+        this.assert.equal(this._suspicious(cfg, "hybrid").Length, 1)
+    }
+
+    Test_AllSixSeriesModes_Warn() {
+        cases := [
+            Map("mode", "sequence", "keys", ["a"], "delays", [60001]),
+            Map("mode", "enhanced_periodic", "pressKeys", ["a"], "intervals", [60001]),
+            Map("mode", "enhanced_sequence", "pressKeys", ["a"], "pressDelays", [60001]),
+            Map("mode", "joystick_periodic", "joyKeys", ["1Joy1"], "intervals", [60001]),
+            Map("mode", "joystick_sequence", "joyKeys", ["1Joy1"], "delays", [60001])
+        ]
+        for c in cases {
+            cfg := Map("hotkey", "F1", "mode", c["mode"])
+            for k, v in c {
+                if k != "mode"
+                    cfg[k] := v
+            }
+            this.assert.isTrue(this._hasMsg(this._suspicious(cfg, c["mode"]), "超长时间值 60001ms"))
+        }
+    }
+
+    Test_HoldAndJoystickHold_NoWarn() {
+        ; hold 无「按键数 ↔ 时间序列」配对关系，不适用本检查
+        hold := Map("hotkey", "F1", "mode", "hold", "holdKeys", ["a"])
+        this.assert.equal(this._suspicious(hold, "hold").Length, 0)
+        joyHold := Map("hotkey", "F1", "mode", "joystick_hold", "joyKeys", ["1Joy1"])
+        this.assert.equal(this._suspicious(joyHold, "joystick_hold").Length, 0)
+    }
+
+    Test_UnknownSubGroupType_NoThrow() {
+        cfg := Map("hotkey", "F1", "mode", "hybrid", "groups", [Map("type", "xxx")])
+        this.assert.equal(this._suspicious(cfg, "hybrid").Length, 0)
+    }
+
+    Test_AllEntriesAreWarningType() {
+        ; 语义未变：本检查只产出 WARNING，绝不新增 ERROR
+        cfg := Map("hotkey", "F1", "mode", "periodic", "keys", ["a"], "intervals", [50, 60001])
+        for e in this._suspicious(cfg, "periodic")
+            this.assert.equal(e["type"], "WARNING")
+    }
+
+    Test_ValidateGroupOnly_EmitsWarnings() {
+        ; Create/Update 入口必须与 _ValidateGroup 输出一致
+        cfg := Map("hotkey", "F1", "mode", "periodic", "keys", ["a"], "intervals", [60001])
+        this.assert.isTrue(this._hasMsg(ConfigValidator._ValidateGroup("1", cfg), "超长时间值 60001ms"))
+        this.assert.isTrue(this._hasMsg(ConfigValidator.ValidateGroupOnly("1", cfg), "超长时间值 60001ms"))
+    }
+}
+
+; =================================================================
+; FilterByType：统一「只按 ERROR 拦截」的级别筛选（BUG-6 附带修复）
+; =================================================================
+class ConfigValidatorFilterByTypeTests extends AutoHotUnitSuite {
+    Test_FilterByType_ErrorOnly() {
+        items := [Map("type", "ERROR", "message", "e1"), Map("type", "WARNING", "message", "w1")]
+        r := ConfigValidator.FilterByType(items, "ERROR")
+        this.assert.equal(r.Length, 1)
+        this.assert.equal(r[1]["message"], "e1")
+    }
+
+    Test_FilterByType_WarningOnly() {
+        items := [Map("type", "ERROR", "message", "e1")
+                , Map("type", "WARNING", "message", "w1")
+                , Map("type", "WARNING", "message", "w2")]
+        this.assert.equal(ConfigValidator.FilterByType(items, "WARNING").Length, 2)
+    }
+
+    Test_FilterByType_EmptyResult() {
+        items := [Map("type", "WARNING", "message", "w1")]
+        this.assert.equal(ConfigValidator.FilterByType(items, "ERROR").Length, 0)
+        this.assert.equal(ConfigValidator.FilterByType([], "ERROR").Length, 0)
+    }
+
+    Test_FilterByType_NonMapElement_NoThrow() {
+        ; 非数组入参、Object 形态元素都不应抛异常
+        this.assert.equal(ConfigValidator.FilterByType("x", "ERROR").Length, 0)
+        items := [{type: "ERROR", message: "obj-e"}, Map("type", "WARNING", "message", "w")]
+        r := ConfigValidator.FilterByType(items, "ERROR")
+        this.assert.equal(r.Length, 1)
+        ; Object 形态元素用属性访问，不能用 Map 的 [] 取值
+        this.assert.equal(r[1].message, "obj-e")
+    }
+}
