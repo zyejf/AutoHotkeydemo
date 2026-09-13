@@ -111,7 +111,13 @@ asd-domain 由 132 → 136 是 BUG-6 新增 4 个 validator warning 测试。
 - **换行符**：`.gitattributes` 强制文本文件 LF（`.ps1`/`.bat`/`.cmd` 除外）。
   ⚠️ Edit 工具在 Windows 上可能引入 CRLF，改完 `.md` 需用 Python 校验/转换。
 - **提交规范**：Conventional Commits，10 种 type，**描述用中文**。
-  `commit-msg` 钩子只校验 type 与 scope 字符形态，**不校验 scope 白名单**。
+  `commit-msg` 钩子**同时校验 type 与 scope 白名单**（2026-09-13 实测：
+  `fix(e2e):` 被拒，报「提交信息不符合 Conventional Commits 规范」并列白名单）。
+  scope 白名单：`asd-domain` / `asd-ipc-protocol` / `asd-application` / `asd-tauri` /
+  `asd-test-harness` / `ahk` / `test` / `ci` / `docs` / `config`。
+  `asd-tauri/e2e/` 下的改动用 `test`（`e2e` 不是合法 scope）。
+  长提交信息用 `git commit -F <file>`（写进 `.git/COMMIT_MSG_TMP` 后删除），
+  避免 shell 转义问题。
 - **提交信息中不写具体测试数字**（会立刻过期）。
 - **文档与代码改动必须在同一 PR**，禁止「代码先合、文档后补」。
 - AHK 测试前置检查：语法检查（stderr 重定向 + 退出码）→ 接管指令验证 → 运行时验证。
