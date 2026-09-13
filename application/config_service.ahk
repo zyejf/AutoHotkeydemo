@@ -28,6 +28,9 @@ class ConfigService {
     static SkillManager := ""
     static Notifier := ""
 
+    ; 最近一次配置校验产生的 WARNING（供调试面板展示，见 BUG-6 可观测出口）
+    static LastValidationWarnings := []
+
     ; =================================================================
     ; 加载配置
     ; =================================================================
@@ -60,6 +63,7 @@ class ConfigService {
             if errors.Length > 0 {
                 JSONLogger.Log("WARNING", "配置验证问题 " errors.Length " 个",
                               Map("module", "ConfigService"))
+                ConfigService._RecordValidationWarnings(errors, "load")
             }
 
             ConfigService.ConfigStore.Save(config)
@@ -89,6 +93,7 @@ class ConfigService {
             if errors.Length > 0 {
                 JSONLogger.Log("WARNING", "保存前配置验证问题 " errors.Length " 个",
                               Map("module", "ConfigService"))
+                ConfigService._RecordValidationWarnings(errors, "save")
                 hasErrors := false
                 for err in errors {
                     if err is Map && err.Has("type") && err["type"] = "ERROR" {
@@ -110,6 +115,25 @@ class ConfigService {
             ErrorSystem.LogError(e.Message, "ERROR", A_ThisFunc, A_LineNumber)
             return false
         }
+    }
+
+    ; =================================================================
+    ; 记录配置校验产生的 WARNING（BUG-6 可观测出口）
+    ;
+    ; 历史上调用方只写一句「配置验证问题 N 个」，不含任何具体消息，
+    ; 导致 WARNING（可疑配置值、子组缺少 intervals/delays 等）对用户完全不可见 ——
+    ; 校验器补了告警也没人看得到。现改为：
+    ;   ① 逐条写入 JSONLogger；② 存入 LastValidationWarnings 供调试面板展示。
+    ;
+    ; 返回 WARNING 条数，便于调用方沿用原有的「记数量」日志。
+    ; =================================================================
+    static _RecordValidationWarnings(errors, stage) {
+        warnings := ConfigValidator.FilterByType(errors, "WARNING")
+        ConfigService.LastValidationWarnings := warnings
+        for w in warnings
+            JSONLogger.Log("WARNING", "配置校验[" stage "] " ConfigValidator.GetErrorMessage(w),
+                          Map("module", "ConfigService"))
+        return warnings.Length
     }
 
     ; =================================================================
@@ -156,6 +180,7 @@ class ConfigService {
             if errors.Length > 0 {
                 JSONLogger.Log("WARNING", "热重载验证问题 " errors.Length " 个",
                               Map("module", "ConfigService"))
+                ConfigService._RecordValidationWarnings(errors, "hot-reload")
             }
 
             ConfigService.SkillManager.Emergency()

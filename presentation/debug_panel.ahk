@@ -13,6 +13,7 @@
 
 #Include "../domain/skill_manager.ahk"
 #Include "../infrastructure/error_system.ahk"
+#Include "../application/config_service.ahk"
 
 class DebugPanel {
     static gui := ""
@@ -120,6 +121,30 @@ class DebugPanel {
                 if status["currentStep"] > 0
                     info .= " 步骤" status["currentStep"]
                 info .= "`r`n"
+            }
+
+            ; BUG-6: 配置校验 WARNING 的展示出口。
+            ; 校验器产出的可疑值告警此前只进日志、面板上看不到，补了告警也等于没补。
+            ; 单独 try —— 渲染失败不应拖垮整个面板刷新。
+            try {
+                warnCount := ConfigService.LastValidationWarnings.Length
+                info .= "`r`n配置告警: " (warnCount > 0 ? warnCount " 条" : "无") "`r`n"
+                shown := 0
+                for w in ConfigService.LastValidationWarnings {
+                    shown++
+                    if shown > 8 {
+                        info .= "  … 另有 " (warnCount - 8) " 条`r`n"
+                        break
+                    }
+                    msg := "（未知告警）"
+                    if w is Map && w.Has("message")
+                        msg := w["message"]
+                    else if IsObject(w) && HasProp(w, "message")
+                        msg := w.message
+                    info .= "  - " msg "`r`n"
+                }
+            } catch as e {
+                ErrorSystem.LogError("配置告警渲染失败: " e.Message, "WARNING", A_ThisFunc, A_LineNumber)
             }
 
             try
