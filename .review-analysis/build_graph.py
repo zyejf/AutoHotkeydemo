@@ -5,6 +5,14 @@ import json
 import io
 import sys
 
+# Windows CI runner 上 stdio 默认走系统 ANSI 代码页（cp1252），print 中文会
+# UnicodeEncodeError。显式切 UTF-8；本地若已是 UTF-8 则无副作用。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # 项目根由脚本自身位置推导（.review-analysis/ 的上一级），
 # 避免硬编码绝对路径导致 CI（不同 checkout 目录）上 FileNotFoundError。
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

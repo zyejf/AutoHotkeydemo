@@ -37,6 +37,11 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: '1'
+  # Windows runner 上 Python 的 stdio 默认用系统 ANSI 代码页（cp1252），
+  # 脚本 print 中文会抛 UnicodeEncodeError，且子进程输出按 cp1252 解码会乱码。
+  # 开启 UTF-8 模式后 stdio 与默认编码统一为 utf-8（Python 3.7+）。
+  PYTHONUTF8: '1'
+  PYTHONIOENCODING: 'utf-8'
 
 jobs:
   # ============================================================ 四闸门
@@ -108,13 +113,15 @@ jobs:
         run: |
           $log = Join-Path $env:RUNNER_TEMP 'ahk-gate.log'
           & $env:AHK_EXE "tests/run_all_tests.ahk" *> $log
-          $text = Get-Content $log -Raw
+          # 显式指定 utf8：Windows runner 上 Get-Content 否则按系统 ANSI 代码页解码，
+          # 中文汇总行会乱码，导致下面的正则匹配不到而误判为「无法解析」。
+          $text = Get-Content $log -Raw -Encoding utf8
           # 汇总可能只在 tests/test_results.log 里，两边都兜
           $resultLog = "tests/test_results.log"
           if ($text -notmatch '总计:' -and (Test-Path $resultLog)) {
-            $text = Get-Content $resultLog -Raw
+            $text = Get-Content $resultLog -Raw -Encoding utf8
           }
-          Get-Content $log -Tail 25
+          Get-Content $log -Tail 25 -Encoding utf8
           if ($text -notmatch '总计:\s*(\d+)[\s\S]*?通过:\s*(\d+)[\s\S]*?失败:\s*(\d+)') {
             throw '无法解析 AHK 结果汇总（未找到 总计/通过/失败）'
           }

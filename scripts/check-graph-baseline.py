@@ -21,6 +21,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Windows CI runner 上 stdio 默认走系统 ANSI 代码页（cp1252），print 中文会
+# UnicodeEncodeError。显式切 UTF-8；本地若已是 UTF-8 则无副作用。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GRAPH_RAW = REPO_ROOT / ".review-analysis" / "graph-raw.json"
 BASELINE = REPO_ROOT / ".review-analysis" / "graph-baseline.json"
@@ -41,6 +49,8 @@ def rebuild_graph() -> None:
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if proc.returncode != 0:
         sys.stderr.write(proc.stdout + proc.stderr)
