@@ -44,10 +44,7 @@ async fn test_ipc_bridge_send_and_wait_timeout() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     let (ipc_manager, _outbound_rx) = IpcManager::new(&name_clone);
-    ipc_manager
-        .connect_to_ahk()
-        .await
-        .expect("Client 连接失败");
+    ipc_manager.connect_to_ahk().await.expect("Client 连接失败");
 
     // 启动 listen_ahk 任务，使响应能被分发（虽然此测试中不会有响应）
     let listen_mgr = ipc_manager.clone();
@@ -55,17 +52,13 @@ async fn test_ipc_bridge_send_and_wait_timeout() {
         listen_mgr.listen_ahk().await;
     });
 
-    let ipc_manager_arc: Arc<Mutex<Option<IpcManager>>> =
-        Arc::new(Mutex::new(Some(ipc_manager)));
+    let ipc_manager_arc: Arc<Mutex<Option<IpcManager>>> = Arc::new(Mutex::new(Some(ipc_manager)));
     let (outbound_tx, _outbound_rx2) = tokio::sync::mpsc::channel(16);
     let bridge = IpcBridge::new(outbound_tx, ipc_manager_arc);
 
     // 使用 100ms 短超时，应快速返回超时错误
     let result = bridge.send_and_wait(IpcCommand::Ping, Duration::from_millis(100));
-    assert!(
-        result.is_err(),
-        "服务端不响应时 send_and_wait 应返回错误"
-    );
+    assert!(result.is_err(), "服务端不响应时 send_and_wait 应返回错误");
     let err = result.unwrap_err();
     assert!(
         err.contains("超时") || err.contains("timeout"),
@@ -106,10 +99,7 @@ async fn test_ipc_bridge_send_and_wait_pipe_broken() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     let (ipc_manager, _outbound_rx) = IpcManager::new(&name_clone);
-    ipc_manager
-        .connect_to_ahk()
-        .await
-        .expect("Client 连接失败");
+    ipc_manager.connect_to_ahk().await.expect("Client 连接失败");
 
     // 启动 listen_ahk 以检测 pipe_broken 并触发 cleanup_connection
     let listen_mgr = ipc_manager.clone();
@@ -117,18 +107,14 @@ async fn test_ipc_bridge_send_and_wait_pipe_broken() {
         listen_mgr.listen_ahk().await;
     });
 
-    let ipc_manager_arc: Arc<Mutex<Option<IpcManager>>> =
-        Arc::new(Mutex::new(Some(ipc_manager)));
+    let ipc_manager_arc: Arc<Mutex<Option<IpcManager>>> = Arc::new(Mutex::new(Some(ipc_manager)));
     let (outbound_tx, _outbound_rx2) = tokio::sync::mpsc::channel(16);
     let bridge = IpcBridge::new(outbound_tx, ipc_manager_arc);
 
     // 使用较长超时（5s），让 pipe_broken 有机会在超时前触发
     // 但也接受 send 阶段失败的 "IPC 通信错误"
     let result = bridge.send_and_wait(IpcCommand::Ping, Duration::from_secs(5));
-    assert!(
-        result.is_err(),
-        "管道断裂时 send_and_wait 应返回错误"
-    );
+    assert!(result.is_err(), "管道断裂时 send_and_wait 应返回错误");
     let err = result.unwrap_err();
     assert!(
         err.contains("管道断裂")
@@ -188,29 +174,30 @@ async fn test_ipc_bridge_send_and_wait_manager_not_initialized() {
 // =================================================================
 // TauriEventBridge 测试
 // =================================================================
-
-/// TauriEventBridge 需要 `tauri::AppHandle`，无法在纯单元测试中构造。
-/// 此测试标记为 #[ignore]，需在 Tauri 集成测试环境中运行。
-///
-/// 验证点：
-/// - `TauriEventBridge::new(app_handle)` 可构造
-/// - `emit("event", payload)` 调用 `app_handle.emit()` 并返回 bool
-///
-/// 由于 AppHandle 需要完整的 Tauri 应用上下文，此测试在 CI 中跳过。
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "TauriEventBridge 需要 tauri::AppHandle，需在 Tauri 集成环境中运行"]
-async fn test_tauri_event_bridge_emit() {
-    // 此测试需要完整的 Tauri 应用上下文才能构造 AppHandle。
-    // 在纯单元测试环境中无法运行。
-    //
-    // 如果需要测试事件发射逻辑，建议：
-    // 1. 使用 mock AppHandle（需要 mockall 或手动实现）
-    // 2. 在 e2e 集成测试中验证（启动完整 Tauri 应用）
-    //
-    // 这里仅作为占位符，实际事件发射逻辑由 `EventEmitter` trait 抽象，
-    // 可通过 `MockEventEmitter` 在应用层测试中覆盖。
-    panic!("此测试需要 Tauri AppHandle，无法在纯单元测试环境中运行");
-}
+//
+// 此处原本有一个 `test_tauri_event_bridge_emit` 占位测试，形如：
+//
+//   #[tokio::test(flavor = "multi_thread")]
+//   #[ignore = "TauriEventBridge 需要 tauri::AppHandle，需在 Tauri 集成环境中运行"]
+//   async fn test_tauri_event_bridge_emit() {
+//       panic!("此测试需要 Tauri AppHandle，无法在纯单元测试环境中运行");
+//   }
+//
+// 该测试已于 2026-09-13 删除（BUG-4）。删除理由：
+//
+// 1. 它是「必然失败」的死测试：函数体无条件 `panic!`，只要被执行就失败。
+//    常规 `cargo test` 因 `#[ignore]` 跳过它，问题被隐藏；
+//    但 `cargo test -- --ignored` 必然报 1 failed（实测 15 passed / 1 failed），
+//    使 `--ignored` 永远无法全绿，真实失败会被这条常驻失败掩盖（狼来了效应）。
+//
+// 2. 它没有断言价值：占位函数体不构造任何对象、不调用任何被测逻辑，
+//    `panic!` 只表达「跑不了」，而非「行为不符合预期」。
+//
+// 3. 覆盖并未丢失：事件发射逻辑由本文件下方的
+//    `test_event_emitter_trait_contract` 通过 `MockEventEmitter` 覆盖
+//    （验证 `EventEmitter` trait 契约：emit 返回 true 且事件被记录）。
+//    `TauriEventBridge` 只是该 trait 在真实 `AppHandle` 上的实现，
+//    属于集成场景，应由 E2E（启动完整 Tauri 应用）负责验证。
 
 // =================================================================
 // WatchdogBridge 测试
@@ -252,10 +239,7 @@ async fn test_watchdog_bridge_reset_invalid_state() {
 
     // Idle 状态下 reset 应失败
     let result = bridge.reset();
-    assert!(
-        result.is_err(),
-        "Idle 状态下 reset 应返回错误"
-    );
+    assert!(result.is_err(), "Idle 状态下 reset 应返回错误");
     let err = result.unwrap_err();
     assert!(
         err.contains("Idle") || err.contains("状态"),
@@ -280,11 +264,7 @@ async fn test_watchdog_bridge_reset_from_failed() {
 
     // Failed 状态下 reset 应成功
     let result = bridge.reset();
-    assert!(
-        result.is_ok(),
-        "Failed 状态下 reset 应成功: {:?}",
-        result
-    );
+    assert!(result.is_ok(), "Failed 状态下 reset 应成功: {:?}", result);
 
     // reset 后状态应变为 Restarting
     let guard = watchdog.lock().await;
@@ -361,18 +341,11 @@ fn test_build_hotkey_event_payload_basic() {
 #[test]
 fn test_build_hotkey_event_payload_multi_keys() {
     let hotkey = "Ctrl+Shift+A";
-    let keys = vec![
-        "Ctrl".to_string(),
-        "Shift".to_string(),
-        "A".to_string(),
-    ];
+    let keys = vec!["Ctrl".to_string(), "Shift".to_string(), "A".to_string()];
     let payload = crate::bridge::build_hotkey_event_payload(hotkey, &keys);
 
     assert_eq!(payload["hotkey"], "Ctrl+Shift+A");
-    assert_eq!(
-        payload["keys"],
-        serde_json::json!(["Ctrl", "Shift", "A"])
-    );
+    assert_eq!(payload["keys"], serde_json::json!(["Ctrl", "Shift", "A"]));
 }
 
 /// 验证 `build_hotkey_event_payload` 在空 keys 时仍返回有效 JSON。

@@ -529,11 +529,32 @@ fn test_watchdog_full_state_machine_flow() {
     wd.attach_child(child).expect("attach_child 失败");
     assert_eq!(wd.state(), WatchdogStateEnum::Running);
 
-    // 3. 等待子进程退出
-    std::thread::sleep(Duration::from_millis(200));
+    // 3. 等待子进程退出 —— 轮询 + 超时，替代固定 sleep
+    //
+    // 原实现：固定 `sleep(200ms)` 后立即断言 `tick() == RestartNeeded`。
+    // 缺陷：Windows 上 `cmd /C exit 1` 的启动 + 退出耗时受系统负载影响，
+    // 负载高时 200ms 内子进程可能尚未退出，tick() 返回 None，断言**偶发失败**
+    // （实测在 `--ignored` 全量运行时复现过 1 次，单独运行则通过 —— 典型抖动）。
+    //
+    // 修复：轮询 tick() 直到子进程真正退出，超时 10s 后给出明确失败信息。
+    // 依据 tick() 语义（watchdog.rs:299）：Running 状态下子进程未退出返回 None，
+    // 已退出返回 RestartNeeded；且 `is_child_exited()` 先于心跳逻辑判断，
+    // 故轮询**无副作用**，不会污染后续断言。
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let action = loop {
+        let action = wd.tick();
+        if action == WatchdogAction::RestartNeeded {
+            break action;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "子进程应在 10s 内退出，实际 tick 持续返回 {:?}（固定 sleep 无法保证子进程已退出）",
+            action
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    };
 
     // 4. tick 检测到退出 → Restarting
-    let action = wd.tick();
     assert_eq!(action, WatchdogAction::RestartNeeded);
     assert_eq!(wd.state(), WatchdogStateEnum::Restarting);
 
