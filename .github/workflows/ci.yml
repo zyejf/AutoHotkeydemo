@@ -132,19 +132,37 @@ jobs:
         run: |
           $log = Join-Path $env:RUNNER_TEMP 'ahk-gate.log'
           & $env:AHK_EXE "tests/run_all_tests.ahk" *> $log
+          $exit = $LASTEXITCODE
+          $resultLog = "tests/test_results.log"
+
           # 显式指定 utf8：Windows runner 上 Get-Content 否则按系统 ANSI 代码页解码，
           # 中文汇总行会乱码，导致下面的正则匹配不到而误判为「无法解析」。
-          $text = Get-Content $log -Raw -Encoding utf8
+          # 另外不要依赖自动变量 $Matches 取值：左操作数为 $null 或数组时它不会被填充，
+          # 实测会走到 "Cannot index into a null array" 而不是这里的报错分支。
+          # 统一用 [regex]::Match 显式取分组；$text 先初始化为 '' 避免 $null 参与比较。
+          $text = ''
+          if (Test-Path $log) { $text = [string](Get-Content $log -Raw -Encoding utf8) }
           # 汇总可能只在 tests/test_results.log 里，两边都兜
-          $resultLog = "tests/test_results.log"
           if ($text -notmatch '总计:' -and (Test-Path $resultLog)) {
-            $text = Get-Content $resultLog -Raw -Encoding utf8
+            $text = [string](Get-Content $resultLog -Raw -Encoding utf8)
           }
-          Get-Content $log -Tail 25 -Encoding utf8
-          if ($text -notmatch '总计:\s*(\d+)[\s\S]*?通过:\s*(\d+)[\s\S]*?失败:\s*(\d+)') {
-            throw '无法解析 AHK 结果汇总（未找到 总计/通过/失败）'
+
+          # 诊断：AHK 是否真的跑起来，先看退出码与两份日志的字节数
+          Write-Host "AHK 退出码: $exit"
+          Write-Host "ahk-gate.log 字节: $((Get-Item $log -ErrorAction SilentlyContinue).Length)"
+          Write-Host "test_results.log 字节: $((Get-Item $resultLog -ErrorAction SilentlyContinue).Length)"
+          Write-Host "--- ahk-gate.log 尾部 ---"
+          if (Test-Path $log) { Get-Content $log -Tail 40 -Encoding utf8 }
+          Write-Host "--- test_results.log 尾部 ---"
+          if (Test-Path $resultLog) { Get-Content $resultLog -Tail 20 -Encoding utf8 }
+
+          $m = [regex]::Match($text, '总计:\s*(\d+)[\s\S]*?通过:\s*(\d+)[\s\S]*?失败:\s*(\d+)')
+          if (-not $m.Success) {
+            throw "无法解析 AHK 结果汇总（未找到 总计/通过/失败）。AHK 退出码=$exit"
           }
-          $total, $pass, $fail = [int]$Matches[1], [int]$Matches[2], [int]$Matches[3]
+          $total = [int]$m.Groups[1].Value
+          $pass  = [int]$m.Groups[2].Value
+          $fail  = [int]$m.Groups[3].Value
           Write-Host "AHK 汇总: 总计 $total / 通过 $pass / 失败 $fail"
           if ($total -eq 0) { throw 'AHK 总计为 0，测试未实际运行' }
           if ($fail -gt 0) { throw "AHK 测试失败 $fail 个" }
