@@ -15,7 +15,7 @@
 > **口径差异提示**：同一文件可能因计数方式不同而得出不同数字，两者均有效、不得互相「纠正」。
 > - `watchdog_integration_tests.rs`：`#[test]` 属性数 = **14**（本文档口径）；`fn` 定义数 = **17**（`TESTING.md` 口径）。
 > - 套件数：`test_executor.ahk` 的 `Test_` 方法分布在不同 `class ... extends AutoHotUnitSuite` 中，套件数按类计。
-> - AHK 完整套件汇总：runner 除 `Test_` 方法外还执行 `Setup`/`Teardown` 生命周期钩子，故实跑总数（616）略高于静态 `Test_` 计数（614）。
+> - AHK 完整套件汇总：runner 除 `Test_` 方法外还执行 `Setup`/`Teardown` 生命周期钩子，故实跑总数（633）略高于静态 `Test_` 计数（631）。
 
 自洽关系：**小计 = 明细之和 = 汇总 = 各 crate 总计相加**。
 
@@ -166,7 +166,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 |------|------|
 | Rust 测试（运行时注册数，`--all-targets -- --list`） | 616（asd-domain 136 + asd-ipc-protocol 72 + asd-application 163 + asd-test-harness 3 + asd-tauri 242；其中 `#[ignore]` 15 个） |
 | AHK 执行器测试（`Test_` 方法数） | 59 套件 / 255 个 `Test_` 方法（`tests/test_ahk_executor/` 5 文件；不含 `test_joy_hotkey_manager_ahu.ahk` 的 7 套件） |
-| AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 616 个用例（通过 616 / 失败 0） |
+| AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 633 个用例（通过 633 / 失败 0），162 个套件 |
 | 基准测试 | 7 个 criterion bench |
 | 模糊测试 | 5 个 fuzz target |
 | E2E 测试 | 9 suite / 53 用例 |

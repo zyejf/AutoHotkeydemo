@@ -139,7 +139,7 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
 | 2 | **I/O 泄漏修复** | Config 的 I/O 方法从 domain 层移到 application 层的 ConfigRepository，确保 domain crate 无文件 I/O。 |
 | 3 | **Miri 兼容** | asd-domain, asd-ipc-protocol, asd-application 可通过 Miri 验证（0 UB），不含 unsafe 代码。 |
 | 4 | **AHK 子进程隔离** | AHK 执行器（asd_executor.exe）作为子进程由 Rust 主进程管理，通过 interprocess named pipe 通信。 |
-| 5 | **测试覆盖** | Rust 601 个测试函数（`#[test]` 575 + `#[tokio::test]` 26，含 16 个 `#[ignore]`），运行用例 614 个（598 passed + 16 ignored）+ AHK v2 616 个用例（实测全通过）+ AHK 执行器 57 套件/255 个 `Test_` 方法 + E2E 53 用例/9 suite（截至 2026-09-12 实测，数量与分布以 `asd-tauri/docs/test-map.md` 为唯一权威）。纯逻辑 crate 覆盖率 96.57%。另有 7 个 criterion bench、5 个 fuzz target。 |
+| 5 | **测试覆盖** | 测试数量与分布的**唯一权威为 `asd-tauri/docs/test-map.md`**（Rust / AHK 完整套件 / AHK 执行器 / E2E / criterion bench / fuzz target 全覆盖）。本文档**只写指针、不复制数字**——数字一旦复制就会过期（此处曾长期滞留已失效的旧值）。纯逻辑 crate 覆盖率 96.57%（2026-09-12 实测）。 |
 | 6 | **进程清理与 panic hook 补偿** | watchdog.rs 的 `cleanup_stale_executor_processes` 仅清理项目专用的 `asd_executor.exe`，**绝不**清理 `AutoHotkey64.exe` 等通用进程名，避免误杀用户其他 AHK 脚本（R1 安全约束）。`build_panic_hook_closure` 纯函数将 panic hook 的构建逻辑与全局 `set_hook` 注册分离，使测试可验证 hook 行为（先 cleanup 后 original_hook）而不污染全局 `Once` 状态（R3 可测试性）。JobObject 失败时，`register_panic_hook` 作为补偿机制确保主进程崩溃时子进程被清理（I36）。 |
 
 #### Rust/Tauri 已知架构妥协
@@ -259,7 +259,7 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
   - 根目录保留 14 个核心文件 = 10 个 `test_*.ahk`（`test_error_system`/`test_integration_error_system`/`test_joy_hotkey_manager`/`test_joy_hotkey_manager_ahu`/`test_joystick`/`test_key_recorder`/`test_key_test_integration`/`test_key_validator`/`test_result_reporter`/`test_webview2_bridge`）+ 4 个框架/入口文件（`AutoHotUnit.ahk`、`run_all_tests.ahk`、`run_tests.ahk`、`run_tests.ps1`）
   - `tests/archive/`：归档了 41 个调试/原型/旧版本/废弃测试文件（HTML 原型 `test_html_*`、WebView2 原型 `test_wv2_*`/`test_webview2_proto`、编号测试 `test_*_c*`、full 旧版本 `test_*_full`、bug 复现脚本 `run_bug_repro`/`test_bug_reproduction`、基准 `benchmark_hotpath`、以及 2026-09-12 归档的 6 个上一代断言式测试 `test_domain`/`test_application`/`test_infrastructure`/`test_presentation`/`test_boundary`/`test_error_captor` 等），不参与 `run_all_tests.ahk` 运行
   - `tests/suites/`：内联测试套件（`core_suites`/`base_suites`/`fix_round_suites`/`layering_security_suites`），由 `run_all_tests.ahk` 加载
-  - `tests/test_ahk_executor/`：AHK 执行器测试（59 套件，详见 test-map.md）
+  - `tests/test_ahk_executor/`：AHK 执行器测试（套件数见 `asd-tauri/docs/test-map.md`）
   - `tests/fixtures/`：AHK v2 测试固件目录（v4.1 新增），存放可复用的测试数据文件（如 `sample_config.json` 标准配置样本覆盖 7 种模式、`import_test_data.json` 导入测试场景数据）
   - 删除了 25 个 `.txt`/`.log` 调试输出文件（stderr/stdout 重定向、`bug_repro_results`、`debug_output`、`test_results.log` 等）
 
@@ -280,7 +280,7 @@ AHK v2 测试历史上存在 4 种不统一的测试模式，统一规范如下�
 
 | 模式 | 状态 | 使用文件 | 迁移计划 |
 |------|------|---------|---------|
-| AutoHotUnitSuite | ✅ 推荐模式 | `run_all_tests.ahk`（160 套件）、`run_tests.ahk`、`test_joy_hotkey_manager_ahu.ahk`、`test_ahk_executor/*.ahk`（5 文件，59 套件） | 新测试必须使用此模式 |
+| AutoHotUnitSuite | ✅ 推荐模式 | `run_all_tests.ahk`、`run_tests.ahk`、`test_joy_hotkey_manager_ahu.ahk`、`test_ahk_executor/*.ahk`（5 文件） | 新测试必须使用此模式；套件与用例数见 `asd-tauri/docs/test-map.md` |
 | TestReporter 场景式 | 📦 已归档（2026-09-12） | 原 `test_application.ahk`、`test_domain.ahk`、`test_infrastructure.ahk`、`test_presentation.ahk`、`test_boundary.ahk`、`test_error_captor.ahk`（共 6 文件）已移入 `tests/archive/`——它们不含 `Test_` 方法，从未被 `run_all_tests.ahk` 加载。仍保留于根目录的：`test_integration_error_system.ahk`、`test_key_recorder.ahk`、`test_key_test_integration.ahk`、`test_key_validator.ahk`、`test_result_reporter.ahk`、`test_webview2_bridge.ahk` | 保留者后续逐步迁移 |
 | JoyTestRunner 自定义 | ⚠️ 保留（已稳定） | `test_joystick.ahk` | 后续迁移，当前保留 |
 | 函数式全局变量 | ⚠️ 保留（已稳定） | `test_error_system.ahk` | 后续迁移，当前保留 |
@@ -341,12 +341,14 @@ cd asd-tauri/src-tauri/fuzz && cargo +nightly fuzz run fuzz_config_deserialize
 - 测试框架：AutoHotUnit（`tests/AutoHotUnit.ahk`，提供 `AutoHotUnitSuite` 基类）
 - 运行命令：`& "D:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" tests\run_all_tests.ahk`
 - 测试文件：
-  - `test_executor.ahk`（9 套件）：executor.ahk CommandDispatcher 命令解析与辅助方法
-  - `test_ipc_client.ahk`（12 套件）：ipc_client.ahk MiniJson 解析/序列化、IpcClient 状态与去重
-  - `test_hotkey_hook.ahk`（7 套件）：hotkey_hook.ahk 热键规范化、注册/注销、回调
-  - `test_sender.ahk`（11 套件）：sender.ahk 按键发送、模式切换、紧急释放
-  - `test_joystick.ahk`（18 套件）：joystick.ahk 摇杆输入读取、VJoy 映射、模式启动
-- 总计：57 套件，255 个 Test_ 方法（口径为 `tests/test_ahk_executor/*.ahk` 中以 `Test_` 开头的方法数）
+  - `test_executor.ahk`：executor.ahk CommandDispatcher 命令解析与辅助方法
+  - `test_ipc_client.ahk`：ipc_client.ahk MiniJson 解析/序列化、IpcClient 状态与去重
+  - `test_hotkey_hook.ahk`：hotkey_hook.ahk 热键规范化、注册/注销、回调
+  - `test_sender.ahk`：sender.ahk 按键发送、模式切换、紧急释放
+  - `test_joystick.ahk`：joystick.ahk 摇杆输入读取、VJoy 映射、模式启动
+- 各文件套件数、用例总数与统计口径：**见 `asd-tauri/docs/test-map.md`（唯一权威）**。
+  本文档不再复制这些数字 —— 此前此处逐文件记录并汇总出的结果与权威值不符，
+  正是「复制数字必然失修」的实例。
 - 强制规范：所有 AHK 测试文件必须包含 `#ErrorStdOut "UTF-8"` + `#Warn VarUnset, OutputDebug` + `#Warn Unreachable, OutputDebug` + `OnError` 回调（详见「错误与警告接管机制」节）
 - 详细指南：参见 `asd-tauri/TESTING.md` 第 1.6 节
 
