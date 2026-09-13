@@ -492,7 +492,11 @@ class ErrorSystemTests extends AutoHotUnitSuite {
         ; 测试日志记录功能
         ErrorSystem.LogError("测试错误消息", "ERROR", A_ThisFunc, A_LineNumber)
         ; 验证日志文件存在
-        logPath := A_ScriptDir "\..\logs\errors.log"
+        ; 断言日志组件自己配置的实际路径。相对路径由 A_WorkingDir 解析
+        ; （跑 tests/run_all_tests.ahk 时是 tests/），写死 "<repo>/logs/"
+        ; 只在该目录恰好已存在的脏环境里"通过"，全新 clone 必失败。
+        ErrorSystem.Init()
+        logPath := ErrorSystem.logFile
         this.assert.isTrue(FileExist(logPath) != "")
     }
     
@@ -500,7 +504,11 @@ class ErrorSystemTests extends AutoHotUnitSuite {
         ; 测试警告记录功能
         ErrorSystem.LogWarning("测试警告消息", A_ThisFunc, A_LineNumber)
         ; 验证日志文件存在
-        logPath := A_ScriptDir "\..\logs\errors.log"
+        ; 断言日志组件自己配置的实际路径。相对路径由 A_WorkingDir 解析
+        ; （跑 tests/run_all_tests.ahk 时是 tests/），写死 "<repo>/logs/"
+        ; 只在该目录恰好已存在的脏环境里"通过"，全新 clone 必失败。
+        ErrorSystem.Init()
+        logPath := ErrorSystem.logFile
         this.assert.isTrue(FileExist(logPath) != "")
     }
 }
@@ -560,7 +568,7 @@ class DebugLoggerTests extends AutoHotUnitSuite {
     
     Test_DebugLogger_Log_WritesToFile() {
         DebugLogger.Log("DEBUG", "测试消息")
-        logPath := A_ScriptDir "\..\logs\debug.log"
+        logPath := DebugLogger.logFile   ; 同上：按组件实际使用的路径断言
         this.assert.isTrue(FileExist(logPath) != "")
     }
 }
@@ -572,19 +580,19 @@ class DebugLoggerTests extends AutoHotUnitSuite {
 class JSONLoggerTests extends AutoHotUnitSuite {
     Test_JSONLogger_Log_WritesToFile() {
         JSONLogger.Log("INFO", "测试消息", Map("module", "Test"))
-        logPath := A_ScriptDir "\..\logs\app.log"
+        logPath := JSONLogger.logFile   ; 同上：按组件实际使用的路径断言
         this.assert.isTrue(FileExist(logPath) != "")
     }
     
     Test_JSONLogger_LogError_WritesToFile() {
         JSONLogger.Log("ERROR", "测试错误消息", Map("module", "Test"))
-        logPath := A_ScriptDir "\..\logs\app.log"
+        logPath := JSONLogger.logFile   ; 同上：按组件实际使用的路径断言
         this.assert.isTrue(FileExist(logPath) != "")
     }
     
     Test_JSONLogger_LogWarning_WritesToFile() {
         JSONLogger.Log("WARNING", "测试警告消息", Map("module", "Test"))
-        logPath := A_ScriptDir "\..\logs\app.log"
+        logPath := JSONLogger.logFile   ; 同上：按组件实际使用的路径断言
         this.assert.isTrue(FileExist(logPath) != "")
     }
 }
