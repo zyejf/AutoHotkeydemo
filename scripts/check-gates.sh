@@ -81,14 +81,18 @@ fi
 # ---------------------------------------------------------------- 闸门②
 if [ "$SKIP_CARGO" -eq 0 ]; then
   run_gate "G2a" "cargo fmt --all --check" "$TAURI_DIR" cargo fmt --all --check
+  # ⚠️ CARGO_INCREMENTAL=0 是必需的：增量编译缓存会让 clippy 在本机稳定 ICE
+  #    （rustc 1.95.0，退出码 101，与代码无关）。用 env 前缀而不是 export，
+  #    以免污染后续闸门。
   run_gate "G2b" "cargo clippy --workspace --all-targets -- -D warnings" "$TAURI_DIR" \
-    cargo clippy --workspace --all-targets -- -D warnings
+    env CARGO_INCREMENTAL=0 cargo clippy --workspace --all-targets -- -D warnings
 fi
 
 if [ "$QUICK" -eq 0 ]; then
   # -------------------------------------------------------------- 闸门③
   if [ "$SKIP_CARGO" -eq 0 ]; then
-    run_gate "G3a" "cargo test --workspace" "$TAURI_DIR" cargo test --workspace
+    run_gate "G3a" "cargo test --workspace" "$TAURI_DIR" \
+      env CARGO_INCREMENTAL=0 cargo test --workspace
   fi
 
   if [ "$SKIP_AHK" -eq 0 ]; then

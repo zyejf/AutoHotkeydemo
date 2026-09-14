@@ -61,7 +61,11 @@ OnBenchError(e, mode) {
     if !BENCH_GUARD
         return -1
     msg := StrReplace(StrReplace(e.Message, ",", ";"), "`n", " ")
-    try FileAppend("FATAL," . msg . ",line=" . e.Line . "`n", BENCH_FILE, "UTF-8")
+    ; e.File 必须带上：#Include 之后只看行号无法定位是哪个文件
+    ; e.Stack 带上：调用点报错时只看行号常常指向「调用方」而非真正出错的表达式
+    stack := StrReplace(StrReplace(e.Stack, ",", ";"), "`n", " | ")
+    try FileAppend("FATAL," . msg . ",line=" . e.Line . ",file=" . e.File
+        . ",stack=" . stack . "`n", BENCH_FILE, "UTF-8")
     BenchDone()
     ExitApp(99)
 }

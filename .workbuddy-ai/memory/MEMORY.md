@@ -117,7 +117,17 @@ AHK `FileAppend` 默认系统 ANSI → 必须 `FileAppend(..., "UTF-8")`。
 - ⚠️ **禁用 `git rm`/safe-delete**（路径拼接 bug 会连带删 54 文件）→ `mv` 到 /tmp + `git add -A`。
 - 提交信息**不写具体测试数字**；文档与代码**同 PR**。
 - AHK v2：箭头函数 `=>` **只支持表达式体**；类**静态方法只读** → 用注入字段（如 `_sendHook`）。
-- AHK v2 保留字不能作变量名（`log`/`in`/`out`…）；`while i<=n {` 不能写单行块体。
+- AHK v2 保留字不能作变量名（`log`/`in`/`out`…）。
+- ⚠️ AHK v2 **不接受单行花括号块体**：`F(x) { return x * 2 }` 报 `Unexpected {`，
+  必须换行写。函数体、`while`/`if` 的 `{}` 都一样（不是只有 `;` 被当注释的问题）。
+- ⚠️ AHK v2 **标识符大小写不敏感**：函数名 `Spaces` 与调用方局部变量 `spaces` 同名时，
+  `Spaces(cur)` 被解析成那个未赋值的局部变量 → `This local variable has not been assigned
+  a value`，且报错行指向**调用方**（极难定位）。生产用 `this._BuildSpaces`（方法调用）天然躲开；
+  自写工具函数请带前缀或用 `_` 开头。
+- AHK v2 `VarSetStrCapacity(&var, n)` 可用（n 为字符数），`static c := Map()` 惰性初始化可用。
+- ⚠️ AHK v2 `result .= s` **不是 O(n²)**（实测字符 4.10× → 耗时 4.12×，严格线性）。
+  换 Buffer+`StrPut` **慢 46%**、换数组聚合 **慢 13%**、换「零中间字符串单一累加器」**无差异**。
+  JSON 序列化成本 ≈ **0.24 µs/字符**的解释器常数 → **不要优化累加方式**，出路只有「少序列化」（缓存/增量）。
 - 脚本级变量**不会**被箭头函数闭包捕获（函数 assume-local）→ 包进 `Main()` 或 `global`。
 - AHK v2.0.26：`catch as e` 才对（`catch e` 报 `Invalid class`）；**`Array` 没有 `Sort()` 方法**；
   `Hotkey()`/`OnError()` 回调必须传**函数对象**（`((*) => 0)`；裸名字报 `Invalid callback function.`、

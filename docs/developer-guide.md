@@ -947,7 +947,7 @@ python tools/ahk-bench/envinfo.py
 |------|------|
 | `run.sh` | 运行器：显式传 `AHK_BENCH_OUT`（Windows 路径）+ 轮询 `.done` |
 | `_harness.ahk` | 公共框架：QPC 计时、`GetProcessMemoryInfo` / `GetProcessTimes` 采样、统计 |
-| `bench_*.ahk` | 6 组双实现基准，均含旧/新对照与等价性校验 |
+| `bench_*.ahk` | 7 组双实现基准，均含旧/新对照与等价性校验 |
 | `cycle_leak_all.sh` | 逐个用例独立进程跑 `cycle_leak`（含阳性对照） |
 | `report.py` | CSV → Markdown 对比报告 |
 | `lib/seqgen.ahk` | 调度内核**新**实现原型（策略接口 + 惰性滑动窗口 `EventWindow`） |
