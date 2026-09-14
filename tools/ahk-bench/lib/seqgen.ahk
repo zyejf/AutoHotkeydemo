@@ -157,9 +157,17 @@ class PeriodicPolicy {
             i++
         }
         return {bases: bases, iv: iv, intervalsUs: intervalsUs, dropped: 0
-              , emitted: 0, truncated: 0, noSort: false}
+              , emitted: 0, truncated: 0, noSort: false, minNextUs: 0}
         ; noSort：仅供基准消融（bench_seqgen 的 G 阶段）量化排序本身的成本。
         ; 生产路径恒为 false —— 关掉排序会破坏「按 dueUs 升序」的输出契约。
+        ; minNextUs：由 CollectInto 维护的「推进后最小到期时刻」，让旧实现的
+        ; 第 4 次遍历（sender.ahk:518-522）退化成 O(1)，见 MinRemainingUs。
+    }
+
+    ; 「第 1 次遍历」（sender.ahk:449-452）在 Init 就完成了（bases 预置为 origin），
+    ; 每 tick 无需再遍历 keys。旧实现每 tick 要付 n 次 Map.Has。
+    static EnsureBaseline(st, nowUs) {
+        return
     }
 
     static NextDueUs(st) {
@@ -206,6 +214,7 @@ class PeriodicPolicy {
         n := bases.Length
         lim := 0x7FFFFFFFFFFFFFFF
         lo := outDue.Length + 1          ; 只排序本轮新增的尾部（见下）
+        minNext := lim                   ; 顺手维护「推进后最小到期时刻」
         i := 1
         ; 单遍扫描：interval 每键每轮只算一次（旧实现同一轮算 3 次：
         ; sender.ahk:462 / :483 / :522）
@@ -214,6 +223,8 @@ class PeriodicPolicy {
             b := bases[i]
             dueAt := (b > lim - v) ? lim : (b + v)
             if nowUs < dueAt - epsilonUs {
+                if dueAt < minNext
+                    minNext := dueAt
                 i++
                 continue
             }
@@ -238,13 +249,25 @@ class PeriodicPolicy {
                 }
             }
             bases[i] := last
+            ; 推进后本键的下一个到期时刻。三个分支（无追赶 / 正常追赶 / 超限重置）
+            ; 都统一由 last 推出，避免与上面的 `next` 分支状态耦合。
+            nb := (last > lim - v) ? lim : (last + v)
+            if nb < minNext
+                minNext := nb
             st.emitted := st.emitted + 1
             i++
         }
+        st.minNextUs := minNext
         ; ⚠️ 只能排本轮新增的尾部。整表重排会让 EventWindow 累积成 O(n²)。
         if !st.noSort && outDue.Length > lo
             SeqSortPair(outDue, outKey, lo)
         return outDue.Length - lo + 1
+    }
+
+    ; 「第 4 次遍历」（sender.ahk:518-522）退化成 O(1)：
+    ; min 已在 CollectInto 里随推进一起算好，不必再全量扫一遍 keys。
+    static MinRemainingUs(st, nowUs) {
+        return st.minNextUs - nowUs
     }
 }
 
@@ -273,6 +296,17 @@ class SequencePolicy {
         if st.keyCount = 0
             return SEQGEN_NO_DUE
         return st.nextUs
+    }
+
+    ; sequence 每 tick 只索引 keys[step]，生产代码里**没有任何**遍历 keys 的循环
+    ; （sender.ahk:542-597），所以「第 1 / 第 4 次遍历」对它都不存在。
+    ; 这里保留同签名方法只为让基准可以统一驱动两种模式。
+    static EnsureBaseline(st, nowUs) {
+        return
+    }
+
+    static MinRemainingUs(st, nowUs) {
+        return st.nextUs - nowUs
     }
 
     static Collect(st, nowUs, epsilonUs := "", maxCatchup := "") {

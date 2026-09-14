@@ -108,6 +108,9 @@ RunTickLatency(mode, impl, wantEvents, ampUs := 0, keyCount := 0, noSort := fals
     rng := Lcg(11)
     lat := []
     nd := []
+    bs := []
+    rm := []
+    tt := []
     got := 0
     spins := 0
     sinkD := []
@@ -117,10 +120,23 @@ RunTickLatency(mode, impl, wantEvents, ampUs := 0, keyCount := 0, noSort := fals
         ;   1) 计时对象用 CollectInto（A 阶段走的就是它）。第一版这里用 Collect，
         ;      而 old 的 CollectInto = Collect + 拷贝循环，于是 B 系统性低估了 old。
         ;   2) NextDueUs 单独计时 —— A 阶段的收益被怀疑主要来自这里，不拆开就只能是猜测。
+        ;   3) 2026-09-14 补齐：生产每 tick 对 keys 有 **4 次**遍历（sender.ahk
+        ;      :449 / :457 / :476 / :518），只测中间两次会系统性低估 old。
+        ;      现在四个都测，并把每 tick 四项之和单独入样（不能用 p50 相加，
+        ;      分位数不可加）。
+        nowUs := guard.NowUs()
+
+        b0 := HighResNow()
+        p.EnsureBaseline(st, nowUs)
+        b1 := HighResNow()
+        db := (b1 - b0) * 1000000
+        bs.Push(db)
+
         n0 := HighResNow()
         due := p.NextDueUs(st)
         n1 := HighResNow()
-        nd.Push((n1 - n0) * 1000000)
+        dn := (n1 - n0) * 1000000
+        nd.Push(dn)
         if due = SEQGEN_NO_DUE
             break
         target := ampUs > 0 ? due + rng.Jitter(ampUs) : due
@@ -131,7 +147,16 @@ RunTickLatency(mode, impl, wantEvents, ampUs := 0, keyCount := 0, noSort := fals
         t0 := HighResNow()
         p.CollectInto(st, nowUs, "", "", sinkD, sinkK)
         t1 := HighResNow()
-        lat.Push((t1 - t0) * 1000000)      ; µs
+        dc := (t1 - t0) * 1000000          ; µs
+        lat.Push(dc)
+
+        r0 := HighResNow()
+        p.MinRemainingUs(st, nowUs)
+        r1 := HighResNow()
+        dr := (r1 - r0) * 1000000
+        rm.Push(dr)
+
+        tt.Push(db + dn + dc + dr)
         got += sinkD.Length
         spins++
         if spins > wantEvents * 8 + 4096
@@ -139,6 +164,9 @@ RunTickLatency(mode, impl, wantEvents, ampUs := 0, keyCount := 0, noSort := fals
     }
     s := SortNums(lat)
     sn := SortNums(nd)
+    sb := SortNums(bs)
+    sr := SortNums(rm)
+    stt := SortNums(tt)
     BenchWrite("tick,mode=" . mode . ",impl=" . impl . ",amp_us=" . ampUs
         . ",keys=" . keyCount
         . ",sort=" . (noSort ? "off" : "on")
@@ -152,6 +180,10 @@ RunTickLatency(mode, impl, wantEvents, ampUs := 0, keyCount := 0, noSort := fals
         . ",next_p50_us=" . Round(Pct(sn, 0.50), 3)
         . ",next_p95_us=" . Round(Pct(sn, 0.95), 3)
         . ",next_p99_us=" . Round(Pct(sn, 0.99), 3)
+        . ",base_p50_us=" . Round(Pct(sb, 0.50), 3)
+        . ",remain_p50_us=" . Round(Pct(sr, 0.50), 3)
+        . ",tick4_p50_us=" . Round(Pct(stt, 0.50), 3)
+        . ",tick4_p95_us=" . Round(Pct(stt, 0.95), 3)
         . ",jitter_us=" . Round(s[s.Length] - s[1], 3))
     return Pct(s, 0.50)
 }

@@ -3,10 +3,15 @@
 ;
 ; 逐行对齐 asd-tauri/src-tauri/ahk_executor/sender.ahk 的现有逻辑，仅去掉
 ; 「定时器唤醒 / SleepUntil 阻塞 / 真实发键」三件与序列生成无关的事。
-; 保留的两处**原样复刻**特征是本次要量化的差异来源：
+; 保留的三处**原样复刻**特征是本次要量化的差异来源：
 ;   ① 时刻用 **ms 浮点**（HighResClock.Now() 返回 c/freq*1000，double）
 ;   ② 每 tick 对 keys 做 **4 次全遍历**，且同一轮里 _IntervalOf 被算 3 次
 ;      （sender.ahk:462 / :483 / :522）
+;   ③ 分桶用 **浮点 dueAt 当 Map 键** → 数学同刻的键可能被拆成两桶
+;
+; ⚠️ 2026-09-14 修正：4 次遍历此前只复刻了中间 2 次（系统性低估 old、把收益压到
+; 1.48×）。现已补齐 T1(EnsureBaseline) 与 T4(MinRemainingUs)，完整口径下收益为
+; 2.02× / 1.71× / 1.62×（K=8/24/64），与 bench_tick_traversal 的 1.80~1.96× 互相印证。
 ;
 ; 接口与 seqgen.ahk 的新策略保持一致（Init / NextDueUs / Collect），
 ; 以便同一个 EventWindow 驱动两者做同口径对比。
@@ -51,6 +56,19 @@ class LegacyPeriodicPolicy {
             i++
         }
         return {tt: tt, intervals: intervalsMs, n: keyCount, dropped: 0, emitted: 0}
+    }
+
+    ; 复刻「第 1 次遍历」sender.ahk:449-452：为首次出现的键建立基准时刻。
+    ; 原型 Init 已把 tt 预置为 origin，所以这里不会有键真的缺失 —— 但生产每 tick
+    ; 都要付这 n 次 Has 判断（Map 查找），量化时必须计入。
+    static EnsureBaseline(st, nowUs) {
+        nowMs := nowUs / 1000
+        i := 1
+        while i <= st.n {
+            if !st.tt.Has(i)
+                st.tt[i] := nowMs
+            i++
+        }
     }
 
     ; 复刻「第 2 次遍历」求 target
@@ -102,6 +120,22 @@ class LegacyPeriodicPolicy {
         return {dueUs: outDue, keyIdx: outKey}
     }
 
+    ; 复刻「第 4 次遍历」sender.ahk:518-522：发送后按推进过的基准重算最小剩余时间。
+    ; 这是 LegacyIntervalOf 在同一轮里的**第 3 个调用点**（:522），也是旧实现
+    ; 每 tick 第 4 次全量遍历 keys。新实现把它融进第 3 次遍历（见 seqgen.ahk）。
+    static MinRemainingUs(st, nowUs) {
+        nowMs := nowUs / 1000
+        minRemaining := 0x7FFFFFFF
+        i := 1
+        while i <= st.n {
+            remaining := st.tt[i] + LegacyIntervalOf(st.intervals, i) - nowMs
+            if remaining < minRemaining
+                minRemaining := remaining
+            i++
+        }
+        return Round(minRemaining * 1000)
+    }
+
     ; 统一契约用的零分配包装。旧实现**故意**保留 Collect 的两数组 + 一对象分配，
     ; 那是它原本就有的开销，量化时要如实计入。
     static CollectInto(st, nowUs, epsilonUs, maxCatchup, outDue, outKey) {
@@ -132,6 +166,16 @@ class LegacySequencePolicy {
         if st.n = 0
             return SEQGEN_NO_DUE
         return Round(st.nextMs * 1000)
+    }
+
+    ; sequence 生产代码不遍历 keys（见 seqgen.ahk 同名方法注释），两次「遍历」都不存在；
+    ; 这里给出 O(1) 实现，只为让基准能统一驱动。
+    static EnsureBaseline(st, nowUs) {
+        return
+    }
+
+    static MinRemainingUs(st, nowUs) {
+        return Round((st.nextMs - nowUs / 1000) * 1000)
     }
 
     static Collect(st, nowUs, epsilonUs := "", maxCatchup := "") {
