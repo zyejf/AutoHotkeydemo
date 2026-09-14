@@ -902,6 +902,42 @@ cat "$TEMP/ahkprobe/p2_timer.csv"
 > AHK v2 编写陷阱（如 `Array` 无 `Sort()`、`catch as e`、回调必须是函数对象）见
 > `tools/ahk-probes/README.md`。
 
+### 4.6.3 AHK 重构基准（`tools/ahk-bench/`）
+
+用于**量化「优化前 vs 优化后」差异**的新旧双实现基准集（JSON 转义、tick 遍历、键名校验、
+定时器策略、异常容错、循环引用泄漏）。**生产代码一行不改** ——
+每个脚本内置旧实现（原样复刻生产逻辑）与新实现，同进程同数据对比并做等价性校验。
+
+```bash
+# Git Bash（必须走 run.sh，理由同 4.6.2）
+bash tools/ahk-bench/run.sh json_escape
+
+# 全部（cycle_leak 除外 —— 内存类基准必须每用例独立进程，否则基线漂移）
+for id in json_escape tick_traversal key_regex timer_storm stability; do \
+    bash tools/ahk-bench/run.sh $id; \
+done
+bash tools/ahk-bench/cycle_leak_all.sh
+
+# 汇总成对比报告（--prev 可给多个历史轮次目录做多轮波动对比）
+python tools/ahk-bench/report.py            # → docs/refactor/bench-report-<date>.md
+```
+
+| 文件 | 用途 |
+|------|------|
+| `run.sh` | 运行器：显式传 `AHK_BENCH_OUT`（Windows 路径）+ 轮询 `.done` |
+| `_harness.ahk` | 公共框架：QPC 计时、`GetProcessMemoryInfo` / `GetProcessTimes` 采样、统计 |
+| `bench_*.ahk` | 6 组双实现基准，均含旧/新对照与等价性校验 |
+| `cycle_leak_all.sh` | 逐个用例独立进程跑 `cycle_leak`（含阳性对照） |
+| `report.py` | CSV → Markdown 对比报告 |
+
+> **两条内存类基准的硬纪律**：① 必须带**阳性对照**，否则「没测出来」和「没有泄漏」无法区分；
+> ② 必须**每用例独立进程**，同进程连续跑时基线会漂移（实测 3216 → 4696 KB）。
+>
+> **统计口径**：用 p50 判定不用 max；P95 需足量样本（n=54 时只容忍 2 个离群点）；
+> CPU 类结论必须给多轮区间并检查是否重叠。
+>
+> **结论落点**：`docs/refactor/`（重构方案与实测对比的唯一权威）。
+
 ### 4.7 发布构建
 
 ```powershell

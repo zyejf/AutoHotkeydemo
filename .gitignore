@@ -113,3 +113,7 @@ syntax_check.err
 # 图谱分析中间产物（生成脚本保留，原始数据可复现）
 .review-analysis/graph-raw.json
 .review-analysis/ahk-includes.json
+
+# Python 工具链产物（tools/**/*.py）
+__pycache__/
+*.pyc

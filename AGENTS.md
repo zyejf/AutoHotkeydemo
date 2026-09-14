@@ -1391,7 +1391,7 @@ python .review-analysis/gen_graph_html.py   # 渲染 → docs/review/<date>/grap
 
 > **数字权威**：本文件不持有测试数字，一切测试统计以 [`asd-tauri/docs/test-map.md`](asd-tauri/docs/test-map.md) 为**唯一权威**。
 
-### 文档权威边界（五方，各自领域内唯一）
+### 文档权威边界（六方，各自领域内唯一）
 
 | 文档 | 权威领域 |
 |------|---------|
@@ -1400,9 +1400,10 @@ python .review-analysis/gen_graph_html.py   # 渲染 → docs/review/<date>/grap
 | `docs/developer-guide.md` | 环境搭建、构建、部署、排障 |
 | `docs/graph-driven-workflow.md` | 图谱方法、开发/审查流程、同步机制 |
 | `docs/research/` | **架构级调研结论的唯一落点**（第三方/引擎层的源码走查 + 实测报告，如 AHK v2 引擎架构分析）。探针脚本在 `tools/ahk-probes/` |
+| `docs/refactor/` | **重构方案与实测对比的唯一落点**（A/B/C 三份开发计划 + 优化前后基准报告）。基准脚本在 `tools/ahk-bench/` |
 
 冲突时：数字 → test-map；架构 → AGENTS；命令 → developer-guide；流程 → graph-driven-workflow；
-外部引擎/第三方调研 → `docs/research/`。
+外部引擎/第三方调研 → `docs/research/`；重构方案与新旧性能对比 → `docs/refactor/`。
 **矛盾必须当场修正，不允许两边都留着。**
 
 ## 重要提醒
