@@ -143,9 +143,9 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | AHK | 单元 | tests/test_ahk_executor/test_executor.ahk | 10 / 46 | executor.ahk CommandDispatcher._GetStr/_GetInt/_GetBool/_GetArr/_GetMap、MergeModeConfig、Dispatch unknown、RecordKey、Validation、ReportFlag |
 | AHK | 单元 | tests/test_ahk_executor/test_ipc_client.ahk | 12 / 64 | ipc_client.ahk IPCConst、MiniJson 解析/序列化/往返/布尔标记、IpcClient 初始状态/序列号/断连接收/认证 token/去重 |
 | AHK | 单元 | tests/test_ahk_executor/test_hotkey_hook.ahk | 7 / 28 | hotkey_hook.ahk Normalize、RegistrationState、Register/Unregister error、UnregisterAll、Init、Callback |
-| AHK | 单元 | tests/test_ahk_executor/test_sender.ahk | 13 / 53 | sender.ahk AllowedKeys、ValidateKey、ToggleGroup、StartPeriodic/Sequence/Enhanced/Hold、HoldModeToggle、EmergencyRelease、Shutdown、Init、ReportKeyEvents、**QPC 精确定刻（时钟分辨率／SleepUntil 误差／保持时长对齐 kpd／端到端 P95 ≤ 20ms／零漏发／非整数间隔 1:3 不拆桶／间隔取整后比例不破）** |
+| AHK | 单元 | tests/test_ahk_executor/test_sender.ahk | 13 / 56 | sender.ahk AllowedKeys、ValidateKey、ToggleGroup、StartPeriodic/Sequence/Enhanced/Hold、HoldModeToggle、EmergencyRelease、Shutdown、Init、ReportKeyEvents、**QPC 精确定刻（时钟分辨率／SleepUntil 误差／保持时长对齐 kpd／端到端 P95 ≤ 20ms／零漏发／非整数间隔 1:3 不拆桶／间隔取整后比例不破）**、**T6 合并遍历等价性（periodic／hybrid 与旧版逐项一致、lastNextDue 等于推进后基准的最小值）** |
 | AHK | 单元 | tests/test_ahk_executor/test_joystick.ahk | 18 / 75 | joystick.ahk AllowedKeys、ValidateKey、IsButton/IsPov/IsAxis、GetButtonNum/GetPovDirection/GetAxisInfo、AxisToVJoyId、PovDirectionToValue、ResolveMethod、IsVJoyAvailable、StopGroup、EmergencyRelease、Init、StartPeriodic/Sequence/Hold |
-| **总计** | — | — | **60 套件 / 266 个 Test_ 方法** | — |
+| **总计** | — | — | **60 套件 / 269 个 Test_ 方法** | — |
 
 注：AHK 测试文件位于项目根目录的 `tests/test_ahk_executor/`，非 `asd-tauri/tests/`。被测脚本位于 `asd-tauri/src-tauri/ahk_executor/`。
 

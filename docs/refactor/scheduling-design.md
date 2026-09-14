@@ -4,11 +4,19 @@
 > 全部结论来自 `tools/ahk-bench/` 的可复现原型（`lib/seqgen.ahk` + `lib/seqgen_legacy.ahk`）。
 > 实测数字见 [`scheduling-bench-2026-09-14.md`](./scheduling-bench-2026-09-14.md)。
 >
-> **落地状态（2026-09-14 更新）**：摘要里「时刻表示 float ms → int µs」这一项**已在生产
-> `sender.ahk` / `high_res_clock.ahk` 落地**（新增 `NowUs()` / `SleepUntilUs()`，调度时刻与
-> 分桶键全部改为整数 µs，配置在 `Sender._IntervalUsOf` / `_DelayUsOf` 入口处 `Round()` 一次）。
-> 因此下文 §现状 中「生产用浮点毫秒」的描述已不再成立，仅作为改造前的记录保留。
-> 「每轮 3 次 `_IntervalOf` 收敛为 1 次」仍在计划中，未实施。
+> **落地状态（2026-09-14 更新）**：
+> 1. 「时刻表示 float ms → int µs」**已落地**（新增 `NowUs()` / `SleepUntilUs()`，调度时刻与
+>    分桶键全部改为整数 µs，配置在 `Sender._IntervalUsOf` / `_DelayUsOf` 入口处 `Round()` 一次）。
+>    因此下文 §现状 中「生产用浮点毫秒」的描述已不再成立，仅作为改造前的记录保留。
+> 2. 「每轮 3 次 `_IntervalOf` 收敛为 1 次」**已落地为 T6**，由 `Sender.MERGE_TICK_SCAN`
+>    开关控制（**默认关闭**），实现为 `_ExecutePeriodicMerged` / `_ExecuteHybridMerged`。
+>
+> ⚠️ **但生产可达的形态是 4→2 次遍历，不是本文原型测到的 4→1 次**：
+> 真实 `_ExecutePeriodic` 的「求 target」与「收集到期」之间隔着一次 `SleepUntilUs(target)`，
+> 前者用推进前的 `triggerTimes`、后者用推进后的，物理上无法合成一次。
+> 因此本文 / `plan-B-balanced.md` 里 T6 的 **1.80~1.96×** 是**原型上限，生产拿不到**；
+> 生产形态的实测见 `tools/ahk-bench/bench_tick_traversal.ahk` 的 `TickProd2`（三轮）：
+> K=8 23.8→15.2 µs（1.55×）、K=24 74.9→43.5 µs（1.67×），仍满足 M8 ≤20 / M9 ≤50 的验收线。
 
 ---
 

@@ -734,6 +734,202 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
         this.assert.isAtLeast(merged / f2Downs, 0.90)
     }
 
+    ; ============================================================
+    ; T6 合并遍历（MERGE_TICK_SCAN）等价性
+    ; ============================================================
+    ;
+    ; 做法：**直接调用** _ExecutePeriodicLegacy / _ExecutePeriodicMerged，**不经定时器**，
+    ; 并预先把 triggerTimes 设到「几秒之前的过去」。这样两次调用之间真实时钟的差值 δ
+    ; 会被 catch-up 里的 `Floor((now - dueAt - iv) / iv)` 吃掉（只要 δ << interval，
+    ; Floor 的结果就相同），**结果与真实时钟无关**，用例是确定性的。
+    ;
+    ; ⚠️ 不能用真实定时器各跑一遍再比对事件序列：宿主抖动会让两者落在不同的 tick 上，
+    ; 产生假失败 —— 那不是回归，是测量方法的问题。
+    ;
+    ; ⚠️ 也不能用注入假时钟的办法：AHK v2 的**类静态方法只读**（实测
+    ; `Clock.Now := () => 42` 报 "Property is read-only"），无法替换 HighResClock.NowUs。
+
+    ; 跑一次指定实现，返回可比较的摘要串（事件序列 + 推进后的基准 + droppedTriggers）
+    _RunPeriodicOnce(gid, keys, intervals, behind, baseUs, useMerged) {
+        if Sender._activeGroups.Has(gid)
+            Sender._activeGroups.Delete(gid)
+        Sender._StartGroup(gid)
+        state := Sender._activeGroups[gid]
+        state["mode"] := "periodic"
+        state["keys"] := keys
+        state["intervals"] := intervals
+        state["keyPressDuration"] := 0        ; kpd=0 → 走异步释放，不引入真实睡眠
+        tt := Map()
+        i := 1
+        while i <= keys.Length {
+            tt[i] := baseUs - behind[i] * 1000   ; behind 单位 ms → µs
+            i++
+        }
+        state["lastTriggerTimes"] := tt
+
+        events := []
+        Sender._sendHook := (key, st) => events.Push([key, st])
+        try {
+            if useMerged
+                Sender._ExecutePeriodicMerged(gid)
+            else
+                Sender._ExecutePeriodicLegacy(gid)
+        } finally {
+            Sender._sendHook := ""
+        }
+
+        s := ""
+        for ev in events
+            s .= ev[1] . ":" . ev[2] . ";"
+        s .= "|tt="
+        i := 1
+        while i <= keys.Length {
+            s .= (tt.Has(i) ? tt[i] : "nil") . ","
+            i++
+        }
+        s .= "|dropped=" . (state.Has("droppedTriggers") ? state["droppedTriggers"] : 0)
+
+        ; 独立算出「下一次到期时刻」的真值：推进后的基准 + 各自间隔的最小值。
+        ; 合并版把它记在 state["lastNextDue"]，必须与此相等 —— 这正是
+        ; 「min(a_i - c) === min(a_i) - c」那步变换的校验点。
+        expMin := 0x7FFFFFFFFFFF
+        i := 1
+        while i <= keys.Length {
+            v := tt[i] + Sender._IntervalUsOf(intervals, i)
+            if v < expMin
+                expMin := v
+            i++
+        }
+        nextDue := state.Has("lastNextDue") ? state["lastNextDue"] : ""
+        Sender._activeGroups.Delete(gid)
+        return [s, nextDue, expMin]
+    }
+
+    ; periodic：4 个确定性场景下合并版必须与旧版逐项一致
+    Test_TickMerge_Periodic_MatchesLegacy() {
+        scenarios := [
+            ["uniform_all_due_same_bucket", ["F1", "F2", "F3"], [1000, 1000, 1000], [3000, 3000, 3000]],
+            ["cross_interval_same_bucket", ["F1", "F2"], [1000, 2000], [3000, 4000]],
+            ["two_due_distinct_buckets", ["F1", "F2", "F3"], [1000, 1500, 2500], [3000, 3100, 3000]],
+            ["none_due_early_return", ["F1", "F2", "F3"], [1000, 1000, 1000], [0, 0, 0]]
+        ]
+        t0 := HighResClock.NowUs()
+        mismatched := ""
+        for sc in scenarios {
+            a := this._RunPeriodicOnce("__tm_a", sc[2], sc[3], sc[4], t0, false)[1]
+            b := this._RunPeriodicOnce("__tm_b", sc[2], sc[3], sc[4], t0, true)[1]
+            if a != b
+                mismatched .= sc[1] . "(old=" . a . " new=" . b . ") "
+        }
+        this.assert.equal(mismatched, "")
+    }
+
+    ; 合并版记下的 state["lastNextDue"] 必须等于「推进后基准 + 间隔」的最小值。
+    ;
+    ; 这一条是 T6 最关键的校验点：旧版在发送后重扫一遍求 min(tt+iv-nowAfter)，
+    ; 合并版改成在遍历中记下 min(tt+iv) 再减一次 nowAfter。**两者只在整数 µs 下
+    ; 严格相等**，所以必须有一条用例钉住它 —— 上面那条只比事件与基准，抓不到这里。
+    Test_TickMerge_Periodic_NextDueMatchesFinalBase() {
+        scenarios := [
+            ["uniform_all_due_same_bucket", ["F1", "F2", "F3"], [1000, 1000, 1000], [3000, 3000, 3000]],
+            ["cross_interval_same_bucket", ["F1", "F2"], [1000, 2000], [3000, 4000]],
+            ["two_due_distinct_buckets", ["F1", "F2", "F3"], [1000, 1500, 2500], [3000, 3100, 3000]],
+            ["none_due_early_return", ["F1", "F2", "F3"], [1000, 1000, 1000], [0, 0, 0]]
+        ]
+        t0 := HighResClock.NowUs()
+        bad := ""
+        for sc in scenarios {
+            r := this._RunPeriodicOnce("__tm_nd", sc[2], sc[3], sc[4], t0, true)
+            if r[2] != r[3]
+                bad .= sc[1] . "(lastNextDue=" . r[2] . " expMin=" . r[3] . ") "
+        }
+        this.assert.equal(bad, "")
+    }
+
+    ; 跑一次 hybrid 的指定实现，返回可比较的摘要串
+    _RunHybridOnce(gid, groups, gtt, useMerged) {
+        if Sender._activeGroups.Has(gid)
+            Sender._activeGroups.Delete(gid)
+        Sender._StartGroup(gid)
+        state := Sender._activeGroups[gid]
+        state["mode"] := "hybrid"
+        state["groups"] := groups
+        state["keyPressDuration"] := 0
+        state["groupTriggerTimes"] := gtt
+
+        events := []
+        Sender._sendHook := (key, st) => events.Push([key, st])
+        try {
+            if useMerged
+                Sender._ExecuteHybridMerged(gid)
+            else
+                Sender._ExecuteHybridLegacy(gid)
+        } finally {
+            Sender._sendHook := ""
+        }
+
+        s := ""
+        for ev in events
+            s .= ev[1] . ":" . ev[2] . ";"
+        s .= "|gtt="
+        for k, v in gtt
+            s .= k . "=" . v . ","
+        s .= "|dropped=" . (state.Has("droppedTriggers") ? state["droppedTriggers"] : 0)
+
+        ; 独立算出「下一次到期时刻」的真值（同 periodic 那条用例的理由）
+        expMin := 0x7FFFFFFFFFFF
+        g := 1
+        for grp in groups {
+            grpType := grp.Has("type") ? grp["type"] : "periodic"
+            if grpType = "sequence" {
+                v := gtt.Has(g ".nextTime") ? gtt[g ".nextTime"] : 0
+                if v < expMin
+                    expMin := v
+            } else {
+                grpKeys := grp.Has("pressKeys") ? grp["pressKeys"] : (grp.Has("keys") ? grp["keys"] : [])
+                grpIntervals := grp.Has("intervals") ? grp["intervals"] : [50]
+                i := 1
+                while i <= grpKeys.Length {
+                    v := gtt[g "." i] + Sender._IntervalUsOf(grpIntervals, i)
+                    if v < expMin
+                        expMin := v
+                    i++
+                }
+            }
+            g++
+        }
+        nextDue := state.Has("lastNextDue") ? state["lastNextDue"] : ""
+        Sender._activeGroups.Delete(gid)
+        return [s, nextDue, expMin]
+    }
+
+    ; hybrid：periodic 子组 + sequence 子组混合，合并版必须与旧版逐项一致
+    Test_TickMerge_Hybrid_MatchesLegacy() {
+        groups := [Map("type", "periodic", "keys", ["F1", "F2"], "intervals", [1000, 2000])
+                 , Map("type", "sequence", "keys", ["F3", "F4"], "delays", [1000, 1500])]
+        t0 := HighResClock.NowUs()
+        ; behind = [periodic 第1键, periodic 第2键, sequence 下一个时刻]，单位 ms
+        behinds := [[3000, 4000, 2000], [3000, 3100, 0], [0, 0, 0]]
+
+        mismatched := ""
+        for bh in behinds {
+            ; 两次调用必须用**同一份**初始基准（t0），否则比的是不同的输入
+            gttA := Map("1.1", t0 - bh[1] * 1000, "1.2", t0 - bh[2] * 1000
+                      , "2.step", 1, "2.nextTime", t0 - bh[3] * 1000)
+            gttB := Map("1.1", t0 - bh[1] * 1000, "1.2", t0 - bh[2] * 1000
+                      , "2.step", 1, "2.nextTime", t0 - bh[3] * 1000)
+            ra := this._RunHybridOnce("__th_a", groups, gttA, false)
+            rb := this._RunHybridOnce("__th_b", groups, gttB, true)
+            if ra[1] != rb[1]
+                mismatched .= "behind=[" . bh[1] . "," . bh[2] . "," . bh[3] . "](old=" . ra[1] . " new=" . rb[1] . ") "
+            ; 顺带校验合并版记下的 lastNextDue（同 periodic 那条用例）
+            if rb[2] != rb[3]
+                mismatched .= "nextDue behind=[" . bh[1] . "," . bh[2] . "," . bh[3] . "]("
+                    . rb[2] . "!=" . rb[3] . ") "
+        }
+        this.assert.equal(mismatched, "")
+    }
+
     ; 端到端：sequence 模式下「计划时刻 → 抬起完成」P95 ≤ 20ms。
     ; 原实现从「发送完成后的当前时刻」推进基准，误差逐步累积：
     ; 实测 delay=100ms 时步进退化成 111.9ms，3 秒内 P95 达 248~263ms。

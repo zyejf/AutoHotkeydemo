@@ -1169,6 +1169,14 @@ AHK/Windows 下**没有任何亚 15.625 ms 的唤醒手段**（本机实测，Au
    拆成两个桶后**第二个桶的按键保持时长会塌到 ~0 ms**（非整数间隔 1:3 场景实测拆桶率
    与运行时 uptime 位模式相关，48%~85%，属于不可预测的间歇性故障）。
    注意 `Round()` 不能省：省掉后 `16.001 * 1000` 会得到 `16001.000000000002` 这种脏值。
+9. **改 `_Execute*` 的遍历结构前先看这条**：`_ExecutePeriodic` 的「求 target」与「收集到期」
+   之间隔着一次 `SleepUntilUs(target)`，两者用的是**推进前 / 推进后**的 `triggerTimes`，
+   所以遍历次数只能 4→2，**做不到 4→1**（原型 bench 能做到是因为它不含等待点）。
+   合并版在 `Sender.MERGE_TICK_SCAN` 开关后（**默认关闭**），见
+   `_ExecutePeriodicMerged` / `_ExecuteHybridMerged`；旧实现保留为
+   `*Legacy` 作对照与回退。两者等价性由 `tests/test_ahk_executor/test_sender.ahk`
+   的 `Test_TickMerge_*` 用例钉住（含 `state["lastNextDue"]` 的真值校验）。
+   ⚠️ 任何一边改了逻辑都要同步另一边，否则开关两侧行为会分叉。
 
 > ⚠️ **精确定刻的代价：会连续占用 AHK 主线程。**
 > `SleepUntil` 的让出段用的是 `DllCall("kernel32\Sleep", 0)`，**不会放行其它 AHK 定时器**；

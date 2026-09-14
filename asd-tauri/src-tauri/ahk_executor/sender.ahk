@@ -68,6 +68,16 @@ class Sender {
     ; 该配置下「计划时刻 → 抬起完成」必然 > 20ms，精确定刻已无意义
     static PRECISE_HOLD_MAX_MS := 20
 
+    ; T6 · tick 遍历合并开关（**默认关闭**）。
+    ; 开启后 _ExecutePeriodic / _ExecuteHybrid 走「合并遍历版」：
+    ;   · 遍历次数 4 → 2（「求目标」与「收集到期」之间隔着一次 SleepUntil，
+    ;     前者用推进前的基准、后者用推进后的，物理上无法再合成一次）
+    ;   · 间隔每键每 tick 只算一次，存进 state 里的复用缓冲区供两次遍历共用
+    ;   · 「下次唤醒」不再单开一次遍历与临时数组（见 _ExecutePeriodicMerged 注释）
+    ; 语义与关闭时逐项等价（等价性校验 2000 次 diffs=0）。
+    ; 基准见 tools/ahk-bench/bench_tick_traversal.ahk（TickProd2 形态）。
+    static MERGE_TICK_SCAN := false
+
     ; 按键白名单
     static ALLOWED_KEYS := Map(
         "F1", true, "F2", true, "F3", true, "F4", true, "F5", true, "F6", true,
@@ -447,7 +457,15 @@ class Sender {
         }
     }
 
+    ; 周期模式 tick 入口：按 MERGE_TICK_SCAN 在「合并遍历版」与「旧版」之间分派。
     static _ExecutePeriodic(groupId) {
+        if Sender.MERGE_TICK_SCAN
+            return Sender._ExecutePeriodicMerged(groupId)
+        return Sender._ExecutePeriodicLegacy(groupId)
+    }
+
+    ; ---- 旧版（4 次遍历）：对照与回退路径，勿在此改动逻辑 ----
+    static _ExecutePeriodicLegacy(groupId) {
         if !Sender._activeGroups.Has(groupId)
             return
 
@@ -541,6 +559,120 @@ class Sender {
             SetTimer(Sender._timers[groupId], -nextPoll)
     }
 
+    ; ---- 合并遍历版（4 → 2 次，由 MERGE_TICK_SCAN 开启）----
+    ;
+    ; 与 _ExecutePeriodicLegacy 逐项等价，区别只在循环结构：
+    ;
+    ;   Pass A（等待前）：建基准 + 算间隔 + 求最近的计划时刻 target
+    ;   Pass B（等待后）：收集到期 + 分桶 + 保相位推进基准 + 顺带求 minNext
+    ;
+    ; 两个关键点：
+    ; ① 为什么不是 4 → 1：Pass A 用「推进前」的 triggerTimes，Pass B 用「推进后」的，
+    ;    两者之间隔着一次 SleepUntilUs(target)，`now` 已经变了。原型 bench 能做到 1 次
+    ;    是因为它不含等待点；生产里 2 次是物理下限。
+    ; ② 为什么「下次唤醒」不用再遍历一次：旧版在发送后重扫一遍求
+    ;    min(triggerTimes[i] + interval - nowAfter)，而 nowAfter 对同一轮是常量，
+    ;    且此刻全是整数 µs，故 min(a_i - c) === min(a_i) - c **严格相等**。
+    ;    于是 Pass B 里直接记下绝对时刻 minNext，发送后减一次 nowAfter 即可，
+    ;    省掉一整次遍历（也省掉一个每 tick 的临时数组）。
+    static _ExecutePeriodicMerged(groupId) {
+        if !Sender._activeGroups.Has(groupId)
+            return
+
+        state := Sender._activeGroups[groupId]
+        keys := state["keys"]
+        intervals := state["intervals"]
+        kpd := state["keyPressDuration"]
+        triggerTimes := state["lastTriggerTimes"]
+        n := keys.Length
+
+        ; 间隔缓冲区存在 state 里复用，避免每 tick 分配。
+        ; ⚠️ Array 不能靠索引赋值自动扩容，必须先 Push 到目标长度。
+        ivs := state.Has("_ivBuf") ? state["_ivBuf"] : []
+        while ivs.Length < n
+            ivs.Push(0)
+        state["_ivBuf"] := ivs
+
+        ; ---- Pass A：建基准 + 算间隔（每个键每 tick 只算一次）+ 求 target ----
+        now := HighResClock.NowUs()
+        target := 0
+        i := 1
+        while i <= n {
+            if !triggerTimes.Has(i)
+                triggerTimes[i] := now
+            iv := Sender._IntervalUsOf(intervals, i)
+            ivs[i] := iv
+            t := triggerTimes[i] + iv
+            if target = 0 || t < target
+                target := t
+            i++
+        }
+
+        ; ---- 精确定位到计划时刻（与旧版一致）----
+        ; ⚠️ SetTimer 只接受毫秒，µs 差值必须 /1000 后再传。
+        if target - now > Sender.WAKE_LEAD_US {
+            ; 提前返回时**没有任何键到期**，故 minNext 与 target 相同（都是 min(基准+间隔)）。
+            ; 一并记下，保证 lastNextDue 在每条返回路径上都有值，便于排障与等价性校验。
+            state["lastNextDue"] := target
+            if Sender._timers.Has(groupId)
+                SetTimer(Sender._timers[groupId], -Max(1, Round((target - now - Sender.WAKE_LEAD_US) / 1000)))
+            return
+        }
+        if target > now
+            now := HighResClock.SleepUntilUs(target)
+
+        ; ---- Pass B：收集到期 + 分桶 + 保相位推进基准 + 顺带求 minNext ----
+        dueBuckets := Map()          ; dueAt(µs) -> [keys]
+        minNext := 0x7FFFFFFFFFFF    ; 哨兵要够大：µs 口径下 0x7FFFFFFF 只有约 35 分钟
+        i := 1
+        while i <= n {
+            iv := ivs[i]
+            dueAt := triggerTimes[i] + iv
+            next := dueAt             ; 未到期：下一次到期时刻就是本次的计划时刻
+
+            if now >= dueAt - Sender.TIMING_EPSILON_US {
+                if !dueBuckets.Has(dueAt)
+                    dueBuckets[dueAt] := []
+                dueBuckets[dueAt].Push(keys[i])
+
+                ; 计划时刻单调推进并保持相位。
+                ; ⚠️ 禁止在滞后时把基准重置为当前时刻（旧 sender.ahk 的缺陷）：
+                ; 既丢相位又吞触发。应保相位单调推进，并把跳过的周期计入 droppedTriggers。
+                last := dueAt
+                if dueAt + iv <= now {
+                    steps := Floor((now - (dueAt + iv)) / iv) + 1
+                    last := dueAt + iv + steps * iv - iv
+                    state["droppedTriggers"] := (state.Has("droppedTriggers") ? state["droppedTriggers"] : 0) + steps
+                }
+                triggerTimes[i] := last
+                next := last + iv
+            }
+
+            if next < minNext
+                minNext := next
+            i++
+        }
+
+        ; ---- 逐个计划时刻批量按下/释放 ----
+        ; 超长保持（kpd > PRECISE_HOLD_MAX_MS）下「计划时刻→抬起完成」必然 > 20ms，
+        ; 精确定刻已无意义，退回异步释放。
+        for dueAt, batch in dueBuckets {
+            if kpd > 0 && kpd <= Sender.PRECISE_HOLD_MAX_MS
+                Sender._PressPreciseBatch(groupId, batch, dueAt, kpd)
+            else
+                Sender._PressAsyncBatch(groupId, batch, kpd)
+        }
+
+        ; ---- 排下一次唤醒（须在发送之后取时刻）----
+        ; lastNextDue 是**绝对时刻**，不随 nowAfter 变化，可用于等价性校验与排障；
+        ; 真正的 nextPoll = (lastNextDue - nowAfter - 提前量)，依赖取时刻的瞬间。
+        state["lastNextDue"] := minNext
+        minRemaining := minNext - HighResClock.NowUs()
+        nextPoll := Max(1, Round((minRemaining - Sender.WAKE_LEAD_US) / 1000))
+        if Sender._timers.Has(groupId)
+            SetTimer(Sender._timers[groupId], -nextPoll)
+    }
+
     ; 序列模式的精确定刻执行（策略与 _ExecutePeriodic 一致）
     ;
     ; 原实现有两个缺陷：
@@ -613,7 +745,15 @@ class Sender {
     ;   ① A_TickCount 基准（步进 15.52ms）+ SetTimer(-kpd) 释放（15.625ms 网格）；
     ;   ② periodic 子组允许提前 5% 触发，且触发后把基准写成 now（丢相位）；
     ;   ③ sequence 子组从发送完成后的当前时刻推进基准，误差逐步累积。
+    ; 混合模式 tick 入口：按 MERGE_TICK_SCAN 在「合并遍历版」与「旧版」之间分派。
     static _ExecuteHybrid(groupId) {
+        if Sender.MERGE_TICK_SCAN
+            return Sender._ExecuteHybridMerged(groupId)
+        return Sender._ExecuteHybridLegacy(groupId)
+    }
+
+    ; ---- 旧版：对照与回退路径，勿在此改动逻辑 ----
+    static _ExecuteHybridLegacy(groupId) {
         if !Sender._activeGroups.Has(groupId)
             return
 
@@ -742,6 +882,145 @@ class Sender {
             if d - nowAfter < minRemaining
                 minRemaining := d - nowAfter
         }
+        if Sender._timers.Has(groupId)
+            SetTimer(Sender._timers[groupId], -Max(1, Round((minRemaining - Sender.WAKE_LEAD_US) / 1000)))
+    }
+
+    ; ---- 合并遍历版（由 MERGE_TICK_SCAN 开启）----
+    ;
+    ; 与 _ExecuteHybridLegacy 逐项等价，两处结构变化：
+    ; ① 「构造子项」与「求 target」合成一次遍历（原来构造完还要再扫一遍 items）。
+    ; ② 「下次唤醒」不再需要 nextDues 临时数组与第二次遍历：
+    ;    Pass B 里直接记下绝对时刻 minNext，发送后减一次 nowAfter 即可。
+    ;    依据同 _ExecutePeriodicMerged —— 整数 µs 下 min(a_i - c) === min(a_i) - c 严格相等。
+    static _ExecuteHybridMerged(groupId) {
+        if !Sender._activeGroups.Has(groupId)
+            return
+
+        state := Sender._activeGroups[groupId]
+        groups := state["groups"]
+        kpd := state["keyPressDuration"]
+        triggerTimes := state["groupTriggerTimes"]
+
+        now := HighResClock.NowUs()
+
+        ; ---- 1. 初始化基准 + 构造子项列表 + 顺带求 target（省掉一次遍历）----
+        ; 子项 = [kind, grpIdx, idx, dueAt(µs), params, key, keyCount]
+        ;   periodic: idx = 键序号，params = intervals
+        ;   sequence: idx = 当前步，params = delays，keyCount = 键总数
+        items := []
+        target := 0
+        for grpIdx, grp in groups {
+            grpType := grp.Has("type") ? grp["type"] : "periodic"
+            grpKeys := grp.Has("pressKeys") ? grp["pressKeys"] : (grp.Has("keys") ? grp["keys"] : [])
+
+            if grpKeys.Length = 0
+                continue
+
+            if grpType = "sequence" {
+                stepKey := grpIdx ".step"
+                if !triggerTimes.Has(stepKey)
+                    triggerTimes[stepKey] := 1
+                nextTimeKey := grpIdx ".nextTime"
+                if !triggerTimes.Has(nextTimeKey)
+                    triggerTimes[nextTimeKey] := now
+                grpDelays := grp.Has("delays") ? grp["delays"] : [100]
+                step := triggerTimes[stepKey]
+                if step > grpKeys.Length
+                    step := 1
+                dueAt := triggerTimes[nextTimeKey]
+                items.Push(["sequence", grpIdx, step, dueAt, grpDelays, grpKeys[step], grpKeys.Length])
+                if target = 0 || dueAt < target
+                    target := dueAt
+            } else {
+                grpIntervals := grp.Has("intervals") ? grp["intervals"] : [50]
+                for i, k in grpKeys {
+                    triggerKey := grpIdx "." i
+                    if !triggerTimes.Has(triggerKey)
+                        triggerTimes[triggerKey] := now
+                    interval := Sender._IntervalUsOf(grpIntervals, i)
+                    dueAt := triggerTimes[triggerKey] + interval
+                    items.Push(["periodic", grpIdx, i, dueAt, grpIntervals, k, grpKeys.Length])
+                    if target = 0 || dueAt < target
+                        target := dueAt
+                }
+            }
+        }
+
+        if items.Length = 0 {
+            if Sender._timers.Has(groupId)
+                SetTimer(Sender._timers[groupId], 0)
+            return
+        }
+
+        ; ---- 2. 精确定位到计划时刻 ----
+        if target - now > Sender.WAKE_LEAD_US {
+            ; 同 _ExecutePeriodicMerged：此时无子项到期，minNext 与 target 相同。
+            state["lastNextDue"] := target
+            if Sender._timers.Has(groupId)
+                SetTimer(Sender._timers[groupId], -Max(1, Round((target - now - Sender.WAKE_LEAD_US) / 1000)))
+            return
+        }
+        if target > now
+            now := HighResClock.SleepUntilUs(target)
+
+        ; ---- 3. 收集已到期子项（按计划时刻分桶）+ 保相位推进基准 + 顺带求 minNext ----
+        dueBuckets := Map()      ; dueAt(µs) -> [子项]
+        minNext := 0x7FFFFFFFFFFF
+        for it in items {
+            dueAt := it[4]
+            next := dueAt        ; 未到期：下一次的计划时刻就是本次的
+
+            if now >= dueAt - Sender.TIMING_EPSILON_US {
+                if !dueBuckets.Has(dueAt)
+                    dueBuckets[dueAt] := []
+                dueBuckets[dueAt].Push(it)
+
+                if it[1] = "periodic" {
+                    interval := Sender._IntervalUsOf(it[5], it[3])
+                    last := dueAt
+                    if dueAt + interval <= now {
+                        steps := Floor((now - (dueAt + interval)) / interval) + 1
+                        last := dueAt + interval + steps * interval - interval
+                        state["droppedTriggers"] := (state.Has("droppedTriggers") ? state["droppedTriggers"] : 0) + steps
+                    }
+                    triggerTimes[it[2] "." it[3]] := last
+                    next := last + interval
+                } else {
+                    nextStep := Mod(it[3], it[7]) + 1
+                    nextDelay := Sender._DelayUsOf(it[5], nextStep)
+                    advance := 1
+                    next := dueAt + nextDelay
+                    if next <= now {
+                        skipped := Floor((now - next) / nextDelay) + 1
+                        next += skipped * nextDelay
+                        state["droppedTriggers"] := (state.Has("droppedTriggers") ? state["droppedTriggers"] : 0) + skipped
+                        advance += skipped
+                    }
+                    triggerTimes[it[2] ".nextTime"] := next
+                    triggerTimes[it[2] ".step"] := Mod(it[3] - 1 + advance, it[7]) + 1
+                }
+            }
+
+            if next < minNext
+                minNext := next
+        }
+
+        ; ---- 4. 逐个计划时刻批量按下/释放（同刻必须批量，见 _PressPreciseBatch）----
+        for dueAt, batch in dueBuckets {
+            batchKeys := []
+            for it in batch
+                batchKeys.Push(it[6])
+            if kpd > 0 && kpd <= Sender.PRECISE_HOLD_MAX_MS
+                Sender._PressPreciseBatch(groupId, batchKeys, dueAt, kpd)
+            else
+                Sender._PressAsyncBatch(groupId, batchKeys, kpd)
+        }
+
+        ; ---- 5. 排下一次唤醒（须在发送之后取时刻）----
+        ; lastNextDue 同上：绝对时刻，不随取时刻的瞬间变化。
+        state["lastNextDue"] := minNext
+        minRemaining := minNext - HighResClock.NowUs()
         if Sender._timers.Has(groupId)
             SetTimer(Sender._timers[groupId], -Max(1, Round((minRemaining - Sender.WAKE_LEAD_US) / 1000)))
     }
