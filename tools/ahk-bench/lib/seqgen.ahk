@@ -157,7 +157,9 @@ class PeriodicPolicy {
             i++
         }
         return {bases: bases, iv: iv, intervalsUs: intervalsUs, dropped: 0
-              , emitted: 0, truncated: 0}
+              , emitted: 0, truncated: 0, noSort: false}
+        ; noSort：仅供基准消融（bench_seqgen 的 G 阶段）量化排序本身的成本。
+        ; 生产路径恒为 false —— 关掉排序会破坏「按 dueUs 升序」的输出契约。
     }
 
     static NextDueUs(st) {
@@ -240,7 +242,7 @@ class PeriodicPolicy {
             i++
         }
         ; ⚠️ 只能排本轮新增的尾部。整表重排会让 EventWindow 累积成 O(n²)。
-        if outDue.Length > lo
+        if !st.noSort && outDue.Length > lo
             SeqSortPair(outDue, outKey, lo)
         return outDue.Length - lo + 1
     }

@@ -95,12 +95,14 @@ RunScale(mode, n, impl, rounds) {
 }
 
 ; ---------- B 阶段：每 tick 时延分布（≥1000 样本） ----------
-RunTickLatency(mode, impl, wantEvents, ampUs := 0, keyCount := 0) {
+RunTickLatency(mode, impl, wantEvents, ampUs := 0, keyCount := 0, noSort := false) {
     global SEQGEN_NO_DUE
     if keyCount = 0
         keyCount := KEY_COUNT
     p := PolicyOf(impl, mode)
     st := MakeState(impl, mode, keyCount)
+    if noSort
+        st.noSort := true      ; 仅 G 阶段消融用
     vc := VirtualClock(ORIGIN_US)
     guard := MonotonicGuard(vc)
     rng := Lcg(11)
@@ -139,6 +141,7 @@ RunTickLatency(mode, impl, wantEvents, ampUs := 0, keyCount := 0) {
     sn := SortNums(nd)
     BenchWrite("tick,mode=" . mode . ",impl=" . impl . ",amp_us=" . ampUs
         . ",keys=" . keyCount
+        . ",sort=" . (noSort ? "off" : "on")
         . ",n=" . s.Length
         . ",collect_p50_us=" . Round(Pct(s, 0.50), 3)
         . ",collect_p95_us=" . Round(Pct(s, 0.95), 3)
@@ -281,6 +284,14 @@ Main() {
         RunTickLatency("periodic", "new", 20000, 0, kc)
         RunTickLatency("sequence", "old", 20000, 0, kc)
         RunTickLatency("sequence", "new", 20000, 0, kc)
+    }
+
+    ; G 阶段：排序消融 —— F 阶段发现「加速比随键数下降」，需要确认排序是不是真瓶颈。
+    ; 只报 p50（同 F 阶段口径）；sort=on 与 sort=off 的差即排序本身的成本。
+    BenchWrite("# --- G 排序消融（periodic，量化 SeqSortPair 的真实占比）---")
+    for kc in [8, 24, 64] {
+        RunTickLatency("periodic", "new", 20000, 0, kc, false)
+        RunTickLatency("periodic", "new", 20000, 0, kc, true)
     }
 
     BenchWrite("# --- E 分桶漂移（浮点 ms 累加 vs 整数 us）---")

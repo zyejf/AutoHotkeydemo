@@ -930,7 +930,7 @@ python tools/ahk-bench/report.py            # → docs/refactor/bench-report-<da
 - **L3（端到端）**：含 `SleepUntil` 忙等 + 真实唤醒，受 15.625 ms 定时器网格限制，实际只到 **1K** 量级。
 
 ```bash
-# 单轮：L1（六阶段：规模吞吐 / tick 时延分解 / enhanced 别名 / 新旧等价性 / 分桶漂移 / 键数扫描）
+# 单轮：L1（七阶段：规模吞吐 / tick 时延分解 / enhanced 别名 / 新旧等价性 / 分桶漂移 / 键数扫描 / 排序消融）
 bash tools/ahk-bench/run.sh seqgen
 
 # 单轮：L3 端到端
@@ -953,7 +953,7 @@ python tools/ahk-bench/envinfo.py
 | `lib/seqgen.ahk` | 调度内核**新**实现原型（策略接口 + 惰性滑动窗口 `EventWindow`） |
 | `lib/seqgen_legacy.ahk` | 旧实现复刻（含浮点分桶的 `dueBuckets` 行为），供 A/B 对照 |
 | `lib/seqgen_test.ahk` | 原型单元测试（**原型自测，非生产测试套件**，不登记进 `test-map.md`） |
-| `bench_seqgen.ahk` | L1 纯生成基准（A~F 六阶段） |
+| `bench_seqgen.ahk` | L1 纯生成基准（A~G 七阶段，G 为排序消融） |
 | `bench_schedule_e2e.ahk` | L3 端到端基准（含 `SleepUntil` 忙等与真实唤醒） |
 | `run_3rounds.sh` | 三轮 runner，**每轮独立输出目录** |
 | `envinfo.py` | 环境信息采集（含 QPC 频率 —— AHK 侧无 JVM 等价物，必须报此项） |
