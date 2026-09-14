@@ -142,11 +142,16 @@ AHK `FileAppend` 默认系统 ANSI → 必须 `FileAppend(..., "UTF-8")`。
   实测（hybrid，5 轮×54）：p50 稳定 **0.033ms**、max 14.98ms 且仅 1/54；
   但 CI 紧跟 24s cargo test 后离群点达 3 个 → `P95≤1.0` 误报（11.2ms）。
   hybrid 两个子组并发 → 占用更高、离群点比 periodic/sequence 更多。
+  实例：`SleepUntil` 定位误差断言（n=30、P95≤1.0）在 CI 拿到 **3.817ms** 离群而红，
+  本地同代码却全绿 → 已改 **n=60 + 中位数≤1.0 + P95≤5.0 兜底**（`7cc7dce`）。
+  同理 `PressPrecise` 保持时长由**单样本**改为 9 次取中位数。
 - ⚠️ **「脏环境假阳性」**：断言路径与组件实际写入路径不一致时，只要该路径恰好已存在就一直绿。
   **断言取组件自己的值**（`DebugLogger.logFile`）。
 - `AutoHotUnitSuite` **下划线开头方法不收集为用例**。
 - 对 **Object 形态**（`{type:"ERROR"}`）**不能用 `[]` 取值**，须 `.prop` 或先判 `e is Map`。
 - 隔离跑单个套件：复制 `run_all_tests.ahk` → 只注册目标套件 + 换日志名，跑完删掉。
+- ⚠️ **汇总不进 stdout**：直连跑 `run_all_tests.ahk` 时 `>file` 恒为 **0 字节**（GUI 子系统），
+  结果写进 **`tests/test_results.log`**（已被 `*.log` 忽略）。判成败读后者，别被空日志误导。
 
 ## 环境 / CI / E2E（完整版见 `env-and-ci.md`）
 
