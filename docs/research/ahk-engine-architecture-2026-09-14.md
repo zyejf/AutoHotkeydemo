@@ -22,7 +22,8 @@
 | 6 | **Sleep 断点在 21 ms**（不是 16 ms）：请求 ≤20 ms 一拍 ~15.9 ms，≥21 ms 两拍 ~31 ms | P2 + `application.cpp:1481` 判据 `D - elapsed ≤ SLEEP_INTERVAL_HALF` | 修正既有认知；20 ms 是「单拍可得」的上限 |
 | 7 | **QPC 自旋期间消息泵并未停摆**（`Sleep(0)` 会驱动泵） | P3：自旋 100 ms 期间探针仍触发 7 次（理论 6.4） | 「忙等 = 冻结一切」是误解；真实代价是 **gap p95 从 16.6 升到 ~27 ms** |
 | 8 | 现网 `WAKE_LEAD_MS=28` 处于**合理保守位**：占用 20.5% 占空比；降到 16/8 会产生 13~17%「睡过头」 | P3 | 想降占用必须换策略，不能简单调小 lead |
-| 9 | **热键端到端时延 p50 ≈ 0.86 ms**，p95 1.30 ms | P4 | 热键链路本身不是瓶颈，瓶颈在调度侧 |
+| 9 | **热键端到端时延 p50 ≈ 0.64~0.86 ms**（两次运行 0.859 / 0.637），p95 ≤ 1.31 ms | P4 | 热键链路本身不是瓶颈，瓶颈在调度侧 |
+| 9b | **热键注册边际成本平坦（~38~55 µs/个），108 个仅 4.48 ms、0 错误** | P4 phase3 | **未见 O(n²)**；源码里的 O(n) `Manifest` 扫描在本项目规模下不构成瓶颈 |
 | 10 | **裸 `SendInput`（`dwExtraInfo=0`）能触发任意 InputLevel 的热键**（IL0/IL1/IL11 全中） | P4 phase4 | 坐实「Rust 侧下沉不可行」；且 `SendLevel(10)+InputLevel(11)` **挡不住**它 |
 | 11 | **循环引用 100% 泄漏**：5 万个带环 Map 常驻 **+22.9 MB**；无环对照组仅 +64 KB | P5 | 纯引用计数、无环检测器（`script_object.h:16-68`） |
 | 12 | **热键注册永不回收**：1080 次注册 **+452 KB**，SimpleHeap 只增不还 | P5 + `SimpleHeap.cpp:114-125` | 频繁增删热键是长期内存增长源 |
@@ -119,6 +120,8 @@ _tWinMain                        AutoHotkey.cpp:66
 - **`#Include` 边际成本 ≈ 592 µs/文件**，与文件内行数几乎无关（5 000 行 50 文件 ≈ 1 000 行 50 文件）。
 - 源码侧印证：`LoadIncludedFile` 每次都要做路径规范化 + 查 `sSourceFile` 去重表（`script.cpp:1644`），且**所有被包含文件并入同一条全局 Line 链表**，文件数不降低任何运行期查找成本（`script.cpp:1752`、`script.h:719`）。
 - 启动期唯一的非线性项是 `ManifestAllHotkeysHotstringsHooks()`（`hotkey.cpp:202`）：三趟全表扫描，key-up 热键还带一层 O(n) 内层（`hotkey.cpp:303-319`）→ 最坏 **O(n²)**。源码自述 high-overhead（`hotkey.cpp:1080`）。
+  ⚠️ 但**实测未观测到该退化**：注册 108 个热键边际成本平坦（38~55 µs/个，总计 4.48 ms，见 §4.5 第 4 项）。
+  **结论以实测为准**——本项目规模下它不是启动瓶颈，O(n²) 只是源码层面的最坏界。
 
 > 本项目 6 个 `.ahk` 文件 → `#Include` 成本约 3.5 ms，可忽略。
 
@@ -215,7 +218,7 @@ _tWinMain                        AutoHotkey.cpp:66
 
 **实测（P4）：**
 
-1. **端到端时延**：p50 **0.859 ms**、p95 1.302 ms、max 1.382 ms（n=30）。→ 热键链路**不是**时延瓶颈。
+1. **端到端时延**：p50 **0.637 ms**、p95 0.942 ms、max 1.248 ms、min 0.540 ms（n=30；另一次运行为 p50 0.859 / p95 1.302）。两次都在 1 ms 量级 → 热键链路**不是**时延瓶颈。
 2. **SendLevel × InputLevel 判定矩阵**（`YES` = 被自身 `Send` 触发）：
 
    | SendLevel | IL0 (F13) | IL1 (F15) | IL11 (F14) |
@@ -229,6 +232,21 @@ _tWinMain                        AutoHotkey.cpp:66
    | F13 | **YES** | no | no |
    | F15 | no | **YES** | no |
    | F14 | no | no | **YES** |
+
+4. **注册规模开销**（连续注册 108 个热键，**0 错误**）：
+
+   | 累计注册数 | 累计耗时 ms | 边际 µs/个 |
+   |---|---|---|
+   | 1 | 0.047 | 47.0 |
+   | 10 | 0.543 | 55.1 |
+   | 30 | 1.494 | 47.5 |
+   | 60 | 2.637 | 38.1 |
+   | 108 | 4.480 | **38.4** |
+
+   边际成本**平坦甚至略降**（47→38 µs），**没有出现 O(n²) 增长**。
+   → 源码里 `ManifestAllHotkeysHotstringsHooks()` 的 O(n) 扫描确实存在（每次注册触发一次），
+   但在本项目规模（启动期 47 处注册；此处压到 108）**观测不到平方级退化**，不构成瓶颈。
+   首次注册 47 µs 的偏高是 hook 首次安装（`SetWindowsHookEx`）的一次性成本。
 
 **解读（含推断，已标注）**：
 
@@ -334,7 +352,7 @@ _tWinMain                        AutoHotkey.cpp:66
 | L2-1 | IPC `WriteFile` 同步阻塞 | 架构现状 | Rust 侧写**超时 + 背压 + 64 KB 分帧校验**；`CreateFile` 时设 `FILE_FLAG_OVERLAPPED` 或写线程 + `WaitForSingleObject(h, 500)` | `asd-ipc-protocol` / `src-tauri` | 单侧卡死不再拖死对端 | 需处理半包 | P1 | 注入慢消费者 |
 | L2-2 | GUI exe 不等待 → 无法判定存活 | `AutoHotkey64.exe` GUI 子系统 | **Job Object** 包裹子进程 + **心跳**：AHK 侧每 500 ms 写一次心跳文件/管道，Rust 侧超时即判死 | `src-tauri` | 崩溃可检测 | 低 | P1 | kill 子进程观察 |
 | L2-3 | 崩溃取证缺失 | P9 | 统一通道：`OnError` 输出 + 退出码 + `.done`/`.crash` 哨兵 → Rust 汇总落盘 | 双侧 | 现场可复现 | 低 | P2 | 故意抛错 |
-| L2-4 | 热键批量注册会反复触发 O(n²) `Manifest` | `hotkey.cpp:202/303-319` | **批量化**：先 `Suspend`/关 hook，注册完再一次性 `Manifest`；或把 47 处注册收敛到启动期一次完成 | `hotkey_hook.ahk` | 注册耗时与抖动下降 | 低 | P2 | P4 phase3 |
+| L2-4 | 每次 `Hotkey()` 都触发一次**全量** `Manifest`（源码层面每次 O(n) 扫描，合计 O(n²)） | `hotkey.cpp:202/303-319` | **仅作预防，当前不必改**：实测 n=108 时边际 38~55 µs 平坦、总计 4.48 ms。仅当热键数上到 10³ 量级，再改为先 `Suspend`/关 hook、注册完一次性 `Manifest` | `hotkey_hook.ahk` | 当前无可测收益 | 低 | P3 | P4 phase3（**未见 O(n²)**） |
 | L2-5 | 两处 `AutoHotkey64.exe` 版本漂移风险 | P0（当前一致） | **CI 加一条校验**：比对哈希/版本串，不一致即 fail | `.github/workflows` | 防止实测失真 | 低 | P1 | CI |
 | L2-6 | 依赖 `#MaxThreads` 做背压无效 | P9（30/30 全跑） | **自己实现背压**：AHK 侧原子计数器 + 超阈值直接丢弃并计数上报 | `sender.ahk` | 行为可预期 | 低 | P1 | P9 场景 |
 | L2-7 | 编码边界未锁定 | P7（CP936 静默丢字符） | **协议层强制 UTF-8**：Rust 侧序列化后校验 `std::str::from_utf8`；AHK 侧自研 JSON 解析器只接受 UTF-8，遇到非法序列**报错而非替换** | 双侧 | 消除静默丢字符 | 低 | P1 | P7 用例集 |
@@ -385,7 +403,7 @@ _tWinMain                        AutoHotkey.cpp:66
 | P1/P8 | `gen_fixtures.py` + `bench_startup.py` | `p1_startup.csv` | 启动 163.8 ms / 解析 1.33 µs·行 / `#Include` 592 µs·文件 |
 | P2 | `p2_timer.ahk` | `p2_timer.csv` | 网格 15.985 ms；`timeBeginPeriod` 零改善；Sleep 断点 21 ms |
 | P3 | `p3_occupancy.ahk` | `p3_occupancy.csv` | 自旋期间泵未停；lead<20 漏 13~17%；lead28 占空 20.5% |
-| P4 | `p4_hotkey.ahk` | `p4_hotkey.csv` | 时延 p50 0.859 ms；裸 SendInput 三档全中 |
+| P4 | `p4_hotkey.ahk` | `p4_hotkey.csv` | 时延 p50 0.637 ms（另一次 0.859）；裸 SendInput 三档全中；注册 108 个 4.48 ms、边际 ~38 µs、0 错误 |
 | P5 | `p5_memory.ahk` | `p5_memory.csv` | 循环引用 +22.9 MB；热键注册 +452 KB |
 | P6 | `p6_longpath.ahk` | `p6_longpath.csv` | 30 038 字符全绿 |
 | P7 | `p7_unicode.ahk` | `p7_unicode.csv` | 文件/UTF-8/UTF-16 全绿；CP936 静默丢字符 |
