@@ -117,3 +117,9 @@ syntax_check.err
 # Python 工具链产物（tools/**/*.py）
 __pycache__/
 *.pyc
+
+# ============================================================
+# AHK 基准原始输出（可复现产物，不入库）
+# ============================================================
+tools/ahk-bench/results/
+tools/ahk-bench/lib/*_result.log

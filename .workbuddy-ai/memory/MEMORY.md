@@ -77,6 +77,12 @@ Rust 64 / 163 use 边 / 11 crate 边 / 0 生产环 / 3 违规（均 asd-test-har
 sequence 旧 248~263ms → 新 14.97ms；hybrid 子组各自保持 100/300ms。
 报告 `docs/perf/key-latency-benchmark-2026-09-13.md`。
 **Rust 侧下沉不可行**：`SendLevel(10)`+`InputLevel(11)` 使 Rust `SendInput` 被 AHK 当物理键 → 自触发死循环。
+⚠️ **四种调度模式实为两套内核**：`enhanced_periodic`/`enhanced_sequence` = `StartPeriodic`/`StartSequence`
++ 改写 `state["mode"]` 标签，差异只在配置字段名（`pressKeys`/`pressDelays` vs `keys`/`delays`，
+`executor.ahk:303-310`）。`state["mode"]` **只写不读**，不参与任何运行时分支。
+⚠️ **分桶键是浮点 dueAt**（`triggerTimes[i] + interval`，`HighResClock.Now()` 返回 ms **浮点**）：
+数学上同刻的两个键若末位不同会被拆成两个桶 → 后者保持时长塌成 ~0ms，正是批量化要解决的问题本身。
+规划中的修法：时刻改用**整数**（微秒或 QPC 计数）表示，顺带拿到确定性。
 
 ## AHK 重构基准（`tools/ahk-bench/`，结论落点 `docs/refactor/`）
 

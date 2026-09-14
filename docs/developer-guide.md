@@ -922,6 +922,27 @@ bash tools/ahk-bench/cycle_leak_all.sh
 python tools/ahk-bench/report.py            # → docs/refactor/bench-report-<date>.md
 ```
 
+#### 调度序列生成基准（L1 纯生成 + L3 端到端）
+
+针对 `src-autohotkey/lib/sender.ahk` 的调度内核另有一套**分层**基准，规模口径与上面 6 组不同：
+
+- **L1（纯生成）**：只跑"生成到期事件序列"，不含真实按键与定时器，可压到 **100K** 事件量；
+- **L3（端到端）**：含 `SleepUntil` 忙等 + 真实唤醒，受 15.625 ms 定时器网格限制，实际只到 **1K** 量级。
+
+```bash
+# 单轮：L1（六阶段：规模吞吐 / tick 时延分解 / enhanced 别名 / 新旧等价性 / 分桶漂移 / 键数扫描）
+bash tools/ahk-bench/run.sh seqgen
+
+# 单轮：L3 端到端
+bash tools/ahk-bench/run.sh schedule_e2e
+
+# 三轮可复现（推荐 —— 单轮结论不可信）
+bash tools/ahk-bench/run_3rounds.sh
+
+# 环境信息采集（OS / CPU / 内存 / QPC 频率 / AHK 版本）
+python tools/ahk-bench/envinfo.py
+```
+
 | 文件 | 用途 |
 |------|------|
 | `run.sh` | 运行器：显式传 `AHK_BENCH_OUT`（Windows 路径）+ 轮询 `.done` |
@@ -929,14 +950,30 @@ python tools/ahk-bench/report.py            # → docs/refactor/bench-report-<da
 | `bench_*.ahk` | 6 组双实现基准，均含旧/新对照与等价性校验 |
 | `cycle_leak_all.sh` | 逐个用例独立进程跑 `cycle_leak`（含阳性对照） |
 | `report.py` | CSV → Markdown 对比报告 |
+| `lib/seqgen.ahk` | 调度内核**新**实现原型（策略接口 + 惰性滑动窗口 `EventWindow`） |
+| `lib/seqgen_legacy.ahk` | 旧实现复刻（含浮点分桶的 `dueBuckets` 行为），供 A/B 对照 |
+| `lib/seqgen_test.ahk` | 原型单元测试（**原型自测，非生产测试套件**，不登记进 `test-map.md`） |
+| `bench_seqgen.ahk` | L1 纯生成基准（A~F 六阶段） |
+| `bench_schedule_e2e.ahk` | L3 端到端基准（含 `SleepUntil` 忙等与真实唤醒） |
+| `run_3rounds.sh` | 三轮 runner，**每轮独立输出目录** |
+| `envinfo.py` | 环境信息采集（含 QPC 频率 —— AHK 侧无 JVM 等价物，必须报此项） |
+
+> ⚠️ **`run_3rounds.sh` 为什么要每轮独立目录**：本环境 `rm` 会被 safe-delete 钩子拦截
+> （`genie-trash` 无法处理 `/d/...` 与 `C:\...` 混写路径），清不掉 `.done` 哨兵 →
+> 轮询立刻返回 → **跑出上一轮的陈旧 CSV**。独立目录是最省事的绕法。
 
 > **两条内存类基准的硬纪律**：① 必须带**阳性对照**，否则「没测出来」和「没有泄漏」无法区分；
 > ② 必须**每用例独立进程**，同进程连续跑时基线会漂移（实测 3216 → 4696 KB）。
 >
 > **统计口径**：用 p50 判定不用 max；P95 需足量样本（n=54 时只容忍 2 个离群点）；
+> **P999 需 ≥1000 样本**，否则 `Ceil(n*0.999)` 恒等于 max；
 > CPU 类结论必须给多轮区间并检查是否重叠。
 >
 > **结论落点**：`docs/refactor/`（重构方案与实测对比的唯一权威）。
+> 其中调度专题三份：
+> `scheduling-design.md`（算法设计 / 契约 / 边界矩阵）、
+> `scheduling-bench-2026-09-14.md`（实测基准报告）、
+> `plan-C-evaluation.md`（方案 C 深度评测）。
 
 ### 4.7 发布构建
 
