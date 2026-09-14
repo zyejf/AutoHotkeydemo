@@ -3,7 +3,7 @@
 > 长期有效的事实与约定。临时状态见 `YYYY-MM-DD.md`。
 > 详见：`env-and-ci.md`（环境/CI/E2E）、`contracts-and-pitfalls.md`（契约统计命令/易误判点/BUG-6）。
 
-## 文档权威边界（四方，各自领域内唯一）
+## 文档权威边界（五方，各自领域内唯一）
 
 | 文档 | 权威领域 |
 |------|---------|
@@ -11,9 +11,15 @@
 | `asd-tauri/docs/test-map.md` | **一切测试数字**（其它文档只写指针） |
 | `docs/developer-guide.md` | 环境搭建、构建、部署、排障 |
 | `docs/graph-driven-workflow.md` | 图谱方法、开发/审查流程、同步机制 |
+| `docs/research/` | **架构级调研结论唯一落点**（外部引擎/第三方源码走查 + 实测）；探针在 `tools/ahk-probes/` |
 
-冲突：数字→test-map；架构→AGENTS；命令→developer-guide；流程→graph-driven-workflow。
+冲突：数字→test-map；架构→AGENTS；命令→developer-guide；流程→graph-driven-workflow；
+外部引擎调研→`docs/research/`。
 **矛盾必须当场修正，不允许两边都留着。**
+
+> AHK v2 引擎调研（2026-09-14）：`docs/research/ahk-engine-architecture-2026-09-14.md`
+> —— 含源码锚点、10 个探针实测数据、16 条执行摘要、L1/L2/L3 共 22 项落地清单。
+> 引擎源码 `AutoHotkey-2.0.26/source` **只读**（不修改/不 fork/不编译）。
 
 ## 图谱工作流与四闸门
 
@@ -48,8 +54,8 @@ Rust 64 / 163 use 边 / 11 crate 边 / 0 生产环 / 3 违规（均 asd-test-har
 | 机制 | 实测 |
 |------|------|
 | `A_TickCount` 步进 | 中位 **15.52ms** → 测不了 20ms 内时延 |
-| `SetTimer`/`Sleep` | 锁死 **15.625ms 网格**；请求 1/5/10/15 均 ~15.6；**请求 16 反得 ~31** |
-| `timeBeginPeriod(1)` | 对 AHK **完全无效** |
+| `SetTimer`/`Sleep` | 锁死 **15.625ms 网格**；请求 1/5/10/15/16/20 均 ~15.9；**断点在 21ms**（≥21 才变 ~31） |
+| `timeBeginPeriod(1)` | 对 AHK **完全无效**（已有配对对照 + 复原确认：gap p50 15.985→15.995） |
 | 一次性 `SetTimer(-1)` | 空闲时中位 **15.67ms**（0.23ms 是探针自身假象） |
 | **QPC 忙等** | 误差 **0.0017ms** —— 唯一精确手段 |
 
@@ -60,9 +66,12 @@ Rust 64 / 163 use 边 / 11 crate 边 / 0 生产环 / 3 违规（均 asd-test-har
 ⑥ 同刻多键**必须分桶批量** Down→等→Up（串行会让第二个键保持塌到 0.02ms）；
 ⑦ 序列首步基准在**首次执行**时确立（`nextStepTime := 0` 哨兵），不能取启动调用时刻。
 
-⚠️ **代价：连续占用 AHK 主线程**（`SleepUntil` 的 `Sleep(0)` 不放行其它 AHK 定时器）。
-实测 interval=100/kpd=15：扣除网格后**最长连续占用 31.4ms、占空比 29.2%**，
-IPC/热键最多被推迟 ~31ms（旧实现完全不阻塞）。新增定刻点前必评估。
+⚠️ **代价：连续占用 AHK 主线程**。实测 interval=100/kpd=15：扣除网格后**最长连续占用 31.4ms、
+占空比 29.2%**。
+⚠️ **但「忙等=冻结一切」是误解**：`SleepUntil` 里的 `Sleep(0)` 在 AHK 中是 `ScriptSleep(0)` →
+`MsgSleep(0)` → `PeekMessage`，**每次迭代都驱动消息泵**。实测自旋 100ms 期间探针定时器仍触发 7 次
+（理论 6.4）。真实代价是**探针 gap p95 从 16.6 抬到 ~27ms**，不是无限期推迟。
+`WAKE_LEAD_MS=28` 处于合理保守位：lead 8/16 会产生 **13~17% 睡过头**（保持时长塌掉）。
 
 实测「计划时刻→抬起完成」P95：periodic 旧 16~27ms → 新 **15.0ms**；interval=20 旧 ~2000ms → 新 15.0ms；
 sequence 旧 248~263ms → 新 14.97ms；hybrid 子组各自保持 100/300ms。
@@ -79,6 +88,17 @@ sequence 旧 248~263ms → 新 14.97ms；hybrid 子组各自保持 100/300ms。
 - AHK v2：箭头函数 `=>` **只支持表达式体**；类**静态方法只读** → 用注入字段（如 `_sendHook`）。
 - AHK v2 保留字不能作变量名（`log`/`in`/`out`…）；`while i<=n {` 不能写单行块体。
 - 脚本级变量**不会**被箭头函数闭包捕获（函数 assume-local）→ 包进 `Main()` 或 `global`。
+- AHK v2.0.26：`catch as e` 才对（`catch e` 报 `Invalid class`）；**`Array` 没有 `Sort()` 方法**；
+  `Hotkey()`/`OnError()` 回调必须传**函数对象**（`((*) => 0)`；裸名字报 `Invalid callback function.`、
+  `Func("名")` 报 `Invalid base.`）；`OnError` 多回调**全部执行**且 `-1` 移除不掉；
+  `StrPut(s, 65001)` 数字码页非法，要写 `"UTF-8"`。
+- AHK v2 **递归上限 ~1200–1500 层且 `try/catch` 捕获不到**（直接 ExitApp 模式终止进程）→ 深递归必须改迭代。
+- AHK v2 **循环引用 100% 泄漏**（纯引用计数、无环检测）：5 万个带环 Map 常驻 +22.9MB。
+- AHK v2 文件 API **无 MAX_PATH 限制**（30 038 字符读写正常，无需 `\\?\`）。
+- **CP936/ANSI 码页往返会静默丢字符**（长度不变、内容变 `?`）→ IPC 必须锁死 UTF-8。
+- ⚠️ **`#MaxThreads` 不能当背压**：30 个并发定时器在默认 10 下全部执行。
+- 进程启动耗时**必须先标定基线**：本机 `hostname.exe` 都要 144.9ms（Defender），
+  AHK 空脚本 163.5ms → **引擎自身仅 ≈19ms**。绝对值不可跨机比。
 
 ## AHK 测试的坑
 
@@ -87,6 +107,12 @@ sequence 旧 248~263ms → 新 14.97ms；hybrid 子组各自保持 100/300ms。
   **不要用 Map 收集中间结果**（同名键互相覆盖后只剩一个样本）。
   ⚠️ **宿主抖动无法从代码侧消除**（kpd 15ms、预算 20ms，余量 5ms），系统繁忙时偶发 28/78ms 离群
   —— 这是「只在负载高时失败」的典型形态，别误判成回归。
+  ⚠️ **样本够多也不保险**：离群点幅度（~15ms = 一个网格）远大于阈值（1ms），所以 P95 实际
+  只容忍 `floor(0.05n)` 个离群点——**n=54 也只容忍 2 个**。保持时长断言一律用
+  **中位数 ≤1ms 判漂移 + P95 ≤20ms（一个调度网格）兜底**。
+  实测（hybrid，5 轮×54）：p50 稳定 **0.033ms**、max 14.98ms 且仅 1/54；
+  但 CI 紧跟 24s cargo test 后离群点达 3 个 → `P95≤1.0` 误报（11.2ms）。
+  hybrid 两个子组并发 → 占用更高、离群点比 periodic/sequence 更多。
 - ⚠️ **「脏环境假阳性」**：断言路径与组件实际写入路径不一致时，只要该路径恰好已存在就一直绿。
   **断言取组件自己的值**（`DebugLogger.logFile`）。
 - `AutoHotUnitSuite` **下划线开头方法不收集为用例**。
