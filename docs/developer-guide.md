@@ -875,6 +875,33 @@ scripts\check-gates.ps1 -Quick
 
 > 闸门定义、判定策略与基线更新方式详见 `docs/graph-driven-workflow.md` §5.4。
 
+### 4.6.2 AHK 引擎探针（`tools/ahk-probes/`）
+
+用于**量化 AHK v2 引擎行为**的独立探针集（启动/解析开销、定时器网格、主线程占用、热键、
+内存、长路径、Unicode、异常、UAC）。与本项目生产代码解耦，**不参与四闸门**。
+
+```bash
+# Git Bash（必须走 run.sh：AutoHotkey64.exe 是 GUI 子系统进程，
+# 直接调用不会等待，且未捕获错误会弹模态框导致静默挂起）
+bash tools/ahk-probes/run.sh p0_version
+bash tools/ahk-probes/run.sh p2_timer
+
+# 结果：CSV 落在 %TEMP%\ahkprobe\<id>.csv，run.sh 轮询 <id>.done 哨兵后返回
+cat "$TEMP/ahkprobe/p2_timer.csv"
+```
+
+| 文件 | 用途 |
+|------|------|
+| `run.sh` | 唯一入口：转换 Windows 路径 + 后台拉起 + 轮询 `.done` |
+| `_harness.ahk` | 公共框架：QPC 高精度时钟、分位数统计、`OnError` 守卫（防模态框挂起） |
+| `p0_version.ahk` ~ `p10_uac.ahk` | 10 组探针，逐一对应报告章节 |
+| `gen_fixtures.py` + `bench_startup.py` | 启动/解析开销的外部墙钟基准 |
+
+> **结论落点**：探针只产出原始数据，解读与改进清单见
+> `docs/research/ahk-engine-architecture-2026-09-14.md`（调研结论的唯一权威）。
+> AHK v2 编写陷阱（如 `Array` 无 `Sort()`、`catch as e`、回调必须是函数对象）见
+> `tools/ahk-probes/README.md`。
+
 ### 4.7 发布构建
 
 ```powershell
