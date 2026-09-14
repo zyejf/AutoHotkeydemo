@@ -159,9 +159,11 @@ CSV 输出到 `%TEMP%\ahkbench\`。
 python tools/ahk-bench/report.py
 
 # 带历史轮次做多轮波动对比（推荐：把每轮目录先备份下来）
-python tools/ahk-bench/report.py %TEMP%/ahkbench \
+python tools/ahk-bench/report.py "$TEMP/ahkbench" \
     --prev <第1轮目录> <第2轮目录>
 ```
+
+> 上例是 **Git Bash** 写法；PowerShell 下把 `"$TEMP/ahkbench"` 换成 `$env:TEMP\ahkbench`。
 
 ### 4.3 三个 Windows 陷阱（踩过，别改回去）
 
