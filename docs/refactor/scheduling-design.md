@@ -1,8 +1,14 @@
 # 发送时刻序列生成 · 算法设计与工程标准
 
-> **本文是设计文档，不是改造方案。生产代码 `sender.ahk` 一行未改。**
+> **本文是设计文档，不是改造方案。**
 > 全部结论来自 `tools/ahk-bench/` 的可复现原型（`lib/seqgen.ahk` + `lib/seqgen_legacy.ahk`）。
 > 实测数字见 [`scheduling-bench-2026-09-14.md`](./scheduling-bench-2026-09-14.md)。
+>
+> **落地状态（2026-09-14 更新）**：摘要里「时刻表示 float ms → int µs」这一项**已在生产
+> `sender.ahk` / `high_res_clock.ahk` 落地**（新增 `NowUs()` / `SleepUntilUs()`，调度时刻与
+> 分桶键全部改为整数 µs，配置在 `Sender._IntervalUsOf` / `_DelayUsOf` 入口处 `Round()` 一次）。
+> 因此下文 §现状 中「生产用浮点毫秒」的描述已不再成立，仅作为改造前的记录保留。
+> 「每轮 3 次 `_IntervalOf` 收敛为 1 次」仍在计划中，未实施。
 
 ---
 

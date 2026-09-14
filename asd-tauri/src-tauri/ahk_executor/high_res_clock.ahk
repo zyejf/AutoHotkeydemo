@@ -53,6 +53,25 @@ class HighResClock {
     }
 
     ; ---------------------------------------------------------------
+    ; 当前时刻（微秒，整数，单调）—— 调度内部一律用这个表示时刻
+    ;
+    ; 为什么调度内部要用整数微秒而不是浮点毫秒（2026-09-14 实测）：
+    ;   浮点毫秒累加会产生末位误差。`33.333 + 33.333 + 33.333` 与 `99.999`
+    ;   作为 double 并不相等，导致「同一计划时刻」被 Map 判成两个键、拆成两个桶，
+    ;   后一个桶的按键保持时长会塌成 ~0ms。整数微秒下 33333*3 = 99999 精确相等。
+    ;   实测分桶场景：浮点累加拆桶率 94%，整数微秒 0%。
+    ;
+    ; ⚠️ 不能写 `c * 1000000 // freq`：c 在长时间运行后可达 8.6e13，乘 1e6 会溢出 Int64。
+    ;   必须拆成「整秒部分」与「余数的微秒部分」两段整数运算，全程不丢精度。
+    ; ---------------------------------------------------------------
+    static NowUs() {
+        c := 0
+        DllCall("QueryPerformanceCounter", "Int64*", &c)
+        f := HighResClock._EnsureFreq()
+        return (c // f) * 1000000 + ((Mod(c, f) * 1000000) // f)
+    }
+
+    ; ---------------------------------------------------------------
     ; 精确定刻：阻塞等待到绝对时刻 targetMs
     ;
     ; 三段策略：
@@ -79,6 +98,31 @@ class HighResClock {
                 while HighResClock.Now() < targetMs
                     continue
                 return HighResClock.Now()
+            }
+        }
+    }
+
+    ; ---------------------------------------------------------------
+    ; 精确定刻（微秒口径）：阻塞等待到绝对时刻 targetUs
+    ;
+    ; 三段策略与 SleepUntil(targetMs) 完全一致，只是时刻表示换成整数微秒。
+    ; 注意末段忙等必须用 NowUs() 比较，若退回 Now() 会把 µs 精度重新抹成浮点。
+    ; ---------------------------------------------------------------
+    static SleepUntilUs(targetUs) {
+        loop {
+            remainingMs := (targetUs - HighResClock.NowUs()) / 1000
+
+            if remainingMs <= 0
+                return HighResClock.NowUs()
+
+            if remainingMs >= HighResClock.COARSE_SLEEP_MIN_MS {
+                Sleep(Round(remainingMs - HighResClock.COARSE_SLEEP_MARGIN_MS))
+            } else if remainingMs > HighResClock.BUSY_WINDOW_MS {
+                DllCall("kernel32\Sleep", "UInt", 0)
+            } else {
+                while HighResClock.NowUs() < targetUs
+                    continue
+                return HighResClock.NowUs()
             }
         }
     }

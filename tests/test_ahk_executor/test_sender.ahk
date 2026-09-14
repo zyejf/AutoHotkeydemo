@@ -527,7 +527,9 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
             events := []
             Sender._sendHook := (key, st) => events.Push(HighResClock.Now())
             try {
-                t0 := HighResClock.Now()
+                ; ⚠️ _PressPrecise 的 plannedAt 是整数微秒（调度内部口径），
+                ; kpd 仍是毫秒；events 里记录的是毫秒，下面的 15 也就是毫秒。
+                t0 := HighResClock.NowUs()
                 Sender._PressPrecise("__prec_hold", "F1", t0, 15)
             } finally {
                 Sender._sendHook := ""
@@ -554,7 +556,9 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
         Sender.StartPeriodic(gid, ["F1"], [interval], 15)
         ; 等第一次 _ExecutePeriodic 建立基准时刻
         Sleep 40
-        t0 := Sender._activeGroups[gid]["lastTriggerTimes"][1]
+        ; ⚠️ lastTriggerTimes 现在是**整数微秒**（调度内部口径），
+        ; 而 events 里记录的 up/down 时刻仍是毫秒，interval 也是毫秒 —— 这里换算回 ms 再比较。
+        t0 := Sender._activeGroups[gid]["lastTriggerTimes"][1] / 1000
 
         ; 采样量必须足够大：样本数 7 时 _Pct(0.95) 的索引 = 7，等同断言「最大值」，
         ; 宿主一次调度抖动就会失败，测的其实是 P100 而非 P95。
@@ -650,6 +654,84 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
         ; 故：**中位数**判系统性漂移（真正的回归信号），P95 用「一个调度网格」量级兜底。
         this.assert.isAtMost(this._Pct(holds, 0.5), 1.0)
         this.assert.isAtMost(this._Pct(holds, 0.95), 20.0)
+    }
+
+    ; 确定性守卫：整数化后返回值必须是**精确的整数微秒**，且 1:3 比例不破
+    ;
+    ; ⚠️ 取值为什么是 16.001 / 48.003（而不是看起来更自然的 33.333 / 99.999）：
+    ;   · 33.333 * 1000 在双精度下**恰好等于** 33333.0（99.999 同理 = 99999.0），
+    ;     也就是说「不做取整」的浮点实现在这组取值上也返回精确整数 ——
+    ;     用它做断言是**假阴性**，抓不到回归。
+    ;   · 16.001 * 1000 = 16001.000000000002（末位脏），浮点实现会原样返回这个脏值，
+    ;     只有真正做了取整的实现才会返回 16001。这才是有效的判别取值。
+    ;
+    ; ⚠️ 为什么必须有这一条：上面的端到端用例依赖**运行时 uptime 的浮点位模式**
+    ; —— 浮点下 3 次累加与单次相加是否相等不可预测（扫描 uptime 空间：间隔 33.333
+    ; 时拆桶率 48%~85%，即浮点实现也有约 20% 概率"恰好相等"而让用例通过）。
+    ; 端到端用例因此**存在假阴性**，不能单独作为验收依据；本用例不依赖运行时量级。
+    Test_IntervalUsOf_KeepsExactRatio_AfterRounding() {
+        ; ---- 1. 整数性：脏值必须被取整成精确整数 ----
+        this.assert.equal(Sender._IntervalUsOf([16.001], 1), 16001)
+        this.assert.equal(Sender._IntervalUsOf([48.003], 1), 48003)
+        ; 更强的形式：返回值必须没有小数部分
+        this.assert.equal(Sender._IntervalUsOf([16.001], 1), Round(Sender._IntervalUsOf([16.001], 1)))
+        ; ---- 2. 比例性：1:3 在整数域闭合（浮点下 16001.000000000002×3 ≠ 48003.0）----
+        this.assert.equal(Sender._IntervalUsOf([16.001], 1) * 3, Sender._IntervalUsOf([48.003], 1))
+        ; ---- 3. 下限夹紧（10 ms = 10000 µs）仍然生效 ----
+        this.assert.equal(Sender._IntervalUsOf([1], 1), Sender.MIN_INTERVAL_US)
+        this.assert.equal(Sender._DelayUsOf([1], 1), Sender.MIN_INTERVAL_US)
+        ; ---- 4. 缺省值：periodic 50 ms，sequence 100 ms ----
+        this.assert.equal(Sender._IntervalUsOf([], 1), 50000)
+        this.assert.equal(Sender._DelayUsOf([], 1), 100000)
+    }
+
+    ; 分桶漂移回归：非整数间隔 1:3（33.333 ms / 99.999 ms）
+    ;
+    ; 数学上每 3 个 tick 两键同时到期（3 × 33.333 = 99.999）。但**浮点毫秒**累加会产生
+    ; 末位误差：`(now+33.333)+33.333+33.333` 与 `now+99.999` 作为 double 并不相等，
+    ; Map 把它们判成两个键、拆成两个桶 —— **后一个桶的按键保持时长会塌成 ~0ms**。
+    ; 调度时刻改用**整数微秒**后 33333×3 = 99999 精确相等。
+    ;
+    ; 判据用**事件顺序**而不是时间差：同桶的表现是 down(F1) down(F2) up(F1) up(F2)，
+    ; 拆桶则是 down(F1) up(F1) down(F2) up(F2)。顺序不受宿主调度抖动影响，
+    ; 因此这条用例在负载高的 runner 上也不会像时延类断言那样偶发误报。
+    ;
+    ; ⚠️ 不能把间隔改成 [100, 100] 之类的整数：整数在 double 里精确表示，
+    ; 浮点累加不会出错，这条用例会退化为恒绿（假阴性）。
+    ;
+    ; ⚠️ 本用例是**行为**守卫，不是判别守卫：33.333*1000 在双精度里恰好 = 33333.0
+    ; （99.999 同理），浮点实现的拆桶率取决于运行时 uptime 的位模式（扫描结果
+    ; 48%~85%，即约 20% 概率假阴性通过）。真正抓回归的是上面那条
+    ; Test_IntervalUsOf_KeepsExactRatio_AfterRounding —— 本用例只是确认"端到端真的合并了"。
+    Test_Periodic_NonIntegerInterval_Ratio1to3_MustNotSplitBucket() {
+        gid := "__prec_ratio13"
+        events := []
+        Sender.EmergencyRelease()
+        Sender._sendHook := (key, st) => events.Push([key, st])
+        Sender.StartPeriodic(gid, ["F1", "F2"], [33.333, 99.999], 5)
+        try {
+            Sleep 2600
+        } finally {
+            Sender.ToggleGroup(gid, false)
+            Sender._sendHook := ""
+        }
+
+        f2Downs := 0
+        merged := 0
+        i := 1
+        while i <= events.Length {
+            if events[i][1] = "F2" && events[i][2] = "down" {
+                f2Downs++
+                if i > 1 && events[i - 1][2] = "down"
+                    merged++
+            }
+            i++
+        }
+
+        this.assert.isAtLeast(f2Downs, 15)
+        ; 理论上整数 µs 下必然 100% 合并；留到 90% 是为了容忍首个周期
+        ; （基准刚建立、两键尚未对齐）的少数几次不同刻。
+        this.assert.isAtLeast(merged / f2Downs, 0.90)
     }
 
     ; 端到端：sequence 模式下「计划时刻 → 抬起完成」P95 ≤ 20ms。
