@@ -1,0 +1,34 @@
+{
+  "prod_escape": {
+    "_comment": "由 gate.py --update-baseline 生成。p50_ms 为多轮中位数；len/calls 是 payload 自描述，用于校验基准没在测别的东西。",
+    "k": 2.0,
+    "metrics": {
+      "escape_plain_2k": {
+        "p50_ms": 5.0284,
+        "len": 2048,
+        "calls": 200
+      },
+      "escape_plain_8k": {
+        "p50_ms": 21.3777,
+        "len": 8192,
+        "calls": 200
+      },
+      "escape_plain_64k": {
+        "p50_ms": 36.3267,
+        "len": 65536,
+        "calls": 40
+      },
+      "escape_mixed_2k": {
+        "p50_ms": 6.7212,
+        "len": 2048,
+        "calls": 200
+      },
+      "escape_ctrl_512": {
+        "p50_ms": 71.7757,
+        "len": 512,
+        "calls": 200
+      }
+    },
+    "warn_k": 1.15
+  }
+}

@@ -975,6 +975,59 @@ python tools/ahk-bench/envinfo.py
 > `scheduling-bench-2026-09-14.md`（实测基准报告）、
 > `plan-C-evaluation.md`（方案 C 深度评测）。
 
+### 4.6.4 AHK 生产基准门禁（`tools/ahk-bench/gate.py`，T11）
+
+4.6.3 那套 `bench_*.ahk` 是**选型期**的「双实现对照」基准：old/new 两份实现都复刻在脚本内，
+用来量化「改造值不值得做」。**它测的不是生产代码** —— T1/T6 落地后，脚本里的 new 侧是副本，
+生产代码再改也不会跟着变，对生产回归**零防护力**。
+
+所以另有**生产基准**（`bench_prod_*.ahk`）：直接 `#Include` 生产代码并测它，由 `gate.py`
+做门禁，跑在 CI 的 `ahk-bench` job（**会阻断合并**，与 `bench` job 的「仅观测」不同）。
+
+```bash
+# 跑门禁（默认 3 轮，与基线比对；退出码 0=PASS 1=回归 2=运行期错误）
+python tools/ahk-bench/gate.py
+python tools/ahk-bench/gate.py --rounds 5         # 定基线时用更多轮
+
+# 确认是真实劣化后，重设基线（改完 baselines.json 要随 PR 一起提交并说明原因）
+python tools/ahk-bench/gate.py --rounds 5 --update-baseline
+
+# AHK 不在默认路径时
+AHK_EXE="D:/Program Files/AutoHotkey/v2/AutoHotkey64.exe" python tools/ahk-bench/gate.py
+```
+
+**判据（只设上界 + 多轮中位数）**：每个 metric 每轮跑若干次采样取 p50，跨轮再取 **p50 的中位数**，
+断言 `中位数 ≤ 基线 × K`（`baselines.json` 里 `k`，当前 **2.0**）。
+
+- **只设上界**：变快不会失败 —— 只有变慢超过 K 倍才红；
+- **多轮中位数**：p50 滤单次离群，中位数再滤整轮异常（宿主抖动常整轮偏移）；
+- 另有 **WARN 带**（`warn_k=1.15`）：进入 1.15×~2.0× 只告警不阻断。
+
+**实测依据（本机，5 轮）**：中位数跨会话波动 **≤2.4%**；「T1 被完整回退」会让
+`escape_mixed_2k` 涨 **41.7×**、`escape_plain_*` 涨约 **36×** —— 与噪声差一个数量级以上，K=2.0 留足余量。
+
+**已知盲区（不是 bug，是取舍）**：「只删掉快路径、保留 `StrReplace`」仅劣化约 **1.16~1.22×**，
+与 CI 跨机器波动同量级，**本门禁拦不住**，靠 code review 与 `JSONSerializerEscapeTests` 的语义守护。
+另实测该倍数**不随负载长度放大**（2K/8K/64K 都是 1.16~1.22×），因为两条路径都是 O(n)；
+保留 64K 档是为了放大**复杂度回归**（O(n²)）。
+
+**基准自身的「阳性对照」**（防门禁静默失效）：
+
+| 校验 | 失败条件 | 拦住什么 |
+|---|---|---|
+| payload 自描述 `len=` | 与基线记录的长度不一致 | payload 构造被改坏/测到空串，耗时极低却永远 PASS |
+| `equiv,ascii_scan,diffs=0` | 快路径与逐字符版不等价 | 为了快而改错（正确性网） |
+| 5 项变异对照 | 见下 | 门禁本身失效 |
+
+已做 5 项阳性对照并全部符合预期：C0 无变异保持绿；C1 完全回退 T1（41.7×）、
+C2 兜底集合写宽（41.8×）、C3 等价性被破坏、C4 payload 长度被改 —— 全部变红。
+
+| 文件 | 用途 |
+|------|------|
+| `bench_prod_escape.ahk` | 生产基准：直接测 `JSONSerializer._EscapeString`（T1） |
+| `gate.py` | 门禁：多轮 → 中位数 → 与基线比对 → 退出码 |
+| `baselines.json` | 基线（含 `k` / `warn_k` / 每个 metric 的 p50 与 payload 长度） |
+
 ### 4.7 发布构建
 
 ```powershell

@@ -8,7 +8,9 @@ name: CI
 # 本地等价入口：scripts/check-gates.ps1 或 scripts/check-gates.sh
 #
 # 其余 job（coverage / miri / fuzz / bench）为辅助质量信号，均 continue-on-error，
-# 不阻塞合并。平台选择（踩过坑，勿随意改）：
+# 不阻塞合并。⚠️ 例外：**ahk-bench 是门禁，不是信号** —— 它跑 AHK 生产基准
+# （tools/ahk-bench/gate.py），超过基线 ×K 即失败并阻断合并，用于守住 T1/T6 的收益。
+# 平台选择（踩过坑，勿随意改）：
 #   - miri / fuzz：依赖 nightly 且 Windows 支持不佳 → ubuntu
 #   - coverage：只覆盖纯逻辑 crate（Linux 可编译）→ ubuntu
 #   - bench：位于 src-tauri，Linux 需 glib/GTK 系统库才能构建 → windows-latest
@@ -319,6 +321,53 @@ jobs:
         # libtest bench，`--save-baseline` 是 criterion 专属参数，传给 libtest 会
         # 直接报 `Unrecognized option: 'save-baseline'`。
         run: cargo bench --bench benchmarks -- --save-baseline current
+
+  # ---------------------------------------------------------------- T11
+  ahk-bench:
+    name: AHK Benchmark Regression（T11 门禁）
+    # 与上面 Rust bench 分成两个 job：Rust bench 是「观测信号」（continue-on-error），
+    # 本 job 是**门禁** —— 失败会阻断合并，用于防止 T1/T6 的性能收益被后续改动吃掉。
+    #
+    # ⚠️ 判据：每个 metric 跑 N 轮、取 p50 的中位数，超过基线 ×K 才失败
+    #   （K 见 tools/ahk-bench/baselines.json，默认 2.0）。**只设上界** —— 变快不会失败。
+    #   托管 runner 硬件代际不同可能让绝对值整体偏移；若出现随机红，先本地复跑确认，
+    #   确属硬件差异再 --update-baseline 重设基线并在 PR 里说明。
+    runs-on: windows-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 与 gates / bench 两个 job 同一套安装方式（文件内第三处重复）。
+      # ⚠️ 该 action 没有 `v2` 浮动标签，只能用 v2.1.0 这类具体标签。
+      - name: 安装 AutoHotkey v2
+        id: ahk
+        uses: holy-tao/install-autohotkey@v2.1.0
+        with:
+          version: '2.0.26'
+          destination: ${{ runner.temp }}
+
+      - name: 运行 AHK 生产基准门禁
+        shell: pwsh
+        env:
+          AHK_EXE: ${{ steps.ahk.outputs.ahk64 }}
+        run: |
+          # gate.py 内部靠 .done 哨兵轮询（AHK 是 GUI 子系统，退出码不可靠）
+          if (-not (Test-Path $env:AHK_EXE)) { throw "AHK_EXE 不存在: $env:AHK_EXE" }
+          python tools/ahk-bench/gate.py --rounds 3
+
+      - name: 上传基准 CSV（失败时便于人工复核）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ahk-bench-csv
+          path: ${{ runner.temp }}/ahkgate-prod_escape/
+          retention-days: 14
+          if-no-files-found: warn
 
   e2e:
     name: E2E（仅手动触发）
