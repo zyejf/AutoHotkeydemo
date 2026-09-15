@@ -197,7 +197,8 @@ def main() -> int:
     old = b.get("metrics", {})
 
     print("")
-    print(f"| metric | 基线 p50 (ms) | 本轮中位数 | 跨轮范围 | 相对基线 | 判定 |")
+    # ⚠️ p50 的单位由基准自己定：prod_escape 是毫秒，prod_tick 是**归一化后的无量纲比值**
+    print(f"| metric | 基线 p50 | 本轮中位数 | 跨轮范围 | 相对基线 | 判定 |")
     print("|---|---:|---:|---:|---:|:--:|")
     failed, warned = [], []
     for name in sorted(summary):

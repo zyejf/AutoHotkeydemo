@@ -40,9 +40,10 @@
     "_comment": "周期模式 tick 遍历（T6 / MERGE_TICK_SCAN），守住「每 tick 4 次遍历合并成 2 次」的收益。metrics 为空表示**尚未取 CI 基线**：此时门禁报「新指标（无基线）」并放行（宁可瞎一个周期，也不要像 prod_escape 初版那样用开发机基线在 CI 上刷满 WARN）。取基线同 prod_escape：Actions → CI → Run workflow → 勾 update_ahk_bench_baseline，下载 artifact 人工确认后提交。",
     "_signal": "把 MERGE_TICK_SCAN 翻回 false（完全回退）的实测倍率：tick_onedue_n64 1.65~1.81×、tick_onedue_n128 1.68~1.79×（区间不重叠）；tick_alldue_n64 仅 1.18~1.21× —— 该档**抓不住回退**，只用来守复杂度回归。",
     "_noise": "无变异时跨轮 0.96~1.02×。⚠️ 不要加 n≤32 的指标：每 tick 有约 13 µs 与 n 无关的固定开销抖动，n=16 时占 26% → 同代码连跑出现 0.042/0.053 双峰（±32%），而其回退信号仅 1.26~1.48×，信噪比 <1。",
-    "_k_note": "K=1.5（比 prod_escape 的 2.0 紧）：T6 的信号只有 ~1.7×，远弱于 T1 的 36~41×，用 2.0 会完全抓不到回退。噪声地板 1.02× ≪ warn_k 1.15，警告带仍有余量。",
-    "k": 1.5,
-    "warn_k": 1.15,
+    "_k_note": "K=1.4（比 prod_escape 的 2.0 紧）：T6 的信号只有 ~1.7×，远弱于 T1 的 36~41×，用 2.0 会完全抓不到回退。",
+    "_normalization": "⚠️ 本 bench 的 p50 是**归一化值**：tick 每 tick 毫秒 ÷ 同进程紧邻测得的参考负载毫秒（纯 AHK Array 算术循环，与被测代码路径无关）。原因：CI runner 硬件代际差异让绝对值整体偏移 ±20~30%（同一基线两次读到 1.04× 与 0.80×），而 T6 回退信号只有 ~1.7×，落在更快的机器上会被压到 1.3× 而漏掉。实测人为加 8 个满载进程：tick 原始 +48%、参考 +57%、归一化后仅 -5.7%。归一化后噪声约 ±6~10%，故 warn_k 抬到 1.20。",
+    "k": 1.4,
+    "warn_k": 1.2,
     "metrics": {},
     "_baseline_source": "pending-ci",
     "_baseline_runs": []

@@ -37,12 +37,25 @@
 ;   → **不触发追帧分支**，结果与时俱退无关、可跨实现比对。每 tick 只需 O(1) 重武装。
 ;   其余键的 triggerTimes 设到 5 秒后 → 永不到期、永不被改写。
 ;
+; ⚠️ p50 是**归一化值**（无量纲），不是毫秒：
+;   `p50 = tick 每 tick 毫秒 ÷ 同进程内紧邻测得的参考负载毫秒`
+;
+;   为什么要归一化：CI 托管 runner 的硬件代际差异会让绝对值整体偏移 ——
+;   实测同一个 prod_escape 基线在两次 CI 运行上分别读到 1.04× 与 0.80×（相差 30%）。
+;   T6 的回退信号只有 ~1.7×，一旦某次落在「比基线采集时更快的机器」上，
+;   1.65× 会被压到 1.3× 而漏掉。参考负载与被测代码同进程、紧邻测量，可抵消掉这部分。
+;   实测（本机人为加 8 个 CPU 满载进程）：tick 原始值 +48%、参考负载 +57%，
+;   归一化后的比值只变 **-5.7%** —— 误差降到约 1/8。
+;   （另试过更贴近 tick 结构的 Map 版参考负载，残差 -9.6%，不如纯 Array 版，已弃用。）
+;
 ; 输出：%AHK_BENCH_OUT%\prod_tick.csv + prod_tick.done
-;   每行：`metric,<name>,p50=..,p95=..,max=..,min=..,mean=..,n=..,keys=..,sends=..,us_per_tick=..`
+;   每行：`metric,<name>,p50=..,p95=..,max=..,min=..,mean=..,n=..,keys=..,sends=..,raw_ms=..`
 ;   ⚠️ keys=/sends= 是**形态自描述**：keys 是键数量，sends 是每 tick 实际发送次数。
 ;      gate.py 会拿它跟基线比对 —— 万一形态构造写错（比如全键都到期了），
 ;      耗时结构会变而没人发现。这是基准侧的「阳性对照」。
-;   ⚠️ 单位：p50 等是**每 tick 毫秒**（gate.py 表头口径），us_per_tick 是同一数值的 µs 形式。
+;   ⚠️ raw_ms 是未归一化的**每 tick 毫秒**，仅供人工排障，门禁不判它
+;      （它带着整台机器的速度差异，设阈值只会得到一堆假 WARN）。
+;   另有 `info,ref_<name>,p50=..` 行，是对应的参考负载耗时，门禁忽略、供人看。
 ;
 ; 等价性自校验：`equiv,tick_onedue_n<k>,diffs=0` —— 在确定性形态下分别跑合并版与旧版，
 ;   比对 triggerTimes / droppedTriggers / 发送次数。这是「为了快而改错」的兜底网。
@@ -57,6 +70,7 @@ TICKS := 400          ; 每次采样内的 tick 数（一次采样 = TICKS 次 _
 ROUNDS := 25          ; 采样轮数，取分位数
 ALLDUE_TICKS := 120   ; alldue 单 tick 更贵（n=64 时 ~0.5ms），采样内减少 tick 数
 ALLDUE_ROUNDS := 21
+REF_OPS := 512        ; 参考负载每次的迭代数（调到与单个 tick 同量级，实测 ~0.2ms）
 
 ; -----------------------------------------------------------------
 ; 负载构造
@@ -160,19 +174,68 @@ ReArmAll(tt, n, base) {
 ; -----------------------------------------------------------------
 ; 采样
 ; -----------------------------------------------------------------
-Stat(name, samples, keys, sends) {
+; -----------------------------------------------------------------
+; 机器速度参考负载
+;
+; 要求：与被测代码路径**无关**（否则被测代码一改，参考值跟着变，归一化就把真实
+; 回归也抵消掉了），但**同为 AHK 解释器负载**（才能反映机器/解释器速度）。
+; 故用预分配 Array 上的算术循环：不分配 → 不触发 GC，抖动小。
+;
+; ⚠️ 别换成 Map 版：实测 Map 版残差 -9.6%，比 Array 版的 -5.7% 更差
+;   （Map 操作里混了哈希与可能的扩容，与 tick 的负载结构反而不匹配）。
+; -----------------------------------------------------------------
+RefBatch(arr, n) {
+    i := 1
+    s := 0
+    while i <= n {
+        arr[i] := arr[i] + i
+        s += arr[i]
+        i++
+    }
+    return s
+}
+
+MeasureRef() {
+    arr := []
+    i := 1
+    while i <= REF_OPS {
+        arr.Push(i)
+        i++
+    }
+    samples := []
+    r := 1
+    while r <= ROUNDS {
+        t0 := HighResNow()
+        k := 1
+        while k <= TICKS {
+            RefBatch(arr, REF_OPS)
+            k++
+        }
+        samples.Push((HighResNow() - t0) * 1000 / TICKS)
+        r++
+    }
+    return samples
+}
+
+; 输出归一化后的 metric。p50 = tick 每 tick 毫秒 ÷ 参考负载毫秒（无量纲）
+Stat(name, samples, refSamples, keys, sends) {
     s := SortNums(samples)
-    p50 := Pct(s, 0.50)
+    rs := SortNums(refSamples)
+    raw := Pct(s, 0.50)
+    ref := Pct(rs, 0.50)
+    norm := raw / ref
+    BenchWrite("info,ref_" . name . ",p50=" . Round(ref, 6)
+        . ",ops=" . REF_OPS . ",n=" . rs.Length)
     BenchWrite("metric," . name
-        . ",p50=" . Round(p50, 6)
-        . ",p95=" . Round(Pct(s, 0.95), 6)
-        . ",max=" . Round(s[s.Length], 6)
-        . ",min=" . Round(s[1], 6)
-        . ",mean=" . Round(Mean(s), 6)
+        . ",p50=" . Round(norm, 6)
+        . ",p95=" . Round(Pct(s, 0.95) / ref, 6)
+        . ",max=" . Round(s[s.Length] / ref, 6)
+        . ",min=" . Round(s[1] / ref, 6)
+        . ",mean=" . Round(Mean(s) / ref, 6)
         . ",n=" . s.Length
         . ",keys=" . keys
         . ",sends=" . sends
-        . ",us_per_tick=" . Round(p50 * 1000, 3))
+        . ",raw_ms=" . Round(raw, 6))
 }
 
 RunOneDue(n) {
@@ -200,7 +263,7 @@ RunOneDue(n) {
         samples.Push((HighResNow() - t0) * 1000 / TICKS)   ; 毫秒/tick
         r++
     }
-    Stat("tick_onedue_n" . n, samples, n, sends)
+    Stat("tick_onedue_n" . n, samples, MeasureRef(), n, sends)
 }
 
 RunAllDue(n) {
@@ -227,7 +290,7 @@ RunAllDue(n) {
         samples.Push((HighResNow() - t0) * 1000 / ALLDUE_TICKS)
         r++
     }
-    Stat("tick_alldue_n" . n, samples, n, sends)
+    Stat("tick_alldue_n" . n, samples, MeasureRef(), n, sends)
 }
 
 ; ---- 发送次数统计（形态自校验，不计入耗时采样）----
