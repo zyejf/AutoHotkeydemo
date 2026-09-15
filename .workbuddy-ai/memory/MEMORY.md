@@ -10,6 +10,7 @@
 | `AGENTS.md` | 架构决策、分层规则、妥协白名单、关键文件清单 |
 | `asd-tauri/docs/test-map.md` | **一切测试数字**（其它文档只写指针） |
 | `docs/developer-guide.md` | 环境搭建、构建、部署、排障 |
+| `docs/tech-debt-register.md` | **技术债债项与状态（唯一登记处）**；配套 `docs/tech-debt-plan-2026-09-16.md` |
 | `docs/graph-driven-workflow.md` | 图谱方法、开发/审查流程、同步机制 |
 | `docs/research/` | **架构级调研结论唯一落点**（外部引擎/第三方源码走查 + 实测）；探针在 `tools/ahk-probes/` |
 
