@@ -3,9 +3,9 @@
   "generated_by": "python .review-analysis/build_graph.py -> .review-analysis/graph-raw.json",
   "purpose": "闸门①的输入基线：图谱结构快照。改动后与此对比，环数/违规数增加必须处理或登记白名单。",
   "counts": {
-    "ahk_files": 100,
-    "ahk_edges_total": 292,
-    "ahk_edges_in_scope": 286,
+    "ahk_files": 101,
+    "ahk_edges_total": 294,
+    "ahk_edges_in_scope": 288,
     "ahk_missing": 0,
     "ahk_cycles": 0,
     "ahk_orphans": 9,

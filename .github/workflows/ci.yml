@@ -366,20 +366,33 @@ jobs:
         run: |
           # gate.py 内部靠 .done 哨兵轮询（AHK 是 GUI 子系统，退出码不可靠）
           if (-not (Test-Path $env:AHK_EXE)) { throw "AHK_EXE 不存在: $env:AHK_EXE" }
-          if ($env:UPDATE_BASELINE -eq 'true') {
-            # 重设基线：跑满 5 轮并把结果写回 baselines.json，随后作为 artifact 上传。
-            # 不自动提交 —— 基线是门禁的锚点，必须人工确认后再进仓库。
-            python tools/ahk-bench/gate.py --rounds 5 --update-baseline
-          } else {
-            python tools/ahk-bench/gate.py --rounds 3
+          # 两个基准各守一处已落地的优化：prod_escape = T1（JSON 转义快路径），
+          # prod_tick = T6（周期 tick 遍历合并）。逐个跑完再统一判定，
+          # 否则第一个失败会让第二个根本不跑（静默失去一处防护）。
+          $benches = @('prod_escape', 'prod_tick')
+          $failed = @()
+          foreach ($b in $benches) {
+            Write-Host "=== bench=$b ==="
+            if ($env:UPDATE_BASELINE -eq 'true') {
+              # 重设基线：跑满 5 轮并把结果写回 baselines.json，随后作为 artifact 上传。
+              # 不自动提交 —— 基线是门禁的锚点，必须人工确认后再进仓库。
+              # ⚠️ gate.py 只覆盖 --bench 指定的那一节，顺序跑两个不会互相覆盖。
+              python tools/ahk-bench/gate.py --bench $b --rounds 5 --update-baseline
+            } else {
+              python tools/ahk-bench/gate.py --bench $b --rounds 3
+            }
+            if ($LASTEXITCODE -ne 0) { $failed += $b }
           }
+          if ($failed.Count -gt 0) { throw "基准门禁失败: $($failed -join ', ')" }
 
       - name: 上传基准 CSV（失败时便于人工复核）
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ahk-bench-csv
-          path: ${{ runner.temp }}/ahkgate-prod_escape/
+          path: |
+            ${{ runner.temp }}/ahkgate-prod_escape/
+            ${{ runner.temp }}/ahkgate-prod_tick/
           retention-days: 14
           if-no-files-found: warn
 

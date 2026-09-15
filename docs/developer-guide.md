@@ -984,9 +984,20 @@ python tools/ahk-bench/envinfo.py
 所以另有**生产基准**（`bench_prod_*.ahk`）：直接 `#Include` 生产代码并测它，由 `gate.py`
 做门禁，跑在 CI 的 `ahk-bench` job（**会阻断合并**，与 `bench` job 的「仅观测」不同）。
 
+目前有两个，各守一处已落地的优化：
+
+| `--bench` | 守什么 | 被测生产代码 | K |
+|---|---|---:|---:|
+| `prod_escape`（默认） | T1 · JSON 转义快路径 | `JSONSerializer._EscapeString` | 2.0 |
+| `prod_tick` | T6 · 周期 tick 遍历合并 | `Sender._ExecutePeriodic` | **1.5** |
+
+CI 的 `ahk-bench` job **依次跑两个、全部跑完再统一判定** —— 否则第一个失败会让第二个
+根本不跑，静默丢掉一整处防护。
+
 ```bash
 # 跑门禁（默认 3 轮，与基线比对；退出码 0=PASS 1=回归 2=运行期错误）
-python tools/ahk-bench/gate.py
+python tools/ahk-bench/gate.py                    # 默认 prod_escape
+python tools/ahk-bench/gate.py --bench prod_tick  # 跑 tick 那个
 python tools/ahk-bench/gate.py --rounds 5         # 定基线时用更多轮
 
 # 确认是真实劣化后，重设基线（改完 baselines.json 要随 PR 一起提交并说明原因）
@@ -997,7 +1008,8 @@ AHK_EXE="D:/Program Files/AutoHotkey/v2/AutoHotkey64.exe" python tools/ahk-bench
 ```
 
 **判据（只设上界 + 多轮中位数）**：每个 metric 每轮跑若干次采样取 p50，跨轮再取 **p50 的中位数**，
-断言 `中位数 ≤ 基线 × K`（`baselines.json` 里 `k`，当前 **2.0**）。
+断言 `中位数 ≤ 基线 × K`（`baselines.json` 里每个 bench 各自的 `k`：`prod_escape` 2.0、
+`prod_tick` **1.5** —— 见下方「为什么 prod_tick 的 K 更紧」）。
 
 - **只设上界**：变快不会失败 —— 只有变慢超过 K 倍才红；
 - **多轮中位数**：p50 滤单次离群，中位数再滤整轮异常（宿主抖动常整轮偏移）；
@@ -1016,33 +1028,68 @@ AHK_EXE="D:/Program Files/AutoHotkey/v2/AutoHotkey64.exe" python tools/ahk-bench
 进一步实测还发现：**runner 池本身跨轮次有 ±10~17% 波动**（两次相邻 CI 运行相差 1.10~1.17×），
 所以基线取**两次独立 CI 运行的均值**居中，而不是单次运行 —— 单次估计噪声太大。
 
-**实测依据**：中位数跨会话波动 **≤2.4%**（开发机）、CI 单轮内跨轮范围约 0.4~2.7%；
-「T1 被完整回退」会让 `escape_mixed_2k` 涨 **41.7×**、`escape_plain_*` 涨约 **36×** ——
-与噪声差一个数量级以上，K=2.0 留足余量。
+**实测依据（prod_escape）**：中位数跨会话波动 **≤2.4%**（开发机）、CI 单轮内跨轮范围约
+0.4~2.7%；「T1 被完整回退」会让 `escape_mixed_2k` 涨 **41.7×**、`escape_plain_*` 涨约 **36×**
+—— 与噪声差一个数量级以上，K=2.0 留足余量。
 
 > 💡 **本地跑门禁会显示 0.7× 左右（比基线快），这是正常的** —— 判据只有上界，变快不失败。
 
-**已知盲区（不是 bug，是取舍）**：「只删掉快路径、保留 `StrReplace`」仅劣化约 **1.16~1.22×**，
-与 CI 跨机器波动同量级，**本门禁拦不住**，靠 code review 与 `JSONSerializerEscapeTests` 的语义守护。
-另实测该倍数**不随负载长度放大**（2K/8K/64K 都是 1.16~1.22×），因为两条路径都是 O(n)；
-保留 64K 档是为了放大**复杂度回归**（O(n²)）。
+#### prod_tick：为什么 K 是 1.5 而不是 2.0
+
+T6 的信号比 T1 **弱一个数量级**，K 必须跟着收紧，否则门禁形同虚设：
+
+| 指标 | 形态 | 无变异噪声 | 「完全回退 T6」倍率 | 能否抓住回退 |
+|---|---|---:|---:|:--:|
+| `tick_onedue_n64` | 64 键中只有 1 个到期 | 0.96~1.02× | **1.65~1.81×** | ✅ |
+| `tick_onedue_n128` | 128 键中只有 1 个到期 | 0.98~1.06× | **1.68~1.79×** | ✅ |
+| `tick_alldue_n64` | 64 键全部到期 | 0.98~1.02× | 1.18~1.21× | ❌ 只守复杂度回归 |
+
+`onedue`（n 个键只有第 1 个到期）是**生产最常见形态**，且每 tick 只有 2 次发送 ——
+发送开销不稀释遍历耗时，所以信号最强。`alldue` 有 2n 次发送会稀释，但覆盖了「按计划时刻
+分桶」这条 `onedue` 走不到的路径，保留它专门守**复杂度回归**（O(n²)）。
+
+**为什么不测 prescan（提前返回路径）**：实测合并版与旧版在该路径上**区间重叠、测不出差异**
+（n=8 1.02× / n=64 0.82× / n=128 0.93×），放进去只会得到一条永远 PASS 的虚线。
+
+**为什么不测 n≤32**：每 tick 存在一档约 **13 µs、与 n 无关的固定开销抖动**，n=16 时它占总
+耗时 26% → 同一份代码连跑 5 轮出现 **0.042 / 0.053 双峰（±32%）**；而 n=16 的回退信号只有
+1.26~1.48× —— **信噪比 <1，无法用于门禁**。n=64 起该抖动降到 <10%，n=128 约 5%。
+代价是失去「真实规模（十几键）」覆盖，属已知盲区。
+
+**为什么不测 hybrid**：`_ExecuteHybrid*` 每 tick 都要重建 `items` 数组（n 个 7 元子数组），
+分配开销会淹没遍历差异，信号同样不可靠；其等价性由单测 `Test_TickMerge_*` 覆盖。
+
+#### 已知盲区汇总（不是 bug，是取舍）
+
+| 盲区 | 影响 | 靠什么兜底 |
+|---|---|---|
+| 「只删快路径、保留 `StrReplace`」（prod_escape） | 仅劣化 1.16~1.22×，与跨机器波动同量级 | code review + `JSONSerializerEscapeTests` |
+| 该倍数不随负载长度放大（2K/8K/64K 一致） | 64K 档拦不住它 | 保留 64K 档是为了放大 **O(n²)** 回归 |
+| `tick_alldue_n64` 抓不住 T6 回退 | 只进 WARN 带 | `tick_onedue_n64/n128` 兜住 |
+| 无 n≤32 的 tick 指标 | 真实规模覆盖缺失 | 单测 + review |
+| 无 hybrid tick 指标 | hybrid 侧无性能门禁 | 单测 `Test_TickMerge_*`（等价性） |
+| MERGE_TICK_SCAN 被翻回 false | —— | **单测 `Test_MergeTickScan_DefaultOn_And_DispatchHonorsIt` 已钉住**（门禁是第二道） |
 
 **基准自身的「阳性对照」**（防门禁静默失效）：
 
 | 校验 | 失败条件 | 拦住什么 |
 |---|---|---|
-| payload 自描述 `len=` | 与基线记录的长度不一致 | payload 构造被改坏/测到空串，耗时极低却永远 PASS |
-| `equiv,ascii_scan,diffs=0` | 快路径与逐字符版不等价 | 为了快而改错（正确性网） |
-| 5 项变异对照 | 见下 | 门禁本身失效 |
+| 形态自描述 `len=` / `calls=` / `keys=` / `sends=` | 与基线记录不一致 | 负载/形态构造被改坏，耗时结构变了却仍在 PASS |
+| `equiv,ascii_scan,diffs=0`（prod_escape） | 快路径与逐字符版不等价 | 为了快而改错 |
+| `equiv,tick_onedue_n*,diffs=0`（prod_tick） | 合并版与旧版状态推进不一致 | 同上（确定性形态下逐项比对） |
 
-已做 5 项阳性对照并全部符合预期：C0 无变异保持绿；C1 完全回退 T1（41.7×）、
+prod_escape 已做 5 项阳性对照：C0 无变异保持绿；C1 完全回退 T1（41.7×）、
 C2 兜底集合写宽（41.8×）、C3 等价性被破坏、C4 payload 长度被改 —— 全部变红。
+prod_tick 已做 3 项：T0 无变异保持绿（0.96~1.02×）；T1 完全回退 T6
+（n=64 **1.65×**、n=128 **1.68×** → FAIL）；T2 合并版推进基准 +1（等价性 diffs≠0 → FAIL）；
+T3 把基线里的 `keys`/`sends` 伪造成别的值（形态不匹配 → FAIL）。
 
 | 文件 | 用途 |
 |------|------|
 | `bench_prod_escape.ahk` | 生产基准：直接测 `JSONSerializer._EscapeString`（T1） |
+| `bench_prod_tick.ahk` | 生产基准：直接测 `Sender._ExecutePeriodic`（T6） |
 | `gate.py` | 门禁：多轮 → 中位数 → 与基线比对 → 退出码 |
-| `baselines.json` | 基线（含 `k` / `warn_k` / 每个 metric 的 p50 与 payload 长度） |
+| `baselines.json` | 基线（含 `k` / `warn_k` / 每个 metric 的 p50 与形态自描述） |
 
 ### 4.7 发布构建
 

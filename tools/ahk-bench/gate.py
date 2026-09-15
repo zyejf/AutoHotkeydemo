@@ -48,8 +48,16 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_BASELINE = os.path.join(HERE, "baselines.json")
 DEFAULT_AHK = r"D:\Program Files\AutoHotkey\v2\AutoHotkey64.exe"
 
-# 每轮超时（秒）。prod_escape 单轮本机约 3 s，CI 机器更慢，给足余量。
+# 每轮超时（秒）。prod_escape 单轮本机约 3 s，prod_tick 约 10 s，CI 机器更慢，给足余量。
 ROUND_TIMEOUT = 300
+
+# 「形态自描述」字段：基准自己声明它测的是什么规模/什么形状，门禁拿它跟基线比对。
+#   len   —— payload 长度（prod_escape）
+#   calls —— 每次采样内的调用数（prod_escape）
+#   keys  —— 键数量（prod_tick）
+#   sends —— 每 tick 实际发送次数（prod_tick；2 = 只有 1 个键到期，2n = 全部到期）
+# 只要这些值变了，说明基准已经在测别的东西，此时与基线比耗时毫无意义。
+SELF_DESC_FIELDS = ("len", "calls", "keys", "sends")
 
 
 def _ahk_exe() -> str:
@@ -117,7 +125,7 @@ def _fnum(v):
 
 
 def collect(ahk: str, bench: str, rounds: int, workdir: str) -> dict:
-    """返回 {metric: {"p50": [...], "len": int, "calls": int}}"""
+    """返回 {metric: {"p50": [...], "len": int, "calls": int, ...}}"""
     acc: dict[str, dict] = {}
     equiv_bad = 0
     for r in range(1, rounds + 1):
@@ -137,13 +145,16 @@ def collect(ahk: str, bench: str, rounds: int, workdir: str) -> dict:
             p50 = _fnum(row.get("p50"))
             if p50 is None:
                 continue
-            d = acc.setdefault(name, {"p50": [], "len": int(_fnum(row.get("len")) or 0),
-                                      "calls": int(_fnum(row.get("calls")) or 0)})
+            d = acc.setdefault(name, {"p50": []})
+            for f in SELF_DESC_FIELDS:
+                v = _fnum(row.get(f))
+                if v is not None and f not in d:
+                    d[f] = int(v)
             d["p50"].append(p50)
         print(f"  第 {r}/{rounds} 轮完成", flush=True)
     if equiv_bad:
         print(f"[FAIL] 等价性自校验 diffs != 0（{equiv_bad} 处）—— "
-              f"快路径与原逐字符实现不等价，属正确性回归")
+              f"被测实现与对照实现不等价，属正确性回归（不只是变慢）")
         sys.exit(1)
     return acc
 
@@ -170,9 +181,12 @@ def main() -> int:
     # ---- 汇总
     summary = {}
     for name, d in acc.items():
-        summary[name] = {"median": statistics.median(d["p50"]),
-                         "min": min(d["p50"]), "max": max(d["p50"]),
-                         "len": d["len"], "calls": d["calls"]}
+        rec = {"median": statistics.median(d["p50"]),
+               "min": min(d["p50"]), "max": max(d["p50"])}
+        for f in SELF_DESC_FIELDS:
+            if f in d:
+                rec[f] = d[f]
+        summary[name] = rec
 
     base = {}
     if os.path.isfile(args.baseline):
@@ -190,12 +204,15 @@ def main() -> int:
         s = summary[name]
         o = old.get(name, {})
         o_p50 = _fnum(o.get("p50_ms"))
-        # 基线自描述校验：payload 长度必须与基线一致，否则基准已经在测别的东西
-        if o and o.get("len") and int(o["len"]) != int(s["len"]):
+        # 基线自描述校验：形态/规模必须与基线一致，否则基准已经在测别的东西
+        mism = [f for f in SELF_DESC_FIELDS
+                if o.get(f) is not None and s.get(f) is not None
+                and int(o[f]) != int(s[f])]
+        if mism:
+            detail = "；".join(f"{f} 基线 {o[f]} != 本轮 {s[f]}" for f in mism)
             print(f"| `{name}` | {o_p50} | {s['median']:.4f} | "
-                  f"{s['min']:.4f}~{s['max']:.4f} | — | **LEN 不匹配** |")
-            failed.append(f"{name}: payload len 基线 {o.get('len')} != 本轮 {s['len']}"
-                          f"（payload 变了，基准不再可比）")
+                  f"{s['min']:.4f}~{s['max']:.4f} | — | **形态不匹配** |")
+            failed.append(f"{name}: {detail}（基准形态变了，耗时不再可比）")
             continue
         if o_p50 is None:
             print(f"| `{name}` | — | {s['median']:.4f} | {s['min']:.4f}~{s['max']:.4f} "
@@ -223,11 +240,12 @@ def main() -> int:
     if args.update_baseline:
         base[args.bench] = {
             "_comment": ("由 gate.py --update-baseline 生成。p50_ms 为多轮中位数；"
-                         "len/calls 是 payload 自描述，用于校验基准没在测别的东西。"),
+                         "len/calls/keys/sends 是基准形态自描述，"
+                         "用于校验基准没在测别的东西。"),
             "k": k,
             "warn_k": warn_k,
-            "metrics": {n: {"p50_ms": round(s["median"], 4),
-                            "len": s["len"], "calls": s["calls"]}
+            "metrics": {n: dict({"p50_ms": round(s["median"], 6)},
+                                **{f: s[f] for f in SELF_DESC_FIELDS if f in s})
                         for n, s in summary.items()},
         }
         with io.open(args.baseline, "w", encoding="utf-8", newline="\n") as fh:

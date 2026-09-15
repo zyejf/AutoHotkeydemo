@@ -170,7 +170,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | AHK 执行器测试（`Test_` 方法数） | 61 套件 / 279 个 `Test_` 方法（`tests/test_ahk_executor/` 5 文件；不含 `test_joy_hotkey_manager_ahu.ahk` 的 7 套件） |
 | AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 664 个用例（通过 664 / 失败 0），165 个套件 |
 | 基准测试 | 7 个 criterion bench |
-| AHK 生产基准（CI 门禁，T11） | 1 个基准脚本 / 5 个 metric（`tools/ahk-bench/bench_prod_escape.ahk`，直接测生产实现；门禁 `gate.py`，判据「p50 中位数 ≤ 基线 ×2.0」，进 CI 的 `ahk-bench` job 并阻断合并） |
+| AHK 生产基准（CI 门禁，T11） | 2 个基准脚本 / 8 个 metric：`bench_prod_escape.ahk` 5 个（直接测 `JSONSerializer._EscapeString`，T1，K=2.0）+ `bench_prod_tick.ahk` 3 个（直接测 `Sender._ExecutePeriodic`，T6，K=1.5）；门禁 `gate.py` 判据「p50 中位数 ≤ 基线 ×K」，两个都进 CI 的 `ahk-bench` job 并阻断合并 |
 | 模糊测试 | 5 个 fuzz target |
 | E2E 测试 | 9 suite / 53 用例 |
 
