@@ -1,36 +1,39 @@
 {
   "prod_escape": {
-    "_comment": "基线取自 **CI**（windows-latest 托管 runner），不是开发机 —— 实测开发机与 CI 相差 1.20~1.44×，用开发机基线会让每次 CI 都刷满 WARN。来源：run 34932693789 / job 104264051061，gate.py --rounds 3 的中位数。p50_ms 为跨轮中位数；len/calls 是 payload 自描述，用于校验基准没在测别的东西。",
+    "_comment": "基线取自 **CI**（windows-latest 托管 runner），不是开发机。实测 runner 池跨轮次本身有 ±10~17% 波动，故取**两次独立 CI 运行的均值**居中，单跑一次的估计噪声太大。若某次运行整体偏移 >20%，说明 runner 硬件代际变了，应走 workflow_dispatch 重设基线。来源：run 34932693789 与 run 34933292633 的 gate.py --rounds 3 中位数之均值。重设：Actions → CI → Run workflow → 勾 update_ahk_bench_baseline（artifact 需人工确认后提交）。p50_ms 为跨轮中位数；len/calls 是 payload 自描述，用于校验基准没在测别的东西。",
     "k": 2.0,
     "metrics": {
       "escape_plain_2k": {
-        "p50_ms": 7.2572,
+        "p50_ms": 6.9001,
         "len": 2048,
         "calls": 200
       },
       "escape_plain_8k": {
-        "p50_ms": 27.358,
+        "p50_ms": 26.1083,
         "len": 8192,
         "calls": 200
       },
       "escape_plain_64k": {
-        "p50_ms": 43.5782,
+        "p50_ms": 41.3759,
         "len": 65536,
         "calls": 40
       },
       "escape_mixed_2k": {
-        "p50_ms": 9.2435,
+        "p50_ms": 8.6404,
         "len": 2048,
         "calls": 200
       },
       "escape_ctrl_512": {
-        "p50_ms": 92.7586,
+        "p50_ms": 86.0346,
         "len": 512,
         "calls": 200
       }
     },
     "warn_k": 1.15,
     "_baseline_source": "ci-windows-latest",
-    "_baseline_run": "34932693789"
+    "_baseline_runs": [
+      "34932693789",
+      "34933292633"
+    ]
   }
 }
