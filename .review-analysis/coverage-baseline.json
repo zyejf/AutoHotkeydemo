@@ -1,0 +1,31 @@
+{
+  "_comment": "覆盖率基线（scripts/check-coverage.py 生成，TD-006）。棘轮：只允许上升，容差内的小回落不报。整体容差 0.5pp，单文件 2.0pp。注：基线取本机实测，CI（ubuntu）若因 cfg 分支差异系统性偏离，用 CI 产出的 lcov 重跑 --update-baseline 校准一次即可。",
+  "generated_at": "2026-09-15T18:25:08+00:00",
+  "global_lines_pct": 81.64,
+  "files": {
+    "asd-application/src/backup_service.rs": 78.31,
+    "asd-application/src/config_repository.rs": 93.26,
+    "asd-application/src/error.rs": 100.0,
+    "asd-application/src/group_service.rs": 63.32,
+    "asd-application/src/recording_service.rs": 67.28,
+    "asd-application/src/state.rs": 87.83,
+    "asd-application/src/time_format.rs": 100.0,
+    "asd-domain/src/config.rs": 95.62,
+    "asd-domain/src/models.rs": 86.62,
+    "asd-domain/src/traits.rs": 0.0,
+    "asd-domain/src/validator.rs": 73.76,
+    "asd-ipc-protocol/src/command.rs": 97.7,
+    "asd-ipc-protocol/src/error.rs": 96.08,
+    "asd-ipc-protocol/src/hotkey_merger.rs": 98.73,
+    "asd-ipc-protocol/src/message.rs": 96.88
+  },
+  "totals": {
+    "lines": 6377,
+    "hits": 5206,
+    "files": 15
+  },
+  "tolerance": {
+    "global_pp": 0.5,
+    "file_pp": 2.0
+  }
+}

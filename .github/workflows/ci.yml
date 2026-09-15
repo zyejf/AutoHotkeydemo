@@ -233,8 +233,11 @@ jobs:
   coverage:
     name: Coverage（纯逻辑 crate）
     runs-on: ubuntu-latest
-    continue-on-error: true
-    if: github.event_name == 'push'
+    # ⚠️ TD-006 起本 job 是**阻断**的（原为 continue-on-error + 仅 push 时跑），
+    #    因为「无阈值、非阻断」的覆盖率等于没有覆盖率门禁。
+    #    为让它稳定到可以阻断，cargo-llvm-cov 改用预编译二进制（install-action）：
+    #    `cargo install` 的编译耗时与偶发网络失败会把无关原因变成红灯，
+    #    而「红灯与代码无关」正是门禁被全员忽略的最快路径。
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -243,19 +246,27 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: asd-tauri
-      - name: 安装 cargo-llvm-cov
-        run: cargo install cargo-llvm-cov --locked
+      - name: 安装 cargo-llvm-cov（预编译二进制）
+        uses: taiki-e/install-action@cargo-llvm-cov
       - name: 生成 lcov
         working-directory: asd-tauri
         # 只覆盖三个纯逻辑 crate。workspace 里的 src-tauri 依赖 windows / tauri 系列
         # crate，在 Linux 上无法编译（windows-future 报 E0425），`--workspace` 必失败；
         # 纯逻辑 crate 按分层规则不引入 tauri / tokio / interprocess / windows，可安全跑。
-        run: cargo llvm-cov --package asd-domain --package asd-ipc-protocol --package asd-application --lcov --output-path lcov.info
+        run: |
+          mkdir -p coverage
+          cargo llvm-cov --package asd-domain --package asd-ipc-protocol --package asd-application --lcov --output-path coverage/lcov.info
+      # 棘轮门禁：整体容差 0.5pp、单文件 2.0pp，只阻下降不阻上升。
+      # 基线在本机（Windows）实测；若 CI（ubuntu）因 cfg 分支系统性偏离，
+      # 下载本 job 的 coverage-report artifact 重跑一次 --update-baseline 校准即可。
+      - name: 'G3f 覆盖率门禁（棘轮：下降即 FAIL）'
+        run: python scripts/check-coverage.py --lcov asd-tauri/coverage/lcov.info
       - name: 上传覆盖率报告
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: asd-tauri/lcov.info
+          path: asd-tauri/coverage/lcov.info
           retention-days: 30
 
   miri:
