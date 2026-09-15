@@ -140,9 +140,25 @@ AHK `FileAppend` 默认系统 ANSI → 必须 `FileAppend(..., "UTF-8")`。
 不同路径的倍率会**严重分化**（例：T1 回退时 plain_* 涨 40× 而 ctrl 兜底档 0.99× 不动）。
 配合「拉历史倍率序列」即可区分误报与真实回归。
 
+## 技术债度量闸门（`scripts/check-tech-debt.py`，2026-09-16 起）
+
+五信号：C1a 孤儿文件 / C1b 同名重复 / C1c 代码误放 `docs` 等目录 / C2 `tests/` 未接入执行 /
+C3 文档-代码一致性。**C1、C2 走棘轮**（基线内存量债只登记，只有新增项 FAIL），
+**C3 不做棘轮、恒 0 硬阻断**。基线：`.review-analysis/tech-debt-baseline.json`，
+清理后用 `--update-baseline` 收紧水位。约 2.5s。尚未接入四闸门（属计划阶段 1）。
+
+- ⚠️ **「数字在文档里出现过」不是一致性证据**：`format(2.0,'g')` == `"2"`，会把
+  「AutoHotkey v2.0」「2 个基准脚本」都命中。判 K 值漂移必须 **数字与 bench 名同行**、只认
+  小数形态、且排除 `v2.0` 版本号上下文。否则真实漂移照样绿（9 月已发生过一次）。
+- ⚠️ 全仓 `Path.rglob` 在本仓库**必须先剪枝**：`asd-tauri/src-tauri/target` 几十万文件，
+  光枚举 23s；剪掉 `target/node_modules/.git/AutoHotkey-2.0.26/archive` 后 2.5s。
+- 只扫 AHK；JS/TS 的孤儿与未注册测试**未覆盖**（已知盲区）。
+
 ## 工程约定
 
-- 换行符：`.gitattributes` 强制 LF（`.ps1`/`.bat`/`.cmd` 除外）。Edit 可能引入 CRLF，改完用 Python 校验。
+- 换行符：`.gitattributes` 强制 LF（`.ps1`/`.bat`/`.cmd` 除外）。⚠️ 既有入库文件在 worktree
+  里**本来就是 CRLF**（`check-test-map.py` 全 230 行 CRLF），`eol=lf` 只在入库时归一化，
+  所以新文件落盘成 CRLF 不必手工转。Edit 可能引入 CRLF，改完用 Python 校验。
 - Conventional Commits，描述用中文。⚠️ scope 正则 `[a-z-]+` **不允许数字**（`fix(e2e)` 因含 `2` 被拒）。
   长信息 `git commit -F <file>`（**不接受 MSYS 路径**，须 `cygpath -w`）；`-F` 与 `-m` 不能同用。
 - ⚠️ **禁用 `git rm`/safe-delete**（路径拼接 bug 会连带删 54 文件）→ `mv` 到 /tmp + `git add -A`。

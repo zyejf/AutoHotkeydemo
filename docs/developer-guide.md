@@ -929,6 +929,26 @@ scripts\check-gates.ps1 -Quick
 
 > 闸门定义、判定策略与基线更新方式详见 `docs/graph-driven-workflow.md` §5.4。
 
+#### 4.6.1.1 技术债度量（`scripts/check-tech-debt.py`，暂不在四闸门内）
+
+独立于四闸门的**静态**检查（不编译、不执行被测程序，约 2.5s）。C1/C2 走**棘轮**：
+基线内的存量债只登记不报错，**只有新增项才 FAIL**；C3 恒 0 硬阻断。
+
+```bash
+python scripts/check-tech-debt.py                # 三检 + 与基线比对
+python scripts/check-tech-debt.py --show         # 只看现状
+python scripts/check-tech-debt.py --update-baseline   # 清理后收紧水位
+```
+
+| 检 | 内容 |
+|----|------|
+| C1a/C1b/C1c | 孤儿文件 / 同名重复 / 代码误放 `docs/` 等目录 |
+| C2 | `tests/` 下从 `run_all_tests` / `run_tests` 不可达（写了但永不执行） |
+| C3 | `baselines.json` 的 `k`/`warn_k`/`_baseline_runs` 与 `developer-guide.md`、`test-map.md` 是否一致 |
+
+基线在 `.review-analysis/tech-debt-baseline.json`；债项台账见 `docs/tech-debt-register.md`。
+接入四闸门属技术债计划阶段 1。
+
 ### 4.6.2 AHK 引擎探针（`tools/ahk-probes/`）
 
 用于**量化 AHK v2 引擎行为**的独立探针集（启动/解析开销、定时器网格、主线程占用、热键、

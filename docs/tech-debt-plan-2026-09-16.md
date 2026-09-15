@@ -130,10 +130,37 @@ DPI = (I + P + V + S) / ( √C × R )
 | 项 | 内容 |
 |---|---|
 | **目标** | 让「技术债」从主观判断变成**脚本可判定**的数字 |
-| **交付物** | ① `docs/tech-debt-register.md`（台账）；② `scripts/check-tech-debt.ps1/.sh` 三检：`重复/未引用文件检测`、`未注册测试文件检测`、`文档-代码一致性检测`（K 值、测试计数、基线来源）；③ 当前基线数字快照（写进台账「基线」列） |
+| **交付物** | ① `docs/tech-debt-register.md`（台账）；② `scripts/check-tech-debt.py` 三检；③ 0 号基线 `.review-analysis/tech-debt-baseline.json` |
 | **验收** | 脚本可执行且输出 0 号基线；三检各自的检测项有**阳性对照**（人为造一个债，脚本必须报出来） |
 | **回滚** | 纯新增文件，删除即回滚；不碰任何生产代码 |
 | **依赖** | 无 |
+
+**执行结果（2026-09-16，已完成）**
+
+三检落地为**四个信号**（原计划的三个拆成了 C1a/C1b/C1c，原因见下）：
+
+| 检 | 信号 | 0 号基线 | 阳性对照 |
+|---|---|---|---|
+| C1a | 孤儿文件：无 `#Include` 入边 + 非入口 + 无跨语言引用 | 19 项 | 新建根 `_pc_orphan.ahk` → 报 `[NEW]` 并 FAIL ✓ |
+| C1b | 同名重复：同一 basename ≥2 处 | 7 项 | 造一对 `_pc_dup.ahk` → 报 3 项 FAIL ✓ |
+| C1c | 代码在非代码目录（`docs/` `reports/` `backups/` …） | 4 项 | 造 `docs/_pc_snap.ahk` → FAIL ✓ |
+| C2 | `tests/` 下从 `run_all_tests` / `run_tests` 不可达 | 10 项 | 造 `tests/test_pc_unwired.ahk` → FAIL ✓ |
+| C3 | 文档-代码一致性（`k`/`warn_k`/`_baseline_runs`） | 0 项（**不做棘轮，必须恒 0**） | 4 组对照全 FAIL ✓ |
+
+C1/C2 用**棘轮**语义：基线内的存量债只是「已登记」不报错，**只有基线外的新增项才会 FAIL**；
+清理后跑 `--update-baseline` 收紧水位，基线 diff 必然出现在 CR 里。
+
+⚠️ 两个设计决策是被阳性对照逼出来的，不是拍脑袋：
+
+1. **C1 必须拆成三个信号**：只做「孤儿文件」时，`ui_manager.ahk`、`test_joystick.ahk`
+   都因为 basename 在 JS/JSON 里出现过而被判为「被引用」从而漏报；加 C1b（同名重复）
+   才抓得到。反之 C1a 能抓到 C1b 抓不到的孤儿。三者互补，缺一必有漏。
+2. **C3 的数字必须和 bench 名同行**：最初只判断「数字在文档里出现过没有」，结果把
+   `prod_escape` 的 k 改回陈旧的 `2.0` 时，`2.0` 被「AutoHotkey v2.0」和「2 个基准脚本」
+   命中，**检查照样绿** —— 这正是 2026-09 真实发生、两周没被发现的那次漂移。
+   收紧为「同行 + 排除版本号上下文 + 只认小数形态」后，该对照才变红。
+
+耗时 2.5s（`rglob` 全仓枚举要 23s，已改为带剪枝的遍历）。接入四闸门属阶段 1。
 
 ### 阶段 1 · 止血：死代码与文档漂移（4 人天）
 
@@ -306,7 +333,7 @@ DPI = (I + P + V + S) / ( √C × R )
 ### 5.2 架构约束自动化
 
 - `scripts/check-gates.ps1/.sh`：一键四闸门（本机等价 CI）。
-- `scripts/check-tech-debt.ps1/.sh`（阶段 0 新增）：重复/未引用文件、未注册测试、文档-代码一致性。
+- `scripts/check-tech-debt.py`（阶段 0 新增，2026-09-16 已完成）：C1a 孤儿文件 / C1b 同名重复 / C1c 代码在非代码目录 / C2 测试未接入执行 / C3 文档-代码一致性。C1、C2 走棘轮（只阻新增），C3 恒 0 硬阻断。用法见脚本 docstring。
 - pre-commit hook（`scripts/hooks/` 已有）：阶段 1 后把三检接入。
 
 ### 5.3 技术债台账（`docs/tech-debt-register.md`）

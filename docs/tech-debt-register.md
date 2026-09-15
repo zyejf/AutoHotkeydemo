@@ -27,6 +27,15 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 | 测试 | AHK 664（CI 657 + 跳过 7）；Rust 405；E2E 53（CI 默认关）；criterion bench 7；fuzz 5 |
 | 覆盖率 | 仅 3 个纯逻辑 crate 采集，**无阈值、非阻断** |
 | 仓库体积 | `AutoHotkey-2.0.26/` 221 文件 / 7.9M（vendored 引擎源码） |
+| C1a 孤儿文件 | **19** 项（AHK 语料 109） |
+| C1b 同名重复 | **7** 个 basename（14 个文件） |
+| C1c 代码在非代码目录 | **4** 项（全在 `docs/review/2026-08-20/fix-plan/workspace-snapshot/`） |
+| C2 测试未接入执行 | **10** 项（tests/ 语料 23，可达 13） |
+| C3 文档-代码不一致 | **0** 项（**不做棘轮，必须恒 0**） |
+
+> 上表 5 行由 `scripts/check-tech-debt.py` 产出，0 号基线在
+> `.review-analysis/tech-debt-baseline.json`。C1/C2 是存量债白名单（只阻新增），
+> 收紧水位 = 清理后重跑 `--update-baseline`。
 
 ---
 
@@ -52,6 +61,21 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 | TD-016 | D 门禁缺失 | E2E 9 suite / 53 用例在 CI **默认关闭**（仅手动触发，需 WebView2 + tauri-driver + msedgedriver）→ 端到端链路零覆盖 | 4 | 3 | 2 | 3 | 5 | 1.4 | **3.8** | P2 | 待排期 | 3 |
 
 **统计**：P0 **6** 项（其中 1 项已完成）｜P1 **5** 项｜P2 **5** 项｜合计 **16** 项。
+
+### 自动检出映射（`scripts/check-tech-debt.py`，阶段 0）
+
+下列债项已能被脚本自动检出 —— 修复后对应计数下降，可据此收紧基线：
+
+| 检 | 覆盖的债项 | 0 号基线 |
+|---|---|---|
+| C1b 同名重复 | TD-003（根 `ui_manager.ahk`）、TD-002（`tests/test_joystick.ahk`）、TD-004（双 `_harness.ahk`） | 7 |
+| C1c 代码在非代码目录 | TD-001（`docs/**/workspace-snapshot/` 4 个文件） | 4 |
+| C2 测试未接入执行 | TD-002、TD-013（`tests/legacy/json.ahk`）+ 8 个独立 runner 未被 `run_all_tests` 覆盖 | 10 |
+| C3 文档-代码一致性 | TD-011（K 值漂移，**已修复**；脚本即为防复发手段） | 0 |
+
+C1a（19 项孤儿）目前**没有**对应已登记债项 —— 其中的 `config.ahk`、`SkillMgrDebugLogger.ahk`、
+`_diag/_mock/_rt.ahk`、`test_ob/test_simple/test_val_btn.ahk`、`tools/ahk-bench/lib/seqgen_test.ahk`
+需在阶段 1 逐一定性（弃用 / 保留并登记为豁免 / 接入执行）后再开债项，不要凭清单直接删。
 
 ---
 
