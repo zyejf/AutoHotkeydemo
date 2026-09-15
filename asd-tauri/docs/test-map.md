@@ -134,6 +134,40 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | asd-tauri | 模糊 | src-tauri/fuzz/fuzz_targets/fuzz_ipc_message_parse.rs | 1 target | IpcMessage 解析后字段访问与方法调用 |
 | asd-tauri | 模糊 | src-tauri/fuzz/fuzz_targets/fuzz_hotkey_merger.rs | 1 target | HotkeyMerger push/flush 逻辑 |
 
+## 覆盖率（纯逻辑 crate，行覆盖率）
+
+> 2026-09-16 起由 `scripts/check-coverage.py`（CI 的 **G3f**）做**棘轮门禁**：
+> 基线取实测值，**只阻下降不阻上升**，整体容差 0.5pp、单文件 2.0pp。
+> 基线文件 `.review-analysis/coverage-baseline.json`（本表是其可读镜像，
+> **数字冲突时以该 JSON 为准**）。
+
+**整体 81.64%**（命中 5206 / 总行 6377，15 个文件）
+
+| 文件 | 行覆盖率 | 备注 |
+|------|---------|------|
+| asd-domain/src/traits.rs | **0.00%** | 15 行全未覆盖 —— trait 定义无测试，优先级最高 |
+| asd-application/src/group_service.rs | 63.32% | |
+| asd-application/src/recording_service.rs | 67.28% | |
+| asd-domain/src/validator.rs | 73.76% | 最大文件（2367 行），621 行未覆盖 |
+| asd-application/src/backup_service.rs | 78.31% | |
+| asd-domain/src/models.rs | 86.62% | |
+| asd-application/src/state.rs | 87.83% | |
+| asd-application/src/config_repository.rs | 93.26% | |
+| asd-domain/src/config.rs | 95.62% | |
+| asd-ipc-protocol/src/error.rs | 96.08% | |
+| asd-ipc-protocol/src/message.rs | 96.88% | |
+| asd-ipc-protocol/src/command.rs | 97.70% | |
+| asd-ipc-protocol/src/hotkey_merger.rs | 98.73% | |
+| asd-application/src/error.rs | 100.00% | |
+| asd-application/src/time_format.rs | 100.00% | |
+
+覆盖范围：仅 `asd-domain` / `asd-ipc-protocol` / `asd-application` 三个纯逻辑 crate。
+`src-tauri` 依赖 windows / tauri 系列 crate，在 Linux 上无法编译，不纳入。
+
+⚠️ 已实测的一个认知偏差：删掉 `asd-ipc-protocol/tests/integration_tests.rs`（463 行）
+后覆盖率**纹丝不动** —— 该文件的用例所覆盖的行已被单元测试覆盖，
+**它的价值不在覆盖率，在跨模块契约**。别用「删了覆盖率没变」来判定测试冗余。
+
 ## AHK 执行器测试
 
 使用项目根目录 `tests/AutoHotUnit.ahk` 框架，测试 `src-tauri/ahk_executor/` 下 5 个 AHK 脚本的纯逻辑方法。

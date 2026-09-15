@@ -921,8 +921,11 @@ scripts\check-gates.ps1 -Quick
 |------|---------|
 | G1 | 图谱基线：无新增环、无白名单外依赖违规（`scripts/check-graph-baseline.py`） |
 | G2 | `cargo fmt --all --check` + `cargo clippy -- -D warnings` |
-| G3 | `cargo test --workspace`(a) / AHK 完整套件(b) / JS 单测(c) + `test-map.md` 数字对账(d) + **技术债度量(e)** |
+| G3 | `cargo test --workspace`(a) / AHK 完整套件(b) / JS 单测(c) + `test-map.md` 数字对账(d) + **技术债度量(e)** + **覆盖率棘轮(f)** |
 | G4 | 文档同步（无法自动化，脚本输出人工核对清单） |
+
+> **G3f 跑在 CI 的 coverage job（ubuntu）**，不在本地 `check-gates.sh` 里 ——
+> 它需要 `cargo-llvm-cov` 且只覆盖三个纯逻辑 crate，本机跑法见 §4.6.1.2。
 
 另有 `scripts/install-hooks.ps1`（或 `.sh`）用于安装版本化 git 钩子——
 `.git/hooks/` 不进版本库，新克隆后必须执行一次。
@@ -961,6 +964,39 @@ python scripts/check-tech-debt.py --update-baseline   # 清理后收紧水位
 
 基线在 `.review-analysis/tech-debt-baseline.json`；债项台账见 `docs/tech-debt-register.md`。
 G3e **不随 `--quick` 运行**（quick 只跑 G1/G2）。
+
+#### 4.6.1.2 覆盖率棘轮门禁（`scripts/check-coverage.py`，G3f，2026-09-16 起）
+
+只覆盖三个纯逻辑 crate（`asd-domain` / `asd-ipc-protocol` / `asd-application`；
+`src-tauri` 依赖 windows / tauri 系列，在 Linux 上编译不了）。
+
+```bash
+# 在 asd-tauri/ 下生成 lcov（约 1 分钟，首次含编译）
+cargo llvm-cov --package asd-domain --package asd-ipc-protocol \
+    --package asd-application --lcov --output-path coverage/lcov.info
+
+# 回到仓库根跑门禁
+python scripts/check-coverage.py --lcov asd-tauri/coverage/lcov.info
+python scripts/check-coverage.py --lcov ... --show              # 只看现状
+python scripts/check-coverage.py --lcov ... --update-baseline   # 补完测试后钉住新水位
+```
+
+| 阈值 | 值 | 理由 |
+|------|----|----|
+| 整体行覆盖率 | 基线 **− 0.5pp** | 防「总体稀释」：A 掉 20% 被 B 涨 5% 盖过去 |
+| 单文件行覆盖率 | 基线 **− 2.0pp** | 防「丢车保帅」；小文件天然波动大，故容差比整体宽 |
+| 新文件 | 只登记不判 | 新代码第一次不背历史包袱，第二次起有基线 |
+
+**为什么是棘轮而不是「≥ 80%」**：凭空定的目标只有两种下场 —— 一上线就红
+（于是大家加无断言的「跑一遍就算覆盖」测试刷数字），或低到形同虚设。
+两种都比没有门禁更糟，因为它们会**污染覆盖率这个指标本身的可信度**。
+棘轮只保证「不会比昨天更差」。
+
+当前基线与逐文件数字见 `asd-tauri/docs/test-map.md`「覆盖率」一节（该表是
+`.review-analysis/coverage-baseline.json` 的可读镜像，冲突时以 JSON 为准）。
+
+⚠️ 基线在**本机（Windows）**实测。若 CI（ubuntu）因 cfg 分支系统性偏离，
+下载 CI 的 `coverage-report` artifact 重跑一次 `--update-baseline` 校准即可。
 
 ### 4.6.2 AHK 引擎探针（`tools/ahk-probes/`）
 
