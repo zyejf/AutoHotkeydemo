@@ -1003,8 +1003,21 @@ AHK_EXE="D:/Program Files/AutoHotkey/v2/AutoHotkey64.exe" python tools/ahk-bench
 - **多轮中位数**：p50 滤单次离群，中位数再滤整轮异常（宿主抖动常整轮偏移）；
 - 另有 **WARN 带**（`warn_k=1.15`）：进入 1.15×~2.0× 只告警不阻断。
 
-**实测依据（本机，5 轮）**：中位数跨会话波动 **≤2.4%**；「T1 被完整回退」会让
-`escape_mixed_2k` 涨 **41.7×**、`escape_plain_*` 涨约 **36×** —— 与噪声差一个数量级以上，K=2.0 留足余量。
+**⚠️ 基线取自 CI，不是开发机。** 首版基线用的是开发机实测值，结果 CI 上 5 个 metric
+全部落在 **1.20~1.44×**（GitHub 托管 runner 比开发机慢 30~40%）—— 每次跑都刷满 WARN，
+警告带等于失效。故 `baselines.json` 里的数值来自 **CI 实测**（见文件内 `_baseline_source`
+/ `_baseline_run`）。**重设基线请在 CI 上做**，不要拿本地数字覆盖。
+
+```bash
+# 在 CI 上重设基线：Actions → CI → Run workflow → 勾 update_ahk_bench_baseline
+# 跑完下载 artifact `ahk-bench-baseline`，人工确认后提交（基线是门禁锚点，不自动提交）
+```
+
+**实测依据**：中位数跨会话波动 **≤2.4%**（开发机）、CI 跨轮范围约 0.4~2.7%；
+「T1 被完整回退」会让 `escape_mixed_2k` 涨 **41.7×**、`escape_plain_*` 涨约 **36×** ——
+与噪声差一个数量级以上，K=2.0 留足余量。
+
+> 💡 **本地跑门禁会显示 0.7× 左右（比基线快），这是正常的** —— 判据只有上界，变快不失败。
 
 **已知盲区（不是 bug，是取舍）**：「只删掉快路径、保留 `StrReplace`」仅劣化约 **1.16~1.22×**，
 与 CI 跨机器波动同量级，**本门禁拦不住**，靠 code review 与 `JSONSerializerEscapeTests` 的语义守护。

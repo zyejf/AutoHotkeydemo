@@ -31,6 +31,10 @@ on:
         description: '同时运行 E2E（需 WebView2 + tauri-driver + msedgedriver，CI 上不稳定，默认关闭）'
         type: boolean
         default: false
+      update_ahk_bench_baseline:
+        description: '重设 AHK 生产基准基线：在 CI 上跑满轮数并把新的 baselines.json 作为 artifact 上传（下载后人工确认再提交）'
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -333,7 +337,10 @@ jobs:
     #   托管 runner 硬件代际不同可能让绝对值整体偏移；若出现随机红，先本地复跑确认，
     #   确属硬件差异再 --update-baseline 重设基线并在 PR 里说明。
     runs-on: windows-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # 正常路径：push 到 main。重设基线路径：手动 dispatch 勾选 update_ahk_bench_baseline。
+    if: >-
+      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+      (github.event_name == 'workflow_dispatch' && inputs.update_ahk_bench_baseline)
     steps:
       - uses: actions/checkout@v4
 
@@ -355,10 +362,17 @@ jobs:
         shell: pwsh
         env:
           AHK_EXE: ${{ steps.ahk.outputs.ahk64 }}
+          UPDATE_BASELINE: ${{ github.event_name == 'workflow_dispatch' && inputs.update_ahk_bench_baseline }}
         run: |
           # gate.py 内部靠 .done 哨兵轮询（AHK 是 GUI 子系统，退出码不可靠）
           if (-not (Test-Path $env:AHK_EXE)) { throw "AHK_EXE 不存在: $env:AHK_EXE" }
-          python tools/ahk-bench/gate.py --rounds 3
+          if ($env:UPDATE_BASELINE -eq 'true') {
+            # 重设基线：跑满 5 轮并把结果写回 baselines.json，随后作为 artifact 上传。
+            # 不自动提交 —— 基线是门禁的锚点，必须人工确认后再进仓库。
+            python tools/ahk-bench/gate.py --rounds 5 --update-baseline
+          } else {
+            python tools/ahk-bench/gate.py --rounds 3
+          }
 
       - name: 上传基准 CSV（失败时便于人工复核）
         if: always()
@@ -368,6 +382,15 @@ jobs:
           path: ${{ runner.temp }}/ahkgate-prod_escape/
           retention-days: 14
           if-no-files-found: warn
+
+      - name: 上传新基线（仅重设基线时）
+        if: github.event_name == 'workflow_dispatch' && inputs.update_ahk_bench_baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: ahk-bench-baseline
+          path: tools/ahk-bench/baselines.json
+          retention-days: 30
+          if-no-files-found: error
 
   e2e:
     name: E2E（仅手动触发）
