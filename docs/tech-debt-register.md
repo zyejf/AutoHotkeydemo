@@ -26,13 +26,14 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 | Rust crates | asd-domain 5/3709、asd-application 8/3754、asd-ipc-protocol 5/948、asd-test-harness 1/389 | 同左 |
 | 测试 | AHK 664（CI 657 + 跳过 7）；Rust 405；E2E 53（CI 默认关）；criterion bench 7；fuzz 5 | **AHK 697**（CI 690 + 跳过 7）—— +33 来自 TD-002 |
 | 覆盖率 | 仅 3 个纯逻辑 crate 采集，**无阈值、非阻断** | 同左 |
-| 仓库体积 | `AutoHotkey-2.0.26/` 221 文件 / 7.9M（vendored 引擎源码） | 同左 |
+| 仓库体积 | `AutoHotkey-2.0.26/` 221 文件 / 7.9M（vendored 引擎源码） | **181 文件 / 7.7M**（移出 40 个混入文件，TD-010） |
 | C1a 孤儿文件 | **19** 项（AHK 语料 109） | **16** 项（语料 103） |
 | C1b 同名重复 | **7** 个 basename（14 个文件） | **1** 个 |
 | C1c 代码在非代码目录 | **4** 项（全在 `docs/review/2026-08-20/fix-plan/workspace-snapshot/`） | **0** 项 |
 | C2 测试未接入执行 | **10** 项（tests/ 语料 23，可达 13） | **8** 项（语料 22，可达 14） |
 | C3 文档-代码不一致 | **0** 项（**不做棘轮，必须恒 0**） | **0** 项 |
 | C3b 文档硬写基线数字 | ——（阶段 0 未设此检） | **3** 项（棘轮登记，见下） |
+| C6 vendored 引擎树纯净性 | ——（阶段 0 未设此检） | **0** 项（**不做棘轮，必须恒 0**） |
 | 覆盖率（纯逻辑 crate · 行） | ——（无阈值、非阻断） | **81.64%** 整体 + 15 个文件逐文件基线，**棘轮只阻下降**（G3f，TD-006） |
 
 > 上表 C1a/C1b/C1c/C2/C3b 五行由 `scripts/check-tech-debt.py` 产出，基线在
@@ -58,7 +59,7 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 | TD-007 | D 缺失测试 | 覆盖率只覆盖 3 个纯逻辑 crate；`src-tauri` 主 crate（Linux 不可编译）、AHK、JS 均无覆盖率 | 4 | 3 | 2 | 3 | 5 | 1.4 | **3.8** | P2 | 待排期 | 3 |
 | TD-008 | A/E 架构 | `src-tauri/src/application/`、`src-tauri/src/domain/` 为空历史占位（`AGENTS.md` 禁止加代码），易被误当作可放置目录 | 1 | 1 | 3 | 3 | 1 | 1.0 | **8.0** | P1 | **已完成**（2026-09-16：新增 `scripts/check-tech-debt.py` 的 **C4 占位目录守卫**。判据是「目录里**有没有文件**」而不是「目录存不存在」—— git **不跟踪空目录**，CI 全新 checkout 时目录不存在、本机老 clone 时目录存在，用存在性判定会让同一份代码在两处结论相反，那是埋雷不是门禁。本机的两个空目录已清掉，但**那不是交付物**（删了也进不了版本库），C4 这条检查才是。C4 **硬失败、不做棘轮**：它守的是规则不是存量债。阳性对照：往 `domain/` 放一个 `.rs` → EXIT=1 且报出文件路径与原因，移除后回绿。`AGENTS.md` 目录表已标注「禁止放任何文件」） | 4 |
 | TD-009 | E 架构脆弱 | 3 处 crate 依赖违规（均为 `asd-test-harness`，在 `ALLOWED_CRATE_DEPS` 白名单内），豁免**未写理由与到期日** | 2 | 2 | 4 | 2 | 3 | 1.4 | **4.3** | P2 | 待排期 | 4 |
-| TD-010 | E 架构 / 体积 | `AutoHotkey-2.0.26/` 221 文件 / 7.9M vendored 引擎源码入库。**权衡项**：是只读研究参考（`docs/research/ahk-engine-architecture-2026-09-14.md` 依赖它），倾向改 submodule/获取脚本**而非删除** | 3 | 2 | 3 | 2 | 2 | 1.4 | **5.1** | P1 | 待排期 | 4 |
+| TD-010 | E 架构 / 体积 | `AutoHotkey-2.0.26/` 221 文件 / 7.9M vendored 引擎源码入库。**权衡项**：是只读研究参考（`docs/research/ahk-engine-architecture-2026-09-14.md` 依赖它），倾向改 submodule/获取脚本**而非删除** | 3 | 2 | 3 | 2 | 2 | 1.4 | **5.1** | P1 | **已完成**（2026-09-16：先量化再动手，结论与登记时的估计**不同** —— 真正的成本不是体积，是**纯度**。① 摸底：上游 tag `v2.0.26` 存在（commit `542510f`），逐字节比对两侧清单 → 本副本 **181 个文件与官方完全一致（0 处篡改、0 处缺失）**，「只读」这条约定是被遵守的。② 但目录里混进了 **40 个本项目的实验残留**（2026-05 那批「无弹窗错误处理」调研的产物），其中包括 `source/.claude/CLAUDE.md`（外部 AI 工具 oh-my-claudecode 的**编排指令**）与 `source/.omc/state/setup-state.json`。放在 vendored 源码里，AI 工具会把它当项目指令读 —— **这是会改变行为的污染，不只是碍眼**。40 个文件**无任何运行时引用**，唯一引用来自历史 spec 文档 `.trae/specs/research-ahk-error-capture/spec.md`（`error_logger.ahk`），内容可从 git 历史 `461f6f5` 取回。③ 处置：移出 40 个文件（221→181），并新增 `check-tech-debt.py` 的 **C6 vendored 引擎纯净性守卫**（硬失败、不做棘轮）。基线 `scripts/vendor-baseline-ahk-2.0.26.txt` 刻意取自**上游官方仓库**而非本地快照 —— 若取本地快照，一旦本地已被污染，污染就会被固化进基线、从此永远通过。④ **submodule 方案评估后不采纳**：技术上完全可行（tag 存在、内容逐字节一致、行号零漂移），但研究报告 `ahk-engine-architecture-2026-09-14.md` 对它做了 **60+ 处行级引用**（`script.cpp:9840`、`hotkey.cpp:202` …，涉及 20 个文件）；改 submodule 后普通 clone 得到的是**空目录**，引用全部悬空，把「随时可查」变成「需要网络 + 额外步骤」。而它是**只读引用不是构建依赖**（CI 完全不碰它，用的是 `ahk_executor/AutoHotkey64.exe`），7.9M 相对 `.git` 100M 只占约 8%、且是一次性成本 —— 用它去换 submodule 的持续操作与认知成本不划算。⑤ 阳性对照 3 组：改工作区文件（**不 add**）→ 被改 1；把已跟踪文件移出工作区 → 被删 1；基线加一条不存在的文件 → 缺失 1；还原后全部回 0。⚠️ 第一组最初是**全绿**的：C6 一开始读 `git ls-files -s`（**索引**），改了文件没 `git add` 就抓不到 —— 而那正是本条要防的顺手篡改，等进了索引错误已经提交出去了。已改为读**工作区**哈希（`git hash-object --stdin-paths`，与 .gitattributes 同一套归一化口径）） | 4 |
 | TD-011 | F 文档漂移 | `test-map.md` 记 `prod_escape` K=2.0，实际已是 1.5（K 值改了但文档未同步）→ 会让人按错阈值判断误报 | 2 | 4 | 5 | 4 | 0.5 | 1.0 | **21.2** | P0 | ✅ **已完成**（2026-09-16） | 1 |
 | TD-012 | 静态分析 | 无 `clippy.toml`、无 `#![deny(warnings)]`、无 eslint → lint 只跑默认档，坏味道拦不住 | 3 | 2 | 4 | 3 | 2 | 1.0 | **8.5** | P1 | **已完成**（2026-09-16：① 4 个纯逻辑 crate 开 `clippy::pedantic`（`[lints] workspace = true`），从 248 项收干到 0 —— 其中 146 项文档类（doc_markdown / must_use_candidate）由 clippy 自动修，30 项逐个人工处理（2 处超长函数就地豁免 → TD-023）；`src-tauri` **不开**：587 项里 476 项是 Tauri 样板的文档噪声，开了等于把真信号淹掉；② 新增 `asd-tauri/clippy.toml`（只放阈值，启停一律在根 Cargo.toml 的 `[workspace.lints]`）；③ 前端新增 ESLint 9 flat config + `npm run lint`（棘轮 70，CI 独立 job `js-lint`）。**收紧的第一个回报**：`#[must_use]` 立刻报出 `benches/benchmarks.rs` 丢弃了 `validate()` 的返回值 —— 那是纯函数，优化器会把整段调用删掉，该基准可能一直在测空转，已改 `black_box`。阳性对照 4 组，见 developer-guide §4.6.6） | 2 |
 | TD-013 | A/B 重复 | `tests/legacy/json.ahk` 1469 行 legacy JSON 实现，`run_all_tests.ahk` 未引用；仅被历史 review 报告提及 | 2 | 2 | 4 | 2 | 1 | 1.4 | **7.1** | P1 | **已完成**（2026-09-16 删除。定性为 **v1.0 单体实现的历史快照**：① 0 个 `#Include` 引用、0 个 `Test_` 函数 —— 它躺在 `tests/` 下但**根本不是测试**；② 6 个类（`JSONErrorType`/`JSONError`/`JSONLogger`/`JSONParser`/`JSONSerializer`/`ConfigValidator`）与 `infrastructure/` **完全重名**，谁误 include 谁就吃「重复定义」报错；③ `ConfigValidator` 方法集被 infra 版**严格超集**（legacy 9 个里 7 个同名、2 个被重命名取代，infra 多出 13 个新方法）。恢复：`git show 23ede7b:tests/legacy/json.ahk`） | 1 |
@@ -75,7 +76,7 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 | TD-023 | A 代码坏味道 | 两个函数超过 `too_many_lines` 阈值：`validator.rs::validate_mode_data` **294 行**、`group_service.rs::register_hotkey` **104 行**。前者是「按 mode 分派的子校验器集合」，切分要先把每个 mode 的子校验抽成函数并对齐错误文案 | 3 | 3 | 3 | 3 | 5 | 1.4 | **3.8** | P2 | 待排期（2026-09-16 由 TD-012 度量得出。已就地 `#[allow]` 并注明原因，**未上调阈值** —— 上调等于宣布「这么长是合理的」） | 3 |
 | TD-024 | D 门禁缺失 | 覆盖率基线**只存百分比不存行数** → 统计口径漂移时完全看不出来。实测：同一份代码换一条 `llvm-cov` 命令后 `validator.rs` 统计行数 2367→1856（-21.6%），命中数几乎不变，整体「涨」7pp —— 棘轮在拿两个不可比的数字互相比 | 2 | 2 | 3 | 2 | 1 | 1.0 | **9.0** | P1 | **已完成**（2026-09-16：基线改为存每个文件的 `lines`/`hits` 作为口径指纹，新增判定「单文件行数变化 >10% 且 ≥20 行 → FAIL」；同时按 CI 命令重取基线 81.64%→88.65%，并在 test-map 注明**这是量程变化不是覆盖率提升**。阳性对照：砍 30% → FAIL；砍 1.6% → PASS） | 2 |
 
-**统计**：P0 **8** 项（**全部完成**）｜P1 **8** 项（其中 7 项已完成）｜P2 **8** 项｜合计 **24** 项。
+**统计**：P0 **8** 项（**全部完成**）｜P1 **8** 项（**全部完成**）｜P2 **8** 项｜合计 **24** 项。
 
 > P0 已于 2026-09-16 清零。剩余 12 项集中在「测试补齐」（P2）与「架构收敛/门禁加固」（P1），
 > 均不阻塞交付，按阶段 2→4 顺序推进。
@@ -97,10 +98,11 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 | **C3b 文档硬写基线数字** | **TD-018**（**已修复**；`docs/` 下的 `N / N` 与 test-map 实跑总数比对，棘轮只阻新增） | 3 |
 | **C4 占位目录守卫** | **TD-008**（`src-tauri/src/{application,domain}/` 禁放文件；**已修复**，脚本即防复发手段） | —（硬失败） |
 | **C5 冗余 Cargo.lock** | **TD-019**（workspace 成员目录下不得有 Cargo.lock；**已修复**，脚本即防复发手段） | —（硬失败） |
+| **C6 vendored 引擎纯净性** | **TD-010**（`AutoHotkey-2.0.26/` 必须与官方 v2.0.26 不多不少不改；**已修复**，脚本即防复发手段） | —（硬失败） |
 
 C1a/C1b/C1c/C2/C3b 都是**棘轮**：存量债登记进 `.review-analysis/tech-debt-baseline.json`，
 只有**基线外的新增项**才让门禁变红。
-**C3、C4、C5 是例外：硬失败、必须恒为 0** —— 它们守的是**规则**（文档与代码必须一致 / 占位目录不得放文件 / 成员目录不得有冗余 lock），
+**C3、C4、C5、C6 是例外：硬失败、必须恒为 0** —— 它们守的是**规则**（文档与代码必须一致 / 占位目录不得放文件 / 成员目录不得有冗余 lock / vendored 引擎树必须与上游一致），
 不是存量债，没有「先登记、以后再说」的余地。
 
 C1a（19 项孤儿）目前**没有**对应已登记债项 —— 其中的 `config.ahk`、`SkillMgrDebugLogger.ahk`、
@@ -117,7 +119,7 @@ C1a（19 项孤儿）目前**没有**对应已登记债项 —— 其中的 `con
 |---|---|---|
 | `Sender._ExecutePeriodicLegacy` / `_ExecuteHybridLegacy` | T6 的**等价性 oracle**：`bench_prod_tick.ahk` 的 `equiv,tick_onedue_n*,diffs=0` 与 `Test_TickMerge_Periodic_MatchesLegacy` 都靠它比对 | `sender.ahk:82`；`.workbuddy-ai/memory/2026-09-15.md` |
 | `JSONSerializer._EscapeStringCharByChar` | T1 的**等价性 oracle**：`JSONSerializerEscapeTests` 逐字符扫描 + `bench_prod_escape` 的 `equiv,ascii_scan,diffs=0` | `infrastructure/json_serializer.ahk` |
-| `AutoHotkey-2.0.26/source` | AHK 引擎源码，**只读**（不修改/不 fork/不编译），研究可复现性依赖它；图谱分析已排除（`EXCLUDE_DIRS`） | `MEMORY.md`、`docs/graph-driven-workflow.md:108` |
+| `AutoHotkey-2.0.26/source` | AHK 引擎源码，**只读**（不修改/不 fork/不编译），研究可复现性依赖它（研究报告对它做了 **60+ 处行级引用**）；图谱分析已排除（`EXCLUDE_DIRS`）；纯净性由 `check-tech-debt.py` 的 **C6** 守住（对照官方 v2.0.26，不多不少不改） | `MEMORY.md`、`docs/graph-driven-workflow.md:108` |
 | `src-tauri/src/application/`、`domain/` 空目录 | 历史占位，`AGENTS.md` 明确禁止加代码（Rust 侧逻辑在 `crates/`） | `AGENTS.md` |
 | `asd-test-harness` 的 3 处 crate 违规 | 测试辅助 crate，已白名单 | `ALLOWED_CRATE_DEPS` |
 

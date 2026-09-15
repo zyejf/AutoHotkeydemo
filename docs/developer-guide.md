@@ -939,13 +939,13 @@ scripts\check-gates.ps1 -Quick
 
 **静态**检查（不编译、不执行被测程序，约 2.5s），已作为 **G3e** 接入四闸门。
 C1a/C1b/C1c/C2/C3b 走**棘轮**：基线内的存量债只登记不报错，**只有新增项才 FAIL**；
-**C3、C4、C5 恒 0 硬阻断** —— 它们守的是**规则**（文档与代码必须一致 / 空占位目录不得放文件 / 成员目录不得有冗余 lock），
+**C3、C4、C5、C6 恒 0 硬阻断** —— 它们守的是**规则**（文档与代码必须一致 / 空占位目录不得放文件 / 成员目录不得有冗余 lock / vendored 引擎树必须与上游一致），
 不是存量债，没有「先登记、以后再说」的余地。
 
 ```bash
 python scripts/check-tech-debt.py                # 全检 + 与基线比对
 python scripts/check-tech-debt.py --show         # 只看现状
-python scripts/check-tech-debt.py --only c4      # 只跑某一检（c1/c2/c3/c3b/c4）
+python scripts/check-tech-debt.py --only c6      # 只跑某一检（c1/c2/c3/c3b/c4/c5/c6）
 python scripts/check-tech-debt.py --update-baseline   # 清理后收紧水位
 ```
 
@@ -957,6 +957,7 @@ python scripts/check-tech-debt.py --update-baseline   # 清理后收紧水位
 | C3b | `docs/` 下硬写的 AHK 基线数字（形态「`642 / 642`」）是否与 `test-map.md` 的实跑总数一致 |
 | C4 | 空占位目录 `src-tauri/src/{application,domain}/` 是否被写入文件（**不做棘轮**，TD-008）。判「目录里**有没有文件**」而非「目录存不存在」—— git 不跟踪空目录，用存在性判定的话 CI（全新 checkout）与本机（老 clone）结论会相反 |
 | C5 | workspace 成员目录下的冗余 `Cargo.lock`（**不做棘轮**，TD-019）。独立 workspace（如 `src-tauri/fuzz/` 自带 `[workspace]`）的 lock 合法。cargo 只读根那一份，成员这份永不更新，会误导 `cargo audit` / dependabot 的安全结论 |
+| C6 | vendored 引擎树 `AutoHotkey-2.0.26/` 必须与官方 v2.0.26 **不多、不少、不改**（**不做棘轮**，TD-010）。基线在 `scripts/vendor-baseline-ahk-2.0.26.txt`，刻意取自**上游**而非本地快照 —— 取本地快照的话，一旦本地已被污染，污染就会被固化进基线、从此永远通过。⚠️ 内容口径是**工作区**哈希（`git hash-object`），不是索引 —— 用索引的话「改了引擎源码但还没 `git add`」完全抓不到，而那正是本条要防的。被 `.gitignore` 忽略的本机产物（`AutoHotkey.exe`、`*.log`）不在管辖范围，否则会出现「本地恒红、CI 恒绿」 |
 
 > **C3b 的写法约定**：文档里**不要复写 AHK 用例总数**，一律写
 > 「见 `asd-tauri/docs/test-map.md`（当前 N）」这类指针。

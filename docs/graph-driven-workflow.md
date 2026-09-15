@@ -105,7 +105,7 @@ cd asd-tauri && cargo test          # 运行 Rust 测试
 | `logs/` | 运行日志 | 运行期产物 | 不入版本控制语义 |
 | `backups/` | 配置备份文件 | 运行期产物 | 由 `BackupService` / `BackupCore` 管理 |
 | `config_backup/` | 配置备份目录（历史遗留） | **遗留** | 新逻辑不应写入此目录 |
-| `AutoHotkey-2.0.26/` | AHK 解释器源码树 | 只读外部 | **不参与图谱分析**（`EXCLUDE_DIRS`） |
+| `AutoHotkey-2.0.26/` | AHK 解释器源码树 | 只读外部 | **不参与图谱分析**（`EXCLUDE_DIRS`）；纯净性由 `check-tech-debt.py` 的 **C6** 守住（TD-010） |
 | `.review-analysis/` | 图谱分析脚本与原始数据 | 活跃（工具） | 见附录 A |
 
 > **注**：根目录散落若干 `_diag.ahk` / `_mock.ahk` / `_rt.ahk` / `test_*.ahk` 等调试脚本，属临时产物；如需长期保留请收入 `tests/`，否则会在图谱上表现为孤点（见 §2.5）。

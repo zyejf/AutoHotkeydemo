@@ -165,6 +165,7 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
 | `presentation/`  | AHK 表现层模块                             |
 | `tests/`         | AHK 测试套件                              |
 | `lib/`           | AHK 第三方库（ahk2_lib）                    |
+| ⚠️ `AutoHotkey-2.0.26/` | **vendored AHK 引擎源码（官方 tag v2.0.26），只读**：不修改 / 不 fork / 不编译。`docs/research/ahk-engine-architecture-2026-09-14.md` 对它做了 **60+ 处行级引用**，删掉会全部悬空；它是只读研究参考不是构建依赖（CI 不碰它）。由 `scripts/check-tech-debt.py` 的 **C6 检查**守住与官方 v2.0.26 一致：不多、不少、不改（TD-010）
 
 ### Rust/Tauri 部分
 

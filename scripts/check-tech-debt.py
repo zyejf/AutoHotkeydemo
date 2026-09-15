@@ -51,6 +51,7 @@ import argparse
 import fnmatch
 import json
 import re
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -68,6 +69,9 @@ BASELINE = REPO_ROOT / ".review-analysis" / "tech-debt-baseline.json"
 BASELINES_JSON = REPO_ROOT / "tools" / "ahk-bench" / "baselines.json"
 DEV_GUIDE = REPO_ROOT / "docs" / "developer-guide.md"
 TEST_MAP = REPO_ROOT / "asd-tauri" / "docs" / "test-map.md"
+VENDOR_DIR = "AutoHotkey-2.0.26"
+VENDOR_BASELINE = REPO_ROOT / "scripts" / "vendor-baseline-ahk-2.0.26.txt"
+DELETED_MARK = "<deleted>"   # 已跟踪但工作区里不存在
 
 # ---------------------------------------------------------------- 语料与豁免
 
@@ -624,6 +628,147 @@ def check_c5(repo_root: Path) -> dict:
             )
     return {"findings": findings, "checked": checked}
 
+# --------------------------------------- C6 vendored 引擎树纯净性（TD-010）
+#
+# `AutoHotkey-2.0.26/` 是**只读研究参考**，不是构建依赖：
+#   - `docs/research/ahk-engine-architecture-2026-09-14.md` 对它做了 **60+ 处行级引用**
+#     （`script.cpp:9840`、`hotkey.cpp:202` …），涉及 20 个文件。它是可复核的证据。
+#   - CI **完全不碰它**（CI 用的是 `asd-tauri/src-tauri/ahk_executor/AutoHotkey64.exe`）。
+#
+# 这条检查守两件事：
+#   1. **不被污染**。2026-09 清理时发现目录里混进了 **40 个本项目的实验残留**，其中还有
+#      `source/.claude/CLAUDE.md`（外部 AI 工具的编排指令）与 `source/.omc/state/setup-state.json`。
+#      放在 vendored 源码里，AI 工具会把它当项目指令读 —— 这是**会改变行为的污染**，不只是碍眼。
+#   2. **不被篡改**。一旦有人顺手改了引擎源码，「这是 v2.0.26」这句话就失效，研究报告里
+#      60+ 处行号引用随之失真，而且失真**不会有任何报错**。
+#
+# 基线刻意来自**上游官方仓库**（tag v2.0.26，commit 542510f）而不是本地快照：
+# 若取本地快照，一旦本地已被污染，污染就会被固化进基线、从此永远通过。
+# 校验的是「本地 == 官方 v2.0.26」，不是「本地 == 本地上一次的样子」。
+#
+# 与 C3/C4/C5 同属**硬失败、不做棘轮**：这守的是规则，不是存量债。
+
+
+def _load_vendor_baseline(path: Path) -> dict[str, str]:
+    """读基线清单 → {相对 VENDOR_DIR 的路径: blob-sha}。跳过空行与 # 注释。"""
+    out: dict[str, str] = {}
+    for ln, line in enumerate(read_text(path).splitlines(), 1):
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        parts = s.split(None, 1)
+        if len(parts) != 2:
+            raise ValueError(f"{rel(path)}:{ln} 格式错误（应为 '<sha>  <path>'）：{line!r}")
+        sha, p = parts[0], parts[1].strip()
+        if len(sha) != 40:
+            raise ValueError(f"{rel(path)}:{ln} sha 不是 40 位十六进制：{sha!r}")
+        out[p.replace("\\", "/")] = sha
+    return out
+
+
+def _git_lines(repo_root: Path, args: list[str]) -> list[str]:
+    r = subprocess.run(["git", *args], cwd=repo_root, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)} 失败：{r.stderr.strip()}")
+    return [ln for ln in r.stdout.splitlines() if ln.strip()]
+
+
+def _vendor_present(repo_root: Path) -> dict[str, str]:
+    """vendor 目录里「git 认为属于仓库」的文件 → {相对路径: 内容 sha}。
+
+    **路径口径**：git 自己的，不裸扫文件系统。
+      - 已跟踪：`git ls-files -s`
+      - 未跟踪但**未被 ignore**：`git ls-files --others --exclude-standard`
+        （还没提交、但 `git status` 看得见 —— 属于正要被提交进去的污染）
+      - 被 ignore 的本机产物（`AutoHotkey.exe`、`*.log`）：**不管**。
+        它们只在本地存在，CI 全新 checkout 没有；管了就会出现「本地恒红、CI 恒绿」，
+        那种门禁会被人学会无视。
+
+    **内容口径**：**工作区**文件的 hash（`git hash-object`，与 .gitattributes 同一套归一化），
+    不是索引。这一点是实测踩出来的：用 `ls-files -s` 的索引 sha 时，「改了引擎源码但还没
+    git add」完全抓不到（阳性对照注入后仍然全绿）——而那正是本条要防的顺手篡改；
+    等它进了索引，错误已经提交出去了。
+    """
+    rel_paths: list[str] = []
+    seen: set[str] = set()
+    for line in _git_lines(repo_root, ["ls-files", "-s", VENDOR_DIR]):
+        p = line.split("\t", 1)[1].replace("\\", "/")
+        if p.startswith(VENDOR_DIR + "/") and p not in seen:
+            seen.add(p)
+            rel_paths.append(p)
+    untracked: set[str] = set()
+    for line in _git_lines(
+        repo_root, ["ls-files", "--others", "--exclude-standard", VENDOR_DIR]
+    ):
+        p = line.strip().replace("\\", "/")
+        if p.startswith(VENDOR_DIR + "/") and p not in seen:
+            seen.add(p)
+            untracked.add(p)
+            rel_paths.append(p)
+
+    rel_paths.sort()
+    out: dict[str, str] = {}
+    for p in rel_paths:
+        if not (repo_root / p).is_file():
+            out[p[len(VENDOR_DIR) + 1:]] = DELETED_MARK      # 已跟踪但工作区里没了
+    on_disk = [p for p in rel_paths if (repo_root / p).is_file()]
+    if on_disk:
+        r = subprocess.run(
+            ["git", "hash-object", "--stdin-paths"],
+            cwd=repo_root, input="\n".join(on_disk),
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            raise RuntimeError(f"git hash-object 失败：{r.stderr.strip()}")
+        shas = [x.strip() for x in r.stdout.splitlines() if x.strip()]
+        if len(shas) != len(on_disk):
+            raise RuntimeError(
+                f"git hash-object 返回 {len(shas)} 行，期望 {len(on_disk)} 行"
+            )
+        for p, s in zip(on_disk, shas):
+            out[p[len(VENDOR_DIR) + 1:]] = s
+    return out
+
+
+def check_c6(repo_root: Path) -> dict:
+    """vendored AHK 引擎树必须与官方 v2.0.26 完全一致：不多、不少、不改。"""
+    empty = {"checked": 0, "present": 0,
+             "extra": [], "missing": [], "changed": [], "deleted": []}
+    if not VENDOR_BASELINE.exists():
+        return {"findings": [f"基线清单缺失：{rel(VENDOR_BASELINE)}（C6 无法校验）"], **empty}
+    try:
+        want = _load_vendor_baseline(VENDOR_BASELINE)
+        have = _vendor_present(repo_root)
+    except Exception as e:                      # 门禁自身坏了必须响亮失败
+        return {"findings": [f"C6 自身执行失败：{e}"], **empty}
+
+    deleted = sorted(p for p, s in have.items() if s == DELETED_MARK)
+    have_c = {p: s for p, s in have.items() if s != DELETED_MARK}
+
+    extra = sorted(set(have_c) - set(want))
+    missing = sorted((set(want) - set(have_c)) - set(deleted))
+    changed = sorted(p for p in (set(want) & set(have_c)) if want[p] != have_c[p])
+
+    findings: list[str] = []
+    for p in extra:
+        findings.append(
+            f"{VENDOR_DIR}/{p} 不在官方 v2.0.26 清单里 —— 非引擎源码，请移出该目录"
+        )
+    for p in missing:
+        findings.append(f"{VENDOR_DIR}/{p} 缺失（官方 v2.0.26 有此文件）")
+    for p in deleted:
+        findings.append(
+            f"{VENDOR_DIR}/{p} 已跟踪但工作区里不存在 —— 引擎源码只读，不要删"
+        )
+    for p in changed:
+        findings.append(
+            f"{VENDOR_DIR}/{p} 内容与官方 v2.0.26 不一致 —— 引擎源码只读，禁止修改"
+        )
+
+    return {"findings": findings, "checked": len(want), "present": len(have),
+            "extra": extra, "missing": missing, "changed": changed, "deleted": deleted}
+
+
 # ---------------------------------------------------------------- 基线 / 棘轮
 
 
@@ -678,15 +823,15 @@ def diff_set(baseline: list[str] | None, current: list[str]):
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="技术债度量检查（C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写基线数字 / C4 占位目录守卫 / C5 冗余 lock）"
+        description="技术债度量检查（C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写基线数字 / C4 占位目录守卫 / C5 冗余 lock / C6 vendored 引擎纯净性）"
     )
     ap.add_argument("--update-baseline", action="store_true", help="把当前结果冻结为新基线")
     ap.add_argument("--show", action="store_true", help="只打印当前结果，不与基线比对")
-    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4", "c5"], help="只跑某一检")
+    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4", "c5", "c6"], help="只跑某一检")
     args = ap.parse_args()
 
     print("=" * 60)
-    print("技术债度量检查（C1 孤儿文件 / C2 测试未接入 / C3 文档漂移 / C4 占位目录守卫 / C5 冗余 lock）")
+    print("技术债度量检查（C1 孤儿文件 / C2 测试未接入 / C3 文档漂移 / C4 占位目录守卫 / C5 冗余 lock / C6 vendored 引擎纯净性）")
     print("=" * 60)
 
     cur = {
@@ -696,13 +841,14 @@ def main() -> int:
         "c3b": check_c3b(REPO_ROOT),
         "c4": check_c4(REPO_ROOT),
         "c5": check_c5(REPO_ROOT),
+        "c6": check_c6(REPO_ROOT),
     }
 
     if args.update_baseline:
         save_baseline(cur)
         return 0
 
-    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5"}
+    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5", "c6"}
 
     # ---------- C3：硬失败，不做棘轮 ----------
     c3_errors = list(cur["c3"]["findings"])
@@ -739,6 +885,19 @@ def main() -> int:
                 print(f"       - {f}")
         else:
             print("       通过：没有成员级别的冗余 lock")
+
+    # ---------- C6：硬失败，vendored 引擎树必须与官方 v2.0.26 一致 ----------
+    c6_findings = list(cur["c6"]["findings"])
+    if "c6" in want:
+        print(f"\n[C6] vendored 引擎树纯净性（对照官方 v2.0.26 的 {cur['c6']['checked']} 个文件）："
+              f"本地 {cur['c6']['present']} 个")
+        if c6_findings:
+            for f in c6_findings[:20]:
+                print(f"       - {f}")
+            if len(c6_findings) > 20:
+                print(f"       … 另有 {len(c6_findings) - 20} 处")
+        else:
+            print("       通过：与官方 v2.0.26 不多、不少、不改")
 
     # ---------- C1 / C2：棘轮 ----------
     base = None if args.show else load_baseline()
@@ -795,6 +954,13 @@ def main() -> int:
         errors.append(f"禁止加代码的空占位目录被写入 {len(c4_findings)} 处（C4）")
     if "c5" in want and c5_findings:
         errors.append(f"workspace 成员目录下有冗余 Cargo.lock {len(c5_findings)} 处（C5）")
+    if "c6" in want and c6_findings:
+        errors.append(
+            f"vendored 引擎树与官方 v2.0.26 不一致 {len(c6_findings)} 处（C6："
+            f"多出 {len(cur['c6']['extra'])} / 缺失 {len(cur['c6']['missing'])} / "
+            f"被改 {len(cur['c6']['changed'])} / "
+            f"被删 {len(cur['c6']['deleted'])}）"
+        )
 
     if errors:
         print("[FAIL] 技术债检查未通过:")
