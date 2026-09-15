@@ -19,6 +19,7 @@ import argparse
 import json
 import subprocess
 import sys
+from datetime import date
 from pathlib import Path
 
 # Windows CI runner 上 stdio 默认走系统 ANSI 代码页（cp1252），print 中文会
@@ -61,6 +62,40 @@ def violation_key(item: dict) -> tuple[str, str]:
     return (item.get("from", ""), item.get("to", ""))
 
 
+def check_exemption_hygiene(baseline: dict) -> list[str]:
+    """白名单条目的「卫生」检查：每条必须有**非空理由**与**未过期的到期日**。
+
+    起因（TD-009）：`allowed_violations` 里曾有 3 条 `"reason": ""`、也没有到期日 ——
+    那时谁也说不清这 3 条到底是「审过的豁免」还是「当年漏填」。豁免没有理由和期限，
+    白名单就会无声膨胀：每加一条都零成本，没人会回头看，债永远不清。
+    （这 3 条最终查明是漏填、已消除，但**机制**必须留下 —— 它防的是下一条。）
+
+    硬失败、不做棘轮：这守的是规则，不是存量债。
+    """
+    errs: list[str] = []
+    today = date.today()
+    for i, v in enumerate(baseline.get("allowed_violations", [])):
+        src_name, dst_name = v.get("from", "?"), v.get("to", "?")
+        tag = f"allowed_violations[{i}] {src_name} -> {dst_name}"
+        if not (v.get("reason") or "").strip():
+            errs.append(f"{tag} 缺 reason —— 说清为什么这是豁免而不是该修的违规"
+                        f"（若其实不是违规，应改 `build_graph.py` 的 ALLOWED_CRATE_DEPS）")
+        exp = (v.get("expires") or "").strip()
+        if not exp:
+            errs.append(f"{tag} 缺 expires（ISO 日期，如 2027-03-16）"
+                        f"—— 没有期限的豁免等于永久豁免")
+            continue
+        try:
+            d = date.fromisoformat(exp)
+        except ValueError:
+            errs.append(f"{tag} 的 expires 不是合法 ISO 日期：{exp!r}")
+            continue
+        if d < today:
+            errs.append(f"{tag} 的豁免已于 {exp} 过期（{(today - d).days} 天前）"
+                        f"—— 请修掉违规，或重新评估后更长期限")
+    return errs
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--no-rebuild", action="store_true", help="跳过重建图谱")
@@ -87,7 +122,8 @@ def main() -> int:
             k: cur_counts.get(k, base_counts.get(k)) for k in base_counts
         }
         allowed = [
-            {"from": v["from"], "to": v["to"], "reason": v.get("reason", "")}
+            {"from": v["from"], "to": v["to"],
+             "reason": v.get("reason", ""), "expires": v.get("expires", "")}
             for v in findings.get("rust_crate_violations", [])
         ]
         baseline["allowed_violations"] = allowed
@@ -96,6 +132,9 @@ def main() -> int:
             f.write("\n")
         print(f"OK: 基线已更新 -> {BASELINE.relative_to(REPO_ROOT)}")
         print("    请复核 diff 后提交（可能掩盖真实回归，务必人工确认）")
+        if allowed:
+            print(f"    ⚠️ {len(allowed)} 条豁免的 reason / expires 是空的 ——"
+                  f"**必须补全后闸门①才会绿**（TD-009 起强制）")
         return 0
 
     errors: list[str] = []
@@ -108,7 +147,10 @@ def main() -> int:
         if cur > base:
             errors.append(f"{key}: {base} -> {cur}（增加 {cur - base}）")
 
-    # 2) 硬失败：白名单外的新依赖违规
+    # 2) 硬失败：白名单条目的卫生（必须有理由与未过期的期限，TD-009）
+    errors.extend(check_exemption_hygiene(baseline))
+
+    # 2b) 硬失败：白名单外的新依赖违规
     allowed = {
         (v["from"], v["to"]) for v in baseline.get("allowed_violations", [])
     }

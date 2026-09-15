@@ -131,6 +131,11 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
                    └──→ asd-test-harness（dev-dependency，仅测试用）
 ```
 
+> ⚠️ **`asd-application` 的 `[dev-dependencies]` 里也有 `asd-test-harness`**，与 `asd-test-harness ──→ asd-application` 这条生产边构成 **dev 依赖环**。
+> 这是 Rust 集成测试辅助 crate 的标准做法（cargo 允许 dev-dep 环），环检测按既定策略只用生产边，故 `rust_crate_cycles` 为 0。
+> **但这条边必须保持 dev-only** —— 一旦挪进 `[dependencies]` 就是真正的生产环。
+> 另外：`asd-test-harness` 的 3 条出边在 2026-09-16 前曾被判为「白名单违规」，实为 `ALLOWED_CRATE_DEPS` 漏填空集所致，已补入允许矩阵、违规归零（TD-009）。
+
 #### 关键设计决策
 
 | # | 决策 | 说明 |

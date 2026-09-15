@@ -500,7 +500,8 @@ UI 通用管理。
 | `asd-test-harness` | ⚠️ `asd-application`、`asd-domain`、`asd-ipc-protocol` | *（无）* | `src-tauri`（dev） |
 | `src-tauri` | `asd-application`、`asd-domain`、`asd-ipc-protocol` | `asd-test-harness` | *（无——顶层）* |
 
-> **⚠️ `asd-test-harness` 的 3 条出边**：由 `build_graph.py` 的 `ALLOWED_CRATE_DEPS` 判定为「违规」，但属于**夹具的设计意图**（必须同时 mock 三个层的类型）。详见主规范 §2.3。
+> **`asd-test-harness` 的 3 条出边（2026-09-16 更正，TD-009）**：原先被判为「违规」，实为 `ALLOWED_CRATE_DEPS` **漏填空集**所致 —— 属于**夹具的设计意图**（必须同时 mock 三个层的类型）。现已补入允许矩阵，**违规数 3 → 0**。
+> ⚠️ 注意 `asd-application` 的 dev-dependencies 里有 `asd-test-harness`，与生产边构成 **dev 依赖环**（cargo 允许；环检测只用生产边）。这条边**必须保持 dev-only**。详见主规范 §2.3。
 > **生产依赖无环**：环检测（Tarjan）仅使用生产边，结果为 0 环。
 
 ---

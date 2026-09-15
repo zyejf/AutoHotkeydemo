@@ -374,11 +374,18 @@ asd-ipc-protocol  ←──  asd-domain  ←──  asd-application  ←──  
 | `src-tauri` | `asd-domain` | 生产 | ✅ | 正常 |
 | `src-tauri` | `asd-application` | 生产 | ✅ | 正常 |
 | `src-tauri` | `asd-test-harness` | **dev** | ✅ | 正常（dev-dependency） |
-| `asd-test-harness` | `asd-application` | 生产 | ⚠️ | **白名单违规**（夹具职责） |
-| `asd-test-harness` | `asd-domain` | 生产 | ⚠️ | **白名单违规**（夹具职责） |
-| `asd-test-harness` | `asd-ipc-protocol` | 生产 | ⚠️ | **白名单违规**（夹具职责） |
+| `asd-test-harness` | `asd-application` | 生产 | ✅ | 正常（夹具职责；2026-09-16 由 TD-009 补入允许矩阵） |
+| `asd-test-harness` | `asd-domain` | 生产 | ✅ | 正常（同上） |
+| `asd-test-harness` | `asd-ipc-protocol` | 生产 | ✅ | 正常（同上） |
+| `asd-application` | `asd-test-harness` | **dev** | ✅ | 正常（测试夹具；见下方 dev 环警告） |
 
-> **关于 3 处「违规」**：这 3 条边来自 `asd-test-harness/src/lib.rs`，是**测试夹具的设计意图**——夹具必须同时 mock 应用层、领域层与协议层的类型。它们在 `build_graph.py` 中因 `ALLOWED_CRATE_DEPS` 未包含 `asd-test-harness` 的出边而被标为违规，属于**已知且可接受的偏差**。
+> **这 3 条边不是违规（2026-09-16 更正，TD-009）**：它们来自 `asd-test-harness/src/lib.rs`，是**测试夹具的设计意图** —— 夹具必须同时 mock 应用层、领域层与协议层的类型。
+> 原先被标为「白名单违规」，原因是 `ALLOWED_CRATE_DEPS["asd-test-harness"]` 一直是**空集**（当年漏填），而非有人审过并决定豁免。现已补入允许矩阵，**违规数 3 → 0**。
+>
+> ⚠️ **必须保持的现状**：`asd-application` 的 **[dev-dependencies] 里有 `asd-test-harness`**，与上面的生产边构成 **dev 依赖环**。这是 Rust 集成测试辅助 crate 的标准做法（cargo 允许 dev-dep 环），且环检测按既定策略**只用生产边**，故 `rust_crate_cycles` 仍为 0。
+> **一旦这条边挪进 `[dependencies]` 就变成真正的生产环** —— 改动前先想清楚。
+>
+> **豁免必须带期限**：`check-graph-baseline.py` 会检查 `allowed_violations` 的每条都有**非空 `reason`** 与**未过期的 `expires`**（ISO 日期），缺一即硬失败、过期按天报出。没有期限的豁免等于永久豁免，白名单会无声膨胀。若某条其实不是违规，正确做法是改 `ALLOWED_CRATE_DEPS`（像 TD-009 这样），而不是加一条豁免。
 >
 > **重要**：若新增 crate 或新增跨 crate 依赖，**必须同步更新 `build_graph.py` 的 `ALLOWED_CRATE_DEPS`**（见 §6 规则表），否则违例计数会失真。
 

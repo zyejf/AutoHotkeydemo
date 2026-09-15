@@ -13,33 +13,18 @@
     "rust_edges": 163,
     "rust_crate_edges": 11,
     "rust_crate_cycles": 0,
-    "rust_crate_violations": 3,
+    "rust_crate_violations": 0,
     "js_files": 5,
     "js_edges": 9
   },
-  "allowed_violations": [
-    {
-      "from": "asd-test-harness",
-      "to": "asd-application",
-      "reason": ""
-    },
-    {
-      "from": "asd-test-harness",
-      "to": "asd-domain",
-      "reason": ""
-    },
-    {
-      "from": "asd-test-harness",
-      "to": "asd-ipc-protocol",
-      "reason": ""
-    }
-  ],
+  "allowed_violations": [],
   "policy": {
     "hard_fail": [
       "ahk_cycles 增加",
       "rust_crate_cycles 增加",
       "ahk_missing 增加（出现未解析的 #Include）",
-      "出现不在 allowed_violations 白名单内的 rust_crate_violations"
+      "出现不在 allowed_violations 白名单内的 rust_crate_violations",
+      "allowed_violations 的每条必须有非空 reason 与未过期的 expires（TD-009 起强制）"
     ],
     "warn_only": [
       "文件数 / 边数变化（正常开发必然发生）",

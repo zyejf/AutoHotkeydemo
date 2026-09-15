@@ -126,11 +126,24 @@ def rust_crate(rel_path):
 
 # 允许的 crate 依赖方向（依据 AGENTS.md 声明的架构）
 # 生产依赖方向：domain <- ipc-protocol 为底层，application 居中，src-tauri 为顶层
+# 依赖方向：ipc-protocol 最底，domain 次之，application 再次，src-tauri 最上；
+# asd-test-harness 位于 **tests 层（最深）**，依赖被测代码是它的本体职责
+#（它 `pub use` 了 domain 的 trait / 类型，并用到 `AppState`），故允许向下依赖三者。
+#
+# ⚠️ 这里原本是 `set()`（空集），于是它 Cargo.toml 里的 3 个生产依赖全被判成
+#「违规」并塞进基线的 allowed_violations —— 但那不是豁免，是**漏填**
+#（TD-009，2026-09-16 更正）。反向才是真风险，且已被挡住：
+# 三个生产 crate 的白名单里都没有 asd-test-harness。
+#
+# ⚠️ 另一个必须保持的现状：`asd-application` 的 **[dev-dependencies] 里有
+# asd-test-harness**，与下面的生产边构成 **dev 依赖环**。这是 Rust 集成测试辅助
+# crate 的标准做法（cargo 允许 dev-dep 环），图谱按既定策略只检测生产边。
+# **但这条边必须保持 dev-only** —— 一旦挪进 [dependencies] 就是真正的生产环。
 ALLOWED_CRATE_DEPS = {
     "asd-domain": {"asd-ipc-protocol"},
     "asd-ipc-protocol": set(),
     "asd-application": {"asd-domain", "asd-ipc-protocol"},
-    "asd-test-harness": set(),
+    "asd-test-harness": {"asd-domain", "asd-ipc-protocol", "asd-application"},
     "src-tauri": {"asd-domain", "asd-ipc-protocol", "asd-application", "asd-test-harness"},
 }
 
