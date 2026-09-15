@@ -229,6 +229,27 @@ jobs:
           Write-Host '  [ ] 新增 crate / 跨 crate 依赖是否同步 ALLOWED_CRATE_DEPS'
           Write-Host '  [ ] 清理了技术债后是否 --update-baseline 收紧水位（基线 diff 须出现在本 CR）'
 
+  # 独立 job：只需要 checkout + node + npm ci，与主 job 的 Rust 构建并行，
+  # 不占用主 job 的关键路径（放主 job 里要多等一次 npm ci）。
+  js-lint:
+    name: 前端 lint（ESLint）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 'npm ci'
+        working-directory: asd-tauri
+        run: npm ci
+      # 70 = 存量水位（TD-022）。规则里 no-redeclare / no-empty /
+      # no-prototype-builtins / no-unused-vars 是 warn，靠 --max-warnings 卡住：
+      # 新增一处就 71 > 70 立刻红；修好一处就把 package.json 里的数字减一。
+      # main.js 目前零测试覆盖，不当场批量改名，只保证「不再变坏」。
+      - name: 'eslint（棘轮：存量 70，新增即 FAIL）'
+        working-directory: asd-tauri
+        run: npm run lint
+
   # ============================================================ 辅助（不阻塞）
   coverage:
     name: Coverage（纯逻辑 crate）
