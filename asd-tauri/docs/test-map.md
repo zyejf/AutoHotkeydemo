@@ -141,19 +141,26 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 > 基线文件 `.review-analysis/coverage-baseline.json`（本表是其可读镜像，
 > **数字冲突时以该 JSON 为准**）。
 
-**整体 81.64%**（命中 5206 / 总行 6377，15 个文件）
+**整体 88.65%**（命中 5196 / 总行 5861，15 个文件）
+
+> ⚠️ **2026-09-16 重取基线：81.64% → 88.65% 不是覆盖率提升，是量程变了。**
+> 同一份代码换用 CI 那条 `llvm-cov` 命令后，`validator.rs` 的统计行数从 2367 变成 1856
+> （命中数几乎没变，掉的是**未覆盖行**）—— 旧基线的生成命令已无从查证，口径不可复现。
+> 已按 CI 命令重取，并在 `check-coverage.py` 增加**口径漂移检测**：基线现在存每个文件的行数，
+> 任一文件统计行数变化 >10% 且 ≥20 行即判 FAIL，避免再拿两个不可比的数字互相比。
+> **重取基线必须用同一条命令**（见 developer-guide §4.6.1.2）。
 
 | 文件 | 行覆盖率 | 备注 |
 |------|---------|------|
 | asd-domain/src/traits.rs | **0.00%** | 15 行全未覆盖 —— trait 定义无测试，优先级最高 |
-| asd-application/src/group_service.rs | 63.32% | |
+| asd-application/src/group_service.rs | 63.22% | 覆盖最低的非 trait 文件 |
 | asd-application/src/recording_service.rs | 67.28% | |
-| asd-domain/src/validator.rs | 73.76% | 最大文件（2367 行），621 行未覆盖 |
+| asd-domain/src/validator.rs | 93.75% | 最大文件（1856 行），116 行未覆盖 |
 | asd-application/src/backup_service.rs | 78.31% | |
 | asd-domain/src/models.rs | 86.62% | |
-| asd-application/src/state.rs | 87.83% | |
-| asd-application/src/config_repository.rs | 93.26% | |
-| asd-domain/src/config.rs | 95.62% | |
+| asd-application/src/state.rs | 87.73% | |
+| asd-application/src/config_repository.rs | 93.51% | |
+| asd-domain/src/config.rs | 95.74% | |
 | asd-ipc-protocol/src/error.rs | 96.08% | |
 | asd-ipc-protocol/src/message.rs | 96.88% | |
 | asd-ipc-protocol/src/command.rs | 97.70% | |

@@ -28,6 +28,18 @@
 - **单文件**：低于 `基线 - file_pp` → FAIL。防「丢车保帅」。
   容差比整体宽，因为小文件天然波动大（15 行的文件改 1 行就是 6.7pp）。
 
+## 为什么基线要存「行数」而不只是百分比（口径漂移检测）
+
+2026-09-16 实测：同一份代码，换一条 llvm-cov 命令后 `validator.rs` 的统计行数从
+2367 变成 1856（-21.6%），命中数几乎没变，于是整体覆盖率「涨」了 7pp ——
+**这不是覆盖率提升，是量程变了**。旧基线只存百分比，这种漂移完全看不出来，
+棘轮就会拿两个不可比的数字互相比，等于把门禁变成随机数。
+
+所以基线现在存每个文件的 `lines` / `hits`：任一文件统计行数变化超过
+`SCALE_FILE_PCT`（10%）且绝对变化 ≥ `SCALE_MIN_LINES`（20 行）时，
+判定为**口径漂移**并 FAIL —— 逼人看一眼是不是换命令/换平台了，
+确认后再 `--update-baseline`。宁可多一次人工确认，也不要一个悄悄失效的门禁。
+
 新出现的文件**只登记不判**（棘轮精神：新代码第一次不背历史包袱，
 第二次起就有基线了），但会在输出里标出来。
 """
@@ -54,6 +66,11 @@ DEFAULT_LCOV = REPO_ROOT / "coverage" / "lcov.info"
 # 容差（百分点）。整体从严，单文件从宽 —— 理由见模块 docstring。
 DEFAULT_TOL_GLOBAL_PP = 0.5
 DEFAULT_TOL_FILE_PP = 2.0
+
+# 口径漂移判定：单文件统计行数变化超过此比例 **且** 绝对变化 ≥ SCALE_MIN_LINES。
+# 加绝对量是为了不让 15 行的小文件（traits.rs）动一行就报警。
+SCALE_FILE_PCT = 10.0
+SCALE_MIN_LINES = 20
 
 # lcov 的 SF 在不同平台都是**绝对路径**（本机 D:\...、CI /home/runner/...），
 # 必须归一化成「crate 相对路径」才能跨平台比基线。
@@ -144,7 +161,12 @@ def main() -> int:
 
     cur = {
         "global_lines_pct": g_pct,
-        "files": dict(sorted(per_file.items())),
+        # 每个文件存 {pct, lines, hits}：行数用于口径漂移检测（见模块 docstring）。
+        # 旧格式（只存百分比的 float）仍能读，只是跳过漂移检测。
+        "files": {
+            k: {"pct": per_file[k], "lines": files[k]["lines"], "hits": files[k]["hits"]}
+            for k in sorted(per_file)
+        },
         "totals": {"lines": total_lines, "hits": total_hits, "files": len(files)},
         "tolerance": {
             "global_pp": args.tolerance_global,
@@ -159,8 +181,9 @@ def main() -> int:
                 "覆盖率基线（scripts/check-coverage.py 生成，TD-006）。"
                 "棘轮：只允许上升，容差内的小回落不报。整体容差 "
                 f"{args.tolerance_global}pp，单文件 {args.tolerance_file}pp。"
-                "注：基线取本机实测，CI（ubuntu）若因 cfg 分支差异系统性偏离，"
-                "用 CI 产出的 lcov 重跑 --update-baseline 校准一次即可。"
+                "files 里的 lines/hits 是**口径指纹**：换 llvm-cov 命令或换平台都可能改变统计行数，"
+                "届时百分比不可比，脚本会判定为口径漂移并要求重取基线。"
+                "⚠️ 重取基线必须用**同一条命令**（见 developer-guide §4.6.1.2），否则等于换量程。"
             ),
             "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             **cur,
@@ -186,6 +209,7 @@ def main() -> int:
     errors: list[str] = []
     improved: list[str] = []
     new_files: list[str] = []
+    scale: list[str] = []
 
     # ---- 整体 ----
     delta_g = round(g_pct - base_g, 2)
@@ -202,7 +226,25 @@ def main() -> int:
         if k not in base_files:
             new_files.append(f"{k}（{v:.2f}%，首次登记）")
             continue
-        b = float(base_files[k])
+        b_raw = base_files[k]
+        b_lines = 0
+        if isinstance(b_raw, dict):
+            b = float(b_raw.get("pct", 0.0))
+            b_lines = int(b_raw.get("lines", 0) or 0)
+        else:
+            # 旧格式：只有百分比，无法做口径漂移检测
+            b = float(b_raw)
+
+        # ---- 口径漂移：统计行数变了，百分比就不可比 ----
+        cur_lines = files[k]["lines"]
+        if b_lines > 0:
+            d_lines = cur_lines - b_lines
+            if abs(d_lines) >= SCALE_MIN_LINES and abs(d_lines) * 100.0 / b_lines > SCALE_FILE_PCT:
+                scale.append(
+                    f"{k} 统计行数 {b_lines} -> {cur_lines}（{d_lines:+d}，"
+                    f"{d_lines * 100.0 / b_lines:+.1f}%）"
+                )
+
         d = round(v - b, 2)
         if d > 0:
             improved.append(f"{k} {b:.2f}% -> {v:.2f}% (+{d:.2f}pp)")
@@ -237,6 +279,20 @@ def main() -> int:
     if args.show:
         print("[SKIP] --show：不做通过/失败判定")
         return 0
+
+    # ---- 口径漂移优先于一切：数字不可比时，判定通过/失败都没有意义 ----
+    if scale:
+        print("[FAIL] 统计口径漂移：以下文件的**统计行数**发生大幅变化，"
+              "百分比已不可比：")
+        for x in scale:
+            print(f"  - {x}")
+        print("\n  常见原因：换了 cargo llvm-cov 的命令（--workspace 与 -p 的"
+              "结果不同）、换了平台（Windows / ubuntu 的 cfg 分支不同）、"
+              "或大段代码被删除。")
+        print("  ⚠️ 不要用 --update-baseline 把「量程变小」当成「覆盖率提升」记进台账。")
+        print("     确认是真实改动后：")
+        print("       python scripts/check-coverage.py --lcov <path> --update-baseline")
+        return 1
 
     if errors:
         print("[FAIL] 覆盖率门禁未通过:")

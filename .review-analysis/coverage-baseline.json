@@ -1,27 +1,87 @@
 {
-  "_comment": "覆盖率基线（scripts/check-coverage.py 生成，TD-006）。棘轮：只允许上升，容差内的小回落不报。整体容差 0.5pp，单文件 2.0pp。注：基线取本机实测，CI（ubuntu）若因 cfg 分支差异系统性偏离，用 CI 产出的 lcov 重跑 --update-baseline 校准一次即可。",
-  "generated_at": "2026-09-15T18:25:08+00:00",
-  "global_lines_pct": 81.64,
+  "_comment": "覆盖率基线（scripts/check-coverage.py 生成，TD-006）。棘轮：只允许上升，容差内的小回落不报。整体容差 0.5pp，单文件 2.0pp。files 里的 lines/hits 是**口径指纹**：换 llvm-cov 命令或换平台都可能改变统计行数，届时百分比不可比，脚本会判定为口径漂移并要求重取基线。⚠️ 重取基线必须用**同一条命令**（见 developer-guide §4.6.1.2），否则等于换量程。",
+  "generated_at": "2026-09-15T19:51:47+00:00",
+  "global_lines_pct": 88.65,
   "files": {
-    "asd-application/src/backup_service.rs": 78.31,
-    "asd-application/src/config_repository.rs": 93.26,
-    "asd-application/src/error.rs": 100.0,
-    "asd-application/src/group_service.rs": 63.32,
-    "asd-application/src/recording_service.rs": 67.28,
-    "asd-application/src/state.rs": 87.83,
-    "asd-application/src/time_format.rs": 100.0,
-    "asd-domain/src/config.rs": 95.62,
-    "asd-domain/src/models.rs": 86.62,
-    "asd-domain/src/traits.rs": 0.0,
-    "asd-domain/src/validator.rs": 73.76,
-    "asd-ipc-protocol/src/command.rs": 97.7,
-    "asd-ipc-protocol/src/error.rs": 96.08,
-    "asd-ipc-protocol/src/hotkey_merger.rs": 98.73,
-    "asd-ipc-protocol/src/message.rs": 96.88
+    "asd-application/src/backup_service.rs": {
+      "pct": 78.31,
+      "lines": 249,
+      "hits": 195
+    },
+    "asd-application/src/config_repository.rs": {
+      "pct": 93.51,
+      "lines": 385,
+      "hits": 360
+    },
+    "asd-application/src/error.rs": {
+      "pct": 100.0,
+      "lines": 87,
+      "hits": 87
+    },
+    "asd-application/src/group_service.rs": {
+      "pct": 63.22,
+      "lines": 367,
+      "hits": 232
+    },
+    "asd-application/src/recording_service.rs": {
+      "pct": 67.28,
+      "lines": 379,
+      "hits": 255
+    },
+    "asd-application/src/state.rs": {
+      "pct": 87.73,
+      "lines": 1068,
+      "hits": 937
+    },
+    "asd-application/src/time_format.rs": {
+      "pct": 100.0,
+      "lines": 40,
+      "hits": 40
+    },
+    "asd-domain/src/config.rs": {
+      "pct": 95.74,
+      "lines": 704,
+      "hits": 674
+    },
+    "asd-domain/src/models.rs": {
+      "pct": 86.62,
+      "lines": 142,
+      "hits": 123
+    },
+    "asd-domain/src/traits.rs": {
+      "pct": 0.0,
+      "lines": 15,
+      "hits": 0
+    },
+    "asd-domain/src/validator.rs": {
+      "pct": 93.75,
+      "lines": 1856,
+      "hits": 1740
+    },
+    "asd-ipc-protocol/src/command.rs": {
+      "pct": 97.7,
+      "lines": 87,
+      "hits": 85
+    },
+    "asd-ipc-protocol/src/error.rs": {
+      "pct": 96.08,
+      "lines": 51,
+      "hits": 49
+    },
+    "asd-ipc-protocol/src/hotkey_merger.rs": {
+      "pct": 98.73,
+      "lines": 79,
+      "hits": 78
+    },
+    "asd-ipc-protocol/src/message.rs": {
+      "pct": 96.88,
+      "lines": 352,
+      "hits": 341
+    }
   },
   "totals": {
-    "lines": 6377,
-    "hits": 5206,
+    "lines": 5861,
+    "hits": 5196,
     "files": 15
   },
   "tolerance": {
