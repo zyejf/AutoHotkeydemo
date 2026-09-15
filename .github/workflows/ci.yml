@@ -366,6 +366,11 @@ jobs:
         run: |
           # gate.py 内部靠 .done 哨兵轮询（AHK 是 GUI 子系统，退出码不可靠）
           if (-not (Test-Path $env:AHK_EXE)) { throw "AHK_EXE 不存在: $env:AHK_EXE" }
+          # ⚠️ 必须把 Python 的临时目录钉到 runner.temp：gate.py 用 tempfile.gettempdir()
+          # 放 CSV，而下面上传 artifact 用的是 runner.temp —— 两者默认不是同一个目录
+          # （Python 走用户 profile 下的 Temp），不统一会「No files were found」。
+          $env:TEMP = $env:RUNNER_TEMP
+          $env:TMP = $env:RUNNER_TEMP
           # 两个基准各守一处已落地的优化：prod_escape = T1（JSON 转义快路径），
           # prod_tick = T6（周期 tick 遍历合并）。逐个跑完再统一判定，
           # 否则第一个失败会让第二个根本不跑（静默失去一处防护）。
