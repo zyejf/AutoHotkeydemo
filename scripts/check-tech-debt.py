@@ -568,6 +568,62 @@ def check_c4(repo_root: Path) -> dict:
             )
     return {"findings": findings, "checked": [s for s, _ in FORBIDDEN_DIRS]}
 
+# --------------------------------------------- C5 冗余 Cargo.lock（TD-019）
+#
+# workspace **成员**目录下的 Cargo.lock 是死文件：cargo 只会读写 workspace 根那一份，
+# 成员自己的从来不更新。实测本项目 `src-tauri/Cargo.lock` 与根 lock 有 **14 个包版本不同**，
+# 其中 `shlex` 是 2.0.1 vs 1.3.0（**主版本差异**）—— 任何遍历全部 Cargo.lock 的安全扫描
+#（cargo audit / dependabot）都会读到那份过期的，报出与实际构建不符的漏洞结论。
+# 这不是「碍眼」，是会引错判断的假证据。
+#
+# 判据：目录里有 Cargo.lock、该目录**不是** workspace 根、但**存在祖先 workspace 根** → 冗余。
+# 独立 workspace（如 `src-tauri/fuzz/` 自己有 `[workspace]`）的 lock 合法，跳过。
+
+
+def _is_workspace_root(cargo_toml: Path) -> bool:
+    """Cargo.toml 是否声明了 [workspace]（含 [workspace.package] 等子表）。"""
+    try:
+        text = read_text(cargo_toml)
+    except Exception:
+        return False
+    return re.search(r"^\[workspace(?:\.|\])", text, re.M) is not None
+
+
+def check_c5(repo_root: Path) -> dict:
+    """冗余 Cargo.lock 守卫：workspace 成员目录下不得有自己的 Cargo.lock。"""
+    findings: list[str] = []
+    checked = 0
+    for lock in sorted(repo_root.rglob("Cargo.lock")):
+        try:
+            parts = set(lock.relative_to(repo_root).parts)
+        except ValueError:
+            continue
+        if parts & PRUNE_DIR_NAMES:
+            continue
+        d = lock.parent
+        manifest = d / "Cargo.toml"
+        if not manifest.exists():
+            continue                      # 没有清单文件的 lock 不归这条管
+        checked += 1
+        if _is_workspace_root(manifest):
+            continue                      # 独立 workspace，合法
+        anc, root_found = d.parent, None
+        while anc == repo_root or anc.is_relative_to(repo_root):
+            m = anc / "Cargo.toml"
+            if m.exists() and _is_workspace_root(m):
+                root_found = anc
+                break
+            if anc == repo_root:
+                break
+            anc = anc.parent
+        if root_found is not None:
+            findings.append(
+                f"{rel(lock)} 是 workspace 成员目录下的冗余 lock（workspace 根在 "
+                f"{rel(root_found)}）—— cargo 只用根那一份，成员这份永不更新，"
+                f"会误导 cargo audit / dependabot 的安全结论"
+            )
+    return {"findings": findings, "checked": checked}
+
 # ---------------------------------------------------------------- 基线 / 棘轮
 
 
@@ -622,15 +678,15 @@ def diff_set(baseline: list[str] | None, current: list[str]):
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="技术债度量检查（C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写基线数字 / C4 占位目录守卫）"
+        description="技术债度量检查（C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写基线数字 / C4 占位目录守卫 / C5 冗余 lock）"
     )
     ap.add_argument("--update-baseline", action="store_true", help="把当前结果冻结为新基线")
     ap.add_argument("--show", action="store_true", help="只打印当前结果，不与基线比对")
-    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4"], help="只跑某一检")
+    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4", "c5"], help="只跑某一检")
     args = ap.parse_args()
 
     print("=" * 60)
-    print("技术债度量检查（C1 孤儿文件 / C2 测试未接入 / C3 文档漂移 / C4 占位目录守卫）")
+    print("技术债度量检查（C1 孤儿文件 / C2 测试未接入 / C3 文档漂移 / C4 占位目录守卫 / C5 冗余 lock）")
     print("=" * 60)
 
     cur = {
@@ -639,13 +695,14 @@ def main() -> int:
         "c3": check_c3(REPO_ROOT),
         "c3b": check_c3b(REPO_ROOT),
         "c4": check_c4(REPO_ROOT),
+        "c5": check_c5(REPO_ROOT),
     }
 
     if args.update_baseline:
         save_baseline(cur)
         return 0
 
-    want = {args.only} if args.only else {"c1", "c2", "c3", "c4"}
+    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5"}
 
     # ---------- C3：硬失败，不做棘轮 ----------
     c3_errors = list(cur["c3"]["findings"])
@@ -672,6 +729,16 @@ def main() -> int:
                 print(f"       - {f}")
         else:
             print("       通过：占位目录为空或不存在")
+
+    # ---------- C5：硬失败，冗余 Cargo.lock ----------
+    c5_findings = list(cur["c5"]["findings"])
+    if "c5" in want:
+        print(f"\n[C5] 冗余 Cargo.lock（workspace 成员目录）：核对 {cur['c5']['checked']} 份")
+        if c5_findings:
+            for f in c5_findings:
+                print(f"       - {f}")
+        else:
+            print("       通过：没有成员级别的冗余 lock")
 
     # ---------- C1 / C2：棘轮 ----------
     base = None if args.show else load_baseline()
@@ -726,6 +793,8 @@ def main() -> int:
         errors.append(f"文档-代码一致性 {len(c3_errors)} 处不一致")
     if "c4" in want and c4_findings:
         errors.append(f"禁止加代码的空占位目录被写入 {len(c4_findings)} 处（C4）")
+    if "c5" in want and c5_findings:
+        errors.append(f"workspace 成员目录下有冗余 Cargo.lock {len(c5_findings)} 处（C5）")
 
     if errors:
         print("[FAIL] 技术债检查未通过:")

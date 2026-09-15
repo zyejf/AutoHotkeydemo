@@ -939,7 +939,7 @@ scripts\check-gates.ps1 -Quick
 
 **静态**检查（不编译、不执行被测程序，约 2.5s），已作为 **G3e** 接入四闸门。
 C1a/C1b/C1c/C2/C3b 走**棘轮**：基线内的存量债只登记不报错，**只有新增项才 FAIL**；
-**C3 与 C4 恒 0 硬阻断** —— 它们守的是**规则**（文档与代码必须一致 / 空占位目录不得放文件），
+**C3、C4、C5 恒 0 硬阻断** —— 它们守的是**规则**（文档与代码必须一致 / 空占位目录不得放文件 / 成员目录不得有冗余 lock），
 不是存量债，没有「先登记、以后再说」的余地。
 
 ```bash
@@ -956,6 +956,7 @@ python scripts/check-tech-debt.py --update-baseline   # 清理后收紧水位
 | C3 | `baselines.json` 的 `k`/`warn_k`/`_baseline_runs` 与 `developer-guide.md`、`test-map.md` 是否一致（**不做棘轮**） |
 | C3b | `docs/` 下硬写的 AHK 基线数字（形态「`642 / 642`」）是否与 `test-map.md` 的实跑总数一致 |
 | C4 | 空占位目录 `src-tauri/src/{application,domain}/` 是否被写入文件（**不做棘轮**，TD-008）。判「目录里**有没有文件**」而非「目录存不存在」—— git 不跟踪空目录，用存在性判定的话 CI（全新 checkout）与本机（老 clone）结论会相反 |
+| C5 | workspace 成员目录下的冗余 `Cargo.lock`（**不做棘轮**，TD-019）。独立 workspace（如 `src-tauri/fuzz/` 自带 `[workspace]`）的 lock 合法。cargo 只读根那一份，成员这份永不更新，会误导 `cargo audit` / dependabot 的安全结论 |
 
 > **C3b 的写法约定**：文档里**不要复写 AHK 用例总数**，一律写
 > 「见 `asd-tauri/docs/test-map.md`（当前 N）」这类指针。
