@@ -35,12 +35,21 @@ bash scripts/check-gates.sh [--quick]      # 一键四闸门（CARGO_INCREMENTAL
 depth（依赖恒大→小）：`infrastructure 0`→`domain 1`→`application 2`→`presentation 3`→
 `entry 4`→`executor 5`→`tests 6`→`other 7`；后四者豁免。
 
-**基线（2026-09-14）**：AHK **74** 文件 / 264 边（范围内 258）/ 0 环 / 9 孤点；
-Rust 64 / 163 use 边 / 11 crate 边 / 0 生产环 / 3 违规（均 asd-test-harness，白名单）；JS 5 / 9。
+**基线唯一权威是 `.review-analysis/graph-baseline.json`**（文档/记忆一律写指针，不抄数字）。
+最近一次重取 **2026-09-16**（TD-025）：AHK 97 文件 / 285 边（范围内 279）/ 0 环 / 6 孤点；
+Rust 64 / 163 use 边 / 11 crate 边 / 0 生产环 / 0 违规；JS 4 / 6。
+
+⚠️ **图谱节点用 git 口径**（TD-025）：`build_graph.py` 只认「已跟踪 + 未跟踪但未被
+`.gitignore` 忽略」，与 C6 同口径。被忽略的本地临时脚本/构建产物**不进图**，
+所以开发机与 CI 数字应当一致；不一致先查是不是有文件该提交或该忽略。
+⚠️ 不是「只取已跟踪」—— 否则新建未 `add` 的文件会隐身，而「新文件引入图环」最该在
+提交前拦住（已做阳性对照）。
 
 坑：① `build_graph.py` 的 `#Include` 正则**必须保留 `re.M`**；
 ② 分层常量 `LAYER_META`/`LAYER_EXEMPT` 在 **gen_graph_html.py**（不在 build_graph.py）；
-③ crate 环检测只用生产边；④ 新增跨 crate 依赖须同步 `ALLOWED_CRATE_DEPS`。
+③ crate 环检测只用生产边；④ 新增跨 crate 依赖须同步 `ALLOWED_CRATE_DEPS`；
+⑤ `extra_exclude` 走**子串**匹配且路径是**仓库相对**的 —— 写成 `"asd-tauri/e2e/"`
+（带尾斜杠）才生效，去掉斜杠就永远匹配不上（历史上 `wdio.conf.js` 因此白算 5 条边）。
 
 ## 安全红线
 
