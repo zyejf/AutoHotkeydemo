@@ -87,3 +87,13 @@ CI 首次真正跑起来后，6 类失败**没有一类能在本机复现**，�
 3. **窗口标题非空 ≠ 页面加载成功**（标题取自 `tauri.conf.json`，错误页上照样有值）。
 4. msedgedriver 须与 WebView2 运行时匹配；driver 是 gitignored 的 `*.exe`。
 5. 时序类 E2E（按键间隔）观察窗口须 **≥ 2 个周期**；取「最佳匹配周期」而非首个匹配。
+
+## AHK 测试运行与输出位置
+
+- `tests/run_all_tests.ahk` 用 **SilentReporter** 把结果写到 **`tests/test_results.log`**，
+  **不写 stdout**（`FileAppend(..., "*")` 只在 `run_tests.ahk` / AutoHotUnit 的 OnError 里用）。
+  所以 `AutoHotkey64.exe run_all_tests.ahk > out.log` 会得到一个**空文件** —— 别误判成
+  「测试没跑」。结果看 `tail -6 tests/test_results.log`（末尾有「总计 / 通过 / 失败」）。
+- 全量跑约 **27 秒**（664 用例）。做变异测试时 8 次全量约 4 分钟，可接受，不必拆隔离 runner。
+- 注册新套件：`run_all_tests.ahk` 末尾那个 `RegisterSuite(...)` 块的**最后一项后加逗号**。
+  忘了注册 = 套件永不执行 = 静默零覆盖；跑完要 `grep <用例名> tests/test_results.log` 确认。
