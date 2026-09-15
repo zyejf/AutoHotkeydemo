@@ -9,7 +9,8 @@
 >    分桶键全部改为整数 µs，配置在 `Sender._IntervalUsOf` / `_DelayUsOf` 入口处 `Round()` 一次）。
 >    因此下文 §现状 中「生产用浮点毫秒」的描述已不再成立，仅作为改造前的记录保留。
 > 2. 「每轮 3 次 `_IntervalOf` 收敛为 1 次」**已落地为 T6**，由 `Sender.MERGE_TICK_SCAN`
->    开关控制（**默认关闭**），实现为 `_ExecutePeriodicMerged` / `_ExecuteHybridMerged`。
+>    开关控制（2026-09-15 起**默认开启**；置回 `false` 即回退到 `*Legacy` 旧实现，
+>    两条路径同时保留），实现为 `_ExecutePeriodicMerged` / `_ExecuteHybridMerged`。
 >
 > ⚠️ **但生产可达的形态是 4→2 次遍历，不是本文原型测到的 4→1 次**：
 > 真实 `_ExecutePeriodic` 的「求 target」与「收集到期」之间隔着一次 `SleepUntilUs(target)`，

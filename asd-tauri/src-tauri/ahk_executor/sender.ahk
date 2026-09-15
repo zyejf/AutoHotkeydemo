@@ -68,15 +68,21 @@ class Sender {
     ; 该配置下「计划时刻 → 抬起完成」必然 > 20ms，精确定刻已无意义
     static PRECISE_HOLD_MAX_MS := 20
 
-    ; T6 · tick 遍历合并开关（**默认关闭**）。
+    ; T6 · tick 遍历合并开关（**默认开启**）。
     ; 开启后 _ExecutePeriodic / _ExecuteHybrid 走「合并遍历版」：
     ;   · 遍历次数 4 → 2（「求目标」与「收集到期」之间隔着一次 SleepUntil，
     ;     前者用推进前的基准、后者用推进后的，物理上无法再合成一次）
     ;   · 间隔每键每 tick 只算一次，存进 state 里的复用缓冲区供两次遍历共用
     ;   · 「下次唤醒」不再单开一次遍历与临时数组（见 _ExecutePeriodicMerged 注释）
     ; 语义与关闭时逐项等价（等价性校验 2000 次 diffs=0）。
-    ; 基准见 tools/ahk-bench/bench_tick_traversal.ahk（TickProd2 形态）。
-    static MERGE_TICK_SCAN := false
+    ; 基准见 tools/ahk-bench/bench_tick_traversal.ahk（TickProd2 形态）：
+    ;   K=8 23.61/23.73/24.27 → 15.23/15.21/15.36 ms（1.55×）
+    ;   K=24 78.98/75.94/69.67 → 42.79/45.57/43.12 ms（1.67×）
+    ;
+    ; ⚠️ 置回 false 即回退到 *Legacy 旧实现 —— 两条路径**同时保留**，任何一边改了
+    ;    逻辑都必须同步另一边，否则开关两侧行为会分叉（AGENTS.md §高精度定刻规范第 9 条）。
+    ;    等价性由 tests/test_ahk_executor/test_sender.ahk 的 Test_TickMerge_* 钉住。
+    static MERGE_TICK_SCAN := true
 
     ; 按键白名单
     static ALLOWED_KEYS := Map(

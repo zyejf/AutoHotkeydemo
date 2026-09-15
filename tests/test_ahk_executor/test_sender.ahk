@@ -735,6 +735,91 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
     }
 
     ; ============================================================
+    ; T6 合并遍历（MERGE_TICK_SCAN）开关本身
+    ; ============================================================
+
+    ; 开关必须默认开启，且 _ExecutePeriodic 的分派必须真的走合并版。
+    ;
+    ; ⚠️ 为什么需要这条：下面的 Test_TickMerge_* 是**直接调用**两个实现做等价性比对，
+    ;    它们绕过了 `_ExecutePeriodic` 的分派。也就是说，即使分派写坏（永远走 Legacy），
+    ;    等价性用例照样全绿——T-B 的收益会静默消失。必须有独立用例钉住分派。
+    ;
+    ; 判别依据：`state["lastNextDue"]` **只有合并版会写**（提前返回路径与正常路径都写）。
+    Test_MergeTickScan_DefaultOn_And_DispatchHonorsIt() {
+        this.assert.isTrue(Sender.MERGE_TICK_SCAN)
+        baseUs := HighResClock.NowUs()
+
+        ; 开关为 true → 走合并版 → 一定会写 lastNextDue
+        okTrue := this._DispatchWritesNextDue("__test_merge_on", baseUs, true)
+        this.assert.isTrue(okTrue)
+        ; 阳性对照：开关为 false → 走 Legacy → 一定不会写 lastNextDue
+        ; （若这条也返回 true，说明 lastNextDue 这个判别依据失效，上面那条就是恒真）
+        okFalse := this._DispatchWritesNextDue("__test_merge_off", baseUs, false)
+        this.assert.isFalse(okFalse)
+
+        ; hybrid 是第二个分派点，同样要钉住（否则它坏了没人知道）
+        this.assert.isTrue(this._DispatchWritesNextDueHybrid("__test_merge_h_on", baseUs, true))
+        this.assert.isFalse(this._DispatchWritesNextDueHybrid("__test_merge_h_off", baseUs, false))
+
+        Sender.EmergencyRelease()
+    }
+
+    ; 按 flagValue 设置开关后跑一次 _ExecutePeriodic，返回是否写了 lastNextDue
+    _DispatchWritesNextDue(gid, baseUs, flagValue) {
+        origin := Sender.MERGE_TICK_SCAN
+        try {
+            if Sender._activeGroups.Has(gid)
+                Sender._activeGroups.Delete(gid)
+            Sender.MERGE_TICK_SCAN := flagValue
+            Sender._StartGroup(gid)
+            state := Sender._activeGroups[gid]
+            state["mode"] := "periodic"
+            state["keys"] := ["F1"]
+            state["intervals"] := [100]
+            state["keyPressDuration"] := 0
+            tt := Map()
+            tt[1] := baseUs - 1000000        ; 1 秒前的过去 → 必然已到期
+            state["lastTriggerTimes"] := tt
+            Sender._sendHook := (key, st) => 0
+            try {
+                Sender._ExecutePeriodic(gid)
+            } finally {
+                Sender._sendHook := ""
+            }
+            return state.Has("lastNextDue")
+        } finally {
+            Sender.MERGE_TICK_SCAN := origin
+            Sender._StopGroup(gid)
+        }
+    }
+
+    ; 同上，但走 _ExecuteHybrid（第二个分派点）
+    _DispatchWritesNextDueHybrid(gid, baseUs, flagValue) {
+        origin := Sender.MERGE_TICK_SCAN
+        try {
+            if Sender._activeGroups.Has(gid)
+                Sender._activeGroups.Delete(gid)
+            Sender.MERGE_TICK_SCAN := flagValue
+            Sender._StartGroup(gid)
+            state := Sender._activeGroups[gid]
+            state["mode"] := "hybrid"
+            state["keyPressDuration"] := 0
+            state["groups"] := [Map("type", "periodic", "keys", ["F1"], "intervals", [100])]
+            state["groupTriggerTimes"] := Map("1.1", baseUs - 1000000)
+            Sender._sendHook := (key, st) => 0
+            try {
+                Sender._ExecuteHybrid(gid)
+            } finally {
+                Sender._sendHook := ""
+            }
+            return state.Has("lastNextDue")
+        } finally {
+            Sender.MERGE_TICK_SCAN := origin
+            Sender._StopGroup(gid)
+        }
+    }
+
+    ; ============================================================
     ; T6 合并遍历（MERGE_TICK_SCAN）等价性
     ; ============================================================
     ;

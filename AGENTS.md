@@ -1172,7 +1172,7 @@ AHK/Windows 下**没有任何亚 15.625 ms 的唤醒手段**（本机实测，Au
 9. **改 `_Execute*` 的遍历结构前先看这条**：`_ExecutePeriodic` 的「求 target」与「收集到期」
    之间隔着一次 `SleepUntilUs(target)`，两者用的是**推进前 / 推进后**的 `triggerTimes`，
    所以遍历次数只能 4→2，**做不到 4→1**（原型 bench 能做到是因为它不含等待点）。
-   合并版在 `Sender.MERGE_TICK_SCAN` 开关后（**默认关闭**），见
+   合并版在 `Sender.MERGE_TICK_SCAN` 开关后（**默认开启**；置回 `false` 即回退到旧实现），见
    `_ExecutePeriodicMerged` / `_ExecuteHybridMerged`；旧实现保留为
    `*Legacy` 作对照与回退。两者等价性由 `tests/test_ahk_executor/test_sender.ahk`
    的 `Test_TickMerge_*` 用例钉住（含 `state["lastNextDue"]` 的真值校验）。
