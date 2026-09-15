@@ -1,3 +1,12 @@
+// 测试代码豁免几条「可读性」lint（TD-012）：
+// similar_names（对照组命名本就要相似）/ match_wildcard_for_single_variants
+// （`_ => panic!` 就是断言意图）/ match_same_arms / case_sensitive_file_extension_comparisons。
+#![allow(
+    clippy::similar_names,
+    clippy::match_wildcard_for_single_variants,
+    clippy::match_same_arms,
+    clippy::case_sensitive_file_extension_comparisons
+)]
 use asd_application::config_repository::ConfigRepository;
 use asd_application::error::AppError;
 use asd_application::group_service::build_toggle_command;
@@ -225,14 +234,14 @@ fn test_app_state_watchdog() {
     let watchdog = Arc::new(MockProcessWatcher);
     let state = AppState::new(config, ipc_sender, watchdog, emitter);
 
-    state.update_watchdog_state(WatchdogStateEnum::Running, 1);
+    state.update_watchdog_state(&WatchdogStateEnum::Running, 1);
     {
         let ws = state.watchdog_state.read();
         assert_eq!(ws.status, WatchdogStateEnum::Running);
         assert_eq!(ws.restart_count, 1);
     }
 
-    state.update_watchdog_state(WatchdogStateEnum::Hung, 2);
+    state.update_watchdog_state(&WatchdogStateEnum::Hung, 2);
     {
         let ws = state.watchdog_state.read();
         assert_eq!(ws.status, WatchdogStateEnum::Hung);

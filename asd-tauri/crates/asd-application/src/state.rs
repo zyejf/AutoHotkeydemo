@@ -36,6 +36,7 @@ fn serialize_duration_secs<S: serde::Serializer>(
 }
 
 impl WatchdogState {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             status: WatchdogStateEnum::Idle,
@@ -76,7 +77,7 @@ struct ConfigState {
 /// 配置和分组，释放锁后再获取 `active_hotkeys` 写锁更新热键注册。在两个锁释放
 /// 之间的极短时间窗口内，其他线程可能读取到不一致的状态（配置已更新但
 /// `active_hotkeys` 尚未同步）。这与 `set_group_active` 的 TOCTOU 权衡一致，
-/// 是可接受的，因为时间窗口极短且合并两个 RwLock 会增加锁争用。
+/// 是可接受的，因为时间窗口极短且合并两个 `RwLock` 会增加锁争用。
 pub struct AppState {
     config_state: RwLock<ConfigState>,
     ipc_sender: Arc<dyn IpcSender>,
@@ -118,6 +119,7 @@ impl AppState {
         }
     }
 
+    #[must_use]
     pub fn build_groups_from_config(config: &Config) -> IndexMap<String, SkillGroup> {
         let mut groups = IndexMap::new();
         for (id, group_config) in &config.group_settings {
@@ -180,7 +182,7 @@ impl AppState {
     /// 还没有对应条目）。这是可接受的权衡，因为：
     /// 1. 时间窗口极短（微秒级）
     /// 2. 不影响 IPC 命令发送（IPC 命令在锁外发送）
-    /// 3. 合并两个 RwLock 会增加锁争用（热键注册是高频操作）
+    /// 3. 合并两个 `RwLock` 会增加锁争用（热键注册是高频操作）
     pub fn set_group_active(&self, id: &str, active: bool) -> Result<(), AppError> {
         let hotkey_update: Option<(bool, String)> = {
             let mut cs = self.config_state.write();
@@ -211,11 +213,11 @@ impl AppState {
         Ok(())
     }
 
-    /// 更新分组热键（仅配置，不更新 active_hotkeys）。
+    /// 更新分组热键（仅配置，不更新 `active_hotkeys`）。
     ///
-    /// 调用方责任：若分组处于 active 状态，必须自行维护 active_hotkeys 一致性。
+    /// 调用方责任：若分组处于 active 状态，必须自行维护 `active_hotkeys` 一致性。
     /// 外部调用方应使用 `group_service::register_hotkey` 替代，后者自动处理
-    /// 活跃/非活跃分组的 active_hotkeys 和 IPC 注册。
+    /// 活跃/非活跃分组的 `active_hotkeys` 和 IPC 注册。
     pub(crate) fn set_group_hotkey(
         &self,
         group_id: &str,
@@ -295,7 +297,7 @@ impl AppState {
         }
     }
 
-    pub fn update_watchdog_state(&self, status: WatchdogStateEnum, restart_count: u32) {
+    pub fn update_watchdog_state(&self, status: &WatchdogStateEnum, restart_count: u32) {
         {
             let mut ws = self.watchdog_state.write();
             ws.status = status.clone();
@@ -336,7 +338,7 @@ impl AppState {
                 validation
                     .errors
                     .iter()
-                    .map(|e| e.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect::<Vec<_>>()
                     .join("; "),
             ));
@@ -352,7 +354,7 @@ impl AppState {
             let old_version = guard.version;
 
             let mut new_groups = Self::build_groups_from_config(&new_config);
-            for (id, new_group) in new_groups.iter_mut() {
+            for (id, new_group) in &mut new_groups {
                 if let Some(old_group) = old_groups.get(id) {
                     new_group.active = old_group.active;
                 }
@@ -365,8 +367,8 @@ impl AppState {
                 }
             }
 
-            guard.config = new_config.clone();
-            guard.groups = new_groups.clone();
+            guard.config.clone_from(&new_config);
+            guard.groups.clone_from(&new_groups);
             guard.version += 1;
             (
                 old_config,
@@ -423,12 +425,12 @@ impl AppState {
         Ok(())
     }
 
-    /// 注册热键到 active_hotkeys 映射。
+    /// 注册热键到 `active_hotkeys` 映射。
     ///
     /// # 调用方责任
     ///
-    /// 若同一 group_id 已注册了其他热键，调用方必须先调用 `unregister_hotkey`
-    /// 注销旧热键，否则旧热键将残留在 active_hotkeys 中导致热键泄漏。
+    /// 若同一 `group_id` 已注册了其他热键，调用方必须先调用 `unregister_hotkey`
+    /// 注销旧热键，否则旧热键将残留在 `active_hotkeys` 中导致热键泄漏。
     pub fn register_hotkey(
         &self,
         hotkey: &str,
@@ -485,8 +487,7 @@ impl AppState {
         if let Some(existing) = registry.get(new_hotkey) {
             if existing != group_id {
                 return Err(AppError::Validation(format!(
-                    "热键 '{}' 已被分组 '{}' 注册",
-                    new_hotkey, existing
+                    "热键 '{new_hotkey}' 已被分组 '{existing}' 注册"
                 )));
             }
         }
@@ -523,8 +524,8 @@ impl AppState {
     ///
     /// # 热键变更窗口
     ///
-    /// 热键注销和重注册通过独立的 IPC 命令顺序发送。在 UnregisterHotkey 和
-    /// RegisterHotkey 之间，目标热键可能短暂处于未注册状态（亚毫秒级窗口），
+    /// 热键注销和重注册通过独立的 IPC 命令顺序发送。在 `UnregisterHotkey` 和
+    /// `RegisterHotkey` 之间，目标热键可能短暂处于未注册状态（亚毫秒级窗口），
     /// 用户按键可能不被响应。此为 fire-and-forget IPC 的固有局限。
     ///
     /// # 并发命令乱序风险
@@ -544,7 +545,7 @@ impl AppState {
         let mut toggle_commands: Vec<IpcCommand> = Vec::new();
 
         for (id, new_group) in new_groups {
-            let was_active = old_groups.get(id).map(|g| g.active).unwrap_or(false);
+            let was_active = old_groups.get(id).is_some_and(|g| g.active);
 
             if new_group.active && !was_active {
                 toggle_commands.push(crate::group_service::build_toggle_command(
@@ -621,11 +622,11 @@ impl AppState {
     /// 1. 在 `config_state` 写锁内删除分组、递增版本号
     /// 2. 更新 `active_hotkeys`（移除已删除分组的热键）
     /// 3. 写入磁盘（若失败则回滚内存状态）
-    /// 4. 发送 IPC 命令（ToggleGroup(false) + UnregisterHotkey）
+    /// 4. 发送 IPC 命令（ToggleGroup(false) + `UnregisterHotkey`）
     ///
     /// # IPC 失败行为
     ///
-    /// 磁盘写入成功后发送 IPC 命令（ToggleGroup(false) + UnregisterHotkey）。
+    /// 磁盘写入成功后发送 IPC 命令（ToggleGroup(false) + `UnregisterHotkey`）。
     /// 若 IPC 发送失败，内存和磁盘状态已提交（分组已删除），但 AHK 子进程可能
     /// 仍在执行该分组的按键序列且热键钩子仍然注册。此为已知设计权衡——
     /// IPC 失败时无法回滚磁盘写入，使用 `try_send_ipc_command` 仅记录警告。
@@ -639,7 +640,7 @@ impl AppState {
                 return Err(AppError::GroupNotFound(group_id.to_string()));
             }
 
-            let is_active = cs.groups.get(group_id).map(|g| g.active).unwrap_or(false);
+            let is_active = cs.groups.get(group_id).is_some_and(|g| g.active);
 
             let old_config = cs.config.clone();
             let old_groups = cs.groups.clone();
@@ -890,7 +891,7 @@ mod tests {
     fn test_update_watchdog_state() {
         let state = make_test_state();
 
-        state.update_watchdog_state(WatchdogStateEnum::Running, 1);
+        state.update_watchdog_state(&WatchdogStateEnum::Running, 1);
         let ws = state.watchdog_state.read();
         assert_eq!(ws.status, WatchdogStateEnum::Running);
         assert_eq!(ws.restart_count, 1);
@@ -951,7 +952,7 @@ mod tests {
         new_config.control_hotkeys.emergency = "F12".to_string();
 
         let result = state.save_config_atomic(new_config.clone());
-        assert!(result.is_ok(), "save_config_atomic 应成功: {:?}", result);
+        assert!(result.is_ok(), "save_config_atomic 应成功: {result:?}");
 
         let mem_config = state.read_config().unwrap();
         assert_eq!(
@@ -1258,7 +1259,7 @@ mod tests {
                 assert_eq!(hotkey, "F1");
                 assert_eq!(group_id, "1");
             }
-            other => panic!("Expected RegisterHotkey, got {:?}", other),
+            other => panic!("Expected RegisterHotkey, got {other:?}"),
         }
         match &cmds[1] {
             IpcCommand::ToggleGroup {
@@ -1267,7 +1268,7 @@ mod tests {
                 assert_eq!(group_id, "1");
                 assert!(*active);
             }
-            other => panic!("Expected ToggleGroup(true), got {:?}", other),
+            other => panic!("Expected ToggleGroup(true), got {other:?}"),
         }
     }
 
@@ -1306,7 +1307,7 @@ mod tests {
             IpcCommand::UnregisterHotkey { hotkey } => {
                 assert_eq!(hotkey, "F1");
             }
-            other => panic!("Expected UnregisterHotkey, got {:?}", other),
+            other => panic!("Expected UnregisterHotkey, got {other:?}"),
         }
         match &cmds[1] {
             IpcCommand::ToggleGroup {
@@ -1315,7 +1316,7 @@ mod tests {
                 assert_eq!(group_id, "1");
                 assert!(!*active);
             }
-            other => panic!("Expected ToggleGroup(false), got {:?}", other),
+            other => panic!("Expected ToggleGroup(false), got {other:?}"),
         }
     }
 
@@ -1335,14 +1336,14 @@ mod tests {
             IpcCommand::UnregisterHotkey { hotkey } => {
                 assert_eq!(hotkey, "F1");
             }
-            other => panic!("Expected UnregisterHotkey(F1), got {:?}", other),
+            other => panic!("Expected UnregisterHotkey(F1), got {other:?}"),
         }
         match &cmds[1] {
             IpcCommand::RegisterHotkey { hotkey, group_id } => {
                 assert_eq!(hotkey, "F2");
                 assert_eq!(group_id, "1");
             }
-            other => panic!("Expected RegisterHotkey(F2), got {:?}", other),
+            other => panic!("Expected RegisterHotkey(F2), got {other:?}"),
         }
     }
 
@@ -1369,7 +1370,7 @@ mod tests {
                 assert_eq!(group_id, "1");
                 assert!(*active);
             }
-            other => panic!("Expected ToggleGroup(true), got {:?}", other),
+            other => panic!("Expected ToggleGroup(true), got {other:?}"),
         }
     }
 
@@ -1400,7 +1401,7 @@ mod tests {
             IpcCommand::UnregisterHotkey { hotkey } => {
                 assert_eq!(hotkey, "F1");
             }
-            other => panic!("Expected UnregisterHotkey, got {:?}", other),
+            other => panic!("Expected UnregisterHotkey, got {other:?}"),
         }
         match &cmds[1] {
             IpcCommand::ToggleGroup {
@@ -1409,7 +1410,7 @@ mod tests {
                 assert_eq!(group_id, "1");
                 assert!(!*active);
             }
-            other => panic!("Expected ToggleGroup(false), got {:?}", other),
+            other => panic!("Expected ToggleGroup(false), got {other:?}"),
         }
     }
 
@@ -1497,13 +1498,11 @@ mod tests {
         let json = serde_json::to_string(&state).unwrap();
         assert!(
             json.contains("\"restartCount\""),
-            "JSON 应包含 restartCount 字段（camelCase），实际: {}",
-            json
+            "JSON 应包含 restartCount 字段（camelCase），实际: {json}"
         );
         assert!(
             !json.contains("\"restart_count\""),
-            "JSON 不应包含 restart_count 字段（snake_case），实际: {}",
-            json
+            "JSON 不应包含 restart_count 字段（snake_case），实际: {json}"
         );
     }
 }

@@ -4,6 +4,20 @@
 //! 所有 Mock 实现均实现 `asd_domain::traits` 中定义的 trait。
 
 #![allow(dead_code)]
+// 测试代码豁免几条「可读性」lint（TD-012）—— 它们在生产代码里是信号，在测试里是噪声：
+//   · similar_names：对照组命名（cfg1/cfg2、g1/g2）本身就是测试要表达的对照关系
+//   · match_wildcard_for_single_variants：`_ => panic!("Expected X")` 就是断言的意图
+//   · match_same_arms：验证不同变体落到同一结果时，两个分支体天然相同
+//   · case_sensitive_file_extension_comparisons：测试数据扩展名固定小写
+#![cfg_attr(
+    test,
+    allow(
+        clippy::similar_names,
+        clippy::match_wildcard_for_single_variants,
+        clippy::match_same_arms,
+        clippy::case_sensitive_file_extension_comparisons
+    )
+)]
 
 use asd_application::state::AppState;
 use indexmap::IndexMap;
@@ -33,6 +47,7 @@ pub struct MockIpcSender {
 }
 
 impl MockIpcSender {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             sent_commands: Mutex::new(Vec::new()),
@@ -81,6 +96,7 @@ pub struct RecordingIpcSender {
 }
 
 impl RecordingIpcSender {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             commands: Mutex::new(Vec::new()),
@@ -123,6 +139,7 @@ pub struct MockEventEmitter {
 }
 
 impl MockEventEmitter {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             emitted: Mutex::new(Vec::new()),
@@ -168,6 +185,7 @@ impl ProcessWatcher for MockProcessWatcher {
 // =================================================================
 
 /// 构造包含 2 个分组（periodic + sequence）的测试配置。
+#[must_use]
 pub fn make_test_config() -> Config {
     let mut group_settings = IndexMap::new();
     group_settings.insert(
@@ -220,6 +238,7 @@ pub fn make_test_config() -> Config {
 }
 
 /// 构造使用 Mock 依赖的 `AppState`。
+#[must_use]
 pub fn make_test_state() -> Arc<AppState> {
     Arc::new(AppState::new(
         make_test_config(),
@@ -230,6 +249,7 @@ pub fn make_test_state() -> Arc<AppState> {
 }
 
 /// 构造使用 `RecordingIpcSender` 的 `AppState`，返回状态与发送器以供检视。
+#[must_use]
 pub fn make_test_state_with_recording_sender() -> (Arc<AppState>, Arc<RecordingIpcSender>) {
     let sender = Arc::new(RecordingIpcSender::new());
     let state = Arc::new(AppState::new(
@@ -242,6 +262,7 @@ pub fn make_test_state_with_recording_sender() -> (Arc<AppState>, Arc<RecordingI
 }
 
 /// 构造 `AppState` 并绑定临时配置文件路径，返回状态与临时目录。
+#[must_use]
 pub fn make_test_state_with_path() -> (Arc<AppState>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let config_path = dir.path().join("config.json");
@@ -279,7 +300,7 @@ pub fn unique_pipe_name(tag: &str) -> String {
         .unwrap()
         .as_nanos();
     let counter = PIPE_NAME_COUNTER.fetch_add(1, Ordering::SeqCst);
-    format!("asd_ipc_poc_{}_{}_{}_{}", tag, id, ts, counter)
+    format!("asd_ipc_poc_{tag}_{id}_{ts}_{counter}")
 }
 
 // =================================================================
@@ -322,8 +343,7 @@ mod tests {
         for name in names.iter() {
             assert!(
                 seen.insert(name.clone()),
-                "Duplicate pipe name found: {}",
-                name
+                "Duplicate pipe name found: {name}"
             );
         }
         assert_eq!(names.len(), count, "All names should be collected");
@@ -355,7 +375,7 @@ mod tests {
             handles.push(thread::spawn(move || {
                 let mut names = std::collections::HashSet::new();
                 for i in 0..CALLS_PER_THREAD {
-                    let name = unique_pipe_name(&format!("concurrent_test_{}", i));
+                    let name = unique_pipe_name(&format!("concurrent_test_{i}"));
                     if !names.insert(name) {
                         cc.fetch_add(1, Ordering::SeqCst);
                     }
@@ -382,8 +402,8 @@ mod tests {
     fn test_unique_pipe_name_sequential_uniqueness() {
         let mut names = std::collections::HashSet::new();
         for i in 0..1000 {
-            let name = unique_pipe_name(&format!("seq_test_{}", i));
-            assert!(names.insert(name), "序号 {} 产生碰撞", i);
+            let name = unique_pipe_name(&format!("seq_test_{i}"));
+            assert!(names.insert(name), "序号 {i} 产生碰撞");
         }
     }
 }

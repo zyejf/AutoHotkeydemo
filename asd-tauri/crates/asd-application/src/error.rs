@@ -21,6 +21,7 @@ pub enum AppError {
 
 impl AppError {
     /// 返回错误变体名，用于序列化时保留类型信息。
+    #[must_use]
     pub fn kind_str(&self) -> &'static str {
         match self {
             AppError::Config(_) => "Config",
@@ -37,13 +38,14 @@ impl AppError {
     /// 返回 `Cow<'_, str>`：字符串类变体借用内部字段，`Io` 变体因
     /// `std::io::Error` 无法直接借用 `&str`，通过 `to_string()` 构造自有字符串。
     /// 这样 `Io` 错误也能返回非空消息，避免调用方拿到空串。
+    #[must_use]
     pub fn message(&self) -> Cow<'_, str> {
         match self {
-            AppError::Config(m) => Cow::Borrowed(m),
-            AppError::Ipc(m) => Cow::Borrowed(m),
-            AppError::GroupNotFound(m) => Cow::Borrowed(m),
-            AppError::Validation(m) => Cow::Borrowed(m),
-            AppError::Internal(m) => Cow::Borrowed(m),
+            AppError::Config(m)
+            | AppError::Ipc(m)
+            | AppError::GroupNotFound(m)
+            | AppError::Validation(m)
+            | AppError::Internal(m) => Cow::Borrowed(m),
             AppError::Io(e) => Cow::Owned(e.to_string()),
         }
     }
@@ -100,13 +102,11 @@ mod tests {
             let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
             assert_eq!(
                 parsed["kind"], *expected_kind,
-                "变体 {:?} 的 kind 字段应为 {}",
-                err, expected_kind
+                "变体 {err:?} 的 kind 字段应为 {expected_kind}"
             );
             assert!(
                 parsed["message"].is_string(),
-                "变体 {:?} 的 message 字段应为字符串",
-                err
+                "变体 {err:?} 的 message 字段应为字符串"
             );
         }
     }

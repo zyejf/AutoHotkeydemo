@@ -10,6 +10,7 @@ pub struct HotkeyMerger {
 }
 
 impl HotkeyMerger {
+    #[must_use]
     pub fn new(merge_window_ms: u64) -> Self {
         Self {
             buffer: HashMap::new(),
@@ -18,6 +19,7 @@ impl HotkeyMerger {
         }
     }
 
+    #[must_use]
     pub fn merge_window(&self) -> std::time::Duration {
         self.merge_window
     }
@@ -35,6 +37,7 @@ impl HotkeyMerger {
         self.buffer.insert(hotkey, msg);
     }
 
+    #[must_use]
     pub fn should_flush(&self) -> bool {
         self.last_flush.elapsed() >= self.merge_window && !self.buffer.is_empty()
     }

@@ -128,15 +128,15 @@ mod tests {
         }
     }
 
-    /// 验证 IpcCommand::Ping/Shutdown 的处理层级文档。
+    /// 验证 `IpcCommand::Ping/Shutdown` 的处理层级文档。
     ///
-    /// Ping 和 Shutdown 在 Rust 侧不通过 IpcMessage::command() 发送，
-    /// 而是通过 IpcMessage::ping()/shutdown() 直接发送（type="ping"/"shutdown"）。
-    /// AHK 执行器在 ipc_client.ahk 的 _HandleLine 中按 type 字段路由，
+    /// Ping 和 Shutdown 在 Rust 侧不通过 `IpcMessage::command()` 发送，
+    /// 而是通过 `IpcMessage::ping()/shutdown()` 直接发送（type="ping"/"shutdown"）。
+    /// AHK 执行器在 `ipc_client.ahk` 的 _`HandleLine` 中按 type 字段路由，
     /// 不经过 CommandDispatcher.Dispatch。
     ///
-    /// 即使误用 IpcMessage::command() 发送，AHK 的 _HandleCommand 有防御性路由，
-    /// 会拦截 action="ping"/"shutdown" 并转发到 _HandlePing/_HandleShutdown。
+    /// 即使误用 `IpcMessage::command()` 发送，AHK 的 _`HandleCommand` 有防御性路由，
+    /// 会拦截 action="ping"/"shutdown" 并转发到 _`HandlePing`/_`HandleShutdown`。
     #[test]
     fn test_ping_shutdown_handling_layer_documented() {
         // 正常路径：IpcMessage::ping() 产生 type="ping"，无 action
@@ -204,7 +204,7 @@ mod tests {
             let json = serde_json::to_string(cmd).unwrap();
             let decoded: IpcCommand = serde_json::from_str(&json).unwrap();
             let re_encoded = serde_json::to_string(&decoded).unwrap();
-            assert_eq!(json, re_encoded, "Roundtrip failed for {:?}", cmd);
+            assert_eq!(json, re_encoded, "Roundtrip failed for {cmd:?}");
         }
     }
 }

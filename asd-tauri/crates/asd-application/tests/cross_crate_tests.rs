@@ -1,3 +1,12 @@
+// 测试代码豁免几条「可读性」lint（TD-012）：
+// similar_names（对照组命名本就要相似）/ match_wildcard_for_single_variants
+// （`_ => panic!` 就是断言意图）/ match_same_arms / case_sensitive_file_extension_comparisons。
+#![allow(
+    clippy::similar_names,
+    clippy::match_wildcard_for_single_variants,
+    clippy::match_same_arms,
+    clippy::case_sensitive_file_extension_comparisons
+)]
 use asd_application::config_repository::ConfigRepository;
 use asd_application::error::AppError;
 use asd_application::group_service::build_toggle_command;
@@ -54,7 +63,7 @@ fn test_config_to_validator_to_result() {
     bad_settings.insert(
         "1".to_string(),
         GroupConfig {
-            hotkey: "".to_string(),
+            hotkey: String::new(),
             key_press_duration: None,
             name: None,
             mode: "periodic".to_string(),

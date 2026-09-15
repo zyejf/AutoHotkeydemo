@@ -223,7 +223,7 @@ fn spawn_watchdog(
                 // 状态或重启计数变更时同步到前端，确保 Restarting 状态下
                 // restart_count 递增也能及时更新
                 if current != last_status || restart_count != last_restart_count {
-                    state_clone.update_watchdog_state(current.clone(), restart_count);
+                    state_clone.update_watchdog_state(&current, restart_count);
                     last_status = current;
                     last_restart_count = restart_count;
                 }

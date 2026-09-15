@@ -302,7 +302,7 @@ mod tests {
         assert_eq!(initial.restart_count, 0);
 
         // 更新 watchdog_state
-        state.update_watchdog_state(WatchdogStateEnum::Running, 3);
+        state.update_watchdog_state(&WatchdogStateEnum::Running, 3);
         let updated = get_executor_status_impl(&state).unwrap();
         assert_eq!(
             updated.status,

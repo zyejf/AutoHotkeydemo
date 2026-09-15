@@ -1,7 +1,9 @@
+#[must_use]
 pub fn format_timestamp() -> String {
     chrono::Local::now().format("%Y%m%d_%H%M%S").to_string()
 }
 
+#[must_use]
 pub fn format_datetime() -> String {
     chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
 }

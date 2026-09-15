@@ -1,3 +1,12 @@
+// 测试代码豁免几条「可读性」lint（TD-012）：
+// similar_names（对照组命名本就要相似）/ match_wildcard_for_single_variants
+// （`_ => panic!` 就是断言意图）/ match_same_arms / case_sensitive_file_extension_comparisons。
+#![allow(
+    clippy::similar_names,
+    clippy::match_wildcard_for_single_variants,
+    clippy::match_same_arms,
+    clippy::case_sensitive_file_extension_comparisons
+)]
 use asd_ipc_protocol::*;
 
 #[test]

@@ -1,0 +1,30 @@
+# Clippy 配置（TD-012）
+#
+# 这里**只放阈值**：改阈值 = 改「多大算大」，是工程判断，值得单独一个文件让人看见。
+# lint 的启用/禁用一律写在 Cargo.toml 的 `[workspace.lints]` ——
+# 两处都能改级别，分散了就没人看得全，最后变成「不知道某条 lint 到底开没开」。
+
+# 认知复杂度：默认 30。低于此值都算「读得懂」。
+cognitive-complexity-threshold = 30
+
+# 单函数行数：默认 100，保持默认。当前有两处显式豁免（均登记 TD-023）：
+#   - asd-domain/src/validator.rs  validate_mode_data  294 行
+#   - asd-application/src/group_service.rs  register_hotkey  104 行
+# 阈值不为它们上调：上调等于宣布「这么长是合理的」，而它们只是还没拆。
+too-many-lines-threshold = 100
+
+# 参数个数：默认 7。
+too-many-arguments-threshold = 7
+
+# 类型复杂度（嵌套泛型深度的加权分）：默认 250。
+type-complexity-threshold = 250
+
+# 枚举变体名前/后缀相同达到几个才提示：默认 3。
+enum-variant-name-threshold = 3
+
+# Result 里 Err 部分超过多少字节就提示装箱：默认 128。
+large-error-threshold = 128
+
+# 不设 msrv：本项目没有声明最低支持的 Rust 版本，设了等于凭空造一个承诺。
+# 代价是 clippy 会建议使用较新的标准库 API（例如 Duration::from_hours），
+# CI 跑的是 stable，可以接受。

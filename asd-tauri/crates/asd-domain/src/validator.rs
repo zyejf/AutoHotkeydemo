@@ -36,6 +36,7 @@ pub struct ValidationResult {
 }
 
 impl ValidationResult {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             valid: true,
@@ -44,6 +45,7 @@ impl ValidationResult {
         }
     }
 
+    #[must_use]
     pub fn is_valid(&self) -> bool {
         self.errors.is_empty()
     }
@@ -69,7 +71,7 @@ impl Default for ValidationResult {
 }
 
 /// 有效热键键名列表（AHK v2 支持的非修饰符键）
-/// validate_hotkey_format 和 normalize_hotkey_for_comparison 共享此列表
+/// `validate_hotkey_format` 和 `normalize_hotkey_for_comparison` 共享此列表
 const VALID_HOTKEY_KEYS: &[&str] = &[
     "F1",
     "F2",
@@ -208,6 +210,7 @@ const VALID_HOTKEY_KEYS: &[&str] = &[
 pub struct ConfigValidator;
 
 impl ConfigValidator {
+    #[must_use]
     pub fn validate_config(config: &Config) -> ValidationResult {
         let mut result = Self::validate(&config.group_settings);
 
@@ -260,6 +263,7 @@ impl ConfigValidator {
         result
     }
 
+    #[must_use]
     pub fn validate(groups: &IndexMap<String, GroupConfig>) -> ValidationResult {
         let mut result = ValidationResult::new();
 
@@ -299,8 +303,7 @@ impl ConfigValidator {
         let hotkey_len = hotkey.chars().count();
         if hotkey_len > MAX_REASONABLE_HOTKEY_LEN {
             result.add_warning(&format!(
-                "[{}] 热键长度 ({} 字符) 异常，正常 AHK 热键远短于此，请确认配置是否损坏",
-                group_id, hotkey_len
+                "[{group_id}] 热键长度 ({hotkey_len} 字符) 异常，正常 AHK 热键远短于此，请确认配置是否损坏"
             ));
         }
 
@@ -330,8 +333,7 @@ impl ConfigValidator {
             .any(|k| k.eq_ignore_ascii_case(rest))
         {
             result.add_warning(&format!(
-                "[{}] 热键 '{}' 格式可能不正确，请确认是否为有效的 AHK 热键",
-                group_id, hotkey
+                "[{group_id}] 热键 '{hotkey}' 格式可能不正确，请确认是否为有效的 AHK 热键"
             ));
         }
     }
@@ -343,7 +345,7 @@ impl ConfigValidator {
         result: &mut ValidationResult,
     ) {
         if hotkey.is_empty() {
-            result.add_error(group_id, field, &format!("控制热键 {} 不能为空", field));
+            result.add_error(group_id, field, &format!("控制热键 {field} 不能为空"));
         } else {
             Self::validate_hotkey_format(group_id, hotkey, result);
         }
@@ -365,7 +367,7 @@ impl ConfigValidator {
             }
             let normalized = normalize_hotkey_for_comparison(hotkey);
             seen.entry(normalized)
-                .or_insert_with(|| format!("_global:{}", field));
+                .or_insert_with(|| format!("_global:{field}"));
         }
 
         for (id, group) in &config.group_settings {
@@ -406,12 +408,12 @@ impl ConfigValidator {
     }
 
     fn validate_cross_fields(group_id: &str, group: &GroupConfig, result: &mut ValidationResult) {
-        if group.mode == "hold" && group.hold_keys.as_ref().is_none_or(|k| k.is_empty()) {
-            result.add_warning(&format!("[{}] hold 模式建议设置 holdKeys", group_id));
+        if group.mode == "hold" && group.hold_keys.as_ref().is_none_or(std::vec::Vec::is_empty) {
+            result.add_warning(&format!("[{group_id}] hold 模式建议设置 holdKeys"));
         }
 
         if group.hold_keys.is_some() && group.hold_mode.is_none() {
-            result.add_warning(&format!("[{}] 设置了 holdKeys 但未指定 holdMode", group_id));
+            result.add_warning(&format!("[{group_id}] 设置了 holdKeys 但未指定 holdMode"));
         }
 
         if let Some(ref hold_keys) = group.hold_keys {
@@ -427,8 +429,7 @@ impl ConfigValidator {
         if let Some(duration) = group.key_press_duration {
             if duration > 1000 {
                 result.add_warning(&format!(
-                    "[{}] keyPressDuration ({}ms) 过大，通常应小于 1000ms",
-                    group_id, duration
+                    "[{group_id}] keyPressDuration ({duration}ms) 过大，通常应小于 1000ms"
                 ));
             }
         }
@@ -518,15 +519,14 @@ impl ConfigValidator {
             if let Some(&max) = values.iter().max() {
                 if max > MAX_REASONABLE_INTERVAL_MS {
                     result.add_warning(&format!(
-                        "[{}] {} 中存在超长时间值 {}ms（上限建议 {}ms），请确认单位是否为毫秒",
-                        group_id, label, max, MAX_REASONABLE_INTERVAL_MS
+                        "[{group_id}] {label} 中存在超长时间值 {max}ms（上限建议 {MAX_REASONABLE_INTERVAL_MS}ms），请确认单位是否为毫秒"
                     ));
                 }
             }
         }
     }
 
-    /// 从 hybrid / enhanced_hybrid 的子组中提取 (标签, 按键数, 时间序列)。
+    /// 从 hybrid / `enhanced_hybrid` 的子组中提取 (标签, 按键数, 时间序列)。
     fn collect_group_item_series<'a>(
         groups: &'a [GroupItem],
         out: &mut Vec<(String, usize, &'a [u64])>,
@@ -538,7 +538,7 @@ impl ConfigValidator {
                     intervals,
                 } => {
                     out.push((
-                        format!("groups[{}].intervals", i),
+                        format!("groups[{i}].intervals"),
                         press_keys.len(),
                         intervals.as_slice(),
                     ));
@@ -547,7 +547,7 @@ impl ConfigValidator {
                     press_keys, delays, ..
                 } => {
                     out.push((
-                        format!("groups[{}].delays", i),
+                        format!("groups[{i}].delays"),
                         press_keys.len(),
                         delays.as_slice(),
                     ));
@@ -556,6 +556,10 @@ impl ConfigValidator {
         }
     }
 
+    // TD-023：本函数 294 行（阈值 100），是一个「按 mode 分派的子校验器集合」。
+    // 拆它需要先把每个 mode 的子校验抽成函数并逐一对齐错误文案 —— 属于重构，
+    // 不在「静态分析收紧」这次改动范围内，故先显式豁免并登记，避免它淹没新告警。
+    #[allow(clippy::too_many_lines)]
     fn validate_mode_data(
         group_id: &str,
         mode: &str,
@@ -599,7 +603,7 @@ impl ConfigValidator {
                         result.add_error(group_id, "groups", "hybrid 模式需要至少一个子组");
                     }
                     for (i, sub) in data.groups.iter().enumerate() {
-                        let sub_label = format!("groups[{}]", i);
+                        let sub_label = format!("groups[{i}]");
                         match sub {
                             GroupItem::Periodic {
                                 press_keys,
@@ -731,7 +735,7 @@ impl ConfigValidator {
                         );
                     }
                     for (i, sub) in data.groups.iter().enumerate() {
-                        let sub_label = format!("groups[{}]", i);
+                        let sub_label = format!("groups[{i}]");
                         match sub {
                             GroupItem::Periodic {
                                 press_keys,
@@ -848,8 +852,7 @@ impl ConfigValidator {
                 if let ModeData::JoystickHold(data) = mode_data {
                     if data.hold_duration.unwrap_or(0) == 0 {
                         result.add_warning(&format!(
-                            "[{}] joystick_hold 模式未设置 holdDuration",
-                            group_id
+                            "[{group_id}] joystick_hold 模式未设置 holdDuration"
                         ));
                     }
                 } else {
@@ -883,7 +886,7 @@ fn normalize_hotkey_for_comparison(hotkey: &str) -> String {
             break;
         }
     }
-    prefix_parts.sort();
+    prefix_parts.sort_unstable();
     let prefix = prefix_parts.join("");
     // F 键特殊处理：F1-F24 保持大写
     let normalized_rest =
@@ -899,7 +902,7 @@ fn normalize_hotkey_for_comparison(hotkey: &str) -> String {
         } else {
             rest.to_lowercase()
         };
-    format!("{}{}", prefix, normalized_rest)
+    format!("{prefix}{normalized_rest}")
 }
 
 #[cfg(test)]
@@ -2090,7 +2093,7 @@ mod tests {
         assert!(result
             .errors
             .iter()
-            .any(|e| e.field == "intervals" && e.message.contains("0")));
+            .any(|e| e.field == "intervals" && e.message.contains('0')));
     }
 
     #[test]
@@ -2099,7 +2102,7 @@ mod tests {
         groups.insert(
             "1".to_string(),
             GroupConfig {
-                hotkey: "".to_string(),
+                hotkey: String::new(),
                 key_press_duration: None,
                 name: None,
                 mode: "periodic".to_string(),
@@ -2127,7 +2130,7 @@ mod tests {
                 hotkey: "F1".to_string(),
                 key_press_duration: None,
                 name: None,
-                mode: "".to_string(),
+                mode: String::new(),
                 hold_keys: None,
                 hold_mode: None,
                 hold_pattern: None,

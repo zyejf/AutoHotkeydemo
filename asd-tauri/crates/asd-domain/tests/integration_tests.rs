@@ -1,3 +1,12 @@
+// 测试代码豁免几条「可读性」lint（TD-012）：
+// similar_names（对照组命名本就要相似）/ match_wildcard_for_single_variants
+// （`_ => panic!` 就是断言意图）/ match_same_arms / case_sensitive_file_extension_comparisons。
+#![allow(
+    clippy::similar_names,
+    clippy::match_wildcard_for_single_variants,
+    clippy::match_same_arms,
+    clippy::case_sensitive_file_extension_comparisons
+)]
 use asd_domain::config::*;
 use asd_domain::models::*;
 use asd_domain::validator::*;
@@ -534,10 +543,10 @@ fn test_config_validator_empty_hotkey_and_mode() {
     groups.insert(
         "1".to_string(),
         GroupConfig {
-            hotkey: "".to_string(),
+            hotkey: String::new(),
             key_press_duration: None,
             name: None,
-            mode: "".to_string(),
+            mode: String::new(),
             hold_keys: None,
             hold_mode: None,
             hold_pattern: None,

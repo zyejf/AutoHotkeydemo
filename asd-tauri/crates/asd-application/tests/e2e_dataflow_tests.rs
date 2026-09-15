@@ -1,6 +1,6 @@
 //! 跨 crate 端到端数据流集成测试
 //!
-//! 验证 Config → AppState → sync_config_changes_to_ahk → IpcCommand → IpcMessage 的完整数据流。
+//! 验证 Config → `AppState` → `sync_config_changes_to_ahk` → `IpcCommand` → `IpcMessage` 的完整数据流。
 //! 涵盖配置变更、录制流程、分组切换、热键注册/注销等场景，并验证 IPC 消息的 JSON 序列化往返正确性。
 
 use asd_application::group_service;
@@ -56,8 +56,7 @@ fn test_config_change_to_ipc_command_full_flow() {
         .find(|c| matches!(c, IpcCommand::ToggleGroup { .. }));
     assert!(
         toggle_cmd.is_some(),
-        "应发送 ToggleGroup 命令，实际收到的命令: {:?}",
-        cmds
+        "应发送 ToggleGroup 命令，实际收到的命令: {cmds:?}"
     );
 
     match toggle_cmd.unwrap() {
@@ -85,7 +84,7 @@ fn test_config_change_to_ipc_command_full_flow() {
                 "mode_data 应为 Some（包含 keys 和 intervals）"
             );
         }
-        other => panic!("Expected ToggleGroup, got {:?}", other),
+        other => panic!("Expected ToggleGroup, got {other:?}"),
     }
 
     // 序列化 ToggleGroup 命令到 IpcMessage，然后 JSON，然后反序列化验证往返正确性
@@ -253,8 +252,7 @@ fn test_group_toggle_to_toggle_command_flow() {
         .find(|c| matches!(c, IpcCommand::ToggleGroup { active: true, .. }));
     assert!(
         toggle_on_cmd.is_some(),
-        "激活时应发送 ToggleGroup{{active:true}} 命令，实际: {:?}",
-        cmds_after_activate
+        "激活时应发送 ToggleGroup{{active:true}} 命令，实际: {cmds_after_activate:?}"
     );
 
     // 验证 ToggleGroup 命令参数
@@ -272,7 +270,7 @@ fn test_group_toggle_to_toggle_command_flow() {
             // make_test_config 中分组 1 的 key_press_duration 为 Some(10)
             assert_eq!(*key_press_duration, Some(10));
         }
-        other => panic!("Expected ToggleGroup, got {:?}", other),
+        other => panic!("Expected ToggleGroup, got {other:?}"),
     }
 
     // 序列化 ToggleGroup{active:true} 到 IpcMessage 并验证 JSON 往返
@@ -316,7 +314,7 @@ fn test_group_toggle_to_toggle_command_flow() {
             assert!(!*active, "active 应为 false");
             assert_eq!(mode.as_deref(), Some("periodic"));
         }
-        other => panic!("Expected ToggleGroup, got {:?}", other),
+        other => panic!("Expected ToggleGroup, got {other:?}"),
     }
 
     // 序列化 ToggleGroup{active:false} 到 IpcMessage 并验证 JSON 往返
@@ -379,8 +377,7 @@ fn test_hotkey_register_unregister_flow() {
         .any(|c| matches!(c, IpcCommand::UnregisterHotkey { hotkey } if hotkey == "F1"));
     assert!(
         has_unregister_f1,
-        "注册新热键时应发送 UnregisterHotkey{{F1}} 命令注销旧热键，实际: {:?}",
-        cmds_after_register
+        "注册新热键时应发送 UnregisterHotkey{{F1}} 命令注销旧热键，实际: {cmds_after_register:?}"
     );
 
     // 验证 RegisterHotkey{F3, 1} 命令存在

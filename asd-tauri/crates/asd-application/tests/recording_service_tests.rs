@@ -8,7 +8,7 @@ use common::*;
 fn test_start_recording() {
     let state = make_test_state();
     let result = recording_service::start_recording(&state, "1", "periodic");
-    assert!(result.is_ok(), "开始录制应成功: {:?}", result);
+    assert!(result.is_ok(), "开始录制应成功: {result:?}");
 }
 
 #[test]
@@ -26,7 +26,7 @@ fn test_stop_recording() {
     let state = make_test_state();
     recording_service::start_recording(&state, "1", "periodic").unwrap();
     let result = recording_service::stop_recording(&state);
-    assert!(result.is_ok(), "停止录制应成功: {:?}", result);
+    assert!(result.is_ok(), "停止录制应成功: {result:?}");
     let recording = result.unwrap();
     assert_eq!(recording.seq, 1);
     assert_eq!(recording.keys, vec!["1", "2"]);
@@ -40,7 +40,7 @@ fn test_pause_recording() {
     let state = make_test_state();
     recording_service::start_recording(&state, "1", "periodic").unwrap();
     let result = recording_service::pause_recording(&state);
-    assert!(result.is_ok(), "暂停录制应成功: {:?}", result);
+    assert!(result.is_ok(), "暂停录制应成功: {result:?}");
     assert_eq!(result.unwrap(), 1);
 }
 
@@ -50,7 +50,7 @@ fn test_resume_recording() {
     recording_service::start_recording(&state, "1", "periodic").unwrap();
     recording_service::pause_recording(&state).unwrap();
     let result = recording_service::resume_recording(&state);
-    assert!(result.is_ok(), "恢复录制应成功: {:?}", result);
+    assert!(result.is_ok(), "恢复录制应成功: {result:?}");
     assert_eq!(result.unwrap(), 1);
 }
 
@@ -67,10 +67,10 @@ fn test_export_import_recording() {
 
     let export_result =
         recording_service::export_recording(path_str, &keys, &intervals, &delays, mode);
-    assert!(export_result.is_ok(), "导出录制应成功: {:?}", export_result);
+    assert!(export_result.is_ok(), "导出录制应成功: {export_result:?}");
 
     let import_result = recording_service::import_recording(path_str);
-    assert!(import_result.is_ok(), "导入录制应成功: {:?}", import_result);
+    assert!(import_result.is_ok(), "导入录制应成功: {import_result:?}");
     let imported = import_result.unwrap();
     assert_eq!(imported.keys, vec!["1", "2"]);
     assert_eq!(imported.intervals, vec![50, 100]);
@@ -96,7 +96,7 @@ fn test_import_recording_invalid_json() {
 fn test_start_validation() {
     let state = make_test_state();
     let result = recording_service::start_validation(&state, "1");
-    assert!(result.is_ok(), "启动验证应成功: {:?}", result);
+    assert!(result.is_ok(), "启动验证应成功: {result:?}");
     assert_eq!(result.unwrap(), 1);
 }
 
@@ -105,7 +105,7 @@ fn test_stop_validation() {
     let state = make_test_state();
     recording_service::start_validation(&state, "1").unwrap();
     let result = recording_service::stop_validation(&state);
-    assert!(result.is_ok(), "停止验证应成功: {:?}", result);
+    assert!(result.is_ok(), "停止验证应成功: {result:?}");
     assert_eq!(result.unwrap(), 1);
 }
 
@@ -116,9 +116,9 @@ fn test_start_recording_ipc_failure_rollback() {
 
     /// 总是返回错误的 IPC 发送器 Mock，用于测试 IPC 失败时的回滚逻辑。
     ///
-    /// `start_recording` 采用"先状态后 IPC"模式：先在 recording_mode 写锁内
+    /// `start_recording` 采用"先状态后 IPC"模式：先在 `recording_mode` 写锁内
     /// 设置状态，释放锁后发送 IPC。如果 IPC 失败，重新获取写锁回滚状态。
-    /// 此测试验证回滚逻辑正确执行，recording_mode 在 IPC 失败后为 None。
+    /// `此测试验证回滚逻辑正确执行，recording_mode` 在 IPC 失败后为 None。
     struct FailingIpcSender;
     impl IpcSender for FailingIpcSender {
         fn send_command(&self, _cmd: IpcCommand) -> Result<u64, String> {
@@ -155,8 +155,7 @@ fn test_start_recording_ipc_failure_rollback() {
     assert!(result.is_err(), "IPC 失败时 start_recording 应返回错误");
     assert!(
         matches!(result, Err(AppError::Ipc(_))),
-        "应返回 Ipc 错误，实际: {:?}",
-        result
+        "应返回 Ipc 错误，实际: {result:?}"
     );
 
     // 关键验证：IPC 失败后 recording_mode 应被回滚为 None

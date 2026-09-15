@@ -5,6 +5,7 @@
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use indexmap::IndexMap;
+use std::hint::black_box;
 
 use asd_domain::config::{
     Config, ControlHotkeys, EnhancedHybridData, EnhancedPeriodicData, EnhancedSequenceData,
@@ -217,7 +218,10 @@ fn bench_key_validation(c: &mut Criterion) {
 
     group.bench_function("validate_100_keys", |b| {
         b.iter(|| {
-            ConfigValidator::validate(&groups);
+            // black_box 是必须的：`validate` 是纯函数，返回值丢弃的话优化器
+            // 会把整段调用删掉，基准测到的会是 0ns 而不是校验耗时。
+            // （`#[must_use]` 上线后这里才开始报错 —— 它顺手挡下了这个测量错误。）
+            black_box(ConfigValidator::validate(&groups));
         });
     });
 

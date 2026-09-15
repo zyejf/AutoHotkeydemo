@@ -12,6 +12,25 @@ members = [
 version = "0.1.0"
 edition = "2021"
 
+# ── lint 配置（TD-012）───────────────────────────────────────────────
+#
+# 只对 **纯逻辑 crate** 生效（asd-domain / asd-ipc-protocol / asd-application /
+# asd-test-harness），它们各自 Cargo.toml 里有 `[lints] workspace = true`。
+# `src-tauri` **不承接**：那里 587 项 pedantic 告警里 476 项是 Tauri 样板代码的
+# 文档类噪声，开了等于把真信号淹掉 —— 先守住业务逻辑，再谈入口层。
+#
+# `priority = -1` 是为了让下面逐条的 allow 能盖住 pedantic（否则同级别下
+# 组 lint 与单条 lint 的优先级由定义顺序决定，容易写错）。
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+
+# —— 有意暂缓的两条（登记 TD-021）——
+# 不是漏网，是取舍：它们要求给 59 个返回 Result / 可能 panic 的公开函数
+# 补 `# Errors` / `# Panics` 小节，是文档工程而不是静态分析。
+# 硬塞进这次改动，只会让「收紧 lint」变成「批量补文档」，两头都做不干净。
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

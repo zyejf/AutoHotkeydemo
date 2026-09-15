@@ -11,3 +11,7 @@ parking_lot = { workspace = true }
 serde_json = { workspace = true }
 indexmap = { workspace = true }
 tempfile = "3"
+
+# 承接 workspace 的 lint 配置（TD-012，见根 Cargo.toml 的 [workspace.lints]）
+[lints]
+workspace = true

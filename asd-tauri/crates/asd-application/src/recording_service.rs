@@ -55,7 +55,7 @@ pub fn start_recording(state: &AppState, group_id: &str, mode: &str) -> Result<(
     }
 
     if !VALID_MODES.contains(&mode) {
-        return Err(AppError::Validation(format!("不支持的模式: '{}'", mode)));
+        return Err(AppError::Validation(format!("不支持的模式: '{mode}'")));
     }
 
     {
@@ -150,7 +150,7 @@ pub fn stop_recording(state: &AppState) -> Result<RecordingResult, AppError> {
             .to_string();
 
         if !VALID_MODES.contains(&mode.as_str()) {
-            return Err(AppError::Ipc(format!("AHK 返回无效模式: '{}'", mode)));
+            return Err(AppError::Ipc(format!("AHK 返回无效模式: '{mode}'")));
         }
 
         let requested_mode = {

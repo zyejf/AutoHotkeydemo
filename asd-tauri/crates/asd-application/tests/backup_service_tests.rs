@@ -1,3 +1,12 @@
+// 测试代码豁免几条「可读性」lint（TD-012）：
+// similar_names（对照组命名本就要相似）/ match_wildcard_for_single_variants
+// （`_ => panic!` 就是断言意图）/ match_same_arms / case_sensitive_file_extension_comparisons。
+#![allow(
+    clippy::similar_names,
+    clippy::match_wildcard_for_single_variants,
+    clippy::match_same_arms,
+    clippy::case_sensitive_file_extension_comparisons
+)]
 mod common;
 
 use asd_application::backup_service::*;
@@ -8,7 +17,7 @@ use common::*;
 fn test_list_backups_empty_dir() {
     let (state, _dir) = make_test_state_with_path();
     let result = list_backups(&state);
-    assert!(result.is_ok(), "空备份目录应返回 Ok: {:?}", result);
+    assert!(result.is_ok(), "空备份目录应返回 Ok: {result:?}");
     assert!(result.unwrap().is_empty(), "空备份目录应返回空列表");
 }
 
@@ -23,7 +32,7 @@ fn test_list_backups_no_config_path() {
 fn test_create_backup() {
     let (state, _dir) = make_test_state_with_path();
     let result = create_backup(&state);
-    assert!(result.is_ok(), "创建备份应成功: {:?}", result);
+    assert!(result.is_ok(), "创建备份应成功: {result:?}");
     let filename = result.unwrap();
     assert!(
         filename.starts_with("backup_"),
@@ -76,7 +85,7 @@ fn test_export_config() {
     let export_path = dir.path().join("exported_config.json");
     let (state, _config_dir) = make_test_state_with_path();
     let result = export_config(&state, export_path.to_str().unwrap());
-    assert!(result.is_ok(), "导出配置应成功: {:?}", result);
+    assert!(result.is_ok(), "导出配置应成功: {result:?}");
     assert!(export_path.exists(), "导出文件应存在");
     let content = std::fs::read_to_string(&export_path).unwrap();
     let parsed: asd_domain::config::Config = serde_json::from_str(&content).unwrap();
@@ -114,7 +123,7 @@ fn test_create_and_restore_backup() {
     let (state, _dir) = make_test_state_with_path();
     let filename = create_backup(&state).unwrap();
     let result = restore_backup(&state, &filename);
-    assert!(result.is_ok(), "恢复备份应成功: {:?}", result);
+    assert!(result.is_ok(), "恢复备份应成功: {result:?}");
 }
 
 #[test]
@@ -122,7 +131,7 @@ fn test_create_and_delete_backup() {
     let (state, _dir) = make_test_state_with_path();
     let filename = create_backup(&state).unwrap();
     let result = delete_backup(&state, &filename);
-    assert!(result.is_ok(), "删除备份应成功: {:?}", result);
+    assert!(result.is_ok(), "删除备份应成功: {result:?}");
     let backups = list_backups(&state).unwrap();
     assert!(
         backups.iter().all(|b| b.filename != filename),
@@ -135,7 +144,7 @@ fn test_create_and_compare_configs() {
     let (state, _dir) = make_test_state_with_path();
     let filename = create_backup(&state).unwrap();
     let result = compare_configs(&state, &filename);
-    assert!(result.is_ok(), "比较配置应成功: {:?}", result);
+    assert!(result.is_ok(), "比较配置应成功: {result:?}");
     let diff = result.unwrap();
     assert!(diff.added_groups.is_empty(), "未修改时不应有新增组");
     assert!(diff.removed_groups.is_empty(), "未修改时不应有删除组");
@@ -160,8 +169,7 @@ fn test_backup_to_readonly_directory() {
     );
     assert!(
         matches!(result, Err(AppError::Config(_))),
-        "应返回 Config 错误（写入失败），实际: {:?}",
-        result
+        "应返回 Config 错误（写入失败），实际: {result:?}"
     );
 }
 
@@ -183,7 +191,6 @@ fn test_restore_from_corrupted_backup() {
     assert!(result.is_err(), "恢复损坏的备份文件应返回错误");
     assert!(
         matches!(result, Err(AppError::Config(_))),
-        "损坏的 JSON 应返回 Config 错误（解析失败），实际: {:?}",
-        result
+        "损坏的 JSON 应返回 Config 错误（解析失败），实际: {result:?}"
     );
 }

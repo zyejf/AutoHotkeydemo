@@ -23,15 +23,16 @@ pub struct IpcMessage {
 }
 
 impl IpcMessage {
-    /// 从 IpcCommand 构建 IPC 命令消息。
+    /// 从 `IpcCommand` 构建 IPC 命令消息。
     ///
     /// 通过 `serde_json::to_value` 序列化 `IpcCommand`，然后提取 `action` 和 `data` 字段，
     /// 确保序列化逻辑与 `IpcCommand` 的 serde 派生宏保持一致，无需手动维护两套实现。
+    #[must_use]
     pub fn command(seq: u64, cmd: &IpcCommand) -> Self {
         let serialized = serde_json::to_value(cmd)
             .ok()
             .filter(|v| !v.is_null())
-            .unwrap_or(serde_json::Value::Object(Default::default()));
+            .unwrap_or(serde_json::Value::Object(serde_json::Map::default()));
 
         let action = serialized
             .get("action")
@@ -60,6 +61,7 @@ impl IpcMessage {
         }
     }
 
+    #[must_use]
     pub fn response(seq: u64, ack_seq: u64, status: &str, data: Option<serde_json::Value>) -> Self {
         Self {
             r#type: "response".to_string(),
@@ -71,6 +73,7 @@ impl IpcMessage {
         }
     }
 
+    #[must_use]
     pub fn ping(seq: u64) -> Self {
         Self {
             r#type: "ping".to_string(),
@@ -79,6 +82,7 @@ impl IpcMessage {
         }
     }
 
+    #[must_use]
     pub fn pong(seq: u64, ack_seq: u64) -> Self {
         Self {
             r#type: "pong".to_string(),
@@ -88,6 +92,7 @@ impl IpcMessage {
         }
     }
 
+    #[must_use]
     pub fn execute(seq: u64, keys: Vec<String>, delay: u64) -> Self {
         Self {
             r#type: "execute".to_string(),
@@ -99,6 +104,7 @@ impl IpcMessage {
         }
     }
 
+    #[must_use]
     pub fn result(seq: u64, ack_seq: u64, data: serde_json::Value) -> Self {
         Self {
             r#type: "result".to_string(),
@@ -109,6 +115,7 @@ impl IpcMessage {
         }
     }
 
+    #[must_use]
     pub fn shutdown(seq: u64) -> Self {
         Self {
             r#type: "shutdown".to_string(),
@@ -118,6 +125,7 @@ impl IpcMessage {
         }
     }
 
+    #[must_use]
     pub fn hotkey_event(seq: u64, hotkey: &str) -> Self {
         Self {
             r#type: "hotkey".to_string(),
@@ -128,6 +136,7 @@ impl IpcMessage {
         }
     }
 
+    #[must_use]
     pub fn heartbeat(seq: u64) -> Self {
         Self {
             r#type: "heartbeat".to_string(),
@@ -136,6 +145,7 @@ impl IpcMessage {
         }
     }
 
+    #[must_use]
     pub fn auth(token: &str) -> Self {
         Self {
             r#type: "auth".to_string(),
@@ -148,6 +158,7 @@ impl IpcMessage {
     ///
     /// 与 `response` 方法不同，此方法设置 `r#type = "error"`，
     /// 确保日志和调试中能正确识别消息类型。
+    #[must_use]
     pub fn error_response(seq: u64, ack_seq: u64, error: &str) -> Self {
         Self {
             r#type: "error".to_string(),
@@ -159,6 +170,7 @@ impl IpcMessage {
         }
     }
 
+    #[must_use]
     pub fn is_error(&self) -> bool {
         self.r#type == "error" || self.status.as_deref() == Some("error")
     }
@@ -406,7 +418,7 @@ mod tests {
         ];
         for (i, cmd) in no_data_cmds.into_iter().enumerate() {
             let msg = IpcMessage::command(i as u64, &cmd);
-            assert!(msg.data.is_none(), "command {:?} should not have data", cmd);
+            assert!(msg.data.is_none(), "command {cmd:?} should not have data");
         }
     }
 

@@ -168,7 +168,7 @@ pub struct HybridData {
 
 /// Hold 模式数据。
 ///
-/// # 与 JoystickHoldData 的差异
+/// # 与 `JoystickHoldData` 的差异
 /// `hold_duration` 为必填字段（u64），而 `JoystickHoldData::hold_duration` 为可选（Option<u64>），
 /// 因为摇杆 hold 模式支持无限持续（不设置持续时间）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -323,12 +323,14 @@ impl<'de> Deserialize<'de> for GroupConfig {
             .ok_or_else(|| serde::de::Error::missing_field("mode"))?
             .to_string();
 
-        let key_press_duration = value.get("keyPressDuration").and_then(|v| v.as_u64());
+        let key_press_duration = value
+            .get("keyPressDuration")
+            .and_then(serde_json::Value::as_u64);
 
         let name = value
             .get("name")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+            .map(std::string::ToString::to_string);
 
         let hold_keys = value
             .get("holdKeys")
@@ -337,12 +339,12 @@ impl<'de> Deserialize<'de> for GroupConfig {
         let hold_mode = value
             .get("holdMode")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+            .map(std::string::ToString::to_string);
 
         let hold_pattern = value
             .get("holdPattern")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+            .map(std::string::ToString::to_string);
 
         // holdTriggers 是可选字段：缺失或 null 时为 None。
         // 字段存在但格式错误（如字符串而非数组）时返回错误，不静默替换。
@@ -467,8 +469,7 @@ impl Serialize for GroupConfig {
             for (key, value) in mode_map {
                 if map.contains_key(&key) {
                     return Err(serde::ser::Error::custom(format!(
-                        "ModeData 序列化键 '{}' 与 GroupConfig 顶层字段冲突",
-                        key
+                        "ModeData 序列化键 '{key}' 与 GroupConfig 顶层字段冲突"
                     )));
                 }
                 map.insert(key, value);

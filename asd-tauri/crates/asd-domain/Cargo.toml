@@ -9,3 +9,7 @@ serde_json = { workspace = true }
 indexmap = { workspace = true }
 thiserror = { workspace = true }
 asd-ipc-protocol = { path = "../asd-ipc-protocol" }
+
+# 承接 workspace 的 lint 配置（TD-012，见根 Cargo.toml 的 [workspace.lints]）
+[lints]
+workspace = true

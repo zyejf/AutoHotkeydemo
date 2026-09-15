@@ -33,6 +33,7 @@ pub struct GroupStatus {
     pub active: bool,
 }
 
+#[must_use]
 pub fn build_toggle_command(group_id: &str, active: bool, group: &SkillGroup) -> IpcCommand {
     let mode_data = serde_json::to_value(&group.mode_data)
         .ok()
@@ -96,14 +97,14 @@ pub fn toggle_group(state: &AppState, group_id: &str) -> Result<GroupStatus, App
         let rollback_cmd = build_toggle_command(group_id, !new_active, &group);
         state.try_send_ipc_command(&rollback_cmd);
         // 回滚热键注册状态
-        if !new_active {
+        if new_active {
+            state.try_send_ipc_command(&IpcCommand::UnregisterHotkey {
+                hotkey: group.hotkey.clone(),
+            });
+        } else {
             state.try_send_ipc_command(&IpcCommand::RegisterHotkey {
                 hotkey: group.hotkey.clone(),
                 group_id: group_id.to_string(),
-            });
-        } else {
-            state.try_send_ipc_command(&IpcCommand::UnregisterHotkey {
-                hotkey: group.hotkey.clone(),
             });
         }
         return Err(e);
@@ -139,12 +140,9 @@ fn batch_toggle_impl(
             continue;
         }
         // 使用当前分组数据而非快照，避免并发 register_hotkey 导致热键不一致
-        let current_group = match state.get_group(id) {
-            Some(g) => g,
-            None => {
-                state_errors.push((id.clone(), "分组已删除".to_string()));
-                continue;
-            }
+        let Some(current_group) = state.get_group(id) else {
+            state_errors.push((id.clone(), "分组已删除".to_string()));
+            continue;
         };
         // 激活时向 AHK 注册热键，停用时注销热键
         if active {
@@ -168,14 +166,14 @@ fn batch_toggle_impl(
             let rollback_cmd = build_toggle_command(id, !active, &current_group);
             state.try_send_ipc_command(&rollback_cmd);
             // 回滚热键注册状态
-            if !active {
+            if active {
+                state.try_send_ipc_command(&IpcCommand::UnregisterHotkey {
+                    hotkey: current_group.hotkey.clone(),
+                });
+            } else {
                 state.try_send_ipc_command(&IpcCommand::RegisterHotkey {
                     hotkey: current_group.hotkey.clone(),
                     group_id: id.clone(),
-                });
-            } else {
-                state.try_send_ipc_command(&IpcCommand::UnregisterHotkey {
-                    hotkey: current_group.hotkey.clone(),
                 });
             }
             ipc_rolled_back.push(id.clone());
@@ -396,23 +394,26 @@ pub fn reorder_groups(state: &AppState, group_ids: &[String]) -> Result<ReorderR
 ///
 /// # 活跃 vs 非活跃分组
 ///
-/// - 活跃分组：更新配置 + active_hotkeys + 发送 IPC 命令到 AHK
+/// - 活跃分组：更新配置 + `active_hotkeys` + 发送 IPC 命令到 AHK
 /// - 非活跃分组：仅更新配置，激活时自动注册
 ///
 /// # TOCTOU 权衡
 ///
-/// `set_group_hotkey`（更新 config_state）和 `swap_hotkey`（更新 active_hotkeys）
+/// `set_group_hotkey`（更新 `config_state）和` `swap_hotkey`（更新 `active_hotkeys`）
 /// 使用不同的 RwLock，两者之间存在极短的 TOCTOU 窗口（微秒级），期间
-/// config_state 中的热键已更新但 active_hotkeys 尚未同步。这与 `set_group_active`
+/// `config_state` 中的热键已更新但 `active_hotkeys` 尚未同步。这与 `set_group_active`
 /// 的 TOCTOU 权衡一致（见 state.rs 文档）。
 ///
 /// 此外，`is_active` 在第 400 行读取后到第 409 行使用之间存在时间窗口，
 /// 期间分组可能被并发 `toggle_group` 激活或停用。若分组在读取后被激活，
 /// 本函数会按非活跃分组处理（仅更新配置），但该分组实际上已是活跃状态，
-/// 导致 active_hotkeys 与 config_state 不一致。此不一致会在下次
+/// 导致 `active_hotkeys` 与 `config_state` 不一致。此不一致会在下次
 /// `toggle_group` 或 `sync_config_changes_to_ahk` 时自动修复。
 /// 合并 `is_active` 和 `original_hotkey` 为单次 `get_group` 读取已将窗口
 /// 最小化，但无法完全消除跨锁 TOCTOU。
+// TD-023：104 行（阈值 100），刚过线。函数内是「读状态 → 校验 → 写入 → 注册热键」
+// 的线性流程，强行切分只会把中间状态搬到参数里。先豁免并登记。
+#[allow(clippy::too_many_lines)]
 pub fn register_hotkey(state: &AppState, hotkey: &str, group_id: &str) -> Result<(), AppError> {
     if hotkey.trim().is_empty() {
         return Err(AppError::Validation("热键不能为空".to_string()));
@@ -566,6 +567,6 @@ pub fn unregister_hotkey(state: &AppState, hotkey: &str) -> Result<(), AppError>
         tracing::info!("热键 '{}' 已注销 (原分组: {})", hotkey, gid);
         Ok(())
     } else {
-        Err(AppError::Validation(format!("热键 '{}' 未注册", hotkey)))
+        Err(AppError::Validation(format!("热键 '{hotkey}' 未注册")))
     }
 }

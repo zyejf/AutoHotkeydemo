@@ -70,8 +70,7 @@ fn cleanup_stale_temp_files(dir: &Path) {
         if name_str.starts_with(".tmp_") {
             if let Ok(metadata) = entry.metadata() {
                 if let Ok(modified) = metadata.modified() {
-                    if modified.elapsed().unwrap_or_default() > std::time::Duration::from_secs(3600)
-                    {
+                    if modified.elapsed().unwrap_or_default() > std::time::Duration::from_hours(1) {
                         let _ = fs::remove_file(entry.path());
                     }
                 }
@@ -465,7 +464,7 @@ mod tests {
     // I26: 通用文件 I/O 方法测试 — 委托 std::fs 操作
     // =================================================================
 
-    /// 验证 read_file_to_string 方法能读取有效文件内容。
+    /// 验证 `read_file_to_string` 方法能读取有效文件内容。
     #[test]
     fn test_read_file_to_string_valid() {
         let dir = std::env::temp_dir().join("asd_app_test_read_to_string");
@@ -481,7 +480,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// 验证 read_file_to_string 自动剥离 UTF-8 BOM。
+    /// 验证 `read_file_to_string` 自动剥离 UTF-8 BOM。
     #[test]
     fn test_read_file_to_string_strips_bom() {
         let dir = std::env::temp_dir().join("asd_app_test_read_bom");
@@ -497,7 +496,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// 验证 read_file_to_string 对不存在的文件返回错误。
+    /// 验证 `read_file_to_string` 对不存在的文件返回错误。
     #[test]
     fn test_read_file_to_string_missing_file() {
         let path = std::path::PathBuf::from("/nonexistent/file.txt");
@@ -505,7 +504,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /// 验证 ensure_dir_all 方法能创建嵌套目录。
+    /// 验证 `ensure_dir_all` 方法能创建嵌套目录。
     #[test]
     fn test_ensure_dir_all_creates_nested_dirs() {
         let base = std::env::temp_dir().join("asd_app_test_ensure_dir");
@@ -518,7 +517,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
-    /// 验证 ensure_dir_all 对已存在目录幂等。
+    /// 验证 `ensure_dir_all` 对已存在目录幂等。
     #[test]
     fn test_ensure_dir_all_idempotent() {
         let dir = std::env::temp_dir().join("asd_app_test_ensure_dir_idem");
@@ -532,7 +531,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// 验证 list_dir_files 方法能列出目录中的 .json 文件。
+    /// 验证 `list_dir_files` 方法能列出目录中的 .json 文件。
     #[test]
     fn test_list_dir_files_lists_json() {
         let dir = std::env::temp_dir().join("asd_app_test_list_dir");
@@ -559,7 +558,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// 验证 list_dir_files 对不存在的目录返回错误。
+    /// 验证 `list_dir_files` 对不存在的目录返回错误。
     #[test]
     fn test_list_dir_files_missing_dir() {
         let path = std::path::PathBuf::from("/nonexistent/directory");
@@ -567,7 +566,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /// 验证 delete_file 方法能删除文件。
+    /// 验证 `delete_file` 方法能删除文件。
     #[test]
     fn test_delete_file_removes_file() {
         let dir = std::env::temp_dir().join("asd_app_test_delete_file");
@@ -583,7 +582,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// 验证 delete_file 对不存在的文件返回错误。
+    /// 验证 `delete_file` 对不存在的文件返回错误。
     #[test]
     fn test_delete_file_missing_file() {
         let path = std::env::temp_dir().join("nonexistent_file_for_delete.txt");
