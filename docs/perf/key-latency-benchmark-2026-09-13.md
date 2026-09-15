@@ -229,6 +229,8 @@ F1 → F2 → F3 依次为 99.975 / 99.999 ms，保持均 14.99 ms。
 ## 7. 回归
 
 - AHK 全量测试：**642 / 642 通过 / 0 失败**，连续 3 轮全绿。
+  （⚠️ 这是**本报告撰写当日**的实测快照，此后用例数已增长；
+  **当前值一律以 [`asd-tauri/docs/test-map.md`](../../asd-tauri/docs/test-map.md) 为准**。）
 - 新增单元测试 `tests/test_ahk_executor/test_sender.ahk::SenderPreciseTimingTests`：
   时钟分辨率、`SleepUntil` 误差、保持时长与 kpd 一致、同刻多键均获完整保持、
   periodic / sequence 端到端 P95 ≤ 20 ms、sequence 步进无漂移、hybrid 子组各保持自身节奏、

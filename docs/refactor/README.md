@@ -155,7 +155,7 @@
 | M4 | 长跑内存残留（5 万次） | 19.5 MB | `bench_cycle_leak` |
 | M5 | CPU 占用率（8 组 × 100 ms） | 20.7 ~ 25.0%（多轮） | `bench_timer_storm` |
 | M6 | 启动时间（外部墙钟） | 164.33 ms（n=11） | `tools/ahk-probes/bench_startup.py` |
-| M7 | 回归基线 | 642 / 642 | `scripts/check-gates.sh` |
+| M7 | 回归基线 | **见 test-map.md**（当前 697） | `scripts/check-gates.sh` |
 | M8 | tick 处理（8 键）p50 | 31.7 µs | `bench_tick_traversal` |
 | M9 | tick 处理（24 键）p50 | 84.6 µs | 同上 |
 | M10 | 定时尾部误差 max | 1.05 ~ 4.92 ms（跨轮摆动） | `bench_timer_storm` |
