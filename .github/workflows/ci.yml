@@ -212,6 +212,11 @@ jobs:
       - name: 'G3d test-map.md 登记对账'
         run: python scripts/check-test-map.py
 
+      # 静态检查，约 2.5s。C1a/C1b/C1c/C2/C3b 走棘轮（只阻新增），C3 恒 0 硬阻断。
+      # 依赖 .review-analysis/tech-debt-baseline.json（已入库）。
+      - name: 'G3e 技术债度量（C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写数字）'
+        run: python scripts/check-tech-debt.py
+
       # ------------------------------------------------------------ G4
       - name: 'G4 文档同步（人工核对清单）'
         shell: pwsh
@@ -222,6 +227,7 @@ jobs:
           Write-Host '  [ ] docs/developer-guide.md 命令与排障是否同步'
           Write-Host '  [ ] docs/graph-driven-workflow.md 流程是否同步'
           Write-Host '  [ ] 新增 crate / 跨 crate 依赖是否同步 ALLOWED_CRATE_DEPS'
+          Write-Host '  [ ] 清理了技术债后是否 --update-baseline 收紧水位（基线 diff 须出现在本 CR）'
 
   # ============================================================ 辅助（不阻塞）
   coverage:

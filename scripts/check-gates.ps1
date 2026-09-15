@@ -169,6 +169,12 @@ if (-not $Quick) {
         & $script:Py (Join-Path $repoRoot 'scripts/check-test-map.py') --no-cargo
         $LASTEXITCODE
     }
+
+    # 静态检查，约 2.5s。C1a/C1b/C1c/C2/C3b 走棘轮（只阻新增），C3 恒 0 硬阻断。
+    Invoke-Gate -Id 'G3e' -Name '技术债度量（C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写数字）' -Action {
+        & $script:Py (Join-Path $repoRoot 'scripts/check-tech-debt.py')
+        $LASTEXITCODE
+    }
 }
 
 # ---------------------------------------------------------------- 闸门④
@@ -181,6 +187,7 @@ Write-Output '  [ ] asd-tauri/docs/test-map.md 测试数是否更新（G3d 已�
 Write-Output '  [ ] docs/developer-guide.md 命令与排障是否同步'
 Write-Output '  [ ] docs/graph-driven-workflow.md 流程是否同步'
 Write-Output '  [ ] 新增 crate / 跨 crate 依赖是否同步 ALLOWED_CRATE_DEPS'
+Write-Output '  [ ] 清理了技术债后是否 --update-baseline 收紧水位（基线 diff 须出现在本 CR）'
 Write-Output '  -> 提示：G4 无法完全自动化，请人工确认后打勾'
 [void]$results.Add([pscustomobject]@{ Gate = 'G4'; Name = '文档同步'; Status = 'MANUAL'; Secs = 0 })
 

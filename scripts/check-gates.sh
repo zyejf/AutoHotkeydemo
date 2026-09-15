@@ -137,6 +137,10 @@ if [ "$QUICK" -eq 0 ]; then
 
   run_gate "G3d" "test-map.md 登记自洽（--no-cargo 快速档）" "$REPO_ROOT" \
     "$PY" "$REPO_ROOT_NATIVE/scripts/check-test-map.py" --no-cargo
+
+  # 静态检查，约 2.5s。C1a/C1b/C1c/C2/C3b 走棘轮（只阻新增），C3 恒 0 硬阻断。
+  run_gate "G3e" "技术债度量（C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写数字）" "$REPO_ROOT" \
+    "$PY" "$REPO_ROOT_NATIVE/scripts/check-tech-debt.py"
 fi
 
 # ---------------------------------------------------------------- 闸门④
@@ -150,6 +154,7 @@ cat <<'CHECKLIST'
   [ ] docs/developer-guide.md 命令与排障是否同步
   [ ] docs/graph-driven-workflow.md 流程是否同步
   [ ] 新增 crate / 跨 crate 依赖是否同步 ALLOWED_CRATE_DEPS
+  [ ] 清理了技术债后是否 --update-baseline 收紧水位（基线 diff 须出现在本 CR）
   -> 提示：G4 无法完全自动化，请人工确认后打勾
 CHECKLIST
 

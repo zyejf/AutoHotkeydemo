@@ -921,7 +921,7 @@ scripts\check-gates.ps1 -Quick
 |------|---------|
 | G1 | 图谱基线：无新增环、无白名单外依赖违规（`scripts/check-graph-baseline.py`） |
 | G2 | `cargo fmt --all --check` + `cargo clippy -- -D warnings` |
-| G3 | `cargo test --workspace` / AHK 完整套件 / JS 单测 + `test-map.md` 数字对账 |
+| G3 | `cargo test --workspace`(a) / AHK 完整套件(b) / JS 单测(c) + `test-map.md` 数字对账(d) + **技术债度量(e)** |
 | G4 | 文档同步（无法自动化，脚本输出人工核对清单） |
 
 另有 `scripts/install-hooks.ps1`（或 `.sh`）用于安装版本化 git 钩子——
@@ -929,9 +929,9 @@ scripts\check-gates.ps1 -Quick
 
 > 闸门定义、判定策略与基线更新方式详见 `docs/graph-driven-workflow.md` §5.4。
 
-#### 4.6.1.1 技术债度量（`scripts/check-tech-debt.py`，暂不在四闸门内）
+#### 4.6.1.1 技术债度量（`scripts/check-tech-debt.py`，G3e，2026-09-16 起在四闸门内）
 
-独立于四闸门的**静态**检查（不编译、不执行被测程序，约 2.5s）。
+**静态**检查（不编译、不执行被测程序，约 2.5s），已作为 **G3e** 接入四闸门。
 C1a/C1b/C1c/C2/C3b 走**棘轮**：基线内的存量债只登记不报错，**只有新增项才 FAIL**；
 C3 恒 0 硬阻断。
 
@@ -949,13 +949,18 @@ python scripts/check-tech-debt.py --update-baseline   # 清理后收紧水位
 | C3 | `baselines.json` 的 `k`/`warn_k`/`_baseline_runs` 与 `developer-guide.md`、`test-map.md` 是否一致（**不做棘轮**） |
 | C3b | `docs/` 下硬写的 AHK 基线数字（形态「`642 / 642`」）是否与 `test-map.md` 的实跑总数一致 |
 
-> **C3b 的由来与写法约定**：文档里**不要复写 AHK 用例总数**，一律写
+> **C3b 的写法约定**：文档里**不要复写 AHK 用例总数**，一律写
 > 「见 `asd-tauri/docs/test-map.md`（当前 N）」这类指针。
 > 带日期的历史报告里的数字是当日实测快照，合法，由棘轮基线登记豁免 ——
 > 但**新写的文档再硬编码数字就会被拦下**。
+>
+> ⚠️ **举例要写在反引号里**：写「形如 `642 / 642`」是在举例，不是声明基线数字，
+> 反引号包裹的片段会被豁免。**裸数字**才会被检查。
+> （这条是上线第一天被自己的台账触发才补的 —— 文档要解释什么叫「硬写 N / N」，
+> 就得举一个 N / N 的例子，而举的例子必然是陈旧数字。）
 
 基线在 `.review-analysis/tech-debt-baseline.json`；债项台账见 `docs/tech-debt-register.md`。
-接入四闸门属技术债计划阶段 1。
+G3e **不随 `--quick` 运行**（quick 只跑 G1/G2）。
 
 ### 4.6.2 AHK 引擎探针（`tools/ahk-probes/`）
 

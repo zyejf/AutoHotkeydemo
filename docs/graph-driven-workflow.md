@@ -992,7 +992,7 @@ flowchart TD
 |:----:|------|------|
 | **① 图谱闸门** | 无新增环 / 无未登记反向边 / 无新增孤点 | `python .review-analysis/build_graph.py` |
 | **② 质量闸门** | 格式化与静态检查零告警 | `cd asd-tauri && cargo fmt --check && cargo clippy -- -D warnings` |
-| **③ 测试闸门** | 全部测试通过，且数字已登记到 `test-map.md` | `cd asd-tauri && cargo test` + AHK `tests/run_all_tests.ahk` |
+| **③ 测试闸门** | 全部测试通过，且数字已登记到 `test-map.md`；**技术债无新增**（G3e 棘轮） | `cd asd-tauri && cargo test` + AHK `tests/run_all_tests.ahk` + `python scripts/check-tech-debt.py` |
 | **④ 文档闸门** | 按 §6 规则表完成同步 | 见 §6 规则表 |
 
 **未过闸门的功能不算完成**，不得提交 PR。
