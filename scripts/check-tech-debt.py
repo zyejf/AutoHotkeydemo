@@ -171,6 +171,15 @@ STALE_COUNT_RE = re.compile(r"(?<![\d.])(\d{3,4})\s*/\s*\1(?![\d])")
 # 否则「100 / 100」这种无关比例会被扫进来。
 COUNT_CONTEXT_WORDS = ("通过", "用例", "测试", "回归", "套件", "全量")
 
+# 反引号包裹的内容视为「举例 / 代码片段」，不当作文档在声明基线数字。
+#
+# 由来：本检上线第一天就报出 2 项 [NEW]，全落在台账里**描述本检自身**的句子上
+# —— 文档要解释「什么叫硬写 N / N」就必须举一个 N / N 的例子，而举的例子
+# 必然是个陈旧数字。这不是债，是说明文字。
+# 约定：举例一律写在反引号里（Markdown 里本就是「这是示例」的惯例），
+# 真正声明基线数字则用裸数字，仍会被拦。
+BACKTICK_SPAN_RE = re.compile(r"`[^`]*`")
+
 # C3b 扫描范围：仓库根的 docs/（权威 test-map.md 在 asd-tauri/docs/，天然排除）。
 C3B_DOC_ROOT = "docs"
 
@@ -505,6 +514,8 @@ def check_c3b(repo_root: Path) -> dict:
         for i, line in enumerate(lines, 1):
             if not any(w in line for w in COUNT_CONTEXT_WORDS):
                 continue
+            # 举例用的 N / N 写在反引号里，豁免
+            line = BACKTICK_SPAN_RE.sub(lambda m: " " * len(m.group(0)), line)
             for mm in STALE_COUNT_RE.finditer(line):
                 n = int(mm.group(1))
                 if n == total:
