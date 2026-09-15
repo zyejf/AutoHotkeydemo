@@ -1,13 +1,42 @@
 {
   "prod_escape": {
     "_comment": "⚠️ 2026-09-15 起 p50 是**归一化值**（一批调用毫秒 ÷ 同进程紧邻测得的参考负载毫秒，无量纲），不再是毫秒——旧基线已作废、metrics 清空待重取。原因：同代码 5 次 CI 运行相对固定绝对值基线的倍率为 0.52× / 0.79× / 0.92× / 1.07× / 1.87~2.09×，**跨 run 散布 3.7~3.9 倍**，且 5 个 metric 同步移动（整机速度因子）。绝对基线两头不讨好：慢机器上无变化也 FAIL；快机器上真实 2× 回退读成 1.04× 而 PASS（漏报更危险）。取基线方式同 prod_tick：Actions → CI → Run workflow → 勾 update_ahk_bench_baseline（artifact 人工确认后提交），取两次独立运行的均值居中。len/calls 仍是 payload 自描述，gate.py 校验基准没在测别的东西。",
-    "k": 1.4,
-    "metrics": {},
-    "warn_k": 1.2,
-    "_baseline_source": "pending-ci（归一化后重取）",
-    "_baseline_runs": [],
+    "k": 1.5,
+    "metrics": {
+      "escape_plain_2k": {
+        "p50_ms": 0.400846,
+        "len": 2048,
+        "calls": 200
+      },
+      "escape_plain_8k": {
+        "p50_ms": 1.574289,
+        "len": 8192,
+        "calls": 200
+      },
+      "escape_plain_64k": {
+        "p50_ms": 2.484549,
+        "len": 65536,
+        "calls": 40
+      },
+      "escape_mixed_2k": {
+        "p50_ms": 0.512538,
+        "len": 2048,
+        "calls": 200
+      },
+      "escape_ctrl_512": {
+        "p50_ms": 5.314801,
+        "len": 512,
+        "calls": 200
+      }
+    },
+    "warn_k": 1.25,
+    "_baseline_source": "ci (两次独立运行取均值：run 34986114982 + run 34986950001，各 5 轮取中位数；两次相差 1.018~1.101×，归一化后较改造前的 3.7~3.9× 显著收敛)",
+    "_baseline_runs": [
+      34986114982,
+      34986950001
+    ],
     "_normalization": "p50 = 批耗时 ÷ 参考负载耗时。参考负载是与被测代码无关的 AHK Array 算术循环（REF_OPS=8192 × REF_LOOPS=4，约 13ms/采样），紧邻每个 case 测量。同批 CI 数据用兜底路径做分母粗算：散布从 3.7~3.9× 降到 1.10~1.17×。",
-    "_k_note": "K 待两次 CI 基线取到后按实测归一化散布校准（暂定 1.4/warn 1.2，与 prod_tick 同量级）。T1 回退信号 36~41×，余量充足。"
+    "_k_note": "K=1.5 / warn_k=1.25，比 prod_tick（1.4/1.2）略松，因为**两边的信噪比不同**：T1 回退信号 41~49×，松一点不影响抓回归；而 T6 信号只有 ~1.7×，K 必须紧。定 K 的依据：两次独立 CI 运行相差 1.018~1.101×（相对均值 ±5%）；本机拿这份 CI 基线实跑 1.00~1.17×（plain_64k 最高，跨机器残余偏向内存带宽）——warn 带留 1.25 是 CI 噪声的 2.5× 余量，K=1.5 是实测最差值的 1.28× 余量。"
   },
   "prod_tick": {
     "_comment": "周期模式 tick 遍历（T6 / MERGE_TICK_SCAN），守住「每 tick 4 次遍历合并成 2 次」的收益。metrics 为空表示**尚未取 CI 基线**：此时门禁报「新指标（无基线）」并放行（宁可瞎一个周期，也不要像 prod_escape 初版那样用开发机基线在 CI 上刷满 WARN）。取基线同 prod_escape：Actions → CI → Run workflow → 勾 update_ahk_bench_baseline，下载 artifact 人工确认后提交。",
