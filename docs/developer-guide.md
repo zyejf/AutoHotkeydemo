@@ -931,12 +931,14 @@ scripts\check-gates.ps1 -Quick
 
 #### 4.6.1.1 技术债度量（`scripts/check-tech-debt.py`，暂不在四闸门内）
 
-独立于四闸门的**静态**检查（不编译、不执行被测程序，约 2.5s）。C1/C2 走**棘轮**：
-基线内的存量债只登记不报错，**只有新增项才 FAIL**；C3 恒 0 硬阻断。
+独立于四闸门的**静态**检查（不编译、不执行被测程序，约 2.5s）。
+C1a/C1b/C1c/C2/C3b 走**棘轮**：基线内的存量债只登记不报错，**只有新增项才 FAIL**；
+C3 恒 0 硬阻断。
 
 ```bash
-python scripts/check-tech-debt.py                # 三检 + 与基线比对
+python scripts/check-tech-debt.py                # 全检 + 与基线比对
 python scripts/check-tech-debt.py --show         # 只看现状
+python scripts/check-tech-debt.py --only c3b     # 只跑某一检
 python scripts/check-tech-debt.py --update-baseline   # 清理后收紧水位
 ```
 
@@ -944,7 +946,13 @@ python scripts/check-tech-debt.py --update-baseline   # 清理后收紧水位
 |----|------|
 | C1a/C1b/C1c | 孤儿文件 / 同名重复 / 代码误放 `docs/` 等目录 |
 | C2 | `tests/` 下从 `run_all_tests` / `run_tests` 不可达（写了但永不执行） |
-| C3 | `baselines.json` 的 `k`/`warn_k`/`_baseline_runs` 与 `developer-guide.md`、`test-map.md` 是否一致 |
+| C3 | `baselines.json` 的 `k`/`warn_k`/`_baseline_runs` 与 `developer-guide.md`、`test-map.md` 是否一致（**不做棘轮**） |
+| C3b | `docs/` 下硬写的 AHK 基线数字（形态「`642 / 642`」）是否与 `test-map.md` 的实跑总数一致 |
+
+> **C3b 的由来与写法约定**：文档里**不要复写 AHK 用例总数**，一律写
+> 「见 `asd-tauri/docs/test-map.md`（当前 N）」这类指针。
+> 带日期的历史报告里的数字是当日实测快照，合法，由棘轮基线登记豁免 ——
+> 但**新写的文档再硬编码数字就会被拦下**。
 
 基线在 `.review-analysis/tech-debt-baseline.json`；债项台账见 `docs/tech-debt-register.md`。
 接入四闸门属技术债计划阶段 1。

@@ -147,6 +147,33 @@ INCLUDE_RE = re.compile(
     re.M,
 )
 
+# ---------------------------------------------------------------- C3b 常量
+#
+# C3b：文档里**硬写**的 AHK 回归基线数字（典型形态「642 / 642」）必须等于
+# test-map.md 的实跑总数，否则就是过期数字。
+#
+# 由来（TD-018，2026-09-16）：方案 A/B/C 与 README 里写了 7 处「642/642」，
+# 而实际用例数早已涨到 697。「通过数 / 总数」这种写法把同一个数字硬编码两遍，
+# 测试一增长就必然过期，而且过期了没人会发现 —— 它在文档里，不在代码里。
+#
+# 处置原则：**文档里不复写数字，只写指向 test-map.md 的指针**。
+# 历史报告（如 2026-09-13 的基准报告）里的数字是当日快照，本身合法，
+# 由棘轮基线登记豁免，不要求回溯修改。
+
+# 从 test-map.md 提取「实跑总数（**697**）」—— AHK 用例总数的唯一权威。
+AHK_TOTAL_RE = re.compile(r"实跑总数（\*\*(\d+)\*\*）")
+
+# 「N / N」形态的硬写基线数字。要求两侧数字相同，避免把
+# 「通过 697 / 失败 0 / 跳过 7」这类合法的三段式统计误判进来。
+STALE_COUNT_RE = re.compile(r"(?<![\d.])(\d{3,4})\s*/\s*\1(?![\d])")
+
+# 同行必须出现这些词之一，才认定这一行在讲测试基线。
+# 否则「100 / 100」这种无关比例会被扫进来。
+COUNT_CONTEXT_WORDS = ("通过", "用例", "测试", "回归", "套件", "全量")
+
+# C3b 扫描范围：仓库根的 docs/（权威 test-map.md 在 asd-tauri/docs/，天然排除）。
+C3B_DOC_ROOT = "docs"
+
 
 # ---------------------------------------------------------------- 通用工具
 
@@ -442,6 +469,54 @@ def check_c3(repo_root: Path) -> dict:
     return {"findings": errors, "checked": checked}
 
 
+# ------------------------------------------------- C3b 文档硬写的基线数字（棘轮）
+
+
+def check_c3b(repo_root: Path) -> dict:
+    """docs/ 下硬写的 AHK 用例总数（形态「N / N」）是否等于 test-map 的实跑总数。
+
+    与 C3 不同，这一条**走棘轮**：带日期的历史报告里的数字是当日实测快照，
+    本身没错（改它反而是篡改历史），所以首次检出的存量项登记进基线豁免，
+    只有**新增的**硬写数字才会让门禁变红。
+    """
+    if not TEST_MAP.exists():
+        return {"findings": [], "total": None, "scanned": 0}
+
+    m = AHK_TOTAL_RE.search(read_text(TEST_MAP))
+    if not m:
+        # 权威数字提取不到 = 本检失效。返回 total=None，由 main 当成硬失败。
+        return {"findings": [], "total": None, "scanned": 0}
+    total = int(m.group(1))
+
+    doc_root = repo_root / C3B_DOC_ROOT
+    if not doc_root.is_dir():
+        return {"findings": [], "total": total, "scanned": 0}
+
+    findings: list[str] = []
+    scanned = 0
+    for p in walk_files(doc_root, PRUNE_DIR_NAMES):
+        if p.suffix.lower() != ".md":
+            continue
+        scanned += 1
+        try:
+            lines = read_text(p).splitlines()
+        except Exception:
+            continue
+        for i, line in enumerate(lines, 1):
+            if not any(w in line for w in COUNT_CONTEXT_WORDS):
+                continue
+            for mm in STALE_COUNT_RE.finditer(line):
+                n = int(mm.group(1))
+                if n == total:
+                    continue
+                findings.append(
+                    f"{rel(p)}:{i}: 硬写「{n} / {n}」，与 test-map 实跑总数 {total} 不符"
+                    " —— 改为指向 test-map.md 的指针，不要复写数字"
+                )
+
+    return {"findings": findings, "total": total, "scanned": scanned}
+
+
 # ---------------------------------------------------------------- 基线 / 棘轮
 
 
@@ -458,9 +533,11 @@ def load_baseline() -> dict | None:
 def save_baseline(cur: dict) -> None:
     payload = {
         "_comment": (
-            "技术债 0 号基线（scripts/check-tech-debt.py 生成）。"
-            "C1/C2 是存量债白名单：只有「基线外的新增项」才会让门禁变红；"
-            "清理后重新 --update-baseline 即收紧水位。C3 不做棘轮，必须恒为 0。"
+            "技术债基线（scripts/check-tech-debt.py 生成）。"
+            "C1a/C1b/C1c/C2/C3b 是存量债白名单（棘轮）：只有「基线外的新增项」才会让门禁"
+            "变红；清理后重新 --update-baseline 即收紧水位。"
+            "C3b 的存量项多为带日期的历史报告里的当日实测快照，本身合法，故只登记不修。"
+            "C3 不做棘轮，必须恒为 0。"
         ),
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "c1a_orphan_files": cur["c1"]["orphans"],
@@ -468,6 +545,7 @@ def save_baseline(cur: dict) -> None:
         "c1c_misplaced_files": cur["c1"]["misplaced"],
         "c2_unwired_tests": cur["c2"]["findings"],
         "c3_doc_drift": cur["c3"]["findings"],
+        "c3b_stale_counts": cur["c3b"]["findings"],
         "stats": {
             "c1_corpus": cur["c1"]["corpus"],
             "c1_unresolved_includes": cur["c1"]["unresolved_includes"],
@@ -492,10 +570,12 @@ def diff_set(baseline: list[str] | None, current: list[str]):
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="技术债度量三检（C1 孤儿 / C2 未接入 / C3 文档漂移）")
+    ap = argparse.ArgumentParser(
+        description="技术债度量检查（C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写基线数字）"
+    )
     ap.add_argument("--update-baseline", action="store_true", help="把当前结果冻结为新基线")
     ap.add_argument("--show", action="store_true", help="只打印当前结果，不与基线比对")
-    ap.add_argument("--only", choices=["c1", "c2", "c3"], help="只跑某一检")
+    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b"], help="只跑某一检")
     args = ap.parse_args()
 
     print("=" * 60)
@@ -506,6 +586,7 @@ def main() -> int:
         "c1": check_c1(REPO_ROOT),
         "c2": check_c2(REPO_ROOT),
         "c3": check_c3(REPO_ROOT),
+        "c3b": check_c3b(REPO_ROOT),
     }
 
     if args.update_baseline:
@@ -515,7 +596,12 @@ def main() -> int:
     want = {args.only} if args.only else {"c1", "c2", "c3"}
 
     # ---------- C3：硬失败，不做棘轮 ----------
-    c3_errors = cur["c3"]["findings"]
+    c3_errors = list(cur["c3"]["findings"])
+    if cur["c3b"]["total"] is None:
+        # 权威数字提取不到，C3b 直接失效 —— 这本身必须变红，不能靠棘轮蒙混过去
+        c3_errors.append(
+            f"{rel(TEST_MAP)}: 无法从「实跑总数（**N**）」提取 AHK 用例总数，C3b 失效"
+        )
     if "c3" in want:
         print(f"[C3] 文档-代码一致性：核对 {len(cur['c3']['checked'])} 个基准"
               f"（{', '.join(cur['c3']['checked']) or '无'}）")
@@ -541,6 +627,8 @@ def main() -> int:
          "c1c_misplaced_files", cur["c1"]["misplaced"]),
         ("C2", "测试未接入执行（tests/ 下不可达）",
          "c2_unwired_tests", cur["c2"]["findings"]),
+        ("C3b", f"文档硬写的 AHK 基线数字（应指向 test-map，当前权威 {cur['c3b']['total']}）",
+         "c3b_stale_counts", cur["c3b"]["findings"]),
     ]
     for tag, desc, bkey, findings in sections:
         if tag[:2].lower() not in want and tag.lower() not in want:

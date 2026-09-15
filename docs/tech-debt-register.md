@@ -19,23 +19,28 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 
 ## 基线快照（2026-09-16 实测）
 
-| 指标 | 基线值 |
-|---|---|
-| 入库文件 | AHK 171 / md 162 / png 89 / json 89 / rs 57 / cpp 53 / c 44 / h 43 / js 23 / html 23 |
-| 生产 AHK | ~32 文件 / 11.4k 行（infrastructure 15/3690、domain 8/3441、application 3/770、presentation 6/3524） |
-| Rust crates | asd-domain 5/3709、asd-application 8/3754、asd-ipc-protocol 5/948、asd-test-harness 1/389 |
-| 测试 | AHK 664（CI 657 + 跳过 7）；Rust 405；E2E 53（CI 默认关）；criterion bench 7；fuzz 5 |
-| 覆盖率 | 仅 3 个纯逻辑 crate 采集，**无阈值、非阻断** |
-| 仓库体积 | `AutoHotkey-2.0.26/` 221 文件 / 7.9M（vendored 引擎源码） |
-| C1a 孤儿文件 | **19** 项（AHK 语料 109） |
-| C1b 同名重复 | **7** 个 basename（14 个文件） |
-| C1c 代码在非代码目录 | **4** 项（全在 `docs/review/2026-08-20/fix-plan/workspace-snapshot/`） |
-| C2 测试未接入执行 | **10** 项（tests/ 语料 23，可达 13） |
-| C3 文档-代码不一致 | **0** 项（**不做棘轮，必须恒 0**） |
+| 指标 | 0 号基线值 | 当前（2026-09-16 收紧后） |
+|---|---|---|
+| 入库文件 | AHK 171 / md 162 / png 89 / json 89 / rs 57 / cpp 53 / c 44 / h 43 / js 23 / html 23 | 同左 |
+| 生产 AHK | ~32 文件 / 11.4k 行（infrastructure 15/3690、domain 8/3441、application 3/770、presentation 6/3524） | 同左 |
+| Rust crates | asd-domain 5/3709、asd-application 8/3754、asd-ipc-protocol 5/948、asd-test-harness 1/389 | 同左 |
+| 测试 | AHK 664（CI 657 + 跳过 7）；Rust 405；E2E 53（CI 默认关）；criterion bench 7；fuzz 5 | **AHK 697**（CI 690 + 跳过 7）—— +33 来自 TD-002 |
+| 覆盖率 | 仅 3 个纯逻辑 crate 采集，**无阈值、非阻断** | 同左 |
+| 仓库体积 | `AutoHotkey-2.0.26/` 221 文件 / 7.9M（vendored 引擎源码） | 同左 |
+| C1a 孤儿文件 | **19** 项（AHK 语料 109） | **16** 项（语料 103） |
+| C1b 同名重复 | **7** 个 basename（14 个文件） | **1** 个 |
+| C1c 代码在非代码目录 | **4** 项（全在 `docs/review/2026-08-20/fix-plan/workspace-snapshot/`） | **0** 项 |
+| C2 测试未接入执行 | **10** 项（tests/ 语料 23，可达 13） | **8** 项（语料 22，可达 14） |
+| C3 文档-代码不一致 | **0** 项（**不做棘轮，必须恒 0**） | **0** 项 |
+| C3b 文档硬写基线数字 | ——（阶段 0 未设此检） | **3** 项（棘轮登记，见下） |
 
-> 上表 5 行由 `scripts/check-tech-debt.py` 产出，0 号基线在
-> `.review-analysis/tech-debt-baseline.json`。C1/C2 是存量债白名单（只阻新增），
+> 上表 C1a/C1b/C1c/C2/C3b 五行由 `scripts/check-tech-debt.py` 产出，基线在
+> `.review-analysis/tech-debt-baseline.json`。这些是**棘轮**（存量债白名单，只阻新增），
 > 收紧水位 = 清理后重跑 `--update-baseline`。
+>
+> C3b 的 3 项全部落在**带日期的历史报告**里（`2026-09-13` 的两份 review 报告写 616/616、
+> `key-latency-benchmark-2026-09-13.md` 写 642/642）。这些是当日实测快照，本身没错，
+> **改它反而是篡改历史**，故只登记豁免；闸门阻的是「以后再硬写一个新数字」。
 
 ---
 
@@ -55,13 +60,15 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 | TD-010 | E 架构 / 体积 | `AutoHotkey-2.0.26/` 221 文件 / 7.9M vendored 引擎源码入库。**权衡项**：是只读研究参考（`docs/research/ahk-engine-architecture-2026-09-14.md` 依赖它），倾向改 submodule/获取脚本**而非删除** | 3 | 2 | 3 | 2 | 2 | 1.4 | **5.1** | P1 | 待排期 | 4 |
 | TD-011 | F 文档漂移 | `test-map.md` 记 `prod_escape` K=2.0，实际已是 1.5（K 值改了但文档未同步）→ 会让人按错阈值判断误报 | 2 | 4 | 5 | 4 | 0.5 | 1.0 | **21.2** | P0 | ✅ **已完成**（2026-09-16） | 1 |
 | TD-012 | 静态分析 | 无 `clippy.toml`、无 `#![deny(warnings)]`、无 eslint → lint 只跑默认档，坏味道拦不住 | 3 | 2 | 4 | 3 | 2 | 1.0 | **8.5** | P1 | 待排期 | 2 |
-| TD-013 | A/B 重复 | `tests/legacy/json.ahk` 1469 行 legacy JSON 实现，`run_all_tests.ahk` 未引用；仅被历史 review 报告提及 | 2 | 2 | 4 | 2 | 1 | 1.4 | **7.1** | P1 | 待排期 | 1 |
+| TD-013 | A/B 重复 | `tests/legacy/json.ahk` 1469 行 legacy JSON 实现，`run_all_tests.ahk` 未引用；仅被历史 review 报告提及 | 2 | 2 | 4 | 2 | 1 | 1.4 | **7.1** | P1 | **已完成**（2026-09-16 删除。定性为 **v1.0 单体实现的历史快照**：① 0 个 `#Include` 引用、0 个 `Test_` 函数 —— 它躺在 `tests/` 下但**根本不是测试**；② 6 个类（`JSONErrorType`/`JSONError`/`JSONLogger`/`JSONParser`/`JSONSerializer`/`ConfigValidator`）与 `infrastructure/` **完全重名**，谁误 include 谁就吃「重复定义」报错；③ `ConfigValidator` 方法集被 infra 版**严格超集**（legacy 9 个里 7 个同名、2 个被重命名取代，infra 多出 13 个新方法）。恢复：`git show 23ede7b:tests/legacy/json.ahk`） | 1 |
 | TD-014 | C 过时依赖 | 无 dependabot / renovate；CI 无 `cargo audit` / `npm audit`；依赖版本无跟踪与更新机制 | 3 | 4 | 3 | 2 | 1 | 1.0 | **12.0** | P0 | 待排期 | 2 |
-| TD-015 | F 文档缺失 | `docs/refactor/plan-C-deep.md` 的 M11 验收目标「启动降 ≥15ms」**已被 T13 证伪**（生产唯一 `#Include` 文件仅 5 个，边际 673~825µs/文件 → 收益上界 2.7~4.1ms）。留着会误导后续投入 | 2 | 3 | 4 | 4 | 0.5 | 1.0 | **18.4** | P0（硬性升档：误导性文档） | 待排期 | 1 |
+| TD-015 | F 文档缺失 | `docs/refactor/plan-C-deep.md` 的 M11 验收目标「启动降 ≥15ms」**已被 T13 证伪**（生产唯一 `#Include` 文件仅 5 个，边际 673~825µs/文件 → 收益上界 2.7~4.1ms）。留着会误导后续投入 | 2 | 3 | 4 | 4 | 0.5 | 1.0 | **18.4** | P0（硬性升档：误导性文档） | **已完成**（2026-09-16：M11 目标撤销，T13 由 P2 性能项降级为「纯整洁性可选动作」。`plan-C-deep.md` 共订正 12 处 —— M11 行加删除线并附撤销说明、T13 状态/前置条件/风险点、M0/M7/M8 阶段表、§5.5 压测判据、§6.1 告警、§6.2 回滚触发、§6.3 回滚步骤、§6.4 评审人。启动守卫降级为「不劣化：不高于基线 +5%」） | 1 |
 | TD-016 | D 门禁缺失 | E2E 9 suite / 53 用例在 CI **默认关闭**（仅手动触发，需 WebView2 + tauri-driver + msedgedriver）→ 端到端链路零覆盖 | 4 | 3 | 2 | 3 | 5 | 1.4 | **3.8** | P2 | 待排期 | 3 |
 | TD-017 | **E 生产 BUG**（由 TD-002 暴露） | `JoystickInput.PovToDirection` 把 centi-degree（0~35900）误除 100 后再与 4500/13500/22500/31500 阈值比较 → **任何方向都返回 `"UP"`**。`joy_hotkey_manager._PollPov` 依赖它，故 POV 十字键热键**首次移动后永不触发** | 4 | 3 | 5 | 4 | 0.5 | 1.0 | **22.6** | P0 | **已修复**（2026-09-16：去掉 `/100`。修复前 3 条新用例红、修复后 697 全绿——这本身就是缺陷的阳性对照） | 1 |
 
-**统计**：P0 **7** 项（其中 3 项已完成）｜P1 **5** 项｜P2 **5** 项｜合计 **17** 项。
+| TD-018 | F 文档缺失 / 误导 | 方案 A/B/C 与 `refactor/README.md` 共 **8 处**把 AHK 回归基线硬写成「642 / 642」，而实跑总数早已是 697。「通过数 / 总数」这种写法把同一个数字硬编码两遍，**测试一增长就必然过期**，且过期后无人发现 —— 它在文档里，不在代码里，没有任何检查会碰它 | 3 | 3 | 4 | 2 | 0.5 | 1.0 | **17.0** | P1 | **已完成**（2026-09-16：7 处改为「指向 test-map.md 的指针」；剩下 1 处在 `key-latency-benchmark-2026-09-13.md`，是**当日实测快照**，改它等于篡改历史，故保留数字 + 加注说明。同时新增 **C3b 自动检查**：扫 `docs/` 下的 `N / N` 形态，与 test-map 的实跑总数不符即报；走棘轮，历史快照登记豁免，只阻新增。阳性对照 3 组：注入 123/123 → 变红；改为等于权威值 697 → 不检出；破坏权威数字提取 → 硬失败） | 1 |
+
+**统计**：P0 **8** 项（其中 **6** 项已完成）｜P1 **6** 项（其中 **2** 项已完成）｜P2 **4** 项｜合计 **18** 项。
 
 > **TD-017 的意义**：它不是一个「债」，而是**把从未执行的测试接入 CI 的直接回报**——
 > 那 29 条断言躺了不知多久，第一次跑就抓出一个活跃的功能性 BUG。
@@ -77,6 +84,10 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 | C1c 代码在非代码目录 | TD-001（`docs/**/workspace-snapshot/` 4 个文件） | 4 |
 | C2 测试未接入执行 | TD-002、TD-013（`tests/legacy/json.ahk`）+ 8 个独立 runner 未被 `run_all_tests` 覆盖 | 10 |
 | C3 文档-代码一致性 | TD-011（K 值漂移，**已修复**；脚本即为防复发手段） | 0 |
+| **C3b 文档硬写基线数字** | **TD-018**（**已修复**；`docs/` 下的 `N / N` 与 test-map 实跑总数比对，棘轮只阻新增） | 3 |
+
+C1a/C1b/C1c/C2/C3b 都是**棘轮**：存量债登记进 `.review-analysis/tech-debt-baseline.json`，
+只有**基线外的新增项**才让门禁变红。C3 唯一例外，必须恒为 0。
 
 C1a（19 项孤儿）目前**没有**对应已登记债项 —— 其中的 `config.ahk`、`SkillMgrDebugLogger.ahk`、
 `_diag/_mock/_rt.ahk`、`test_ob/test_simple/test_val_btn.ahk`、`tools/ahk-bench/lib/seqgen_test.ahk`

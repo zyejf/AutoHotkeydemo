@@ -1,18 +1,15 @@
 {
   "_comment": "技术债 0 号基线（scripts/check-tech-debt.py 生成）。C1/C2 是存量债白名单：只有「基线外的新增项」才会让门禁变红；清理后重新 --update-baseline 即收紧水位。C3 不做棘轮，必须恒为 0。",
-  "generated_at": "2026-09-15T16:59:49+00:00",
+  "generated_at": "2026-09-15T18:02:16+00:00",
   "c1a_orphan_files": [
     "SkillMgrDebugLogger.ahk",
     "_diag.ahk",
     "_mock.ahk",
     "_rt.ahk",
     "config.ahk",
-    "docs/review/2026-08-20/fix-plan/workspace-snapshot/backup_core.ahk",
-    "docs/review/2026-08-20/fix-plan/workspace-snapshot/migration_logger.ahk",
     "test_ob.ahk",
     "test_simple.ahk",
     "test_val_btn.ahk",
-    "tests/legacy/json.ahk",
     "tests/test_error_system.ahk",
     "tests/test_integration_error_system.ahk",
     "tests/test_joy_hotkey_manager.ahk",
@@ -23,26 +20,13 @@
     "tools/ahk-bench/lib/seqgen_test.ahk"
   ],
   "c1b_dup_basenames": [
-    "_harness.ahk（2 处）: tools/ahk-bench/_harness.ahk, tools/ahk-probes/_harness.ahk",
-    "backup_core.ahk（2 处）: docs/review/2026-08-20/fix-plan/workspace-snapshot/backup_core.ahk, infrastructure/backup_core.ahk",
-    "main.ahk（2 处）: docs/review/2026-08-20/fix-plan/workspace-snapshot/main.ahk, main.ahk",
-    "migration_logger.ahk（2 处）: docs/review/2026-08-20/fix-plan/workspace-snapshot/migration_logger.ahk, infrastructure/migration_logger.ahk",
-    "run_all_tests.ahk（2 处）: docs/review/2026-08-20/fix-plan/workspace-snapshot/run_all_tests.ahk, tests/run_all_tests.ahk",
-    "test_joystick.ahk（2 处）: tests/test_ahk_executor/test_joystick.ahk, tests/test_joystick.ahk",
-    "ui_manager.ahk（2 处）: presentation/ui_manager.ahk, ui_manager.ahk"
+    "_harness.ahk（2 处）: tools/ahk-bench/_harness.ahk, tools/ahk-probes/_harness.ahk"
   ],
-  "c1c_misplaced_files": [
-    "docs/review/2026-08-20/fix-plan/workspace-snapshot/backup_core.ahk",
-    "docs/review/2026-08-20/fix-plan/workspace-snapshot/main.ahk",
-    "docs/review/2026-08-20/fix-plan/workspace-snapshot/migration_logger.ahk",
-    "docs/review/2026-08-20/fix-plan/workspace-snapshot/run_all_tests.ahk"
-  ],
+  "c1c_misplaced_files": [],
   "c2_unwired_tests": [
-    "tests/legacy/json.ahk",
     "tests/test_error_system.ahk",
     "tests/test_integration_error_system.ahk",
     "tests/test_joy_hotkey_manager.ahk",
-    "tests/test_joystick.ahk",
     "tests/test_key_recorder.ahk",
     "tests/test_key_test_integration.ahk",
     "tests/test_key_validator.ahk",
@@ -50,10 +34,15 @@
     "tests/test_webview2_bridge.ahk"
   ],
   "c3_doc_drift": [],
+  "c3b_stale_counts": [
+    "docs/review/2026-09-13/bug-fix-plan.md:398: 硬写「616 / 616」，与 test-map 实跑总数 697 不符 —— 改为指向 test-map.md 的指针，不要复写数字",
+    "docs/review/2026-09-13/usability-test-report.md:19: 硬写「616 / 616」，与 test-map 实跑总数 697 不符 —— 改为指向 test-map.md 的指针，不要复写数字",
+    "docs/perf/key-latency-benchmark-2026-09-13.md:231: 硬写「642 / 642」，与 test-map 实跑总数 697 不符 —— 改为指向 test-map.md 的指针，不要复写数字"
+  ],
   "stats": {
-    "c1_corpus": 109,
-    "c1_unresolved_includes": 31,
-    "c2_corpus": 23,
-    "c2_reachable": 13
+    "c1_corpus": 103,
+    "c1_unresolved_includes": 0,
+    "c2_corpus": 22,
+    "c2_reachable": 14
   }
 }

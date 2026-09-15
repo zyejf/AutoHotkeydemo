@@ -333,7 +333,7 @@ C1/C2 用**棘轮**语义：基线内的存量债只是「已登记」不报错�
 ### 5.2 架构约束自动化
 
 - `scripts/check-gates.ps1/.sh`：一键四闸门（本机等价 CI）。
-- `scripts/check-tech-debt.py`（阶段 0 新增，2026-09-16 已完成）：C1a 孤儿文件 / C1b 同名重复 / C1c 代码在非代码目录 / C2 测试未接入执行 / C3 文档-代码一致性。C1、C2 走棘轮（只阻新增），C3 恒 0 硬阻断。用法见脚本 docstring。
+- `scripts/check-tech-debt.py`（阶段 0 新增，2026-09-16 已完成）：C1a 孤儿文件 / C1b 同名重复 / C1c 代码在非代码目录 / C2 测试未接入执行 / C3 文档-代码一致性 / **C3b 文档硬写的 AHK 基线数字**（阶段 1 新增，见 TD-018）。C1a、C1b、C1c、C2、C3b 走棘轮（只阻新增），C3 恒 0 硬阻断。用法见脚本 docstring 与 `docs/developer-guide.md` §4.6.1.1。
 - pre-commit hook（`scripts/hooks/` 已有）：阶段 1 后把三检接入。
 
 ### 5.3 技术债台账（`docs/tech-debt-register.md`）
