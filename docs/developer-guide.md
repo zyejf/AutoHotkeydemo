@@ -921,6 +921,7 @@ scripts\check-gates.ps1 -Quick
 |------|---------|
 | G1 | 图谱基线：无新增环、无白名单外依赖违规（`scripts/check-graph-baseline.py`） |
 | | 另有「豁免卫生检查」：`allowed_violations` 的每条**必须有非空 `reason` 与未过期的 `expires`**，缺一或过期即硬失败（TD-009 起强制）。若某条其实不是违规，正确做法是改 `build_graph.py` 的 `ALLOWED_CRATE_DEPS`，而不是加一条豁免 |
+| | ⚠️ **图谱节点用 git 口径**：`build_graph.py` 只把「已跟踪 + 未跟踪但未被 `.gitignore` 忽略」的文件当节点（与 C6 同口径）。被忽略的本地临时脚本 / 构建产物**不计入**，所以开发机与 CI 的数字应当一致；若不一致，先查是不是有文件该提交或该忽略（TD-025） |
 | G2 | `cargo fmt --all --check`(a) + `cargo clippy -- -D warnings`(b) + **ESLint 棘轮(c)** |
 | G3 | `cargo test --workspace`(a) / AHK 完整套件(b) / JS 单测(c) + `test-map.md` 数字对账(d) + **技术债度量(e)** + **覆盖率棘轮(f)** |
 | G4 | 文档同步（无法自动化，脚本输出人工核对清单） |

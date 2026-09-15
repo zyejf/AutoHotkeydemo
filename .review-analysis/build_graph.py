@@ -4,6 +4,7 @@ import re
 import json
 import io
 import sys
+import subprocess
 
 # Windows CI runner 上 stdio 默认走系统 ANSI 代码页（cp1252），print 中文会
 # UnicodeEncodeError。显式切 UTF-8；本地若已是 UTF-8 则无副作用。
@@ -33,17 +34,45 @@ def norm(p):
     return p.replace("\\", "/")
 
 
-def walk_files(exts, extra_exclude=()):
+def _git_lines(args):
+    """跑 git 并分行返回；失败即抛出。
+
+    为什么不在 git 不可用时退回 os.walk：退回等于悄悄接受「不同环境算出不同的图」，
+    那正是 TD-025 要消灭的东西 —— 宁可响亮地失败，也不要一个看着绿实则不可比的数。"""
+    try:
+        r = subprocess.run(["git"] + args, cwd=ROOT, capture_output=True, text=True)
+    except FileNotFoundError:
+        raise RuntimeError("找不到 git：图谱节点发现依赖 git 口径，无法降级为裸扫文件系统")
+    if r.returncode != 0:
+        raise RuntimeError("git %s 失败（当前目录是 git 仓库吗？）：%s"
+                           % (" ".join(args), r.stderr.strip()))
+    return [x.strip() for x in r.stdout.splitlines() if x.strip()]
+
+
+def git_scope_files(exts, extra_exclude=()):
+    """节点发现用 **git 自己的口径**：已跟踪 + 未跟踪但未被 ignore。
+
+    为什么不用 os.walk 裸扫文件系统：裸扫会把被 .gitignore 忽略的本地产物也
+    算成节点 —— 实测吃到 `_diag.ahk` / `_mock.ahk` / `_rt.ahk` 三个临时脚本，
+    以及 `asd-tauri/coverage/html/control.js`（覆盖率报告产物）。它们只在开发机
+    存在、CI 全新 checkout 没有，于是 counts 在两地永远对不上，棘轮基线失去
+    比较意义（TD-025）。
+
+    为什么不是「只取已跟踪」：那样新建但还没 `git add` 的文件会隐身，而
+    「新文件引入图环 / 逆向边」恰恰是闸门①最该在提交前就拦住的东西。
+
+    与 scripts/check-tech-debt.py 的 C6 检查同一个口径，两边保持一致。
+    """
     found = []
-    for dirpath, dirnames, filenames in os.walk(ROOT):
-        rp = norm(dirpath)
-        if any(e in rp for e in EXCLUDE_SEG) or any(e in rp for e in extra_exclude):
-            dirnames[:] = []
+    for p in _git_lines(["ls-files", "--cached", "--others", "--exclude-standard"]):
+        p = norm(p)
+        if not p.lower().endswith(exts):
             continue
-        dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS]
-        for fn in filenames:
-            if fn.lower().endswith(exts):
-                found.append(norm(os.path.join(dirpath, fn)))
+        if any(e in p for e in EXCLUDE_SEG) or any(e in p for e in extra_exclude):
+            continue
+        if any(seg in EXCLUDE_DIRS for seg in p.split("/")):
+            continue
+        found.append(os.path.join(ROOT, p))
     return sorted(found)
 
 
@@ -82,7 +111,7 @@ def ahk_layer(rel_path):
 
 
 def build_ahk(include_inactive=False):
-    files = walk_files((".ahk",))
+    files = git_scope_files((".ahk",))
     if not include_inactive:
         files = [f for f in files if not any(s in norm(f) for s in INACTIVE_SEG)]
     rel = {f: norm(os.path.relpath(f, ROOT)) for f in files}
@@ -170,7 +199,7 @@ def parse_cargo_deps(path):
 
 
 def build_rust():
-    files = walk_files((".rs",), extra_exclude=("asd-tauri/src-tauri/gen",))
+    files = git_scope_files((".rs",), extra_exclude=("asd-tauri/src-tauri/gen",))
     rel = {f: norm(os.path.relpath(f, ROOT)) for f in files}
     use_re = re.compile(r'^\s*(?:pub\s+)?use\s+(crate|super|self|asd_[a-z_]+)::([A-Za-z0-9_:{]*)', re.M)
 
@@ -178,7 +207,7 @@ def build_rust():
     for f in files:
         if f.endswith("Cargo.toml") and "/crates/" not in norm(f):
             pass
-    for f in walk_files((".toml",)):
+    for f in git_scope_files((".toml",)):
         if f.endswith("Cargo.toml"):
             r = rel.get(f)
             if r is None:
@@ -248,7 +277,11 @@ def build_rust():
 
 # ---------------------------------------------------------------- JS
 def build_js():
-    files = walk_files((".js", ".mjs"), extra_exclude=("asd-tauri/e2e/",))
+    # ⚠️ 尾斜杠不能去掉：extra_exclude 走的是子串匹配，而 git_scope_files 给的是
+    # **仓库相对路径**，`asd-tauri/e2e/wdio.conf.js` 含 `asd-tauri/e2e/`。
+    # 旧实现走 os.walk、比对的是目录绝对路径（末尾没有斜杠），这条规则从来没生效过，
+    # wdio.conf.js 一直被当成节点、还贡献了 5 条 node: 内建模块边（TD-025 顺带修正）。
+    files = git_scope_files((".js", ".mjs"), extra_exclude=("asd-tauri/e2e/",))
     rel = {f: norm(os.path.relpath(f, ROOT)) for f in files}
     imp_re = re.compile(r'^\s*import\s+(?:[^"\']*from\s+)?["\']([^"\']+)["\']', re.M)
     edges = []

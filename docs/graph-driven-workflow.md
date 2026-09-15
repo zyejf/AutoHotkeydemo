@@ -108,7 +108,10 @@ cd asd-tauri && cargo test          # 运行 Rust 测试
 | `AutoHotkey-2.0.26/` | AHK 解释器源码树 | 只读外部 | **不参与图谱分析**（`EXCLUDE_DIRS`）；纯净性由 `check-tech-debt.py` 的 **C6** 守住（TD-010） |
 | `.review-analysis/` | 图谱分析脚本与原始数据 | 活跃（工具） | 见附录 A |
 
-> **注**：根目录散落若干 `_diag.ahk` / `_mock.ahk` / `_rt.ahk` / `test_*.ahk` 等调试脚本，属临时产物；如需长期保留请收入 `tests/`，否则会在图谱上表现为孤点（见 §2.5）。
+> **注**：根目录散落若干 `_diag.ahk` / `_mock.ahk` / `_rt.ahk` / `test_*.ahk` 等调试脚本，属临时产物；
+> 如需长期保留请收入 `tests/`。其中前三个已被 `.gitignore` 忽略 —— **TD-025 起图谱节点只认 git
+> 口径（已跟踪 + 未被忽略），被忽略的临时脚本不会进图、也不再表现为孤点**；`test_*.ahk` 未被忽略，
+> 仍会作为孤点出现在 §2.5。
 
 ### 1.2 AHK v2 四层架构
 
@@ -409,17 +412,18 @@ asd-ipc-protocol  ←──  asd-domain  ←──  asd-application  ←──  
 
 ### 2.5 孤点清单
 
-当前检测到 **9 个孤点**（无入边也无出边）。孤点需逐个人工判定归属：
+当前检测到 **6 个孤点**（无入边也无出边）。孤点需逐个人工判定归属：
 
 | 孤点 | 类型 | 建议处置 |
 |------|------|---------|
 | `SkillMgrDebugLogger.ahk` | 根目录调试脚本 | 移入 `tests/` 或删除 |
-| `_mock.ahk` | 调试桩 | 移入 `tests/fixtures/` 或删除 |
 | `config.ahk` | 旧配置脚本 | 确认是否已被 `config.json` 取代 |
 | `test_ob.ahk` / `test_simple.ahk` / `test_val_btn.ahk` | 临时测试脚本 | 移入 `tests/` 或删除 |
-| `ui_manager.ahk`（根目录） | **与 `presentation/ui_manager.ahk` 重名** | 确认是否为遗留副本，优先删除 |
-| `tests/legacy/json.ahk` | 遗留测试辅助 | 确认是否仍被引用 |
 | `asd-tauri/e2e/fixtures/key_receiver.ahk` | E2E 夹具 | **合理孤点**（由外部 WebDriver 启动，非 `#Include` 关系）→ 建议加入忽略清单 |
+
+> **已消去的 3 个**（2026-09-16 复核）：根 `ui_manager.ahk`（TD-003 已删）、
+> `tests/legacy/json.ahk`（TD-013 已删）、`_mock.ahk`（被 `.gitignore` 忽略的本地临时脚本，
+> **TD-025 起图谱只认 git 口径，这类文件不再进图**）。
 
 > **建议**：在 `build_graph.py` 的 `find_orphans` 调用中为 E2E 夹具等「合理孤点」加 `ignore_no_in` 参数，保持孤点列表的信噪比。
 
@@ -911,7 +915,7 @@ sequenceDiagram
 python .review-analysis/build_graph.py
 
 # 2. 记录基线值，例如：
-#    AHK 环 0 | 孤点 9 | Rust crate 环 0 | 生产依赖违规 3
+#    AHK 环 0 | 孤点 6 | Rust crate 环 0 | 生产依赖违规 0
 ```
 
 基线值应在提 PR 时与改动后对比。**环数增加 = 必须修复**；**违规数增加 = 必须登记白名单或重构**。

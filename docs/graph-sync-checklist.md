@@ -34,12 +34,13 @@ python .review-analysis/build_graph.py
 
 ```
 基线（变更前）：
-  AHK   环 0 | 孤点 9 | 未解析 include 0
-  Rust  crate 环 0 | 生产依赖违规 3 | 文件 64
+  AHK   环 0 | 孤点 6 | 未解析 include 0
+  Rust  crate 环 0 | 生产依赖违规 0 | 文件 64
 ```
 
 - [ ] 已记录基线值
-- [ ] 基线中的**违规数**已知其来源（当前 3 条均为 `asd-test-harness` 夹具）
+- [ ] 基线中的**违规数**已知其来源（当前 0 条；原 3 条 `asd-test-harness` 出边已于 TD-009
+      定性为**依赖矩阵漏填**而非违规，已补进 `ALLOWED_CRATE_DEPS`）
 
 ### 1.2 判定变更类型
 
