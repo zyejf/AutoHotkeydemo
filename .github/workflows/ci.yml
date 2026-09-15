@@ -269,6 +269,39 @@ jobs:
           path: asd-tauri/coverage/lcov.info
           retention-days: 30
 
+  security-audit:
+    name: 依赖安全审计（TD-014）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---- npm：生产依赖阻断，dev 依赖只报告 ----
+      #
+      # 为什么要分开：生产依赖进交付物，有 CVE 就该拦；dev 依赖不进交付物，
+      # 且 `npm audit fix` 常常需要 breaking change —— 一刀切阻断的结果不是
+      # 「大家去修依赖」，而是「把这个 job 关掉」。
+      # 所以 dev 这边只把数字打进日志（不静默），存量漏洞单独登记排期（TD-020）。
+      - name: 'npm audit · 前端生产依赖（阻断）'
+        working-directory: asd-tauri
+        run: npm audit --package-lock-only --omit=dev --audit-level=high
+      - name: 'npm audit · E2E 生产依赖（阻断）'
+        working-directory: asd-tauri/e2e
+        run: npm audit --package-lock-only --omit=dev --audit-level=high
+      - name: 'npm audit · dev 依赖（仅报告，不阻断）'
+        continue-on-error: true
+        run: |
+          echo "=========== asd-tauri（含 dev）==========="
+          (cd asd-tauri && npm audit --package-lock-only || true)
+          echo "=========== e2e（含 dev）==========="
+          (cd asd-tauri/e2e && npm audit --package-lock-only || true)
+          echo "以上 dev 依赖漏洞不阻断构建，但应随 TD-020 收敛。"
+
+      # ---- cargo ----
+      - name: 'cargo audit · Rust 依赖（阻断）'
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
   miri:
     name: Miri UB Check
     runs-on: ubuntu-latest

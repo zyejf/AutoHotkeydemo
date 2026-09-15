@@ -1,0 +1,67 @@
+# 依赖自动更新（TD-014）
+#
+# 覆盖四类：Rust workspace、前端 npm、E2E npm、GitHub Actions 本身。
+#
+# ⚠️ 只配 `/asd-tauri` 一个 cargo ecosystem：`src-tauri` 是根 workspace 的 member，
+#    它目录下的 Cargo.lock 是冗余产物（另记为技术债），dependabot 不必（也不该）去动它。
+#
+# 更新节奏：Rust / npm 每周（安全修复经常见），Actions 每月（变动少、误报多）。
+# open-pull-requests-limit 都设了上限 —— 放任 dependabot 一次开 20 个 PR 的结果
+# 是全部被无视，5 个是能真正逐个审完的量。
+
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: /asd-tauri
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - rust
+    commit-message:
+      prefix: "deps(cargo)"
+      prefix-development: "deps-dev(cargo)"
+
+  - package-ecosystem: npm
+    directory: /asd-tauri
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - js
+    commit-message:
+      prefix: "deps(npm)"
+
+  - package-ecosystem: npm
+    directory: /asd-tauri/e2e
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - e2e
+    commit-message:
+      prefix: "deps(e2e)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "deps(actions)"

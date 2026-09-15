@@ -1313,6 +1313,68 @@ T3 把基线里的 `keys`/`sends` 伪造成别的值（形态不匹配 → FAIL�
 | `gate.py` | 门禁：多轮 → 中位数 → 与基线比对 → 退出码 |
 | `baselines.json` | 基线（含 `k` / `warn_k` / 每个 metric 的 p50 与形态自描述） |
 
+### 4.6.5 依赖治理（dependabot + 安全审计，TD-014）
+
+依赖这块此前**完全无人看守**：没有自动更新、没有漏洞扫描，靠人想起来才 `npm audit` 一次。
+2026-09-16 补上两道：**自动更新**（dependabot）+ **CI 安全审计**（`security-audit` job）。
+
+#### 自动更新：`.github/dependabot.yml`
+
+| ecosystem | directory | 说明 |
+|---|---|---|
+| cargo | `/asd-tauri` | 只配 workspace 根；`src-tauri` 是 member，不该有自己的 lock |
+| npm | `/asd-tauri` | 前端 |
+| npm | `/asd-tauri/e2e` | E2E（独立 package.json，必须单独配） |
+| github-actions | `/` | CI 里 pin 的 action 版本 |
+
+每周一 03:00（Asia/Shanghai）开跑，Actions 用 monthly（action 版本变动频率低）。
+每类 `open-pull-requests-limit: 5` —— 放任 dependabot 一次开 20 个 PR 的结果是
+**全部被无视**，限流才能逼出「每周消化一批」的节奏。
+
+> ⚠️ 已知冗余：`asd-tauri/src-tauri/Cargo.lock` 是多余的（member 不该有 lock），
+> 已登记为 TD-019，清理时 dependabot 无需改动。
+
+#### CI 安全审计：`security-audit` job
+
+**核心取舍：生产依赖阻断，dev 依赖只报告不阻断。**
+
+| 检查 | 范围 | 阻断？ |
+|---|---|---|
+| `npm audit --package-lock-only --omit=dev --audit-level=high` | 前端 **生产**依赖 | ✅ 阻断 |
+| 同上 | E2E **生产**依赖 | ✅ 阻断 |
+| `npm audit --package-lock-only`（**不带** `--omit=dev`，即含 dev） | dev 依赖 | ❌ `continue-on-error`，只打日志 |
+| `rustsec/audit-check@v2` | Rust 依赖 | ✅ 阻断 |
+
+为什么要分开：**生产依赖进交付物**，有 CVE 就该拦；dev 依赖不进交付物，且
+`npm audit fix` 常常需要 breaking change（vite 大版本升级会连带插件生态）。
+一刀切阻断的现实结果不是「大家去修依赖」，而是**把这个 job 关掉** —— 那就连生产依赖
+也一起失守了。所以 dev 这边保留数字可见（不静默），存量漏洞单独登记排期（TD-020）。
+
+> `--package-lock-only` 是为了**不装 node_modules** 直接审 lock 文件，省掉几分钟安装时间；
+> 代价是只信 lock 里记录的版本，与 `npm ci` 的实际结果一致，可以接受。
+
+#### 首轮基线（2026-09-16 实测）
+
+| 范围 | high+ 漏洞数 |
+|---|---:|
+| 前端生产依赖 | **0** |
+| E2E 生产依赖 | **0** |
+| 前端 dev 依赖 | 3（vite `server.fs.deny` bypass） |
+| E2E dev 依赖 | 28（6 low / 3 moderate / 19 high） |
+
+生产依赖干净，说明**当前交付物没有已知 CVE**；dev 侧的 28 项已登记 TD-020（P2，不阻塞）。
+
+> ⚠️ **Rust 侧结果以 CI 首轮为准**：本机 `cargo audit` 拉不到 RustSec advisory-db
+> （与推送 502 同源的代理问题），无法本地取证。若 CI 首轮红，按需加 allowlist 或升级，
+> 不要直接把 job 设成 `continue-on-error`。
+
+```bash
+# 本地复现（CI 同命令）
+cd asd-tauri      && npm audit --package-lock-only --omit=dev --audit-level=high
+cd asd-tauri/e2e  && npm audit --package-lock-only --omit=dev --audit-level=high
+cd asd-tauri      && cargo audit        # 需要能访问 RustSec advisory-db
+```
+
 ### 4.7 发布构建
 
 ```powershell
