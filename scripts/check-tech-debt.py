@@ -528,6 +528,46 @@ def check_c3b(repo_root: Path) -> dict:
     return {"findings": findings, "total": total, "scanned": scanned}
 
 
+# ------------------------------------------- C4 禁止加代码的空占位目录（TD-008）
+#
+# `src-tauri/src/application/` 与 `src-tauri/src/domain/` 是**历史占位**：真身分别是
+# `asd-tauri/crates/asd-application/` 与 `asd-tauri/crates/asd-domain/`。留着两个同名
+# 空目录，人（和 Agent）很容易把新代码放进「看起来对」的那个 —— 于是同一个分层概念
+# 出现两套实现，且两套都不会被对方的错误修到。
+#
+# 为什么判「目录里有没有文件」而不是「目录存不存在」：
+#   git **不跟踪空目录**。CI 是全新 checkout → 目录不存在；本机是老 clone → 目录存在。
+#   用存在性判定，同一份代码会在两处得出相反结论 —— 那是埋雷，不是门禁。
+#   判「有没有文件」才两边一致：空目录（无论存不存在）都 PASS，
+#   有人往里放文件（无论在哪台机器）都 FAIL。
+#
+# 因此**删目录本身不是交付物**（删了也进不了版本库），这条检查才是。
+FORBIDDEN_DIRS = (
+    ("asd-tauri/src-tauri/src/application",
+     "真身是 crates/asd-application/，在这里放代码会形成第二套 application 层"),
+    ("asd-tauri/src-tauri/src/domain",
+     "真身是 crates/asd-domain/，在这里放代码会形成第二套 domain 层"),
+)
+
+
+def check_c4(repo_root: Path) -> dict:
+    """空占位目录守卫：目录可以不存在、可以为空，但**不能有文件**。"""
+    findings: list[str] = []
+    for sub, why in FORBIDDEN_DIRS:
+        d = repo_root / sub
+        if not d.exists():
+            continue                      # 不存在 = 没人往里放东西
+        if not d.is_dir():
+            findings.append(f"{sub} 应是目录，实际是文件 —— 直接删掉（{why}）")
+            continue
+        inside = sorted(p for p in d.rglob("*") if p.is_file())
+        if inside:
+            findings.append(
+                f"{sub} 里有 {len(inside)} 个文件（如 {rel(inside[0])}）"
+                f" —— 禁放代码：{why}"
+            )
+    return {"findings": findings, "checked": [s for s, _ in FORBIDDEN_DIRS]}
+
 # ---------------------------------------------------------------- 基线 / 棘轮
 
 
@@ -582,15 +622,15 @@ def diff_set(baseline: list[str] | None, current: list[str]):
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="技术债度量检查（C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写基线数字）"
+        description="技术债度量检查（C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写基线数字 / C4 占位目录守卫）"
     )
     ap.add_argument("--update-baseline", action="store_true", help="把当前结果冻结为新基线")
     ap.add_argument("--show", action="store_true", help="只打印当前结果，不与基线比对")
-    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b"], help="只跑某一检")
+    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4"], help="只跑某一检")
     args = ap.parse_args()
 
     print("=" * 60)
-    print("技术债度量检查（C1 孤儿文件 / C2 测试未接入 / C3 文档漂移）")
+    print("技术债度量检查（C1 孤儿文件 / C2 测试未接入 / C3 文档漂移 / C4 占位目录守卫）")
     print("=" * 60)
 
     cur = {
@@ -598,13 +638,14 @@ def main() -> int:
         "c2": check_c2(REPO_ROOT),
         "c3": check_c3(REPO_ROOT),
         "c3b": check_c3b(REPO_ROOT),
+        "c4": check_c4(REPO_ROOT),
     }
 
     if args.update_baseline:
         save_baseline(cur)
         return 0
 
-    want = {args.only} if args.only else {"c1", "c2", "c3"}
+    want = {args.only} if args.only else {"c1", "c2", "c3", "c4"}
 
     # ---------- C3：硬失败，不做棘轮 ----------
     c3_errors = list(cur["c3"]["findings"])
@@ -621,6 +662,16 @@ def main() -> int:
                 print(f"       - {e}")
         else:
             print("       通过：k / warn_k / _baseline_runs 与两份文档一致")
+
+    # ---------- C4：硬失败，不做棘轮（这是规则不是存量债） ----------
+    c4_findings = list(cur["c4"]["findings"])
+    if "c4" in want:
+        print(f"\n[C4] 禁止加代码的空占位目录：核对 {len(cur['c4']['checked'])} 个")
+        if c4_findings:
+            for f in c4_findings:
+                print(f"       - {f}")
+        else:
+            print("       通过：占位目录为空或不存在")
 
     # ---------- C1 / C2：棘轮 ----------
     base = None if args.show else load_baseline()
@@ -673,6 +724,8 @@ def main() -> int:
         errors.append(f"新增技术债 {len(new_all)} 项（见上方 [NEW]）")
     if "c3" in want and c3_errors:
         errors.append(f"文档-代码一致性 {len(c3_errors)} 处不一致")
+    if "c4" in want and c4_findings:
+        errors.append(f"禁止加代码的空占位目录被写入 {len(c4_findings)} 处（C4）")
 
     if errors:
         print("[FAIL] 技术债检查未通过:")

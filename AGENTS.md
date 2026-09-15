@@ -177,6 +177,7 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
 | `asd-tauri/src-tauri/src/commands/` | Tauri 命令处理器（5 个模块） |
 | `asd-tauri/src-tauri/src/infrastructure/` | 基础设施（IPC、Watchdog、日志） |
 | `asd-tauri/src-tauri/src/tests/` | 主 crate 集成测试 |
+| ⚠️ `asd-tauri/src-tauri/src/application/`、`asd-tauri/src-tauri/src/domain/` | **历史空占位，禁止放任何文件**。真身分别是 `crates/asd-application/` 与 `crates/asd-domain/`。git 不跟踪空目录，所以「删掉」进不了版本库 —— 由 `scripts/check-tech-debt.py` 的 **C4 检查**守住（TD-008） |
 | `asd-tauri/src-tauri/ahk_executor/` | AHK 子进程执行器脚本 |
 | `asd-tauri/src-tauri/benches/` | Criterion 基准测试 |
 | `asd-tauri/src-tauri/fuzz/` | cargo-fuzz 模糊测试目标 |
