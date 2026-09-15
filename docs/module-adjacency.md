@@ -421,7 +421,12 @@ UI 通用管理。
 | **OUT** | 2：`domain/interfaces`、`infrastructure/error_system` |
 | **IN** | 外部：`main.ahk`、`tests/*`（3 处） |
 
-> **⚠️ 重名警告**：根目录存在同名的 `ui_manager.ahk`（孤点，无任何依赖关系）。**切勿混淆**——根目录那个是待清理的遗留副本。
+> ~~**⚠️ 重名警告**：根目录存在同名的 `ui_manager.ahk`（孤点，无任何依赖关系）。**切勿混淆**——根目录那个是待清理的遗留副本。~~
+>
+> **✅ 已于 2026-09-16 清理**（TD-003）：根 `ui_manager.ahk` 已删除。它与
+> `presentation/ui_manager.ahk` **定义了同名的 `class UIManager`**（根副本 v1.0 / 89 行，
+> 真身 v3.0 / 100 行 `extends INotifier`），是迁移遗留，且无任何 `#Include` 指向它。
+> 现在 `UIManager` 全局唯一，重名歧义消除。恢复命令：`git checkout HEAD~1 -- ui_manager.ahk`。
 
 ---
 
