@@ -21,6 +21,8 @@
 > AHK v2 引擎调研（2026-09-14）：`docs/research/ahk-engine-architecture-2026-09-14.md`
 > —— 含源码锚点、10 个探针实测数据、16 条执行摘要、L1/L2/L3 共 22 项落地清单。
 > 引擎源码 `AutoHotkey-2.0.26/source` **只读**（不修改/不 fork/不编译）。
+> 该目录由 `check-tech-debt.py` 的 **C6** 守住：必须与官方 tag v2.0.26 **不多、不少、不改**（基线 `scripts/vendor-baseline-ahk-2.0.26.txt` 取自上游，非本地快照）。
+> **不要改成 submodule**：研究报告对它做了 60+ 处行级引用，submodule 会让普通 clone 得到空目录、引用悬空。它是只读研究参考不是构建依赖（CI 不碰），7.9M 只占 `.git` 100M 约 8%。
 
 ## 图谱工作流与四闸门
 
