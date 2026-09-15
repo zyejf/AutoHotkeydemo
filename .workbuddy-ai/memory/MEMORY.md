@@ -195,6 +195,29 @@ AHK `FileAppend` 默认系统 ANSI → 必须 `FileAppend(..., "UTF-8")`。
 - ⚠️ **汇总不进 stdout**：直连跑 `run_all_tests.ahk` 时 `>file` 恒为 **0 字节**（GUI 子系统），
   结果写进 **`tests/test_results.log`**（已被 `*.log` 忽略）。判成败读后者，别被空日志误导。
 
+### 宿主时延断言：不要在共享 runner 上做硬判（`ASD_HOST_TIMING`）
+
+- ⚠️ **绝对墙钟时延断言在共享 CI runner 上不可判定**（不是阈值没调好）。
+  定刻走 **QPC 忙等**，CPU 争用下不是「变慢」而是**量级崩塌**，且存在**悬崖**：
+  本机 12 线程施加 N 个满载进程 → SleepUntil 误差 p50 / periodic 端到端 p50：
+  空载 0.005 / 15.015 → 11 进程 **0.005 / 15.015**（中位数毫无变化）→
+  14 进程 **19.22 / 28.45**（一起崩）→ 24 进程 ~111 / ~745。
+  CI（2 vCPU 共享）正落在 11~14 之间 → **中位数也守不住，放宽 P95 无用**。
+- ⚠️ **决定性证据**：注入「定刻退化成网格 `Sleep`」缺陷后 periodic 端到端 P95 = **31.76ms**，
+  与 CI 失败值 **31.86ms** 几乎相同 → **共享 runner 上「实现退化」与「宿主忙」数值无法区分**。
+- ⚠️ **别用「会让出 CPU 的探针」给忙等定刻做归一化**：`Sleep 1` 超调地板在 24 burner 下只涨
+  0.44ms，而实际超额 100~700ms，完全不相关。（prod_tick 的参考负载归一化能成立，
+  是因为参考负载同为 AHK 解释器算术循环，性质匹配。）
+- **现行处置**：`SenderPreciseTimingTests._HostTiming()` 门控 7 条绝对时延断言，
+  由 `ASD_HOST_TIMING=0` 关闭（缺省执行）。CI G3b 设 0，本机四闸门不设 → 照跑（真正守护点）。
+  CI 会校验「跳过数 ≥1」，防止门控静默失效。
+- 框架：`AutoHotUnit.ahk` 有 `AhuSkip extends Error` + `assert.skip(reason)`。
+  ⚠️ `RunSuites` 里 `catch AhuSkip` 必须排在 `catch Error` **之前**（继承，反了会被吞）。
+  ⚠️ `SilentReporter` 在 **`tests/suites/core_suites.ahk`**（不在 AutoHotUnit.ahk）；
+  汇总新增的「跳过」行必须排在「失败」**之后**，否则 CI 的 `总计/通过/失败` 正则被打乱。
+- ⚠️ 变异测试纪律：改实现前先 `cp` 备份，还原后校验「文件中不再含 MUTATION 标记」。
+  ⚠️ **Sender 走 `SleepUntilUs`（µs 口径）不是 `SleepUntil`** —— 只变异 ms 版只能红 1 条。
+
 ## 环境 / CI / E2E（完整版见 `env-and-ci.md`）
 
 1. 推送：`git -c credential.helper= push "https://x-access-token:$(gh auth token)@github.com/zyejf/AutoHotkeydemo.git" main`；
