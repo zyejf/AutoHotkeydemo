@@ -15,7 +15,7 @@
 > **口径差异提示**：同一文件可能因计数方式不同而得出不同数字，两者均有效、不得互相「纠正」。
 > - `watchdog_integration_tests.rs`：`#[test]` 属性数 = **14**（本文档口径）；`fn` 定义数 = **17**（`TESTING.md` 口径）。
 > - 套件数：`test_executor.ahk` 的 `Test_` 方法分布在不同 `class ... extends AutoHotUnitSuite` 中，套件数按类计。
-> - AHK 完整套件汇总：runner 除 `Test_` 方法外还执行 `Setup`/`Teardown` 生命周期钩子，故实跑总数（**642**）略高于静态 `Test_` 计数（**640**）。
+> - AHK 完整套件汇总：runner 除 `Test_` 方法外还执行 `Setup`/`Teardown` 生命周期钩子，故实跑总数（**664**）略高于静态 `Test_` 计数（**662**）。
 
 自洽关系：**小计 = 明细之和 = 汇总 = 各 crate 总计相加**。
 
@@ -149,6 +149,8 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 注：AHK 测试文件位于项目根目录的 `tests/test_ahk_executor/`，非 `asd-tauri/tests/`。被测脚本位于 `asd-tauri/src-tauri/ahk_executor/`。
 
+**JSON 转义快路径（`tests/suites/core_suites.ahk` 的 `JSONSerializerEscapeTests`，7 个用例）**：守护 `infrastructure/json_serializer.ahk` 的 `_EscapeString` T1 快路径 —— 快路径三判定（不含引号／不含反斜杠／不含 0x00-0x1F）必须恰好覆盖需转义字符集、反斜杠必须先于引号替换、`\uXXXX` 兜底集合不能漏字符，并做 0..127 逐字符与逐字符版 `_EscapeStringCharByChar` 的等价性扫描。已做 7 项变异阳性对照（替换顺序颠倒／三处快路径判定各漏一项／兜底集合漏 `\x0B` 与 `\x00-\x07`／漏 `\t` 短写法），全部变红。
+
 ---
 
 ## 测试固件
@@ -165,8 +167,8 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | 类别 | 统计 |
 |------|------|
 | Rust 测试（运行时注册数，`--all-targets -- --list`） | 616（asd-domain 136 + asd-ipc-protocol 72 + asd-application 163 + asd-test-harness 3 + asd-tauri 242；其中 `#[ignore]` 15 个） |
-| AHK 执行器测试（`Test_` 方法数） | 60 套件 / 264 个 `Test_` 方法（`tests/test_ahk_executor/` 5 文件；不含 `test_joy_hotkey_manager_ahu.ahk` 的 7 套件） |
-| AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 642 个用例（通过 642 / 失败 0），163 个套件 |
+| AHK 执行器测试（`Test_` 方法数） | 61 套件 / 279 个 `Test_` 方法（`tests/test_ahk_executor/` 5 文件；不含 `test_joy_hotkey_manager_ahu.ahk` 的 7 套件） |
+| AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 664 个用例（通过 664 / 失败 0），165 个套件 |
 | 基准测试 | 7 个 criterion bench |
 | 模糊测试 | 5 个 fuzz target |
 | E2E 测试 | 9 suite / 53 用例 |

@@ -97,7 +97,48 @@ class JSONSerializer {
         return spaces
     }
 
+    ; JSON 字符串转义（T1 快路径）。
+    ;
+    ; 需转义的字符集合（与 JSON 规范一致，也是 _EscapeStringCharByChar 的行为）：
+    ;   0x00-0x1F 全部控制字符 —— 其中 08/09/0A/0C/0D 有短写法（\b \t \n \f \r），
+    ;   其余（00-07、0B、0E-1F）走 \uXXXX；
+    ;   外加 0x22（"）与 0x5C（\）。
+    ;
+    ; ⚠️ 快路径的三个判定必须**合起来恰好覆盖**上面这个集合，漏一个就会静默产出非法 JSON。
+    ;   等价性已逐字符验证：单字符 0..127 + 前后夹字符 0..127 + 24 个组合场景，diffs=0
+    ;   （含 NUL / DEL / U+2028 / 首尾反斜杠等），见 JSONSerializerEscapeTests。
+    ;
+    ; 基准（tools/ahk-bench/bench_json_escape.ahk）：
+    ;   2KB 0.8776 → 0.4995 ms、8KB 3.5606 → 2.0600 ms（≈1.75×）。
     static _EscapeString(str) {
+        ; ① 快路径：不含引号、不含反斜杠、不含任何控制字符 → 原样返回。
+        ;    配置与日志里绝大多数字符串走这一条。
+        ;    ⚠️ AHK 的 RegExMatch 能正确识别字符串中的 NUL（实测 Chr(0) 匹配成功），
+        ;       不存在 C 字符串截断问题。
+        if !InStr(str, '"') && !InStr(str, "\") && !RegExMatch(str, "[\x00-\x1F]")
+            return str
+
+        ; ② 含「没有短写法的控制字符」（00-07、0B、0E-1F，需 \uXXXX）→ 退回逐字符版，
+        ;    保证与原来的输出逐字节一致。
+        if RegExMatch(str, "[\x00-\x07\x0B\x0E-\x1F]")
+            return JSONSerializer._EscapeStringCharByChar(str)
+
+        ; ③ 其余：用原生 StrReplace 批量替换（一次遍历，避免 n 次字符串重建）。
+        ;    ⚠️ 反斜杠必须**第一个**替换：若先替换引号会引入新的反斜杠，
+        ;       再被反斜杠那一轮二次转义成 \\（顺序反了输出就错）。
+        s := StrReplace(str, "\", "\\")
+        s := StrReplace(s, '"', '\"')
+        s := StrReplace(s, "`n", "\n")
+        s := StrReplace(s, "`r", "\r")
+        s := StrReplace(s, "`t", "\t")
+        s := StrReplace(s, "`b", "\b")
+        s := StrReplace(s, "`f", "\f")
+        return s
+    }
+
+    ; 逐字符版：原实现，现只作为「含 \uXXXX 控制字符」的兜底路径。
+    ; 同时它是 _EscapeString 快路径的等价性基准（测试里用作 oracle）。
+    static _EscapeStringCharByChar(str) {
         result := ""
         pos := 1
         len := StrLen(str)

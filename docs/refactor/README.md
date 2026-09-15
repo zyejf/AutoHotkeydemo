@@ -81,6 +81,13 @@
 | T7 定时器策略（带开关） | — | P2 | P2 | 仅尾部稳定性 |
 | T8 错误限流桶上界 | P2 | P2 | P2 | 阻断无上界增长 |
 
+> **落地进度（2026-09-15）**：**T1 已落地**（`infrastructure/json_serializer.ahk` 的 `_EscapeString`
+> 改为「无特殊字符直接返回 / 含 `\uXXXX` 控制字符退回逐字符版 / 其余 `StrReplace` 批量替换」三段式，
+> 逐字符版保留为 `_EscapeStringCharByChar` 兜底兼测试 oracle）。
+> 实测收益为 **1.73~1.76×**（2 KB 0.8776 → 0.4995 ms、8 KB 3.5606 → 2.0600 ms），
+> 与上表「19~41×」的**原始目标**不同 —— 目标值本身不可达，详见 `plan-C-evaluation.md` §T1 连带结论。
+> 等价性与 7 项变异阳性对照见 `asd-tauri/docs/test-map.md` 的 AHK 章节。
+
 ---
 
 ## 2. 选型决策树

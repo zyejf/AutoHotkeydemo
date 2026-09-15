@@ -265,6 +265,125 @@ class JSONSerializerTests extends AutoHotUnitSuite {
     }
 }
 
+; =================================================================
+; JSONSerializer._EscapeString（T1 快路径）
+;
+; 快路径的三个判定（不含引号 / 不含反斜杠 / 不含控制字符）必须**合起来恰好覆盖**
+; 「需转义字符集」= 0x00-0x1F ∪ {0x22, 0x5C}，漏一个就是静默产出非法 JSON。
+; 因此这里除了断言具体输出，还做了一次 0..127 的逐字符等价性扫描
+; （与逐字符版 _EscapeStringCharByChar 对照，它是本次改造前的实现）。
+; =================================================================
+class JSONSerializerEscapeTests extends AutoHotUnitSuite {
+    ; AHK v2 的字符串字面量里反斜杠是普通字符、只有双引号需要写成两个，
+    ; 混用时极易把解析器绕晕（实测报 Missing """）。统一用 Chr() 构造，避免歧义。
+    static Q => Chr(34)      ; 双引号
+    static B => Chr(92)      ; 反斜杠
+
+    ; 快路径：无需转义的字符串必须原样返回（含非 ASCII）
+    Test_EscapeString_PlainStringReturnsAsIs() {
+        this.assert.equal(JSONSerializer._EscapeString(""), "")
+        this.assert.equal(JSONSerializer._EscapeString("plain ascii 123"), "plain ascii 123")
+        this.assert.equal(JSONSerializer._EscapeString("中文abc"), "中文abc")
+        this.assert.equal(JSONSerializer._EscapeString("emoji 😀"), "emoji 😀")
+        ; DEL(127) 与 U+2028 都不在需转义集合内
+        this.assert.equal(JSONSerializer._EscapeString(Chr(127)), Chr(127))
+        this.assert.equal(JSONSerializer._EscapeString(Chr(0x2028)), Chr(0x2028))
+    }
+
+    ; 有短写法的控制字符：08 09 0A 0C 0D
+    Test_EscapeString_ControlCharsUseShortForms() {
+        B := JSONSerializerEscapeTests.B
+        this.assert.equal(JSONSerializer._EscapeString(Chr(8)), B "b")
+        this.assert.equal(JSONSerializer._EscapeString(Chr(9)), B "t")
+        this.assert.equal(JSONSerializer._EscapeString(Chr(10)), B "n")
+        this.assert.equal(JSONSerializer._EscapeString(Chr(12)), B "f")
+        this.assert.equal(JSONSerializer._EscapeString(Chr(13)), B "r")
+        ; 夹在普通字符中间也要正确（StrReplace 不能误伤周边）
+        this.assert.equal(JSONSerializer._EscapeString("a" Chr(9) "b"), "a" B "tb")
+    }
+
+    ; 没有短写法的控制字符：必须走 \uXXXX 兜底路径
+    Test_EscapeString_OtherControlCharsUseUnicodeEscape() {
+        B := JSONSerializerEscapeTests.B
+        this.assert.equal(JSONSerializer._EscapeString(Chr(0)), B "u0000")
+        this.assert.equal(JSONSerializer._EscapeString(Chr(7)), B "u0007")
+        this.assert.equal(JSONSerializer._EscapeString(Chr(11)), B "u000B")
+        this.assert.equal(JSONSerializer._EscapeString(Chr(31)), B "u001F")
+        ; 混合：既有 \uXXXX 又有短写法又有引号
+        this.assert.equal(JSONSerializer._EscapeString(Chr(0) . Chr(10) . Chr(34))
+                        , B "u0000" B "n" B Chr(34))
+    }
+
+    ; 引号与反斜杠。⚠️ 反斜杠必须**先**替换，否则结果会多一层转义
+    Test_EscapeString_QuoteAndBackslashOrderMatters() {
+        Q := JSONSerializerEscapeTests.Q
+        B := JSONSerializerEscapeTests.B
+        this.assert.equal(JSONSerializer._EscapeString(Q), B Q)
+        this.assert.equal(JSONSerializer._EscapeString(B), B B)
+        ; 反斜杠 + 引号：正确结果是 \\\" （3 个反斜杠 + 引号）。
+        ; 若先替换引号再替换反斜杠，会得到 \\\\" —— 这条会变红。
+        this.assert.equal(JSONSerializer._EscapeString(B Q), B B B Q)
+        ; 首尾位置的反斜杠（StrReplace 没有 off-by-one 问题）
+        this.assert.equal(JSONSerializer._EscapeString("tail" B), "tail" B B)
+        this.assert.equal(JSONSerializer._EscapeString(B "lead"), B B "lead")
+    }
+
+    ; 逐字符等价性扫描：单字符与「前后夹普通字符」两种形态，0..127 全覆盖。
+    ; 这是本次改造最强的一条 —— 任何漏判/误判都会在这里暴露
+    Test_EscapeString_MatchesCharByCharForAllAscii() {
+        bad := ""
+        i := 0
+        while i <= 127 {
+            for s in [Chr(i), "x" Chr(i) "y"] {
+                a := JSONSerializer._EscapeStringCharByChar(s)
+                b := JSONSerializer._EscapeString(s)
+                if a != b
+                    bad .= "chr(" i ") old=[" a "] new=[" b "] "
+            }
+            i++
+        }
+        this.assert.equal(bad, "")
+    }
+
+    ; 组合场景等价性（含 NUL、多反斜杠、密集混排）
+    Test_EscapeString_MatchesCharByCharForComposites() {
+        Q := JSONSerializerEscapeTests.Q
+        B := JSONSerializerEscapeTests.B
+        cases := ["he said " Q "hi" Q
+                , "back" B "slash"
+                , "a" Q "b" B "c" Chr(10) "d" Chr(9) "e"
+                , B B B B
+                , B Q
+                , Q B
+                , B B Q
+                , Chr(0) "nul"
+                , "a" Chr(0) "b"
+                , Chr(10) Chr(13) Chr(9) Chr(8) Chr(12) Chr(11)]
+        bad := ""
+        for s in cases {
+            a := JSONSerializer._EscapeStringCharByChar(s)
+            b := JSONSerializer._EscapeString(s)
+            if a != b
+                bad .= "old=[" a "] new=[" b "] "
+        }
+        this.assert.equal(bad, "")
+    }
+
+    ; 端到端：Stringify → Parse 往返应保持原值（快路径不能破坏真实序列化）
+    Test_EscapeString_RoundTripThroughParser() {
+        Q := JSONSerializerEscapeTests.Q
+        B := JSONSerializerEscapeTests.B
+        m := Map("plain", "abc", "quoted", "say " Q "hi" Q
+               , "backslash", "a" B "b", "newline", "l1" Chr(10) "l2")
+        jsonStr := JSONSerializer.Stringify(m)
+        back := JSONParser.Parse(jsonStr)
+        this.assert.equal(back["plain"], "abc")
+        this.assert.equal(back["quoted"], "say " Q "hi" Q)
+        this.assert.equal(back["backslash"], "a" B "b")
+        this.assert.equal(back["newline"], "l1" Chr(10) "l2")
+    }
+}
+
 class ConfigStoreTests extends AutoHotUnitSuite {
     Test_InitDefaults_CreatesGroups() {
         ConfigStore.InitDefaults()

@@ -167,7 +167,8 @@ testManager.RegisterSuite(
     JoystickExecutorInjectionTimerTests,
     LogRateLimitTests,
     ConfigValidatorSuspiciousValuesTests,
-    ConfigValidatorFilterByTypeTests
+    ConfigValidatorFilterByTypeTests,
+    JSONSerializerEscapeTests
 )
 
 ; ============================================================
