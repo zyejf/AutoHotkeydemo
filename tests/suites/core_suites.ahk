@@ -11,6 +11,7 @@
 class SilentReporter {
     failures := []
     passed := 0
+    skipped := 0
     total := 0
     outputFile := ""
     
@@ -45,6 +46,11 @@ class SilentReporter {
         if (status == "passed") {
             this.passed++
             this.writeLine("  ✓ " testName)
+        } else if (status == "skipped") {
+            ; 跳过必须留痕：算进总计、不算失败，但单独计数并写出原因
+            this.skipped++
+            this.writeLine("  ⊘ " testName " - 已跳过")
+            this.writeLine("      原因: " error.Message)
         } else {
             this.writeLine("  ✗ " testName " - 失败")
             this.writeLine("      位置: " where)
@@ -64,6 +70,8 @@ class SilentReporter {
         this.writeLine("总计: " this.total " 个测试")
         this.writeLine("通过: " this.passed " 个")
         this.writeLine("失败: " this.failures.Length " 个")
+        ; 「跳过」必须排在「失败」之后：CI 的汇总解析按 总计/通过/失败 顺序取分组
+        this.writeLine("跳过: " this.skipped " 个")
         
         if (this.failures.Length > 0) {
             this.writeLine("")

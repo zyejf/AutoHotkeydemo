@@ -465,6 +465,26 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
         Sender.EmergencyRelease()
     }
 
+    ; 宿主时延类断言的总开关：ASD_HOST_TIMING=0 时跳过（缺省/其它值 = 执行）。
+    ; 跳过走 assert.skip 而不是 return —— 跳过的条数会写进汇总，不会静默变绿。
+    ;
+    ; 为什么需要这个开关（实测，详见 docs/developer-guide.md「宿主时延类断言」）：
+    ;   定刻走 **QPC 忙等**，CPU 一被争用就直接打穿，不是"变慢一点"而是量级崩塌。
+    ;   本机 12 线程上施加 N 个满载进程，SleepUntil 误差 p50 / periodic 端到端 p50：
+    ;       空载        0.005 ms / 15.015 ms
+    ;       11 进程     0.005 ms / 15.015 ms     ← 中位数毫无变化，只有尾部开始抖
+    ;       14 进程    19.222 ms / 28.448 ms     ← 悬崖：中位数一起崩
+    ;   GitHub 共享 runner（2 vCPU）实测落在这条悬崖带上：SleepUntil p95=11.15ms
+    ;   （阈值 5）、periodic p95=31.86ms（阈值 20），按插值其中位数也已达 ~6.7ms / ~22ms。
+    ;   也就是说：CI 上**中位数同样守不住**，不是把 P95 放宽就能解决的。
+    ;   放宽阈值只会得到一条测不出回归的虚线，硬判则是每次都有概率误报 —— 故 CI 显式跳过，
+    ;   真正的守护点是争用可控的本机四闸门（默认全跑）。
+    _HostTiming() {
+        if (EnvGet("ASD_HOST_TIMING") = "0") {
+            this.assert.skip("宿主时延断言：ASD_HOST_TIMING=0（共享 runner 的 CPU 争用会打穿 QPC 忙等，实测见 developer-guide）")
+        }
+    }
+
     ; 升序排序（插入排序，样本量小）；下划线开头，不会被收集为用例
     _Sort(arr) {
         i := 2
@@ -503,6 +523,7 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
 
     ; SleepUntil 的定位误差中位数应 < 1ms
     Test_HighResClock_SleepUntil_ErrorBelow1ms() {
+        this._HostTiming()
         errs := []
         Loop 60 {
             t0 := HighResClock.Now()
@@ -522,6 +543,7 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
 
     ; 一次精确定刻按压的保持时长应等于 kpd（原实现走 SetTimer(-kpd)，误差 0~15.6ms）
     Test_PressPrecise_HoldDurationMatchesKpd() {
+        this._HostTiming()
         durs := []
         Loop 9 {
             events := []
@@ -547,6 +569,7 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
 
     ; 端到端：periodic 模式下「计划时刻 → 抬起完成」P95 ≤ 20ms
     Test_ExecutePeriodic_EndToEndLatencyP95Within20ms() {
+        this._HostTiming()
         gid := "__prec_e2e"
         interval := 100
         events := []
@@ -623,6 +646,7 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
     ; 若逐键串行执行「Down → 等 → Up」，第二个键的等待会立刻超时（已过 plannedAt + kpd），
     ; 保持时长被压成 ~0ms —— 实测过该退化为 0.022ms。
     Test_MultiKeySameSchedule_AllKeysHoldFullKpd() {
+        this._HostTiming()
         gid := "__prec_multi"
         events := []
         Sender.EmergencyRelease()
@@ -1019,6 +1043,7 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
     ; 原实现从「发送完成后的当前时刻」推进基准，误差逐步累积：
     ; 实测 delay=100ms 时步进退化成 111.9ms，3 秒内 P95 达 248~263ms。
     Test_ExecuteSequence_EndToEndLatencyP95Within20ms() {
+        this._HostTiming()
         gid := "__prec_seq_e2e"
         delay := 100
         events := []
@@ -1056,6 +1081,7 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
 
     ; sequence 步进必须等于配置的 delay，且不随时间漂移
     Test_ExecuteSequence_StepIntervalMatchesDelay_NoDrift() {
+        this._HostTiming()
         gid := "__prec_seq_step"
         delay := 100
         events := []
@@ -1092,6 +1118,7 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
 
     ; hybrid：periodic 子组与 sequence 子组各自按配置节奏触发，且保持时长都等于 kpd
     Test_ExecuteHybrid_SubGroupsKeepTheirOwnRhythm() {
+        this._HostTiming()
         gid := "__prec_hybrid"
         events := []
         Sender.EmergencyRelease()

@@ -8,6 +8,15 @@ FileEncoding("UTF-8")
 OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
 global ahu := AutoHotUnitManager(AutoHotUnitCLIReporter())
 
+; 用例主动跳过（区别于失败）。用 throw 而不是 return，是为了让跳过**必须可见**：
+; 静默 return 会让用例变绿但什么都没测，这是最危险的一种「通过」。
+; 框架捕获后记为 skipped，计入总计但**不计入失败**，并在汇总里单独列出条数。
+class AhuSkip extends Error {
+    __New(message := "跳过") {
+        super.__New(message)
+    }
+}
+
 class AutoHotUnitSuite {
     assert := AutoHotUnitAsserter()
     beforeAll() {
@@ -67,6 +76,10 @@ class AutoHotUnitManager {
                 try {
                     local method := GetMethod(suiteInstance, testName)
                     method(suiteInstance)
+                } catch AhuSkip as e {
+                    ; 必须排在 catch Error 之前：AhuSkip 继承自 Error，顺序反了会被吞掉
+                    this.reporter.onTestResult(testName, "skipped", "test", e)
+                    continue
                 } catch Error as e {
                     this.reporter.onTestResult(testName, "failed", "test", e)
                     continue
@@ -96,6 +109,7 @@ class AutoHotUnitCLIReporter {
     failures := []
     red := "[31m"
     green := "[32m"
+    yellow := "[33m"
     reset := "[0m"
     printLine(str) {
         FileAppend(str, "*", "UTF-8")
@@ -111,12 +125,14 @@ class AutoHotUnitCLIReporter {
     onTestStart(testName) {
     }
     onTestResult(testName, status, where, error) {
-        if (status != "passed" && status != "failed") {
+        if (status != "passed" && status != "failed" && status != "skipped") {
             throw Error("Invalid status: " . status)
         }
         prefix := this.green . "."
         if (status == "failed") {
             prefix := this.red . "x"
+        } else if (status == "skipped") {
+            prefix := this.yellow . "s"
         }
         this.printLine("  " prefix " " testName " " status this.reset)
         if (status == "failed") {
@@ -204,6 +220,11 @@ class AutoHotUnitAsserter {
     }
     fail(message) {
         throw Error("Assertion failed: " . message)
+    }
+    ; 主动跳过当前用例。reason 会写进报告，CI 汇总里能看到跳过条数，
+    ; 避免「静默不测但显示通过」。
+    skip(reason) {
+        throw AhuSkip(reason)
     }
     isAbove(actual, expected) {
         if (actual <= expected) {

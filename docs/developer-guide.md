@@ -788,6 +788,46 @@ $ahkPath = "D:\Program Files\AutoHotkey\v2\AutoHotkey64.exe"
 & $ahkPath /ErrorStdOut "d:\1demo\AutoHotkeydemo\asd-tauri\src-tauri\ahk_executor\executor.ahk" 2>&1
 ```
 
+#### AHK 完整测试套件与「宿主时延类断言」门控
+
+```bash
+# 本机（默认）：全跑，含 7 条绝对墙钟时延断言
+"/d/Program Files/AutoHotkey/v2/AutoHotkey64.exe" tests/run_all_tests.ahk
+
+# CI / 争用不可控的机器：跳过宿主时延类断言
+ASD_HOST_TIMING=0 "/d/Program Files/AutoHotkey/v2/AutoHotkey64.exe" tests/run_all_tests.ahk
+```
+
+结果写在 `tests/test_results.log`，汇总含 `总计 / 通过 / 失败 / 跳过` 四行。
+跳过走框架的 `assert.skip()`（新增 `AhuSkip`，见 `tests/AutoHotUnit.ahk`）：**计入总计、不计入失败、
+单独计数并写出原因**，不是静默 `return` —— 静默跳过会让用例变绿却什么都没测。
+
+**为什么需要这个开关**：定刻走 **QPC 忙等**（见 §1.3 / `high_res_clock.ahk`），CPU 一被争用不是
+「变慢一点」而是量级崩塌。本机 12 线程施加 N 个满载进程实测：
+
+| 争用 | SleepUntil 误差 p50 | SleepUntil 误差 p95 | periodic 端到端 p50 | periodic 端到端 p95 |
+|---|---|---|---|---|
+| 空载 | 0.005 ms | 0.006 ms | 15.015 ms | 15.03 ms |
+| 11 进程 | 0.005 ms | 0.05 ~ 1.76 ms | 15.015 ms | 15.02 ~ 15.49 ms |
+| 14 进程 | **19.22 ms** | **28.45 ms** | **28.45 ms** | **44.90 ms** |
+
+注意 11 与 14 之间是一条**悬崖**：中位数前一档毫无变化，后一档直接崩。GitHub 共享 runner
+（2 vCPU）实测正落在这条带上（run 34971335578：SleepUntil p95 = **11.15** ms、periodic p95 =
+**31.86** ms，均超阈值），按插值其中位数也已越线 —— **CI 上放宽 P95 阈值并不能解决**。
+
+更关键的一条实测：本机注入「定刻退化成 AHK 网格 `Sleep`」缺陷后，periodic 端到端 P95 =
+**31.76** ms，与 CI 那个 31.86 几乎相同。也就是说 **在共享 runner 上，「实现退化」与「宿主忙」
+在数值上无法区分** —— 硬判必然 flaky，放宽则测不出回归。故 CI 显式跳过这 7 条，真正的守护点是
+争用可控的本机四闸门（注入缺陷实测 4 条立即变红）。
+
+被门控的 7 条（均在 `SenderPreciseTimingTests`）：SleepUntil 误差、PressPrecise 保持时长对齐 kpd、
+periodic 端到端 P95、MultiKey 同刻保持时长、sequence 端到端 P95、sequence 步进不漂移、hybrid
+子组节奏。**未**被门控的（争用免疫）：QPC 分辨率（取 min delta）、`droppedTriggers == 0`、
+间隔取整比例、T6 合并遍历等价性（确定性形态比对）。
+
+CI 侧还有一道保险：G3b 解析出跳过数后会校验「必须 ≥ 1 条」，否则判定门控失效而失败 ——
+防止环境变量没传进去或用例被改名后，跳过悄悄变成 0 而没人发现。
+
 ### 4.5 基准测试
 
 ```powershell
@@ -1090,6 +1130,7 @@ T6 的信号比 T1 **弱一个数量级**，K 必须跟着收紧，否则门禁�
 | 无 n≤32 的 tick 指标 | 真实规模覆盖缺失 | 单测 + review |
 | 无 hybrid tick 指标 | hybrid 侧无性能门禁 | 单测 `Test_TickMerge_*`（等价性） |
 | MERGE_TICK_SCAN 被翻回 false | —— | **单测 `Test_MergeTickScan_DefaultOn_And_DispatchHonorsIt` 已钉住**（门禁是第二道） |
+| CI 不跑 7 条宿主时延断言 | 定刻回归在 CI 上看不出来 | 本机四闸门（默认全跑，注入缺陷实测 4 条变红）+ CI 校验「跳过数 ≥ 1」防门控失效 |
 
 **基准自身的「阳性对照」**（防门禁静默失效）：
 

@@ -168,7 +168,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 |------|------|
 | Rust 测试（运行时注册数，`--all-targets -- --list`） | 616（asd-domain 136 + asd-ipc-protocol 72 + asd-application 163 + asd-test-harness 3 + asd-tauri 242；其中 `#[ignore]` 15 个） |
 | AHK 执行器测试（`Test_` 方法数） | 61 套件 / 279 个 `Test_` 方法（`tests/test_ahk_executor/` 5 文件；不含 `test_joy_hotkey_manager_ahu.ahk` 的 7 套件） |
-| AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 664 个用例（通过 664 / 失败 0），165 个套件 |
+| AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 664 个用例 / 165 个套件。**本机**（`scripts/check-gates.sh`，默认）：通过 664 / 失败 0 / 跳过 0。**CI**（G3b，`ASD_HOST_TIMING=0`）：通过 657 / 失败 0 / **跳过 7** —— 跳过的是 `SenderPreciseTimingTests` 里 7 条绝对墙钟时延断言，原因见下 |
 | 基准测试 | 7 个 criterion bench |
 | AHK 生产基准（CI 门禁，T11） | 2 个基准脚本 / 8 个 metric：`bench_prod_escape.ahk` 5 个（直接测 `JSONSerializer._EscapeString`，T1，K=2.0）+ `bench_prod_tick.ahk` 3 个（直接测 `Sender._ExecutePeriodic`，T6，K=1.5）；门禁 `gate.py` 判据「p50 中位数 ≤ 基线 ×K」，两个都进 CI 的 `ahk-bench` job 并阻断合并 |
 | 模糊测试 | 5 个 fuzz target |
@@ -177,6 +177,16 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 136 + 72 + 163 + 3 + 242 = 616。
 
 > **备注（T8-07† 处置）**：`docs/review/2026-08-20/task-8-tests.md` 分报告《总结》自报「发现总数 7（Important 3 + Minor 4）」，但正文仅列 T8-01~T8-06 共 6 条（其中 Minor 3 条：T8-04/T8-05/T8-06）。已核实第 4 条 Minor 无正文，属该报告自报计数笔误（正文实际为 Important 3 + Minor 3 = 6 条），无遗漏问题，占位 `T8-07†` 予以关闭。
+
+> **备注（宿主时延类断言：CI 跳过 7 条）**：`SenderPreciseTimingTests` 里有 7 条断言是**绝对墙钟时延上限**（SleepUntil 误差、保持时长对齐 kpd、periodic/sequence/hybrid 端到端 P95 ≤ 20ms、步进不漂移）。定刻走 **QPC 忙等**，CPU 一被争用就不是「变慢一点」而是量级崩塌。本机 12 线程施加 N 个满载进程实测（SleepUntil 误差 p50 / periodic 端到端 p50）：
+>
+> | 争用 | SleepUntil p50 | periodic 端到端 p50 | SleepUntil p95 |
+> |------|----------------|---------------------|----------------|
+> | 空载 | 0.005 ms | 15.015 ms | 0.006 ms |
+> | 11 进程 | 0.005 ms | 15.015 ms | 0.05 ~ 1.76 ms |
+> | 14 进程 | **19.22 ms** | **28.45 ms** | **28.45 ms** |
+>
+> GitHub 共享 runner（2 vCPU）实测落在这条悬崖带上（run 34971335578：SleepUntil p95=**11.15** ms、periodic p95=**31.86** ms），按插值其中位数也已越线 —— 即 **CI 上中位数同样守不住**，不是放宽 P95 能解决的。更关键的是：本机注入「定刻退化成 AHK 网格 `Sleep`」缺陷后，periodic 端到端 P95 = **31.76** ms，与 CI 那个 31.86 几乎相同 —— **在共享 runner 上，「实现退化」与「宿主忙」在数值上无法区分**。故 CI 用 `ASD_HOST_TIMING=0` 显式跳过这 7 条（跳过数写进汇总且 CI 会校验「必须跳过 ≥1 条」，防止门控静默失效），真正的守护点是争用可控的本机四闸门（默认全跑，注入缺陷实测 4 条变红）。详见 `docs/developer-guide.md`。
 
 ---
 
