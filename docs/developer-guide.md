@@ -920,12 +920,15 @@ scripts\check-gates.ps1 -Quick
 | 闸门 | 校验内容 |
 |------|---------|
 | G1 | 图谱基线：无新增环、无白名单外依赖违规（`scripts/check-graph-baseline.py`） |
-| G2 | `cargo fmt --all --check` + `cargo clippy -- -D warnings` |
+| G2 | `cargo fmt --all --check`(a) + `cargo clippy -- -D warnings`(b) + **ESLint 棘轮(c)** |
 | G3 | `cargo test --workspace`(a) / AHK 完整套件(b) / JS 单测(c) + `test-map.md` 数字对账(d) + **技术债度量(e)** + **覆盖率棘轮(f)** |
 | G4 | 文档同步（无法自动化，脚本输出人工核对清单） |
 
 > **G3f 跑在 CI 的 coverage job（ubuntu）**，不在本地 `check-gates.sh` 里 ——
 > 它需要 `cargo-llvm-cov` 且只覆盖三个纯逻辑 crate，本机跑法见 §4.6.1.2。
+>
+> **G2c 跑在 CI 的 `js-lint` job**（独立 job，与主 job 并行），不在本地 `check-gates.sh` 里 ——
+> 它需要 `node_modules`（`npm ci`）。本机跑法见 §4.6.6。
 
 另有 `scripts/install-hooks.ps1`（或 `.sh`）用于安装版本化 git 钩子——
 `.git/hooks/` 不进版本库，新克隆后必须执行一次。
@@ -997,6 +1000,30 @@ python scripts/check-coverage.py --lcov ... --update-baseline   # 补完测试�
 
 ⚠️ 基线在**本机（Windows）**实测。若 CI（ubuntu）因 cfg 分支系统性偏离，
 下载 CI 的 `coverage-report` artifact 重跑一次 `--update-baseline` 校准即可。
+
+#### 口径漂移检测（2026-09-16 补）
+
+**背景教训**：2026-09-16 想把水位从 81.64% 收紧时，发现同一份代码、同一条 CI 命令下
+`validator.rs` 的统计行数是 **1856**，而旧基线记的是 **2367**（-21.6%），
+命中数却几乎没变 —— 整体「涨」了 7pp。**那不是覆盖率提升，是量程变了**
+（旧基线的生成命令已无从查证）。旧基线只存百分比，这种漂移完全看不出来，
+棘轮就会拿两个不可比的数字互相比。
+
+所以基线现在存每个文件的 `lines` / `hits` 作为**口径指纹**，并新增判定：
+
+| 条件 | 结果 |
+|------|------|
+| 某文件统计行数变化 **> 10%** 且 **≥ 20 行** | **FAIL**（口径漂移，数字不可比） |
+| 否则 | 按上面的棘轮判定 |
+
+绝对量下限是为了不让 `traits.rs`（15 行）动一行就报警。
+
+⚠️ **重取基线必须用同一条命令**：`--workspace` 与 `-p a -p b -p c` 的统计行数**不一样**
+（实测 9595 vs 5861，且 `--workspace` 会带进 `src-tauri` 的 27 个文件）。
+换命令 = 换量程，此时百分比的任何涨跌都没有意义。
+
+阳性对照：把 `validator.rs` 行数砍 30% → FAIL 并提示口径漂移；
+砍 30 行（-1.6%）→ PASS；原样 → PASS。
 
 ### 4.6.2 AHK 引擎探针（`tools/ahk-probes/`）
 
@@ -1374,6 +1401,57 @@ cd asd-tauri      && npm audit --package-lock-only --omit=dev --audit-level=high
 cd asd-tauri/e2e  && npm audit --package-lock-only --omit=dev --audit-level=high
 cd asd-tauri      && cargo audit        # 需要能访问 RustSec advisory-db
 ```
+
+### 4.6.6 静态分析档位（TD-012，2026-09-16 起）
+
+此前 lint 只有「默认档」：clippy 跑 `correctness/style/complexity/perf`（默认 warn 组），
+前端**根本没有 lint**。2026-09-16 收紧为两档，并把「哪些开、哪些不开、为什么」写进配置。
+
+#### Rust：纯逻辑 crate 开 `clippy::pedantic`
+
+| 范围 | 档位 | 理由 |
+|---|---|---|
+| `asd-domain` / `asd-ipc-protocol` / `asd-application` / `asd-test-harness` | **pedantic**（`[lints] workspace = true`） | 业务逻辑与调度在这里，最需要护栏 |
+| `src-tauri` | 默认档 | 实测 pedantic 有 **587** 项，其中 **476** 项是 Tauri 样板代码的文档类噪声。开了等于把真信号淹掉 —— 先守住业务逻辑，入口层另行排期 |
+
+- **阈值**只放 `asd-tauri/clippy.toml`；**启停**只放根 `Cargo.toml` 的 `[workspace.lints]`。
+  两处都能改级别，分散了就没人看得全，最后变成「不知道某条 lint 到底开没开」。
+- 组 lint 用 `priority = -1`，好让下面逐条的 `allow` 稳稳盖住它。
+- 两条**有意暂缓**（登记 TD-021）：`missing_errors_doc` / `missing_panics_doc`
+  —— 它们要的是给 59 个公开函数补 `# Errors` / `# Panics` 小节，属于文档工程，
+  混在「收紧 lint」里做只会让这次改动失去焦点。
+- 测试代码豁免 4 条（`similar_names` / `match_wildcard_for_single_variants` /
+  `match_same_arms` / `case_sensitive_file_extension_comparisons`）：
+  它们在**生产代码里是信号，在测试里是噪声**（对照组命名本就要相似、
+  `_ => panic!("Expected X")` 就是断言意图）。豁免写在各 lib.rs 与集成测试文件顶部，
+  逐条注明了理由，不是无脑 `allow`。
+
+> 💡 **收紧的第一个回报**：`#[must_use]` 上线后立刻报出
+> `src-tauri/benches/benchmarks.rs` 里 `ConfigValidator::validate(&groups);` 丢弃了返回值 ——
+> 那是个**纯函数**，优化器可以把整段调用删掉，也就是说那个基准可能一直在测空转。
+> 已改为 `black_box(...)`。这正是「加 lint 不是仪式」的意思。
+
+#### 前端：ESLint 9（flat config）
+
+```bash
+cd asd-tauri && npm run lint     # = eslint src --max-warnings 70
+```
+
+- **只 lint `src/`**：前端就 `api.js` / `main.js` 两个文件（约 1500 行），
+  而 JS 单测只覆盖 `e2e/helpers` —— **main.js 是零测试覆盖的**。
+  对没有测试兜底的代码，静态分析是唯一一道自动检查。
+- **棘轮，不是清零**：存量 70 项（`no-redeclare` 42 / `no-unused-vars` 18 /
+  `no-empty` 6 / `no-prototype-builtins` 4）**全是风格债，无一为真缺陷**。
+  main.js 没有测试，在这种代码上批量改名/删变量的收益远小于风险，
+  所以这 4 条降为 `warn`，用 `--max-warnings 70` 把水位钉在 `package.json`：
+  **新增一处立刻红**（71 > 70），修好一处就把数字减一（见 §4.6.1 同款棘轮语义）。
+- 其余 recommended 规则保持 `error`：`no-undef` 这类「写了就一定错」的不留余地。
+- 走独立 job（`js-lint`），与主 job 并行，不占用 Rust 构建的关键路径。
+
+**阳性对照（4 组）**：探针文件注入 1 处 `no-redeclare` + 1 处 `no-undef`
+→ 72 problems（1 error / 71 warnings）、退出码 1；删除探针 → 回到 70 / 退出码 0。
+clippy 侧：pedantic 从 248 项收干到 0（`cargo clippy --workspace --all-targets -- -D warnings`
+退出码 0），Rust 全量测试 602 项通过。
 
 ### 4.7 发布构建
 
