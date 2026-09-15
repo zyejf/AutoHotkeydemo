@@ -65,6 +65,13 @@ Rust 64 / 163 use 边 / 11 crate 边 / 0 生产环 / 3 违规（均 asd-test-har
 ④ 推进基准用**本次计划时刻**；⑤ 滞后**禁止**重置基准为当前时刻（→ 保相位 + `droppedTriggers`）；
 ⑥ 同刻多键**必须分桶批量** Down→等→Up（串行会让第二个键保持塌到 0.02ms）；
 ⑦ 序列首步基准在**首次执行**时确立（`nextStepTime := 0` 哨兵），不能取启动调用时刻。
+⑧ 调度时刻一律整数 µs，`Round()` 不可省；⑨ 遍历只能 4→2（开关两侧须同步改）；
+⑩ **没有 `SleepUntilUs` 兜底的路径，定时器周期必须 `Ceil` 不能 `Round`** ——
+   Round 早醒 ≤0.5ms → 无键到期 → 再排 <1ms 定时器 → 被 `Max(1,…)` 抬成网格白吃一格
+   （实测 joystick 序列 3 秒漂移 +15.1~17.2ms → Ceil 后 +1.9~10.7ms）。
+   sender 用 Round 没事：它有 28ms 提前量 + `SleepUntilUs` 精修。
+   ⚠️ 同理：**`TIMING_EPSILON_US` 在「提前返回处不带容差」的结构下是死代码**（单键场景
+   `target == dueAt`，提前返回后走不到 epsilon）。joystick 已删掉它。
 
 ⚠️ **代价：连续占用 AHK 主线程**。实测 interval=100/kpd=15：扣除网格后**最长连续占用 31.4ms、
 占空比 29.2%**。

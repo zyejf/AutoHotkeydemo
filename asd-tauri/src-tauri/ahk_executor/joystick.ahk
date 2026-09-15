@@ -12,7 +12,15 @@
 #Warn Unreachable, OutputDebug
 #Warn LocalSameAsGlobal, Off
 
+; 高精度时钟（QPC）：调度时刻一律用整数微秒，不用 A_TickCount（步进 15.52ms）
+; 说明：AHK 的 #Include 按解析路径自动去重，executor.ahk 先 include sender.ahk
+; （内部已 include 本文件）不会造成重复定义。
+#Include "high_res_clock.ahk"
+
 class Joystick {
+    ; 发送原语注入点（默认为空=使用 vJoy / Direct；测试可注入 mock 避免真实按键副作用）
+    static _joySendHook := ""
+
     ; Joystick 按键白名单 - 允许的按键名模式
     static ALLOWED_JOY_KEYS := Map(
         ; 按钮: Joy1 - Joy32 (标准手柄范围)
@@ -47,6 +55,44 @@ class Joystick {
 
     ; 按住的按键: groupId => [keys]
     static _heldJoyKeys := Map()
+
+    ; =================================================================
+    ; 精确定刻常量（与 sender.ahk 同源，规则见 AGENTS.md §高精度定刻规范）
+    ; =================================================================
+
+    ; ⚠️ 调度内部一切时刻/间隔一律用「整数微秒」（int µs），不用 A_TickCount。
+    ; A_TickCount 步进中位 15.52ms，用它推进基准会把每一步的超时累积进下一步
+    ; （实测 sequence delay=100ms 时步进退化成 110.73ms，3 秒累积漂移 +258.6ms）。
+    static MIN_INTERVAL_US := 10000
+
+    ; ⚠️ 这里**不设** sender.ahk 那种 TIMING_EPSILON_US 到期容差：本实现没有
+    ; SleepUntilUs 把唤醒时刻精修到计划时刻上，「是否到期」的唯一判据就是
+    ; 提前返回处的 `target - now > 0`。再加一个容差等于允许提前触发 —— 旧实现的
+    ; `threshold := interval - 5%` 就是这么把配置 100ms 变成实测 95.5ms 的。
+
+    ; 取间隔/延时的整数微秒（越界与缺项都回落到默认，下限 10ms）
+    static _IntervalUsOf(joyIntervals, i) {
+        interval := i <= joyIntervals.Length ? joyIntervals[i] : 50
+        intervalUs := Round(interval * 1000)
+        return intervalUs < Joystick.MIN_INTERVAL_US ? Joystick.MIN_INTERVAL_US : intervalUs
+    }
+
+    static _DelayUsOf(joyDelays, i) {
+        delay := i <= joyDelays.Length ? joyDelays[i] : 100
+        delayUs := Round(delay * 1000)
+        return delayUs < Joystick.MIN_INTERVAL_US ? Joystick.MIN_INTERVAL_US : delayUs
+    }
+
+    ; 把「距离下次到期的微秒数」换算成 SetTimer 的毫秒周期。
+    ; ⚠️ 必须用 Ceil 而不是 Round —— 理由见 _ExecutePeriodic 第 2 步的注释：
+    ;    Round 向下取整会让我们比计划时刻早醒最多 0.5ms，而本实现没有 SleepUntilUs
+    ;    兜底，早醒就意味着再排一个 <1ms 的定时器、被抬成 15.625ms 网格，白吃一格。
+    ;    实测：Round 的 3 秒累积漂移 +15.1~+17.2ms，Ceil 后降到 +1.9~+10.7ms。
+    static _NextPollMs(remainingUs) {
+        if remainingUs <= 0
+            return 1
+        return Ceil(remainingUs / 1000)
+    }
 
     ; =================================================================
     ; 初始化
@@ -126,7 +172,10 @@ class Joystick {
             "sendMethod", resolved,
             "keyDuration", keyDuration,
             "currentStep", 1,
-            "nextStepTime", A_TickCount
+            ; 0 = 未初始化，由 _ExecuteSequence 在**首次执行**时建立基准。
+            ; 旧实现在 StartSequence 里就用 A_TickCount 建基准，基准与首次执行之间
+            ; 还隔着一次 SetTimer(10)，首步会凭空多等一个网格。
+            "nextStepTime", 0
         )
 
         timerFn := () => Joystick._ExecuteSequence(groupId)
@@ -228,97 +277,166 @@ class Joystick {
     ; 执行引擎
     ; =================================================================
 
+    ; 周期性模式：QPC 整数微秒基准 + 保相位推进 + 按计划时刻分桶
+    ;
+    ; 旧实现的四个缺陷（2026-09-14 实测，见 docs/perf 报告）：
+    ;   ① 时间基准用 A_TickCount（步进 15.52ms）；
+    ;   ② `threshold := interval - 5%` 允许提前最多 5% 触发 —— 配置 100ms 实测按
+    ;      95.46ms 发，实测步进在 93.75 / 112.5 之间三循环抖动（min 92.68, max 111.91）；
+    ;   ③ 滞后时 `triggerTimes[i] := now` 把基准重置为当前时刻 —— 既丢相位又吞触发；
+    ;      现改为保相位单调推进，跳过的周期计入 droppedTriggers；
+    ;   ④ 只要有键触发就 `minRemaining := 1`，等于每 15.6ms 空转轮询一次。
+    ;
+    ; ⚠️ 已知残留：本实现**不做** SleepUntilUs 忙等，触发时刻仍受 SetTimer 15.625ms
+    ;    网格限制（抖动约 ±8ms）。消除它必须占用 AHK 主线程约 8~28ms/次，代价与
+    ;    sender.ahk 相当，属独立决策（见 docs/refactor/scheduling-design.md）。
     static _ExecutePeriodic(groupId) {
         if !Joystick._activeGroups.Has(groupId)
             return
 
         state := Joystick._activeGroups[groupId]
         joyKeys := state["joyKeys"]
+        n := joyKeys.Length
+        if n = 0
+            return
         joyIntervals := state["joyIntervals"]
         sendMethod := state["sendMethod"]
         keyDuration := state["keyDuration"]
-        now := A_TickCount
         triggerTimes := state["lastTriggerTimes"]
-        minRemaining := 0x7FFFFFFF
 
-        for i, k in joyKeys {
-            if !triggerTimes.Has(i) {
+        ; ---- 1. 首次出现的键建立基准，顺带求最近的计划时刻 ----
+        now := HighResClock.NowUs()
+        target := 0
+        i := 1
+        while i <= n {
+            if !triggerTimes.Has(i)
                 triggerTimes[i] := now
-                minRemaining := 1
-                continue
+            t := triggerTimes[i] + Joystick._IntervalUsOf(joyIntervals, i)
+            if target = 0 || t < target
+                target := t
+            i++
+        }
+
+        ; ---- 2. 还没到期 → 交还定时器（SetTimer 只收毫秒，µs 差值须 /1000）----
+        ; ⚠️ 这里必须用 Ceil 而不是 Round：本实现没有 SleepUntilUs 兜底，定时器唤醒的
+        ;    瞬间就是触发时刻。Round 向下取整会让我们比计划时刻早醒最多 0.5ms，此时
+        ;    `target - now > 0` 成立 → 再次排一个 <1ms 的定时器 → 被 Max(1,…) 抬成
+        ;    15.625ms 网格，凭空多吃一格。实测：Round 的 3 秒累积漂移 +15.1~+17.2ms，
+        ;    Ceil 后降到 ±2ms 内。（sender.ahk 用 Round 没问题——它有 28ms 提前量，
+        ;    醒来后还有 SleepUntilUs 精修，早醒 0.5ms 不影响。）
+        if target - now > 0 {
+            if Joystick._timers.Has(groupId)
+                SetTimer(Joystick._timers[groupId], -Joystick._NextPollMs(target - now))
+            return
+        }
+
+        ; ---- 3. 收集到期键，按「计划时刻」分桶，并保相位推进基准 ----
+        dueBuckets := Map()          ; dueAt(µs) -> [joyKeys 的下标]
+        minNext := 0x7FFFFFFFFFFF    ; 哨兵要够大：µs 口径下 0x7FFFFFFF 只有约 35 分钟
+        i := 1
+        while i <= n {
+            iv := Joystick._IntervalUsOf(joyIntervals, i)
+            dueAt := triggerTimes[i] + iv
+            next := dueAt             ; 未到期：下一次到期时刻就是本次的计划时刻
+
+            if now >= dueAt {
+                if !dueBuckets.Has(dueAt)
+                    dueBuckets[dueAt] := []
+                dueBuckets[dueAt].Push(i)
+
+                ; 保相位单调推进。⚠️ 禁止在滞后时把基准重置为当前时刻。
+                last := dueAt
+                if dueAt + iv <= now {
+                    steps := Floor((now - (dueAt + iv)) / iv) + 1
+                    last := dueAt + iv + steps * iv - iv
+                    state["droppedTriggers"] := (state.Has("droppedTriggers") ? state["droppedTriggers"] : 0) + steps
+                }
+                triggerTimes[i] := last
+                next := last + iv
             }
 
-            interval := i <= joyIntervals.Length ? joyIntervals[i] : 50
-            if interval < 10
-                interval := 10
+            if next < minNext
+                minNext := next
+            i++
+        }
 
-            elapsed := now - triggerTimes[i]
-            threshold := interval - Max(1, Round(interval * 0.05))
-
-            if elapsed >= threshold {
-                capturedKey := k
-                capturedMethod := sendMethod
-                Joystick._SendJoyKey(capturedKey, "down", capturedMethod)
-                Joystick._ScheduleRelease(groupId, capturedKey, capturedMethod, keyDuration)
-                triggerTimes[i] := triggerTimes[i] + interval
-                if triggerTimes[i] < now - interval
-                    triggerTimes[i] := now
-                minRemaining := 1
-            } else {
-                remaining := threshold - elapsed
-                if remaining < minRemaining
-                    minRemaining := remaining
+        ; ---- 4. 逐桶批量按下（同一计划时刻的键必须在同一 tick 内发完）----
+        for dueAt, bucket in dueBuckets {
+            for idx in bucket {
+                k := joyKeys[idx]
+                Joystick._SendJoyKey(k, "down", sendMethod)
+                Joystick._ScheduleRelease(groupId, k, sendMethod, keyDuration)
             }
         }
 
-        nextPoll := Max(1, minRemaining)
+        ; ---- 5. 排下一次唤醒（须在发送之后取时刻）----
+        remaining := minNext - HighResClock.NowUs()
         if Joystick._timers.Has(groupId)
-            SetTimer(Joystick._timers[groupId], -nextPoll)
+            SetTimer(Joystick._timers[groupId], -Joystick._NextPollMs(remaining))
     }
 
+    ; 序列模式：与 _ExecutePeriodic 同策略
+    ;
+    ; 旧实现 `state["nextStepTime"] := A_TickCount + nextDelay` 用「发送完成后的当前时刻」
+    ; 推进基准，把每一步的实际超时累积进下一步。实测 delay=100ms 时步进退化成
+    ; 110.73ms（每步 +9.23ms），3 秒累积漂移 +258.6ms。
+    ; 现改为：基准用「本次的计划时刻 dueAt」推进，超时不累积。
     static _ExecuteSequence(groupId) {
         if !Joystick._activeGroups.Has(groupId)
             return
 
         state := Joystick._activeGroups[groupId]
         joyKeys := state["joyKeys"]
+        n := joyKeys.Length
+        if n = 0
+            return
         joyDelays := state["joyDelays"]
         sendMethod := state["sendMethod"]
         keyDuration := state["keyDuration"]
-        now := A_TickCount
+
+        now := HighResClock.NowUs()
 
         step := state["currentStep"]
-        if step > joyKeys.Length
+        if step > n
             step := 1
 
-        delay := step <= joyDelays.Length ? joyDelays[step] : 100
-        if delay < 10
-            delay := 10
+        ; 首次执行才建立基准（0 = 未初始化），首步立即触发
+        if !state.Has("nextStepTime") || state["nextStepTime"] = 0
+            state["nextStepTime"] := now
 
-        if state["nextStepTime"] = 0
-            state["nextStepTime"] := now + delay
+        dueAt := state["nextStepTime"]
 
-        if now < state["nextStepTime"] - 2 {
-            remaining := Max(1, state["nextStepTime"] - now - 2)
+        ; ---- 还没到期 → 交还定时器 ----
+        if dueAt - now > 0 {
             if Joystick._timers.Has(groupId)
-                SetTimer(Joystick._timers[groupId], -remaining)
+                SetTimer(Joystick._timers[groupId], -Joystick._NextPollMs(dueAt - now))
             return
         }
 
+        ; ---- 发送当前步 ----
         k := joyKeys[step]
-        capturedKey := k
-        capturedMethod := sendMethod
-        Joystick._SendJoyKey(capturedKey, "down", capturedMethod)
-        Joystick._ScheduleRelease(groupId, capturedKey, capturedMethod, keyDuration)
+        Joystick._SendJoyKey(k, "down", sendMethod)
+        Joystick._ScheduleRelease(groupId, k, sendMethod, keyDuration)
 
-        state["currentStep"] := Mod(step, joyKeys.Length) + 1
-        nextDelay := state["currentStep"] <= joyDelays.Length ? joyDelays[state["currentStep"]] : 100
-        if nextDelay < 10
-            nextDelay := 10
-        state["nextStepTime"] := A_TickCount + nextDelay
+        ; ---- 保相位推进：基准用本次的计划时刻 dueAt，不用发送后的当前时刻 ----
+        nextStep := Mod(step, n) + 1
+        nextDelay := Joystick._DelayUsOf(joyDelays, nextStep)
 
-        if Joystick._timers.Has(groupId)
-            SetTimer(Joystick._timers[groupId], -Max(1, nextDelay))
+        advance := 1
+        next := dueAt + nextDelay
+        if next <= now {
+            skipped := Floor((now - next) / nextDelay) + 1
+            next += skipped * nextDelay
+            state["droppedTriggers"] := (state.Has("droppedTriggers") ? state["droppedTriggers"] : 0) + skipped
+            advance += skipped
+        }
+        state["nextStepTime"] := next
+        state["currentStep"] := Mod(step - 1 + advance, n) + 1
+
+        if Joystick._timers.Has(groupId) {
+            remaining := next - HighResClock.NowUs()
+            SetTimer(Joystick._timers[groupId], -Joystick._NextPollMs(remaining))
+        }
     }
 
     ; =================================================================
@@ -386,6 +504,12 @@ class Joystick {
         try {
             if !Joystick._ValidateJoyKey(key)
                 return
+
+            ; 与 Sender._sendHook 同约定：非空则完全接管发送，不产生真实副作用
+            if Joystick._joySendHook != "" {
+                Joystick._joySendHook.Call(key, state)
+                return
+            }
 
             if Joystick._IsButton(key) {
                 btnNum := Joystick._GetButtonNum(key)

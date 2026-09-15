@@ -1177,6 +1177,18 @@ AHK/Windows 下**没有任何亚 15.625 ms 的唤醒手段**（本机实测，Au
    `*Legacy` 作对照与回退。两者等价性由 `tests/test_ahk_executor/test_sender.ahk`
    的 `Test_TickMerge_*` 用例钉住（含 `state["lastNextDue"]` 的真值校验）。
    ⚠️ 任何一边改了逻辑都要同步另一边，否则开关两侧行为会分叉。
+10. **没有 `SleepUntilUs` 兜底的调度路径，定时器周期必须 `Ceil`、不能 `Round`**
+    （`Joystick._NextPollMs`）。`Round` 会向下取整最多 0.5 ms，于是比计划时刻早醒；
+    早醒时没有键到期，本轮只能再排一个 <1 ms 的定时器，被 `Max(1, …)` 抬成 15.625 ms
+    网格，白吃一格。实测 joystick 序列模式 3 秒累积漂移：`Round` +15.1~+17.2 ms →
+    `Ceil` +1.9~+10.7 ms。反之 `sender.ahk` 用 `Round` 没问题 —— 它有 28 ms 提前量，
+    醒来后还有 `SleepUntilUs` 精修，早醒 0.5 ms 不影响结果。
+
+> ℹ️ **适用范围**：上表规范同时适用于 `sender.ahk` 与 `joystick.ahk`（后者已改用
+> 整数 µs + 保相位推进，并有 `Joystick._IntervalUsOf` / `_DelayUsOf` / `_NextPollMs`）。
+> 差异在于：**joystick 目前不做 `SleepUntilUs` 忙等**，触发时刻仍受 15.625 ms 网格
+> 限制（抖动约 ±8 ms）。消除它必须连续占用 AHK 主线程约 8~28 ms/次（与 sender 同量级），
+> 属独立决策，见 `docs/refactor/scheduling-design.md`。
 
 > ⚠️ **精确定刻的代价：会连续占用 AHK 主线程。**
 > `SleepUntil` 的让出段用的是 `DllCall("kernel32\Sleep", 0)`，**不会放行其它 AHK 定时器**；

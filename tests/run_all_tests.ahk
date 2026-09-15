@@ -233,7 +233,8 @@ testManager.RegisterSuite(
     JoystickInitTests,
     JoystickStartPeriodicTests,
     JoystickStartSequenceTests,
-    JoystickStartHoldTests
+    JoystickStartHoldTests,
+    JoystickSchedulingTests
 )
 
 ; ============================================================

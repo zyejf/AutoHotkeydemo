@@ -572,3 +572,206 @@ class JoystickStartHoldTests extends AutoHotUnitSuite {
         Joystick.StopGroup("__test_joy_h_2")
     }
 }
+
+; =================================================================
+; 测试替身：拦截 Joystick 的发送原语（与 Sender._sendHook 同约定）
+;
+; 用类静态字段而不是脚本级变量承接日志 —— AHK v2 的箭头函数不会闭包捕获
+; 脚本级变量（函数 assume-local），而类静态成员是全局可达的。
+; =================================================================
+
+class JoyHookSpy {
+    static log := []
+
+    static Install() {
+        JoyHookSpy.log := []
+        Joystick._joySendHook := ((k, s) => JoyHookSpy.Record(k, s))
+    }
+
+    static Record(key, state) {
+        JoyHookSpy.log.Push(key "|" state)
+    }
+
+    static DownCount() {
+        n := 0
+        for e in JoyHookSpy.log
+            if InStr(e, "|down")
+                n++
+        return n
+    }
+}
+
+; =================================================================
+; 测试套件：Joystick 调度定刻（QPC 整数微秒 + 保相位推进）
+;
+; 判别性取值说明：间隔统一用 16.001ms。16.001 * 1000 = 16001.000000000002
+; 在双精度下**不是**整数，若实现漏掉 Round() 这些断言会立刻变红；
+; 而 33.333 / 99.999 这类取值乘 1000 恰好是整数，属假阴性，禁止使用。
+; =================================================================
+
+class JoystickSchedulingTests extends AutoHotUnitSuite {
+    afterAll() {
+        Joystick._joySendHook := ""
+        Joystick.EmergencyRelease()
+    }
+
+    Test_IntervalAndDelayUs_AreIntegerMicroseconds() {
+        this.assert.equal(Joystick._IntervalUsOf([16.001], 1), 16001)
+        this.assert.equal(Joystick._DelayUsOf([16.001], 1), 16001)
+        this.assert.equal(Joystick._IntervalUsOf([16.001], 1) * 3, Joystick._IntervalUsOf([48.003], 1))
+        this.assert.equal(Joystick._IntervalUsOf([1], 1), Joystick.MIN_INTERVAL_US)
+        this.assert.equal(Joystick._DelayUsOf([1], 1), Joystick.MIN_INTERVAL_US)
+        this.assert.equal(Joystick._IntervalUsOf([], 1), 50000)
+        this.assert.equal(Joystick._DelayUsOf([], 1), 100000)
+    }
+
+    ; 唤醒周期必须向上取整：Round 会早醒最多 0.5ms，而本实现没有 SleepUntilUs 兜底，
+    ; 早醒 = 再排一个 <1ms 的定时器 = 被抬成 15.625ms 网格白吃一格（实测 3 秒多漂 15ms）
+    Test_NextPollMs_UsesCeilNotRound() {
+        this.assert.equal(Joystick._NextPollMs(1001), 2)
+        this.assert.equal(Joystick._NextPollMs(1999), 2)
+        this.assert.equal(Joystick._NextPollMs(100000), 100)
+        this.assert.equal(Joystick._NextPollMs(500), 1)
+        this.assert.equal(Joystick._NextPollMs(0), 1)
+        this.assert.equal(Joystick._NextPollMs(-5000), 1)
+    }
+
+    Test_JoySendHook_InterceptsBothStates() {
+        JoyHookSpy.Install()
+        Joystick._SendJoyKey("Joy1", "down", "direct")
+        Joystick._SendJoyKey("Joy1", "up", "direct")
+        this.assert.equal(JoyHookSpy.log.Length, 2)
+        this.assert.equal(JoyHookSpy.log[1], "Joy1|down")
+        this.assert.equal(JoyHookSpy.log[2], "Joy1|up")
+        ; 阳性对照：白名单校验先于钩子，非法键根本到不了钩子（否则上面三条恒真）
+        Joystick._SendJoyKey("JoyBogus", "down", "direct")
+        this.assert.equal(JoyHookSpy.log.Length, 2)
+        Joystick._joySendHook := ""
+    }
+
+    ; 序列模式核心：基准必须从「本次的计划时刻」推进，而不是发送完成后的当前时刻。
+    ; 旧实现 `nextStepTime := A_TickCount + nextDelay` 会把每步超时累积进下一步，
+    ; 实测 delay=100ms 时步进退化成 110.8ms、3 秒累积漂移 +260ms。
+    Test_Sequence_AdvancesBaseFromPlannedDue() {
+        JoyHookSpy.Install()
+        Joystick.EmergencyRelease()
+        id := "__test_joy_seq_base"
+        ; 延时取 1000ms、基准设在 0.5s 前：既让首步必然到期，又保证推进后的下一步
+        ; 仍在未来（不触发追帧分支），于是「按计划时刻推进」与「按当前时刻推进」
+        ; 会差出整整 500ms，断言不会被 µs 级抖动淹没。
+        Joystick.StartSequence(id, ["Joy1", "Joy2"], [1000, 1000], "direct", 15)
+        state := Joystick._activeGroups[id]
+        baseUs := HighResClock.NowUs() - 500000
+        state["nextStepTime"] := baseUs
+        Joystick._ExecuteSequence(id)
+        this.assert.equal(state["nextStepTime"], baseUs + 1000000)
+        this.assert.equal(state["currentStep"], 2)
+        this.assert.equal(JoyHookSpy.DownCount(), 1)
+        ; 阳性对照：基准必须落在「+500ms 的近未来」。若改用当前时刻推进会得到 +1000ms，
+        ; 上界断言立刻变红；若基准被漏推进则下界断言变红。
+        this.assert.isTrue(state["nextStepTime"] > HighResClock.NowUs())
+        this.assert.isTrue(state["nextStepTime"] < HighResClock.NowUs() + 900000)
+        Joystick._joySendHook := ""
+        Joystick.StopGroup(id)
+    }
+
+    ; 滞后时必须保相位单调推进，并把跳过的步数计入 droppedTriggers
+    Test_Sequence_PreservesPhaseAndCountsDropped() {
+        JoyHookSpy.Install()
+        Joystick.EmergencyRelease()
+        id := "__test_joy_seq_dropped"
+        Joystick.StartSequence(id, ["Joy1", "Joy2"], [16.001, 16.001], "direct", 15)
+        state := Joystick._activeGroups[id]
+        baseUs := HighResClock.NowUs() - 200000
+        state["nextStepTime"] := baseUs
+        Joystick._ExecuteSequence(id)
+        ; 200ms / 16.001ms = 12.5 → 跳过 12 步，基准落在 baseUs + 13*16001
+        this.assert.equal(state["nextStepTime"], baseUs + 13 * 16001)
+        this.assert.equal(state["droppedTriggers"], 12)
+        ; 保相位：推进量必须是间隔的整数倍
+        this.assert.equal(Mod(state["nextStepTime"] - baseUs, 16001), 0)
+        Joystick._joySendHook := ""
+        Joystick.StopGroup(id)
+    }
+
+    ; 周期性模式（**非追帧**路径）：正常到点触发时，基准必须推进到「本次的计划时刻」。
+    ; 注意必须走非追帧路径 —— 一旦落后超过一个周期，推进量会被追帧分支重算，
+    ; 把「用当前时刻当基准」的缺陷掩盖掉（这正是本用例存在的理由）。
+    Test_Periodic_AdvancesBaseFromPlannedDue() {
+        JoyHookSpy.Install()
+        Joystick.EmergencyRelease()
+        id := "__test_joy_per_base"
+        Joystick.StartPeriodic(id, ["Joy1"], [16.001], "direct", 15)
+        state := Joystick._activeGroups[id]
+        ; 落后 28ms：已越过本次计划时刻（+16.001ms），但下一次计划时刻（+32.002ms）
+        ; 仍在未来，因此不会进追帧分支 —— `last := dueAt` 的结果可被精确断言。
+        baseUs := HighResClock.NowUs() - 28000
+        state["lastTriggerTimes"][1] := baseUs
+        Joystick._ExecutePeriodic(id)
+        tt := state["lastTriggerTimes"]
+        this.assert.equal(tt[1], baseUs + 16001)
+        this.assert.equal(JoyHookSpy.DownCount(), 1)
+        this.assert.isFalse(state.Has("droppedTriggers"))
+        ; 阳性对照：若基准被写成「当前时刻」，它就不会还停在 1ms 之前的过去
+        this.assert.isTrue(tt[1] < HighResClock.NowUs() - 1000)
+        Joystick._joySendHook := ""
+        Joystick.StopGroup(id)
+    }
+
+    ; 周期性模式：滞后时保相位推进 + 计入 droppedTriggers，
+    ; 旧实现 `triggerTimes[i] := now` 会丢相位并吞掉本应发生的触发
+    Test_Periodic_PreservesPhaseAndCountsDropped() {
+        JoyHookSpy.Install()
+        Joystick.EmergencyRelease()
+        id := "__test_joy_per_dropped"
+        Joystick.StartPeriodic(id, ["Joy1"], [16.001], "direct", 15)
+        state := Joystick._activeGroups[id]
+        baseUs := HighResClock.NowUs() - 200000
+        state["lastTriggerTimes"][1] := baseUs
+        Joystick._ExecutePeriodic(id)
+        tt := state["lastTriggerTimes"]
+        this.assert.equal(tt[1], baseUs + 12 * 16001)
+        this.assert.equal(state["droppedTriggers"], 11)
+        this.assert.equal(Mod(tt[1] - baseUs, 16001), 0)
+        ; 阳性对照：若基准被重置为当前时刻，它就不会还停在 1ms 之前的过去
+        this.assert.isTrue(tt[1] < HighResClock.NowUs() - 1000)
+        Joystick._joySendHook := ""
+        Joystick.StopGroup(id)
+    }
+
+    ; 不允许「提前触发」：旧实现 threshold := interval - 5%，配置 100ms 实际按 95ms 发
+    Test_Periodic_DoesNotFireBeforeConfiguredInterval() {
+        JoyHookSpy.Install()
+        Joystick.EmergencyRelease()
+        id := "__test_joy_per_early"
+        Joystick.StartPeriodic(id, ["Joy1"], [100], "direct", 15)
+        state := Joystick._activeGroups[id]
+        ; 已过 95ms < 100ms —— 旧实现的 5% 容差会在这里触发，新实现不应触发
+        state["lastTriggerTimes"][1] := HighResClock.NowUs() - 95000
+        Joystick._ExecutePeriodic(id)
+        this.assert.equal(JoyHookSpy.DownCount(), 0)
+        ; 阳性对照：再过 8ms 越过 100ms 后必须触发（证明上面那条不是恒真）
+        state["lastTriggerTimes"][1] := HighResClock.NowUs() - 103000
+        Joystick._ExecutePeriodic(id)
+        this.assert.equal(JoyHookSpy.DownCount(), 1)
+        Joystick._joySendHook := ""
+        Joystick.StopGroup(id)
+    }
+
+    ; 空按键表：旧实现在 `_ExecuteSequence` 里 Mod(step, 0) 会除零、joyKeys[1] 会越界
+    Test_EmptyJoyKeys_SchedulerIsNoop() {
+        JoyHookSpy.Install()
+        Joystick.EmergencyRelease()
+        id := "__test_joy_empty"
+        Joystick.StartSequence(id, [], [], "direct", 15)
+        Joystick._ExecuteSequence(id)
+        this.assert.equal(Joystick._activeGroups[id]["currentStep"], 1)
+        Joystick.StopGroup(id)
+        Joystick.StartPeriodic(id, [], [], "direct", 15)
+        Joystick._ExecutePeriodic(id)
+        this.assert.equal(Joystick._activeGroups[id]["joyKeys"].Length, 0)
+        this.assert.equal(JoyHookSpy.DownCount(), 0)
+        Joystick._joySendHook := ""
+        Joystick.StopGroup(id)
+    }
+}
