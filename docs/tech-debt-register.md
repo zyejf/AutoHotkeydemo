@@ -52,7 +52,7 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 | TD-001 | B 重复逻辑 | `docs/review/2026-08-20/fix-plan/workspace-snapshot/` 把 5 个生产 AHK 文件快照进 docs（97K，含 `main.ahk`/`backup_core.ahk`/`migration_logger.ahk`/`run_all_tests.ahk`）。会随生产代码改动而静默陈旧 | 2 | 4 | 4 | 2 | 0.5 | 1.0 | **17.0** | P0 | **已完成**（2026-09-16：4 个 .ahk 已移除，替换为 `README.md` 说明与 `git show 5e97fab:...` 取回路径；C1c 4→0） | 1 |
 | TD-002 | A 坏味道 / D 缺失测试 | `tests/test_joystick.ahk` 存在但 `tests/run_all_tests.ahk` 只注册了 `test_ahk_executor/test_joystick.ahk`。要么死文件，要么**测试从未被执行** | 3 | 2 | 5 | 3 | 0.5 | 1.0 | **18.4** | P0 | **已完成**（2026-09-16：经查两者**不是同一个类**——那边测 executor 的 `Joystick`，这边测 domain 的 `JoystickInput`（`main.ahk:42` 仍 include）。故改名 `test_joystick_input.ahk` + 转 AutoHotUnit 套件接入 run_all_tests，33 条断言首次真正执行，并**当场暴露出生产 BUG → TD-017**） | 1 |
 | TD-003 | A 坏味道 | 根 `ui_manager.ahk` 无任何 `#Include` 指向它（全部指向 `presentation/ui_manager.ahk`）→ 迁移遗留死代码 | 1 | 1 | 5 | 1 | 0.5 | 1.0 | **11.3** | P0 | **已完成**（2026-09-16：已删除。它与真身**同名 `class UIManager`**，删后全局唯一；独立佐证见 `docs/module-adjacency.md` §4.3 重名警告；C1b 7→6） | 1 |
-| TD-004 | B 重复逻辑 | `tools/ahk-bench/_harness.ahk` 与 `tools/ahk-probes/_harness.ahk` 两份 harness。⚠️ 合并时注意 AHK v2 **同名函数重复定义会报错**（现 `bench_prod_tick.ahk` 已在本地定义 `RefBatch`/`MeasureRef`，正是为此） | 2 | 3 | 4 | 2 | 1 | 1.4 | **7.9** | P1 | 待排期 | 2 |
+| TD-004 | B 重复逻辑 | `tools/ahk-bench/_harness.ahk` 与 `tools/ahk-probes/_harness.ahk` 两份 harness。⚠️ 合并时注意 AHK v2 **同名函数重复定义会报错**（现 `bench_prod_tick.ahk` 已在本地定义 `RefBatch`/`MeasureRef`，正是为此） | 2 | 3 | 4 | 2 | 1 | 1.4 | **7.9** | P1 | **已完成**（2026-09-16：抽出 `tools/_ahk_common.ahk` 承载**纯计算原语**（QPC 时钟 / 快排 / 分位数 / mean·max·min），两份 `_harness.ahk` 只保留各自**与输出约定绑定**的部分。⚠️ 合并前实测发现两份 `Pct` **语义不同** —— bench 版要求入参已升序、probes 版内部自排序；**同名不同义才是这笔债真正的成本，行数是次要的**。现统一为「`Pct` 只做索引，排序显式写成 `SortNums`」，probes 侧保留 `_Pct` 薄包装（内部先排）以免动 11 个探针脚本；**22 个 `bench_*/p*_*.ahk` 调用脚本零改动**。刻意**不**统一输出目录 / CSV 编码 / 哨兵语义：两侧本就不同（bench 取 `AHK_BENCH_OUT` + UTF-8 + append；probes 固定 `%TEMP%\ahkprobe` + UTF-8-RAW + 哨兵写耗时），统一会动到已有有效基线的基准。验证：① 等价性对照 **5162 断言**（n=0/1/2/…/101，且刻意混入大量重复值以压测快排分区）新实现与改动前逐字副本**逐位一致**；② 阳性对照注入「忘记排序」→ **323 处 MISMATCH**；③ 门禁基准 prod_escape（0.98~1.14×）/ prod_tick（1.03~1.08×）全部 PASS） | 2 |
 | TD-005 | D 缺失测试 | JS **零单测、零 lint、零覆盖率**（`package.json` 无 test/lint 脚本，无 eslint 配置）；23 个 js + 23 个 html | 4 | 3 | 2 | 3 | 5 | 1.4 | **3.8** | P2 | 待排期 | 3 |
 | TD-006 | D 门禁缺失 | coverage job 只上传 lcov，**无阈值且非阻断** → 覆盖率事实上无门禁（**当前基线 81.64%，逐文件数字见 `test-map.md`「覆盖率」节**） | 4 | 3 | 4 | 4 | 1 | 1.0 | **15.0** | P0 | **已完成**（2026-09-16：新增 `scripts/check-coverage.py` 做**棘轮**门禁，CI 的 coverage job 由 `continue-on-error` + 仅 push 改为**阻断**。整体容差 0.5pp、单文件 2.0pp，双阈值防「总体稀释」与「丢车保帅」；新文件只登记不判。**刻意不设「≥80%」这类凭空目标** —— 那只会逼出无断言的刷数测试，污染指标本身。阳性对照 4 组：① 单文件腰斩 → 整体+单文件双报 FAIL；② 小文件 100%→25% 而整体仅跌 0.47pp → **只有单文件阈值抓得住**（这条正是双阈值的存在理由）；③ 容差内波动 → PASS 不误报；④ **端到端**：真删掉 `group_service_tests.rs`（212 行）→ 整体 −2.43pp、该文件 −39.95pp，EXIT=1，还原后回绿） | 2 |
 | TD-007 | D 缺失测试 | 覆盖率只覆盖 3 个纯逻辑 crate；`src-tauri` 主 crate（Linux 不可编译）、AHK、JS 均无覆盖率 | 4 | 3 | 2 | 3 | 5 | 1.4 | **3.8** | P2 | 待排期 | 3 |
@@ -75,7 +75,7 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 | TD-023 | A 代码坏味道 | 两个函数超过 `too_many_lines` 阈值：`validator.rs::validate_mode_data` **294 行**、`group_service.rs::register_hotkey` **104 行**。前者是「按 mode 分派的子校验器集合」，切分要先把每个 mode 的子校验抽成函数并对齐错误文案 | 3 | 3 | 3 | 3 | 5 | 1.4 | **3.8** | P2 | 待排期（2026-09-16 由 TD-012 度量得出。已就地 `#[allow]` 并注明原因，**未上调阈值** —— 上调等于宣布「这么长是合理的」） | 3 |
 | TD-024 | D 门禁缺失 | 覆盖率基线**只存百分比不存行数** → 统计口径漂移时完全看不出来。实测：同一份代码换一条 `llvm-cov` 命令后 `validator.rs` 统计行数 2367→1856（-21.6%），命中数几乎不变，整体「涨」7pp —— 棘轮在拿两个不可比的数字互相比 | 2 | 2 | 3 | 2 | 1 | 1.0 | **9.0** | P1 | **已完成**（2026-09-16：基线改为存每个文件的 `lines`/`hits` 作为口径指纹，新增判定「单文件行数变化 >10% 且 ≥20 行 → FAIL」；同时按 CI 命令重取基线 81.64%→88.65%，并在 test-map 注明**这是量程变化不是覆盖率提升**。阳性对照：砍 30% → FAIL；砍 1.6% → PASS） | 2 |
 
-**统计**：P0 **8** 项（**全部完成**）｜P1 **8** 项（其中 4 项已完成）｜P2 **8** 项｜合计 **24** 项。
+**统计**：P0 **8** 项（**全部完成**）｜P1 **8** 项（其中 5 项已完成）｜P2 **8** 项｜合计 **24** 项。
 
 > P0 已于 2026-09-16 清零。剩余 12 项集中在「测试补齐」（P2）与「架构收敛/门禁加固」（P1），
 > 均不阻塞交付，按阶段 2→4 顺序推进。
@@ -90,7 +90,7 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 
 | 检 | 覆盖的债项 | 0 号基线 |
 |---|---|---|
-| C1b 同名重复 | TD-003（根 `ui_manager.ahk`）、TD-002（`tests/test_joystick.ahk`）、TD-004（双 `_harness.ahk`） | 7 |
+| C1b 同名重复 | TD-003（根 `ui_manager.ahk`）、TD-002（`tests/test_joystick.ahk`）、TD-004（双 `_harness.ahk`） | 7（**现只剩 1 项**：双 `_harness.ahk` 是**刻意保留**——重复**逻辑**已抽到 `tools/_ahk_common.ahk`，剩下两个同名文件是各守不同输出约定的薄 shim，见 TD-004。C1b 只按 basename 判定，认不出这个区别，所以它会一直绿着；**不要**为了消这一项去合并输出约定） |
 | C1c 代码在非代码目录 | TD-001（`docs/**/workspace-snapshot/` 4 个文件） | 4 |
 | C2 测试未接入执行 | TD-002、TD-013（`tests/legacy/json.ahk`）+ 8 个独立 runner 未被 `run_all_tests` 覆盖 | 10 |
 | C3 文档-代码一致性 | TD-011（K 值漂移，**已修复**；脚本即为防复发手段） | 0 |

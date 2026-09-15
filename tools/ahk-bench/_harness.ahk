@@ -2,11 +2,15 @@
 ; _harness.ahk —— AHK 重构基准公共框架（自包含，不依赖任何生产代码）
 ;
 ; 提供：
-;   - QPC 高精度计时（秒，double）
+;   - 输出目录解析 + CSV 写出 + .done 哨兵（run.sh 轮询它）
 ;   - 内存采样（WorkingSet / PrivateUsage，KB）
 ;   - CPU 采样（kernel+user，ms）
-;   - 分位数统计（p50/p95/max/min/mean）
 ;   - OnError 守卫：GUI 子系统下未捕获错误会弹模态框导致静默挂起
+;
+; 纯计算原语（QPC 时钟 / 快排 / 分位数）在 tools\_ahk_common.ahk，与 ahk-probes
+; 共用一份（TD-004）。本文件只留**与 bench 输出约定绑定**的部分：输出目录取自
+; AHK_BENCH_OUT、CSV 写 UTF-8（带 BOM）、BenchInit 支持 append —— 这三点 probes
+; 侧都不同，强行统一会动到已有有效基线的基准。
 ;
 ; 输出：%TEMP%\ahkbench\<id>.csv  +  <id>.done 哨兵（run.sh 轮询它）
 ;
@@ -15,6 +19,11 @@
 ;   脚本级变量不会被箭头函数闭包捕获（assume-local）→ 必须 global
 ; =================================================================
 #Requires AutoHotkey v2.0
+
+; 时钟 / 快排 / 分位数：与 ahk-probes 共用（TD-004）。相对路径对 bench 与 probes
+; 两侧都成立 —— AHK 解析 ..\ 时，无论按 A_ScriptDir 还是按 include 所在文件取，
+; 落点都是 tools\（主脚本与 _harness.ahk 同目录）。
+#Include "..\_ahk_common.ahk"
 
 global BENCH_ID    := ""
 global BENCH_DIR   := ""
@@ -83,23 +92,6 @@ BenchDone() {
 }
 
 ; ---------------------------------------------------------------
-; QPC 高精度时钟（秒）。A_TickCount 步进 15.52ms，测不了毫秒级差异。
-; ---------------------------------------------------------------
-HighResNow() {
-    static freq := 0
-    if !freq
-        DllCall("QueryPerformanceFrequency", "Int64*", &freq)
-    DllCall("QueryPerformanceCounter", "Int64*", &c := 0)
-    return c / freq
-}
-
-SleepUntil(target) {
-    while HighResNow() < target
-        Sleep(0)
-    return HighResNow()
-}
-
-; ---------------------------------------------------------------
 ; 内存采样：伪句柄 -1 = 当前进程。
 ; PROCESS_MEMORY_COUNTERS_EX 偏移：16 = WorkingSetSize，72 = PrivateUsage。
 ; ---------------------------------------------------------------
@@ -123,64 +115,14 @@ SnapCpuMs() {
     return (NumGet(ft, 16, "Int64") + NumGet(ft, 24, "Int64")) / 10000
 }
 
-; ---------------------------------------------------------------
-; 统计：AHK 2.0.26 的 Array 没有 Sort() 方法，自写快排。
-; ⚠️ _Pct 索引 = Ceil(n*p)：样本不足 40 时 P95 实际退化成接近最大值，
-;    所以基准一律取足样本，并同时给出中位数与最大值。
-; ---------------------------------------------------------------
-SortNums(arr) {
-    s := arr.Clone()
-    if s.Length > 1
-        QSort(s, 1, s.Length)
-    return s
-}
-
-QSort(a, lo, hi) {
-    if lo >= hi
-        return
-    i := lo, j := hi, p := a[(lo + hi) // 2]
-    while i <= j {
-        while a[i] < p
-            i++
-        while a[j] > p
-            j--
-        if i <= j {
-            tmp := a[i], a[i] := a[j], a[j] := tmp
-            i++, j--
-        }
-    }
-    if lo < j
-        QSort(a, lo, j)
-    if i < hi
-        QSort(a, i, hi)
-}
-
-Pct(arr, p) {
-    n := arr.Length
-    if n = 0
-        return 0
-    i := Ceil(n * p)
-    i := Max(1, Min(i, n))
-    return arr[i]
-}
-
-Mean(arr) {
-    n := arr.Length
-    if n = 0
-        return 0
-    s := 0
-    for v in arr
-        s += v
-    return s / n
-}
-
 ; 输出一行：<tag>,p50=..,p95=..,max=..,min=..,mean=..,n=..
+; SortNums / Pct / Mean / ArrMax / ArrMin 来自 ..\_ahk_common.ahk
 BenchStat(tag, arr) {
     s := SortNums(arr)
     BenchWrite(tag . ",p50=" . Round(Pct(s, 0.50), 4)
         . ",p95=" . Round(Pct(s, 0.95), 4)
-        . ",max=" . Round(s[s.Length], 4)
-        . ",min=" . Round(s[1], 4)
+        . ",max=" . Round(ArrMax(s), 4)
+        . ",min=" . Round(ArrMin(s), 4)
         . ",mean=" . Round(Mean(s), 4)
         . ",n=" . s.Length)
 }

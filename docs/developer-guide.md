@@ -1043,7 +1043,8 @@ cat "$TEMP/ahkprobe/p2_timer.csv"
 | 文件 | 用途 |
 |------|------|
 | `run.sh` | 唯一入口：转换 Windows 路径 + 后台拉起 + 轮询 `.done` |
-| `_harness.ahk` | 公共框架：QPC 高精度时钟、分位数统计、`OnError` 守卫（防模态框挂起） |
+| `_harness.ahk` | 探针框架：输出目录 / CSV 写出 / `.done` 哨兵 / `OnError` 守卫（防模态框挂起） |
+| `../_ahk_common.ahk` | 与 ahk-bench **共用**的纯计算原语：QPC 时钟、快排、分位数、mean·max·min（TD-004） |
 | `p0_version.ahk` ~ `p10_uac.ahk` | 10 组探针，逐一对应报告章节 |
 | `gen_fixtures.py` + `bench_startup.py` | 启动/解析开销的外部墙钟基准 |
 
@@ -1096,7 +1097,8 @@ python tools/ahk-bench/envinfo.py
 | 文件 | 用途 |
 |------|------|
 | `run.sh` | 运行器：显式传 `AHK_BENCH_OUT`（Windows 路径）+ 轮询 `.done` |
-| `_harness.ahk` | 公共框架：QPC 计时、`GetProcessMemoryInfo` / `GetProcessTimes` 采样、统计 |
+| `_harness.ahk` | 基准框架：`AHK_BENCH_OUT` 输出目录、`GetProcessMemoryInfo` / `GetProcessTimes` 采样、`OnError` 守卫 |
+| `../_ahk_common.ahk` | 与 ahk-probes **共用**的纯计算原语：QPC 时钟、快排、分位数、mean·max·min（TD-004） |
 | `bench_*.ahk` | 7 组双实现基准，均含旧/新对照与等价性校验 |
 | `cycle_leak_all.sh` | 逐个用例独立进程跑 `cycle_leak`（含阳性对照） |
 | `report.py` | CSV → Markdown 对比报告 |
@@ -1111,6 +1113,16 @@ python tools/ahk-bench/envinfo.py
 > ⚠️ **`run_3rounds.sh` 为什么要每轮独立目录**：本环境 `rm` 会被 safe-delete 钩子拦截
 > （`genie-trash` 无法处理 `/d/...` 与 `C:\...` 混写路径），清不掉 `.done` 哨兵 →
 > 轮询立刻返回 → **跑出上一轮的陈旧 CSV**。独立目录是最省事的绕法。
+
+> ⚠️ **`_ahk_common.ahk` 的重名禁区**：AHK v2 同名函数重复定义是**加载期报错**（不是覆盖）。
+> 该文件占用 `HighResNow` / `SleepUntil` / `SortNums` / `QSort` / `Pct` / `Mean` / `ArrMax` /
+> `ArrMin` 八个名字，include 链上任何脚本都不得再定义一份 —— 包括 `bench_prod_*.ahk`
+> 直接 include 的**生产代码**。往里加函数前先确认 22 个 `bench_*/p*_*.ahk` 没有同名定义。
+>
+> **分位数语义**：`Pct` **只做索引、不排序**，入参必须先 `SortNums`。此前 bench 与 probes
+> 各有一份 `Pct`，一个要求入参已升序、一个内部自排序 —— 同名不同义，改其中一份时没人会
+> 想到另一份，而错的那份不会报任何错（TD-004 的由来）。probes 侧保留 `_Pct` 薄包装
+> （内部先排）是**刻意的**，避免动 11 个探针脚本的 40+ 处调用点。
 
 > **两条内存类基准的硬纪律**：① 必须带**阳性对照**，否则「没测出来」和「没有泄漏」无法区分；
 > ② 必须**每用例独立进程**，同进程连续跑时基线会漂移（实测 3216 → 4696 KB）。

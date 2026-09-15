@@ -13,7 +13,13 @@
 ;   - 变量名禁用 log / in / out 等内置名（log 与内置 Log() 冲突）。
 ;   - `while i<=n { ... }` 不能写单行块体，必须多行。
 ;   - 末尾必须 ExitApp；若探针依赖定时器，需先 #Persistent 或保持热键存在。
+;
+; 时钟 / 快排 / 分位数：与 ahk-bench 共用一份，见 ..\_ahk_common.ahk（TD-004）。
+; 本文件只留**与探针输出约定绑定**的部分：输出目录固定 %TEMP%\ahkprobe、
+; CSV 写 UTF-8-RAW（不带 BOM）、.done 哨兵里写耗时毫秒 —— 这三点 bench 侧都不同。
 ; ============================================================================
+
+#Include "..\_ahk_common.ahk"
 
 global PROBE_ID   := ""
 global PROBE_DIR  := ""
@@ -89,67 +95,18 @@ ProbeDone() {
 }
 
 ; ---------------------------------------------------------------------------
-; 高精度时钟（QPC，秒）。比 A_TickCount 精确三个数量级。
+; 统计工具。实现在 ..\_ahk_common.ahk（与 ahk-bench 共用，TD-004），
+; 这里只保留探针侧**有意不同**的语义与命名：
+;   - `Max` / `Min` 是 AHK 内置函数，同名定义会把它遮蔽掉，所以只能叫 `_Max` / `_Min`；
+;   - `_Pct` 比共享的 `Pct` 多排一次序（共享版要求入参已升序，这里不要求）。
+; 保留这个差异是因为 11 个探针脚本一律传**未排序**的原始样本，
+; 改成显式 Pct(SortNums(x), p) 要动 40+ 处调用点，风险大于收益。
 ; ---------------------------------------------------------------------------
-HighResNow() {
-    static freq := 0
-    if !freq
-        DllCall("QueryPerformanceFrequency", "Int64*", &freq)
-    DllCall("QueryPerformanceCounter", "Int64*", &c := 0)
-    return c / freq
-}
-
-; 忙等到目标时刻（HighResNow 基准，单位秒）
-SleepUntil(target) {
-    while HighResNow() < target
-        Sleep(0)
-}
-
-; ---------------------------------------------------------------------------
-; 统计工具
-; ---------------------------------------------------------------------------
-; 分位数。注意：索引 = Ceil(n*p)。n 太小时 p=0.95 会退化成最大值（P100），
+; 分位数。**入参无需排序**，内部先排。
+; 注意：索引 = Ceil(n*p)。n 太小时 p=0.95 会退化成最大值（P100），
 ; 经验：算 P95 至少要 40 个样本，否则断言的其实是 max。
-; ⚠️ AHK 2.0.26 的 Array **没有 Sort() 方法**（该方法在更高版本才引入），
-; 实测报错 "This value of type Array has no method named Sort"。故自写快排。
-_SortNums(arr) {
-    s := arr.Clone()
-    if s.Length > 1
-        _QSort(s, 1, s.Length)
-    return s
-}
-
-_QSort(a, lo, hi) {
-    i := lo
-    j := hi
-    p := a[(lo + hi) >> 1]
-    while i <= j {
-        while a[i] < p
-            i += 1
-        while a[j] > p
-            j -= 1
-        if i <= j {
-            t := a[i]
-            a[i] := a[j]
-            a[j] := t
-            i += 1
-            j -= 1
-        }
-    }
-    if lo < j
-        _QSort(a, lo, j)
-    if i < hi
-        _QSort(a, i, hi)
-}
-
 _Pct(arr, p) {
-    if arr.Length = 0
-        return 0
-    s := _SortNums(arr)
-    n := s.Length
-    i := Integer(Ceil(n * p))
-    i := (i < 1) ? 1 : ((i > n) ? n : i)
-    return s[i]
+    return Pct(SortNums(arr), p)
 }
 
 _Median(arr) {
@@ -157,28 +114,15 @@ _Median(arr) {
 }
 
 _Max(arr) {
-    m := -1.0e308
-    for v in arr
-        if v > m
-            m := v
-    return arr.Length ? m : 0
+    return ArrMax(arr)
 }
 
 _Min(arr) {
-    m := 1.0e308
-    for v in arr
-        if v < m
-            m := v
-    return arr.Length ? m : 0
+    return ArrMin(arr)
 }
 
 _Mean(arr) {
-    if arr.Length = 0
-        return 0
-    s := 0
-    for v in arr
-        s += v
-    return s / arr.Length
+    return Mean(arr)
 }
 
 ; 一次性输出 p50/p95/max/min/mean/n
