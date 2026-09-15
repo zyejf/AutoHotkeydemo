@@ -12,6 +12,7 @@
 #Include "../domain/mode_registry.ahk"
 #Include "../domain/skill_group.ahk"
 #Include "../domain/skill_manager.ahk"
+#Include "../domain/joystick_input.ahk"
 #Include "../infrastructure/json_parser.ahk"
 #Include "../infrastructure/json_serializer.ahk"
 #Include "../infrastructure/config_validator.ahk"
@@ -25,6 +26,7 @@
 #Include "../infrastructure/config_io.ahk"
 #Include "../infrastructure/ipc_channel.ahk"
 #Include "../infrastructure/migration_logger.ahk"
+#Include "../infrastructure/joy_sender.ahk"
 #Include "../application/config_service.ahk"
 #Include "../application/group_service.ahk"
 #Include "../application/backup_service.ahk"
@@ -42,6 +44,11 @@
 #Include "test_ahk_executor/test_hotkey_hook.ahk"
 #Include "test_ahk_executor/test_sender.ahk"
 #Include "test_ahk_executor/test_joystick.ahk"
+
+; ============================================================
+; JoystickInput / JoySender 测试（domain / infrastructure）
+; ============================================================
+#Include "test_joystick_input.ahk"
 
 ; ============================================================
 ; joy_hotkey_manager 测试（infrastructure/）
@@ -236,6 +243,26 @@ testManager.RegisterSuite(
     JoystickStartSequenceTests,
     JoystickStartHoldTests,
     JoystickSchedulingTests
+)
+
+; ============================================================
+; 注册 JoystickInput / JoySender 测试套件
+; （原 tests/test_joystick.ahk：独立脚本，断言从未在 CI 执行；见文件头注释）
+; ============================================================
+testManager.RegisterSuite(
+    JoystickInputIsButtonTests,
+    JoystickInputIsPovTests,
+    JoystickInputIsAxisTests,
+    JoystickInputIsTriggerTests,
+    JoystickInputGetButtonNumTests,
+    JoystickInputGetPovDirectionTests,
+    JoystickInputGetAxisInfoTests,
+    JoystickInputGetAhkReadKeyTests,
+    JoystickInputPovToDirectionTests,
+    JoystickInputDirectionToPovValueTests,
+    JoystickInputIsJoystickKeyTests,
+    JoySenderIsVJoyAvailableTests,
+    JoySenderResolveMethodTests
 )
 
 ; ============================================================

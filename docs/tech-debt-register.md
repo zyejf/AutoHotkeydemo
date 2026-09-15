@@ -43,9 +43,9 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 
 | ID | 类别 | 描述与证据 | I | P | V | S | C | R | DPI | 档 | 状态 | 阶段 |
 |---|---|---|---:|---:|---:|---:|---:|---:|---:|:--:|---|---|
-| TD-001 | B 重复逻辑 | `docs/review/2026-08-20/fix-plan/workspace-snapshot/` 把 5 个生产 AHK 文件快照进 docs（97K，含 `main.ahk`/`backup_core.ahk`/`migration_logger.ahk`/`run_all_tests.ahk`）。会随生产代码改动而静默陈旧 | 2 | 4 | 4 | 2 | 0.5 | 1.0 | **17.0** | P0 | 待排期 | 1 |
-| TD-002 | A 坏味道 / D 缺失测试 | `tests/test_joystick.ahk` 存在但 `tests/run_all_tests.ahk` 只注册了 `test_ahk_executor/test_joystick.ahk`。要么死文件，要么**测试从未被执行** | 3 | 2 | 5 | 3 | 0.5 | 1.0 | **18.4** | P0 | 待排期 | 1 |
-| TD-003 | A 坏味道 | 根 `ui_manager.ahk` 无任何 `#Include` 指向它（全部指向 `presentation/ui_manager.ahk`）→ 迁移遗留死代码 | 1 | 1 | 5 | 1 | 0.5 | 1.0 | **11.3** | P0 | 待排期 | 1 |
+| TD-001 | B 重复逻辑 | `docs/review/2026-08-20/fix-plan/workspace-snapshot/` 把 5 个生产 AHK 文件快照进 docs（97K，含 `main.ahk`/`backup_core.ahk`/`migration_logger.ahk`/`run_all_tests.ahk`）。会随生产代码改动而静默陈旧 | 2 | 4 | 4 | 2 | 0.5 | 1.0 | **17.0** | P0 | **已完成**（2026-09-16：4 个 .ahk 已移除，替换为 `README.md` 说明与 `git show 5e97fab:...` 取回路径；C1c 4→0） | 1 |
+| TD-002 | A 坏味道 / D 缺失测试 | `tests/test_joystick.ahk` 存在但 `tests/run_all_tests.ahk` 只注册了 `test_ahk_executor/test_joystick.ahk`。要么死文件，要么**测试从未被执行** | 3 | 2 | 5 | 3 | 0.5 | 1.0 | **18.4** | P0 | **已完成**（2026-09-16：经查两者**不是同一个类**——那边测 executor 的 `Joystick`，这边测 domain 的 `JoystickInput`（`main.ahk:42` 仍 include）。故改名 `test_joystick_input.ahk` + 转 AutoHotUnit 套件接入 run_all_tests，33 条断言首次真正执行，并**当场暴露出生产 BUG → TD-017**） | 1 |
+| TD-003 | A 坏味道 | 根 `ui_manager.ahk` 无任何 `#Include` 指向它（全部指向 `presentation/ui_manager.ahk`）→ 迁移遗留死代码 | 1 | 1 | 5 | 1 | 0.5 | 1.0 | **11.3** | P0 | **已完成**（2026-09-16：已删除。它与真身**同名 `class UIManager`**，删后全局唯一；独立佐证见 `docs/module-adjacency.md` §4.3 重名警告；C1b 7→6） | 1 |
 | TD-004 | B 重复逻辑 | `tools/ahk-bench/_harness.ahk` 与 `tools/ahk-probes/_harness.ahk` 两份 harness。⚠️ 合并时注意 AHK v2 **同名函数重复定义会报错**（现 `bench_prod_tick.ahk` 已在本地定义 `RefBatch`/`MeasureRef`，正是为此） | 2 | 3 | 4 | 2 | 1 | 1.4 | **7.9** | P1 | 待排期 | 2 |
 | TD-005 | D 缺失测试 | JS **零单测、零 lint、零覆盖率**（`package.json` 无 test/lint 脚本，无 eslint 配置）；23 个 js + 23 个 html | 4 | 3 | 2 | 3 | 5 | 1.4 | **3.8** | P2 | 待排期 | 3 |
 | TD-006 | D 门禁缺失 | coverage job 只上传 lcov，**无阈值且非阻断** → 覆盖率事实上无门禁 | 4 | 3 | 4 | 4 | 1 | 1.0 | **15.0** | P0 | 待排期 | 2 |
@@ -59,8 +59,13 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 | TD-014 | C 过时依赖 | 无 dependabot / renovate；CI 无 `cargo audit` / `npm audit`；依赖版本无跟踪与更新机制 | 3 | 4 | 3 | 2 | 1 | 1.0 | **12.0** | P0 | 待排期 | 2 |
 | TD-015 | F 文档缺失 | `docs/refactor/plan-C-deep.md` 的 M11 验收目标「启动降 ≥15ms」**已被 T13 证伪**（生产唯一 `#Include` 文件仅 5 个，边际 673~825µs/文件 → 收益上界 2.7~4.1ms）。留着会误导后续投入 | 2 | 3 | 4 | 4 | 0.5 | 1.0 | **18.4** | P0（硬性升档：误导性文档） | 待排期 | 1 |
 | TD-016 | D 门禁缺失 | E2E 9 suite / 53 用例在 CI **默认关闭**（仅手动触发，需 WebView2 + tauri-driver + msedgedriver）→ 端到端链路零覆盖 | 4 | 3 | 2 | 3 | 5 | 1.4 | **3.8** | P2 | 待排期 | 3 |
+| TD-017 | **E 生产 BUG**（由 TD-002 暴露） | `JoystickInput.PovToDirection` 把 centi-degree（0~35900）误除 100 后再与 4500/13500/22500/31500 阈值比较 → **任何方向都返回 `"UP"`**。`joy_hotkey_manager._PollPov` 依赖它，故 POV 十字键热键**首次移动后永不触发** | 4 | 3 | 5 | 4 | 0.5 | 1.0 | **22.6** | P0 | **已修复**（2026-09-16：去掉 `/100`。修复前 3 条新用例红、修复后 697 全绿——这本身就是缺陷的阳性对照） | 1 |
 
-**统计**：P0 **6** 项（其中 1 项已完成）｜P1 **5** 项｜P2 **5** 项｜合计 **16** 项。
+**统计**：P0 **7** 项（其中 3 项已完成）｜P1 **5** 项｜P2 **5** 项｜合计 **17** 项。
+
+> **TD-017 的意义**：它不是一个「债」，而是**把从未执行的测试接入 CI 的直接回报**——
+> 那 29 条断言躺了不知多久，第一次跑就抓出一个活跃的功能性 BUG。
+> 这也是 C2（测试未接入执行）应当优先于其它清理项的理由。
 
 ### 自动检出映射（`scripts/check-tech-debt.py`，阶段 0）
 

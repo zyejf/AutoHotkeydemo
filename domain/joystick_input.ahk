@@ -65,7 +65,14 @@ class JoystickInput {
     static PovToDirection(value) {
         if value = -1
             return ""
-        angle := Integer(value / 100)
+        ; ⚠️ value 是 AHK GetKeyState("NJoyPOV") 的原值，量纲是**百分之一度**
+        ;    （0~35900，居中为 -1）。此前这里写成 Integer(value / 100)，
+        ;    9000（右）被缩成 90，与下面 4500/13500/22500/31500 的阈值一比
+        ;    恒 < 4500 → **任何方向都返回 "UP"**。
+        ;    后果：joy_hotkey_manager 的 POV 热键首次移动后 prevDir = newDir = "UP"，
+        ;    回调再也不触发（十字键等于失效）。2026-09-16 由新接入的
+        ;    JoystickInputPovToDirectionTests 暴露并修复。
+        angle := Integer(value)
         if angle >= 0 && angle < 4500
             return "UP"
         if angle >= 4500 && angle < 13500
