@@ -296,6 +296,24 @@ C3 文档-代码一致性 / **C3b 文档硬写的 AHK 基线数字**。
 - ⚠️ 变异测试纪律：改实现前先 `cp` 备份，还原后校验「文件中不再含 MUTATION 标记」。
   ⚠️ **Sender 走 `SleepUntilUs`（µs 口径）不是 `SleepUntil`** —— 只变异 ms 版只能红 1 条。
 
+## 文档 lint 收紧（TD-021，2026-09-16 收官）
+
+- **推进机制**：`missing_errors_doc` / `missing_panics_doc` 在 `asd-tauri/Cargo.toml`
+  的 `[workspace.lints]` 由 allow 改 **warn**。**不放 crate 级豁免**，改为未补齐的
+  文件各自在**文件头** `#![allow(clippy::missing_errors_doc)]`，补完一个删一行 ——
+  该文件立即受保护，不会整体回退。⚠️ `src-tauri/Cargo.toml` **没有 `[lints]` 段**，
+  不吃 workspace lints，别以为改 workspace 就全仓生效。
+- **写 `# Errors` 的方法**：必须**逐个读函数体**得出失败条件，凭签名猜出来的
+  是误导性文档（比缺文档更糟）。每个文件补完做阳性对照：加一个未写契约的
+  `pub fn` → clippy 立刻红，还原 → 回绿。
+- ⚠️ `clippy::doc_lazy_continuation` **两个触发点**：① `-` 列表后紧跟的段落
+  **必须空一行**；② **多行列表项的续行必须缩进**（`///   ` 三空格）。
+  `cargo fmt` 不补缩进，写完逐行检查。
+- 补文档是**挖真信号**的过程，不是填空：本轮挖出「一批返回 `Result` 但恒定 `Ok`
+  的接口」（`clippy::unnecessary_wraps` 默认**不检查导出函数**，报不出来）、
+  `register_hotkey` 的 `Ok(Some(x))` 表示**没注册成功**、回滚**不是无条件的**
+  等。发现即写进函数文档，够格的另立 TD 项。
+
 ## 环境 / CI / E2E（完整版见 `env-and-ci.md`）
 
 1. 推送：`git -c credential.helper= push "https://x-access-token:$(gh auth token)@github.com/zyejf/AutoHotkeydemo.git" main`；
