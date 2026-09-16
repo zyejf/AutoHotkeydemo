@@ -329,7 +329,12 @@ OnError(OnTestError)
 
 try
     Main()
-catch as e
+catch as e {
     FileAppend("FATAL " e.Message " @line " e.Line "`n"
         , A_ScriptDir . "\seqgen_test_result.log", "UTF-8")
-ExitApp(0)
+    T_FAIL++
+}
+
+; 退出码必须反映失败数：裸 `ExitApp(0)` 会让任何按退出码判断的 runner 静默放行。
+; 本脚本已被 scripts/run-standalone-ahk-tests.sh（四闸门 G3g）逐个按退出码汇总。
+ExitApp(T_FAIL > 0 ? 1 : 0)

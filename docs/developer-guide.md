@@ -926,9 +926,12 @@ scripts\check-gates.ps1 -Quick
 | G3 | `cargo test --workspace`(a) / AHK 完整套件(b) / JS 单测(c) + `test-map.md` 数字对账(d) + **技术债度量(e)** + **覆盖率棘轮(f)** + **AHK 独立脚本(g)** |
 | G4 | 文档同步（无法自动化，脚本输出人工核对清单） |
 
-> **G3g（`scripts/run-standalone-ahk-tests.sh`，2026-09-16 起）** 逐个跑 `tests/test_*.ahk`
-> 这 7 个独立脚本并按退出码汇总。它们**不在** `run_all_tests.ahk` 的套件注册里，历史上
-> 从未被任何 runner 执行过 —— 2026-09-16 首次接入执行就连挖三个生产 BUG（TD-034/035/036）。
+> **G3g（`scripts/run-standalone-ahk-tests.sh`，2026-09-16 起）** 逐个跑 8 个独立 AHK
+> 脚本（`tests/` 下 7 个 + `tools/ahk-bench/lib/seqgen_test.ahk`，合计 200 条断言）
+> 并按退出码汇总。它们**不在** `run_all_tests.ahk` 的套件注册里，历史上从未被任何
+> runner 执行过 —— 2026-09-16 首次接入执行就连挖五个生产 BUG（TD-034/035/036/037）。
+> 清单按「相对仓库根的路径」书写，新增脚本直接往 `SCRIPTS` 数组里加一行即可
+> （不要写成裸文件名，否则 `tests/` 之外的脚本会漏）。
 > ⚠️ 每个脚本必须以 `TestReporter.Finish()` 或 `ExitApp(failed > 0 ? 1 : 0)` 结尾：
 > AHK 的裸 `ExitApp()` 退出码恒为 0，失败会被静默吞掉（TD-037 排障时踩到）。
 > 本机 7 个脚本约 2 分钟（主要是 AHK 进程启动开销）。

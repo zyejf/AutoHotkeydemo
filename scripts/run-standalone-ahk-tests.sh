@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# 运行 tests/ 下的独立 AHK 测试脚本（tests/test_*.ahk），逐个收集退出码并汇总。
+# 运行「不在 run_all_tests.ahk 套件注册里」的独立 AHK 测试脚本，逐个收集退出码并汇总。
 #
 # 为什么需要它（TD-031 / C2）：
-#   这些脚本各自跑一套断言，但**从未被任何 runner 执行过** —— 它们不在
-#   tests/run_all_tests.ahk 的套件注册里。结果就是里面的一堆陈旧断言与生产缺陷
-#   长期没人发现（2026-09-16 一接上执行就连挖出三个生产 BUG，见 TD-034/035/036）。
-#   本脚本把它们串起来，让 check-gates.sh 的 G3f 能守住。
+#   这些脚本各自跑一套断言，但**从未被任何 runner 执行过**。结果就是里面的一堆陈旧
+#   断言与生产缺陷长期没人发现 —— 2026-09-16 一接上执行就连挖出五个生产 BUG
+#   （TD-034/035/036/037）。本脚本把它们串起来，让 check-gates.sh 的 **G3g** 能守住。
+#   覆盖：tests/ 下 7 个（147 条断言）+ tools/ahk-bench/lib/seqgen_test.ahk（53 条）。
 #
 # 前置条件：
 #   每个脚本必须以 `TestReporter.Finish()` 或 `ExitApp(failed > 0 ? 1 : 0)` 结尾 ——
@@ -38,42 +38,47 @@ if [ ! -f "$AHK_EXE" ]; then
   exit 1
 fi
 
+# 相对仓库根的路径。用路径而不是裸名字，是因为最后一个不在 tests/ 下
+# （tools/ahk-bench/lib/seqgen_test.ahk，2026-09-16 接入）。
 SCRIPTS=(
-  test_error_system
-  test_integration_error_system
-  test_joy_hotkey_manager
-  test_key_recorder
-  test_key_test_integration
-  test_key_validator
-  test_webview2_bridge
+  tests/test_error_system.ahk
+  tests/test_integration_error_system.ahk
+  tests/test_joy_hotkey_manager.ahk
+  tests/test_key_recorder.ahk
+  tests/test_key_test_integration.ahk
+  tests/test_key_validator.ahk
+  tests/test_webview2_bridge.ahk
+  tools/ahk-bench/lib/seqgen_test.ahk
 )
 
 passed=0
 failed=0
 failed_names=""
 
-for name in "${SCRIPTS[@]}"; do
-  script="$REPO_ROOT/tests/$name.ahk"
+for rel in "${SCRIPTS[@]}"; do
+  script="$REPO_ROOT/$rel"
   if [ ! -f "$script" ]; then
-    echo "  [缺失] $name.ahk 不存在"
+    echo "  [缺失] $rel 不存在"
     failed=$((failed + 1))
-    failed_names="$failed_names $name(缺失)"
+    failed_names="$failed_names $rel(缺失)"
     continue
   fi
 
+  # AHK 是原生 Windows 程序，要的是反斜杠路径
+  native_rel="$(echo "$rel" | tr '/' '\\')"
   log="$(mktemp)"
   # 在仓库根下运行：这些脚本用 A_ScriptDir 定位配置与报告目录，换 cwd 会改变解析结果
-  ( cd "$REPO_ROOT" && "$AHK_EXE" "$REPO_ROOT_NATIVE\\tests\\$name.ahk" ) >"$log" 2>&1
+  ( cd "$REPO_ROOT" && "$AHK_EXE" "$REPO_ROOT_NATIVE\\$native_rel" ) >"$log" 2>&1
   rc=$?
   rm -f "$log" 2>/dev/null || true
 
   if [ "$rc" -eq 0 ]; then
-    echo "  ✓ $name"
+    echo "  ✓ $rel"
     passed=$((passed + 1))
   else
-    echo "  ✗ $name（exit=$rc）"
+    echo "  ✗ $rel（exit=$rc）"
     failed=$((failed + 1))
-    failed_names="$failed_names $name"
+    failed_names="$failed_names $rel"
   fi
 done
 
