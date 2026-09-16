@@ -28,11 +28,11 @@
 | Crate | 类型 | 文件路径 | 测试数 | 覆盖范围 |
 |-------|------|---------|-------|---------|
 | asd-domain | 单元 | crates/asd-domain/src/config.rs | 35 | Config / GroupConfig / ModeData / ControlHotkeys 序列化与默认值 |
-| asd-domain | 单元 | crates/asd-domain/src/validator.rs | 55 | ConfigValidator 配置验证规则（按键、间隔、模式、热键）+ BUG-6 可疑值 warning（长度不匹配／超长间隔／超长热键） |
+| asd-domain | 单元 | crates/asd-domain/src/validator.rs | 62 | ConfigValidator 配置验证规则（按键、间隔、模式、热键）+ BUG-6 可疑值 warning（长度不匹配／超长间隔／超长热键）+ **TD-023 新增 7 条 `mode_data_msg_*` 模式校验文案特征测试**（类型不匹配／空按键与时间／零值／子组／空子组列表／`joystick_hold` 告警而非错误／未知模式只报 `mode` 字段） |
 | asd-domain | 单元 | crates/asd-domain/src/models.rs | 3 | SkillGroup 领域模型构造与字段访问 |
 | asd-domain | 单元 | crates/asd-domain/src/traits.rs | 11 | IpcSender / EventEmitter / ProcessWatcher 三 trait：**默认方法体必须「明确拒绝」而非 panic**（send_and_wait / send_message / reset）、默认体可被覆写、序列号单调递增、对象安全性与 `Send + Sync` 超trait 约束（编译期钉子） |
 | asd-domain | 集成 | crates/asd-domain/tests/integration_tests.rs | 43 | 跨模块配置解析与验证集成 |
-| **小计** | — | — | **147** | — |
+| **小计** | — | — | **154** | — |
 
 ## asd-ipc-protocol
 
@@ -217,7 +217,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 | 类别 | 统计 |
 |------|------|
-| Rust 测试（运行时注册数，`--all-targets -- --list`） | 627（asd-domain 147 + asd-ipc-protocol 72 + asd-application 163 + asd-test-harness 3 + asd-tauri 242；其中 `#[ignore]` 15 个） |
+| Rust 测试（运行时注册数，`--all-targets -- --list`） | 634（asd-domain 154 + asd-ipc-protocol 72 + asd-application 163 + asd-test-harness 3 + asd-tauri 242；其中 `#[ignore]` 15 个） |
 | AHK 执行器测试（`Test_` 方法数） | 61 套件 / 279 个 `Test_` 方法（`tests/test_ahk_executor/` 5 文件；不含 `test_joy_hotkey_manager_ahu.ahk` 的 7 套件） |
 | AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 697 个用例 / 178 个套件。**本机**（`scripts/check-gates.sh`，默认）：通过 697 / 失败 0 / 跳过 0。**CI**（G3b，`ASD_HOST_TIMING=0`）：通过 690 / 失败 0 / **跳过 7** —— 跳过的是 `SenderPreciseTimingTests` 里 7 条绝对墙钟时延断言，原因见下。2026-09-16 起 +33 用例 / +13 套件：原 `tests/test_joystick.ahk`（独立脚本，断言从未执行）改名并转为 `tests/test_joystick_input.ahk` 接入套件（TD-002） |
 | 基准测试 | 7 个 criterion bench |
@@ -225,7 +225,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | 模糊测试 | 5 个 fuzz target |
 | E2E 测试 | 9 suite / 53 用例 |
 
-自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 147 + 72 + 163 + 3 + 242 = 627。
+自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 154 + 72 + 163 + 3 + 242 = 634。
 
 > **备注（T8-07† 处置）**：`docs/review/2026-08-20/task-8-tests.md` 分报告《总结》自报「发现总数 7（Important 3 + Minor 4）」，但正文仅列 T8-01~T8-06 共 6 条（其中 Minor 3 条：T8-04/T8-05/T8-06）。已核实第 4 条 Minor 无正文，属该报告自报计数笔误（正文实际为 Important 3 + Minor 3 = 6 条），无遗漏问题，占位 `T8-07†` 予以关闭。
 

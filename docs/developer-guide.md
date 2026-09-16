@@ -929,6 +929,13 @@ scripts\check-gates.ps1 -Quick
 > **G3f 跑在 CI 的 coverage job（ubuntu）**，不在本地 `check-gates.sh` 里 ——
 > 它需要 `cargo-llvm-cov` 且只覆盖三个纯逻辑 crate，本机跑法见 §4.6.1.2。
 >
+> ⚠️ **别在本机 Windows 上对 G3f 的基线做判定，更不要在那里 `--update-baseline`**：
+> 基线是 CI（ubuntu）取的，`cfg(windows)` 分支会让统计行数整体变多而命中数不动
+> （2026-09-16 实测：`group_service.rs` 367→710、+93.5%，命中 232→232 **一个没变**；
+> `validator.rs` 1856→2622），`check-coverage.py` 会正确地判为「口径漂移」并 FAIL。
+> 这是**环境差异不是回归** —— 拿它去 `--update-baseline` 等于把一把更长的尺子当成覆盖率提升，
+> 正是 TD-024 要防的事。要在本机看覆盖率趋势，只能**同文件纵向比**，且必须用同一条命令。
+>
 > **G2c 跑在 CI 的 `js-lint` job**（独立 job，与主 job 并行），不在本地 `check-gates.sh` 里 ——
 > 它需要 `node_modules`（`npm ci`）。本机跑法见 §4.6.6。
 

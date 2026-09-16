@@ -35,6 +35,25 @@ pub struct ValidationResult {
     pub warnings: Vec<String>,
 }
 
+/// 「按键序列 + 时间序列」这一对字段的**命名**。
+///
+/// 6 个简单模式共用 [`ValidationResult::check_keys_and_timings`] 的校验逻辑，
+/// 彼此的差别全在这四个字符串里 —— 把它们打包成结构体而不是摊成 4 个参数，
+/// 是为了让调用点能**具名**写出每个字段的用途（顺序错了会立刻看出来），
+/// 同时不撞 `clippy::too_many_arguments`（该 lint **会把 `self` 算进去**）。
+struct KeysTimingNaming<'a> {
+    /// 错误文本的主语，形如 `"periodic 模式"` —— 调用方自带「模式 / 子组」字样，
+    /// 校验函数不再补。
+    subject: &'a str,
+    /// `ValidationError::field` 里按键字段的路径（`keys` 或 `pressKeys`）。
+    keys_field: &'a str,
+    /// `ValidationError::field` 里时间序列字段的路径
+    ///（`intervals` / `delays` / `pressDelays`）。
+    timings_field: &'a str,
+    /// 时间序列在错误文本里的叫法：`"间隔"` 或 `"延迟"`。
+    timings_label: &'a str,
+}
+
 impl ValidationResult {
     #[must_use]
     pub fn new() -> Self {
@@ -61,6 +80,43 @@ impl ValidationResult {
 
     pub fn add_warning(&mut self, message: &str) {
         self.warnings.push(message.to_string());
+    }
+
+    /// 校验「按键序列 + 时间序列」这对字段 —— 6 个简单模式**共用的校验形状**。
+    ///
+    /// 三条规则，**顺序即错误产生的顺序**：按键非空 → 时间序列非空 → 时间值不含 0。
+    /// 字段名与文案用词由 `naming` 决定，见 [`KeysTimingNaming`]。
+    ///
+    /// ⚠️ 只覆盖**形状相同**的那 6 个模式：`hold` / `joystick_hold` 没有时间序列，
+    /// `hybrid` 系列的子组文案自带类型前缀（见
+    /// [`ConfigValidator::validate_hybrid_subgroups`]），都不走这里 ——
+    /// 强行统一任一侧都会让另一侧的信息变少。
+    fn check_keys_and_timings(
+        &mut self,
+        group_id: &str,
+        naming: &KeysTimingNaming<'_>,
+        keys: &[String],
+        timings: &[u64],
+    ) {
+        let KeysTimingNaming {
+            subject,
+            keys_field,
+            timings_field,
+            timings_label,
+        } = naming;
+        if keys.is_empty() {
+            self.add_error(group_id, keys_field, &format!("{subject}需要至少一个按键"));
+        }
+        if timings.is_empty() {
+            self.add_error(
+                group_id,
+                timings_field,
+                &format!("{subject}需要至少一个{timings_label}"),
+            );
+        }
+        if timings.contains(&0) {
+            self.add_error(group_id, timings_field, &format!("{timings_label}不能为 0"));
+        }
     }
 }
 
@@ -556,10 +612,15 @@ impl ConfigValidator {
         }
     }
 
-    // TD-023：本函数 294 行（阈值 100），是一个「按 mode 分派的子校验器集合」。
-    // 拆它需要先把每个 mode 的子校验抽成函数并逐一对齐错误文案 —— 属于重构，
-    // 不在「静态分析收紧」这次改动范围内，故先显式豁免并登记，避免它淹没新告警。
-    #[allow(clippy::too_many_lines)]
+    /// 按 `mode` 分派到对应的子校验器。
+    ///
+    /// 拆分动机见 TD-023：原本这一个函数 **294 行**，是「按 mode 分派的子校验器
+    /// 集合」，任一个 mode 的校验写错都要在 300 行里翻。现在每个 mode 一个函数，
+    /// 各自都在 20 行以内。
+    ///
+    /// ⚠️ **新增 mode 要改两处**：这里加一个分支 **并且** 实现对应的 `validate_*`。
+    /// 只改一处会让 `_` 分支兜住 —— 那时报的是「未知模式」，**不会校验
+    /// `mode_data` 的内容**，配置错误会被静默放过。
     fn validate_mode_data(
         group_id: &str,
         mode: &str,
@@ -567,301 +628,250 @@ impl ConfigValidator {
         result: &mut ValidationResult,
     ) {
         match mode {
-            "periodic" => {
-                if let ModeData::Periodic(data) = mode_data {
-                    if data.keys.is_empty() {
-                        result.add_error(group_id, "keys", "periodic 模式需要至少一个按键");
+            "periodic" => Self::validate_periodic(group_id, mode_data, result),
+            "sequence" => Self::validate_sequence(group_id, mode_data, result),
+            "hybrid" => Self::validate_hybrid(group_id, mode_data, result),
+            "hold" => Self::validate_hold(group_id, mode_data, result),
+            "enhanced_periodic" => Self::validate_enhanced_periodic(group_id, mode_data, result),
+            "enhanced_sequence" => Self::validate_enhanced_sequence(group_id, mode_data, result),
+            "enhanced_hybrid" => Self::validate_enhanced_hybrid(group_id, mode_data, result),
+            "joystick_periodic" => Self::validate_joystick_periodic(group_id, mode_data, result),
+            "joystick_sequence" => Self::validate_joystick_sequence(group_id, mode_data, result),
+            "joystick_hold" => Self::validate_joystick_hold(group_id, mode_data, result),
+            _ => result.add_error(group_id, "mode", &format!("未知模式: {mode}")),
+        }
+    }
+
+    fn validate_periodic(group_id: &str, mode_data: &ModeData, result: &mut ValidationResult) {
+        let ModeData::Periodic(data) = mode_data else {
+            result.add_error(group_id, "mode_data", "periodic 模式数据类型不匹配");
+            return;
+        };
+        result.check_keys_and_timings(
+            group_id,
+            &KeysTimingNaming {
+                subject: "periodic 模式",
+                keys_field: "keys",
+                timings_field: "intervals",
+                timings_label: "间隔",
+            },
+            &data.keys,
+            &data.intervals,
+        );
+    }
+
+    fn validate_sequence(group_id: &str, mode_data: &ModeData, result: &mut ValidationResult) {
+        let ModeData::Sequence(data) = mode_data else {
+            result.add_error(group_id, "mode_data", "sequence 模式数据类型不匹配");
+            return;
+        };
+        result.check_keys_and_timings(
+            group_id,
+            &KeysTimingNaming {
+                subject: "sequence 模式",
+                keys_field: "keys",
+                timings_field: "delays",
+                timings_label: "延迟",
+            },
+            &data.keys,
+            &data.delays,
+        );
+    }
+
+    fn validate_enhanced_periodic(
+        group_id: &str,
+        mode_data: &ModeData,
+        result: &mut ValidationResult,
+    ) {
+        let ModeData::EnhancedPeriodic(data) = mode_data else {
+            result.add_error(
+                group_id,
+                "mode_data",
+                "enhanced_periodic 模式数据类型不匹配",
+            );
+            return;
+        };
+        result.check_keys_and_timings(
+            group_id,
+            &KeysTimingNaming {
+                subject: "enhanced_periodic 模式",
+                keys_field: "pressKeys",
+                timings_field: "intervals",
+                timings_label: "间隔",
+            },
+            &data.press_keys,
+            &data.intervals,
+        );
+    }
+
+    fn validate_enhanced_sequence(
+        group_id: &str,
+        mode_data: &ModeData,
+        result: &mut ValidationResult,
+    ) {
+        let ModeData::EnhancedSequence(data) = mode_data else {
+            result.add_error(
+                group_id,
+                "mode_data",
+                "enhanced_sequence 模式数据类型不匹配",
+            );
+            return;
+        };
+        result.check_keys_and_timings(
+            group_id,
+            &KeysTimingNaming {
+                subject: "enhanced_sequence 模式",
+                keys_field: "pressKeys",
+                timings_field: "pressDelays",
+                timings_label: "延迟",
+            },
+            &data.press_keys,
+            &data.press_delays,
+        );
+    }
+
+    fn validate_joystick_periodic(
+        group_id: &str,
+        mode_data: &ModeData,
+        result: &mut ValidationResult,
+    ) {
+        let ModeData::JoystickPeriodic(data) = mode_data else {
+            result.add_error(
+                group_id,
+                "mode_data",
+                "joystick_periodic 模式数据类型不匹配",
+            );
+            return;
+        };
+        result.check_keys_and_timings(
+            group_id,
+            &KeysTimingNaming {
+                subject: "joystick_periodic 模式",
+                keys_field: "pressKeys",
+                timings_field: "intervals",
+                timings_label: "间隔",
+            },
+            &data.press_keys,
+            &data.intervals,
+        );
+    }
+
+    fn validate_joystick_sequence(
+        group_id: &str,
+        mode_data: &ModeData,
+        result: &mut ValidationResult,
+    ) {
+        let ModeData::JoystickSequence(data) = mode_data else {
+            result.add_error(
+                group_id,
+                "mode_data",
+                "joystick_sequence 模式数据类型不匹配",
+            );
+            return;
+        };
+        result.check_keys_and_timings(
+            group_id,
+            &KeysTimingNaming {
+                subject: "joystick_sequence 模式",
+                keys_field: "pressKeys",
+                timings_field: "delays",
+                timings_label: "延迟",
+            },
+            &data.press_keys,
+            &data.delays,
+        );
+    }
+
+    fn validate_hybrid(group_id: &str, mode_data: &ModeData, result: &mut ValidationResult) {
+        let ModeData::Hybrid(data) = mode_data else {
+            result.add_error(group_id, "mode_data", "hybrid 模式数据类型不匹配");
+            return;
+        };
+        if data.groups.is_empty() {
+            result.add_error(group_id, "groups", "hybrid 模式需要至少一个子组");
+        }
+        Self::validate_hybrid_subgroups(group_id, &data.groups, result);
+    }
+
+    fn validate_enhanced_hybrid(
+        group_id: &str,
+        mode_data: &ModeData,
+        result: &mut ValidationResult,
+    ) {
+        let ModeData::EnhancedHybrid(data) = mode_data else {
+            result.add_error(group_id, "mode_data", "enhanced_hybrid 模式数据类型不匹配");
+            return;
+        };
+        if data.groups.is_empty() {
+            result.add_error(group_id, "groups", "enhanced_hybrid 模式需要至少一个子组");
+        }
+        Self::validate_hybrid_subgroups(group_id, &data.groups, result);
+    }
+
+    /// 校验 `hybrid` / `enhanced_hybrid` 的子组列表 —— **两个模式共用同一套规则与文案**。
+    ///
+    /// ⚠️ 子组错误的 `field` 只有 `groups[i]`，**不含子组类型**，所以错误文本必须
+    /// 自带「periodic 子组」/「sequence 子组」才能定位 —— 这与顶层恰恰相反：
+    /// 顶层的 `field` 已经是 `keys` / `intervals` 这类具名字段，文本里就只说
+    ///「间隔不能为 0」。两种文案风格不一是**有意为之**，统一任一侧都会让
+    /// 另一侧少一块信息。
+    fn validate_hybrid_subgroups(
+        group_id: &str,
+        groups: &[GroupItem],
+        result: &mut ValidationResult,
+    ) {
+        for (i, sub) in groups.iter().enumerate() {
+            let sub_label = format!("groups[{i}]");
+            match sub {
+                GroupItem::Periodic {
+                    press_keys,
+                    intervals,
+                } => {
+                    if press_keys.is_empty() {
+                        result.add_error(group_id, &sub_label, "periodic 子组需要至少一个按键");
                     }
-                    if data.intervals.is_empty() {
-                        result.add_error(group_id, "intervals", "periodic 模式需要至少一个间隔");
+                    if intervals.is_empty() {
+                        result.add_error(group_id, &sub_label, "periodic 子组需要至少一个间隔");
                     }
-                    if data.intervals.contains(&0) {
-                        result.add_error(group_id, "intervals", "间隔不能为 0");
+                    if intervals.contains(&0) {
+                        result.add_error(group_id, &sub_label, "periodic 子组间隔不能为 0");
                     }
-                } else {
-                    result.add_error(group_id, "mode_data", "periodic 模式数据类型不匹配");
+                }
+                GroupItem::Sequence {
+                    press_keys, delays, ..
+                } => {
+                    if press_keys.is_empty() {
+                        result.add_error(group_id, &sub_label, "sequence 子组需要至少一个按键");
+                    }
+                    if delays.is_empty() {
+                        result.add_error(group_id, &sub_label, "sequence 子组需要至少一个延迟");
+                    }
+                    if delays.contains(&0) {
+                        result.add_error(group_id, &sub_label, "sequence 子组延迟不能为 0");
+                    }
                 }
             }
-            "sequence" => {
-                if let ModeData::Sequence(data) = mode_data {
-                    if data.keys.is_empty() {
-                        result.add_error(group_id, "keys", "sequence 模式需要至少一个按键");
-                    }
-                    if data.delays.is_empty() {
-                        result.add_error(group_id, "delays", "sequence 模式需要至少一个延迟");
-                    }
-                    if data.delays.contains(&0) {
-                        result.add_error(group_id, "delays", "延迟不能为 0");
-                    }
-                } else {
-                    result.add_error(group_id, "mode_data", "sequence 模式数据类型不匹配");
-                }
-            }
-            "hybrid" => {
-                if let ModeData::Hybrid(data) = mode_data {
-                    if data.groups.is_empty() {
-                        result.add_error(group_id, "groups", "hybrid 模式需要至少一个子组");
-                    }
-                    for (i, sub) in data.groups.iter().enumerate() {
-                        let sub_label = format!("groups[{i}]");
-                        match sub {
-                            GroupItem::Periodic {
-                                press_keys,
-                                intervals,
-                            } => {
-                                if press_keys.is_empty() {
-                                    result.add_error(
-                                        group_id,
-                                        &sub_label,
-                                        "periodic 子组需要至少一个按键",
-                                    );
-                                }
-                                if intervals.is_empty() {
-                                    result.add_error(
-                                        group_id,
-                                        &sub_label,
-                                        "periodic 子组需要至少一个间隔",
-                                    );
-                                }
-                                if intervals.contains(&0) {
-                                    result.add_error(
-                                        group_id,
-                                        &sub_label,
-                                        "periodic 子组间隔不能为 0",
-                                    );
-                                }
-                            }
-                            GroupItem::Sequence {
-                                press_keys, delays, ..
-                            } => {
-                                if press_keys.is_empty() {
-                                    result.add_error(
-                                        group_id,
-                                        &sub_label,
-                                        "sequence 子组需要至少一个按键",
-                                    );
-                                }
-                                if delays.is_empty() {
-                                    result.add_error(
-                                        group_id,
-                                        &sub_label,
-                                        "sequence 子组需要至少一个延迟",
-                                    );
-                                }
-                                if delays.contains(&0) {
-                                    result.add_error(
-                                        group_id,
-                                        &sub_label,
-                                        "sequence 子组延迟不能为 0",
-                                    );
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    result.add_error(group_id, "mode_data", "hybrid 模式数据类型不匹配");
-                }
-            }
-            "hold" => {
-                if let ModeData::Hold(_data) = mode_data {
-                    // holdDuration=0 表示无限保持（直到主动停止），是合法值
-                    // holdDuration>0 表示固定时长保持，超时后自动释放
-                    // 此处无需额外校验，holdDuration 的非负性由类型系统保证（u64）
-                } else {
-                    result.add_error(group_id, "mode_data", "hold 模式数据类型不匹配");
-                }
-            }
-            "enhanced_periodic" => {
-                if let ModeData::EnhancedPeriodic(data) = mode_data {
-                    if data.press_keys.is_empty() {
-                        result.add_error(
-                            group_id,
-                            "pressKeys",
-                            "enhanced_periodic 模式需要至少一个按键",
-                        );
-                    }
-                    if data.intervals.is_empty() {
-                        result.add_error(
-                            group_id,
-                            "intervals",
-                            "enhanced_periodic 模式需要至少一个间隔",
-                        );
-                    }
-                    if data.intervals.contains(&0) {
-                        result.add_error(group_id, "intervals", "间隔不能为 0");
-                    }
-                } else {
-                    result.add_error(
-                        group_id,
-                        "mode_data",
-                        "enhanced_periodic 模式数据类型不匹配",
-                    );
-                }
-            }
-            "enhanced_sequence" => {
-                if let ModeData::EnhancedSequence(data) = mode_data {
-                    if data.press_keys.is_empty() {
-                        result.add_error(
-                            group_id,
-                            "pressKeys",
-                            "enhanced_sequence 模式需要至少一个按键",
-                        );
-                    }
-                    if data.press_delays.is_empty() {
-                        result.add_error(
-                            group_id,
-                            "pressDelays",
-                            "enhanced_sequence 模式需要至少一个延迟",
-                        );
-                    }
-                    if data.press_delays.contains(&0) {
-                        result.add_error(group_id, "pressDelays", "延迟不能为 0");
-                    }
-                } else {
-                    result.add_error(
-                        group_id,
-                        "mode_data",
-                        "enhanced_sequence 模式数据类型不匹配",
-                    );
-                }
-            }
-            "enhanced_hybrid" => {
-                if let ModeData::EnhancedHybrid(data) = mode_data {
-                    if data.groups.is_empty() {
-                        result.add_error(
-                            group_id,
-                            "groups",
-                            "enhanced_hybrid 模式需要至少一个子组",
-                        );
-                    }
-                    for (i, sub) in data.groups.iter().enumerate() {
-                        let sub_label = format!("groups[{i}]");
-                        match sub {
-                            GroupItem::Periodic {
-                                press_keys,
-                                intervals,
-                            } => {
-                                if press_keys.is_empty() {
-                                    result.add_error(
-                                        group_id,
-                                        &sub_label,
-                                        "periodic 子组需要至少一个按键",
-                                    );
-                                }
-                                if intervals.is_empty() {
-                                    result.add_error(
-                                        group_id,
-                                        &sub_label,
-                                        "periodic 子组需要至少一个间隔",
-                                    );
-                                }
-                                if intervals.contains(&0) {
-                                    result.add_error(
-                                        group_id,
-                                        &sub_label,
-                                        "periodic 子组间隔不能为 0",
-                                    );
-                                }
-                            }
-                            GroupItem::Sequence {
-                                press_keys, delays, ..
-                            } => {
-                                if press_keys.is_empty() {
-                                    result.add_error(
-                                        group_id,
-                                        &sub_label,
-                                        "sequence 子组需要至少一个按键",
-                                    );
-                                }
-                                if delays.is_empty() {
-                                    result.add_error(
-                                        group_id,
-                                        &sub_label,
-                                        "sequence 子组需要至少一个延迟",
-                                    );
-                                }
-                                if delays.contains(&0) {
-                                    result.add_error(
-                                        group_id,
-                                        &sub_label,
-                                        "sequence 子组延迟不能为 0",
-                                    );
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    result.add_error(group_id, "mode_data", "enhanced_hybrid 模式数据类型不匹配");
-                }
-            }
-            "joystick_periodic" => {
-                if let ModeData::JoystickPeriodic(data) = mode_data {
-                    if data.press_keys.is_empty() {
-                        result.add_error(
-                            group_id,
-                            "pressKeys",
-                            "joystick_periodic 模式需要至少一个按键",
-                        );
-                    }
-                    if data.intervals.is_empty() {
-                        result.add_error(
-                            group_id,
-                            "intervals",
-                            "joystick_periodic 模式需要至少一个间隔",
-                        );
-                    }
-                    if data.intervals.contains(&0) {
-                        result.add_error(group_id, "intervals", "间隔不能为 0");
-                    }
-                } else {
-                    result.add_error(
-                        group_id,
-                        "mode_data",
-                        "joystick_periodic 模式数据类型不匹配",
-                    );
-                }
-            }
-            "joystick_sequence" => {
-                if let ModeData::JoystickSequence(data) = mode_data {
-                    if data.press_keys.is_empty() {
-                        result.add_error(
-                            group_id,
-                            "pressKeys",
-                            "joystick_sequence 模式需要至少一个按键",
-                        );
-                    }
-                    if data.delays.is_empty() {
-                        result.add_error(
-                            group_id,
-                            "delays",
-                            "joystick_sequence 模式需要至少一个延迟",
-                        );
-                    }
-                    if data.delays.contains(&0) {
-                        result.add_error(group_id, "delays", "延迟不能为 0");
-                    }
-                } else {
-                    result.add_error(
-                        group_id,
-                        "mode_data",
-                        "joystick_sequence 模式数据类型不匹配",
-                    );
-                }
-            }
-            "joystick_hold" => {
-                if let ModeData::JoystickHold(data) = mode_data {
-                    if data.hold_duration.unwrap_or(0) == 0 {
-                        result.add_warning(&format!(
-                            "[{group_id}] joystick_hold 模式未设置 holdDuration"
-                        ));
-                    }
-                } else {
-                    result.add_error(group_id, "mode_data", "joystick_hold 模式数据类型不匹配");
-                }
-            }
-            _ => {
-                result.add_error(group_id, "mode", &format!("未知模式: {mode}"));
-            }
+        }
+    }
+
+    fn validate_hold(group_id: &str, mode_data: &ModeData, result: &mut ValidationResult) {
+        // holdDuration=0 表示无限保持（直到主动停止），是合法值
+        // holdDuration>0 表示固定时长保持，超时后自动释放
+        // 此处无需额外校验，holdDuration 的非负性由类型系统保证（u64）
+        if !matches!(mode_data, ModeData::Hold(_)) {
+            result.add_error(group_id, "mode_data", "hold 模式数据类型不匹配");
+        }
+    }
+
+    fn validate_joystick_hold(group_id: &str, mode_data: &ModeData, result: &mut ValidationResult) {
+        let ModeData::JoystickHold(data) = mode_data else {
+            result.add_error(group_id, "mode_data", "joystick_hold 模式数据类型不匹配");
+            return;
+        };
+        if data.hold_duration.unwrap_or(0) == 0 {
+            result.add_warning(&format!(
+                "[{group_id}] joystick_hold 模式未设置 holdDuration"
+            ));
         }
     }
 }
@@ -910,6 +920,305 @@ mod tests {
     use super::*;
     use crate::config::*;
     use indexmap::IndexMap;
+
+    // TD-023 拆分 `validate_mode_data` 时补的**特征测试**（共 7 条，见下方）。
+    //
+    // ⚠️ 补它们的直接原因：这 10 个 mode 的**错误文案此前一条测试都没有**
+    //（全仓 grep 零命中）。也就是说，把文案写错、或把某个 mode 分支接到别的
+    // `ModeData` 变体上，整个测试套件都是绿的 —— 那次重构原本**没有任何回归保护**，
+    // 只能临时写一份「新旧实现逐条比对」的差量测试来兜（165 组输入全一致）。
+    //
+    // 按**关注点**拆成 7 条而不是写成一个大测试：合成一条会撞
+    // `clippy::too_many_lines`（241 行 / 上限 100），而且失败时定位更慢。
+    // 7 条共享 `mode_data_msg_` 前缀 —— 阳性对照靠这个前缀一次跑全。
+    //
+    // 改动校验规则、字段名或文案时必须同步更新这些测试 ——
+    // 这些字符串是**给终端用户看的**，不是内部实现细节。
+
+    /// 一个「不属于其它任何模式」的 `ModeData`，专门用来触发类型不匹配分支。
+    fn hold_mode_data() -> ModeData {
+        ModeData::Hold(HoldData {
+            hold_duration: 0,
+            auto_repeat: None,
+            repeat_interval: None,
+        })
+    }
+
+    fn one_key() -> Vec<String> {
+        vec!["a".to_string()]
+    }
+
+    /// `hybrid` 与 `enhanced_hybrid` 的数据结构不同但子组校验逻辑共用，
+    /// 这里按 mode 名造外层，让两个 mode 能跑同一批断言。
+    fn hybrid_mode_data(mode: &str, groups: Vec<GroupItem>) -> ModeData {
+        match mode {
+            "hybrid" => ModeData::Hybrid(HybridData {
+                groups,
+                seq_interval: None,
+            }),
+            _ => ModeData::EnhancedHybrid(EnhancedHybridData {
+                groups,
+                seq_interval: None,
+            }),
+        }
+    }
+
+    /// ① 每个 mode 配上一个「不是自己」的 `ModeData` —— 都应只报类型不匹配。
+    ///    这一条专门防「mode 分支接到别的变体上」这类重构事故。
+    #[test]
+    fn mode_data_msg_type_mismatch() {
+        for (mode, data) in [
+            ("periodic", hold_mode_data()),
+            ("sequence", hold_mode_data()),
+            ("hybrid", hold_mode_data()),
+            (
+                "hold",
+                ModeData::Periodic(PeriodicData {
+                    keys: one_key(),
+                    intervals: vec![10],
+                }),
+            ),
+            ("enhanced_periodic", hold_mode_data()),
+            ("enhanced_sequence", hold_mode_data()),
+            ("enhanced_hybrid", hold_mode_data()),
+            ("joystick_periodic", hold_mode_data()),
+            ("joystick_sequence", hold_mode_data()),
+            ("joystick_hold", hold_mode_data()),
+        ] {
+            let mut r = ValidationResult::new();
+            ConfigValidator::validate_mode_data("g", mode, &data, &mut r);
+            assert_eq!(r.errors.len(), 1, "mode={mode} 应只报一条类型不匹配");
+            assert_eq!(r.errors[0].field, "mode_data", "mode={mode}");
+            assert_eq!(r.errors[0].message, format!("{mode} 模式数据类型不匹配"));
+        }
+    }
+
+    /// ② 「按键非空 / 时间序列非空」两条规则的文案，逐个 mode 钉住字段名。
+    ///    6 个模式共用同一段校验逻辑，差别全在字段名与「间隔 / 延迟」的叫法上。
+    #[test]
+    fn mode_data_msg_empty_keys_and_timings() {
+        let empty_cases: Vec<(&str, ModeData, &str, &str, &str)> = vec![
+            (
+                "periodic",
+                ModeData::Periodic(PeriodicData {
+                    keys: vec![],
+                    intervals: vec![],
+                }),
+                "keys",
+                "intervals",
+                "间隔",
+            ),
+            (
+                "sequence",
+                ModeData::Sequence(SequenceData {
+                    keys: vec![],
+                    delays: vec![],
+                }),
+                "keys",
+                "delays",
+                "延迟",
+            ),
+            (
+                "enhanced_periodic",
+                ModeData::EnhancedPeriodic(EnhancedPeriodicData {
+                    press_keys: vec![],
+                    intervals: vec![],
+                }),
+                "pressKeys",
+                "intervals",
+                "间隔",
+            ),
+            (
+                "enhanced_sequence",
+                ModeData::EnhancedSequence(EnhancedSequenceData {
+                    press_keys: vec![],
+                    press_delays: vec![],
+                }),
+                "pressKeys",
+                "pressDelays",
+                "延迟",
+            ),
+            (
+                "joystick_periodic",
+                ModeData::JoystickPeriodic(JoystickPeriodicData {
+                    press_keys: vec![],
+                    intervals: vec![],
+                    joystick_id: None,
+                }),
+                "pressKeys",
+                "intervals",
+                "间隔",
+            ),
+            (
+                "joystick_sequence",
+                ModeData::JoystickSequence(JoystickSequenceData {
+                    press_keys: vec![],
+                    delays: vec![],
+                    joystick_id: None,
+                }),
+                "pressKeys",
+                "delays",
+                "延迟",
+            ),
+        ];
+        for (mode, data, keys_field, timings_field, label) in &empty_cases {
+            let mut r = ValidationResult::new();
+            ConfigValidator::validate_mode_data("g", mode, data, &mut r);
+            assert_eq!(r.errors.len(), 2, "mode={mode} 应报按键与时间序列两条");
+            assert_eq!(r.errors[0].field, *keys_field, "mode={mode} 按键字段名");
+            assert_eq!(r.errors[0].message, format!("{mode} 模式需要至少一个按键"));
+            assert_eq!(r.errors[1].field, *timings_field, "mode={mode} 时间字段名");
+            assert_eq!(
+                r.errors[1].message,
+                format!("{mode} 模式需要至少一个{label}")
+            );
+        }
+    }
+
+    /// ③ 时间值为 0：顶层文案里**不带** mode 前缀（`field` 已指明是哪个字段）。
+    #[test]
+    fn mode_data_msg_zero_timing() {
+        let zero_cases: Vec<(&str, ModeData, &str, &str)> = vec![
+            (
+                "periodic",
+                ModeData::Periodic(PeriodicData {
+                    keys: one_key(),
+                    intervals: vec![0],
+                }),
+                "intervals",
+                "间隔",
+            ),
+            (
+                "sequence",
+                ModeData::Sequence(SequenceData {
+                    keys: one_key(),
+                    delays: vec![0],
+                }),
+                "delays",
+                "延迟",
+            ),
+            (
+                "enhanced_sequence",
+                ModeData::EnhancedSequence(EnhancedSequenceData {
+                    press_keys: one_key(),
+                    press_delays: vec![0],
+                }),
+                "pressDelays",
+                "延迟",
+            ),
+            (
+                "joystick_periodic",
+                ModeData::JoystickPeriodic(JoystickPeriodicData {
+                    press_keys: one_key(),
+                    intervals: vec![0],
+                    joystick_id: None,
+                }),
+                "intervals",
+                "间隔",
+            ),
+        ];
+        for (mode, data, timings_field, label) in &zero_cases {
+            let mut r = ValidationResult::new();
+            ConfigValidator::validate_mode_data("g", mode, data, &mut r);
+            assert_eq!(r.errors.len(), 1, "mode={mode} 应只报零值一条");
+            assert_eq!(r.errors[0].field, *timings_field, "mode={mode}");
+            assert_eq!(r.errors[0].message, format!("{label}不能为 0"));
+        }
+    }
+
+    /// ④ 子组：`field` 只有 `groups[i]`（不含子组类型），所以文案必须自带类型。
+    ///    `hybrid` 与 `enhanced_hybrid` 共用这段逻辑，两个 mode 都验一遍。
+    #[test]
+    fn mode_data_msg_subgroups() {
+        //    三个子组刻意错开形状，一次覆盖全部 5 条涉及到的文案：
+        //    [0] 按键空 + 间隔含 0（非空）→ 触发「至少一个按键」+「间隔不能为 0」；
+        //    [1] 按键空 + 延迟为空     → 触发「至少一个按键」+「至少一个延迟」；
+        //    [2] 按键非空 + 间隔为空   → 只触发「至少一个间隔」。
+        let bad_subs = || {
+            vec![
+                GroupItem::Periodic {
+                    press_keys: vec![],
+                    intervals: vec![0],
+                },
+                GroupItem::Sequence {
+                    press_keys: vec![],
+                    delays: vec![],
+                    seq_interval: None,
+                },
+                GroupItem::Periodic {
+                    press_keys: one_key(),
+                    intervals: vec![],
+                },
+            ]
+        };
+        for mode in ["hybrid", "enhanced_hybrid"] {
+            let data = hybrid_mode_data(mode, bad_subs());
+            let mut r = ValidationResult::new();
+            ConfigValidator::validate_mode_data("g", mode, &data, &mut r);
+            let got: Vec<(&str, &str)> = r
+                .errors
+                .iter()
+                .map(|e| (e.field.as_str(), e.message.as_str()))
+                .collect();
+            assert_eq!(
+                got,
+                vec![
+                    ("groups[0]", "periodic 子组需要至少一个按键"),
+                    ("groups[0]", "periodic 子组间隔不能为 0"),
+                    ("groups[1]", "sequence 子组需要至少一个按键"),
+                    ("groups[1]", "sequence 子组需要至少一个延迟"),
+                    ("groups[2]", "periodic 子组需要至少一个间隔"),
+                ],
+                "mode={mode} 子组文案"
+            );
+        }
+    }
+
+    /// ⑤ 空子组列表：报在 `groups` 字段上（不是某个 `groups[i]`）。
+    #[test]
+    fn mode_data_msg_empty_subgroups() {
+        for (mode, expect) in [
+            ("hybrid", "hybrid 模式需要至少一个子组"),
+            ("enhanced_hybrid", "enhanced_hybrid 模式需要至少一个子组"),
+        ] {
+            let data = hybrid_mode_data(mode, vec![]);
+            let mut r = ValidationResult::new();
+            ConfigValidator::validate_mode_data("g", mode, &data, &mut r);
+            assert_eq!(r.errors.len(), 1, "mode={mode}");
+            assert_eq!(r.errors[0].field, "groups");
+            assert_eq!(r.errors[0].message, expect);
+        }
+    }
+
+    /// ⑥ `joystick_hold` 未设置 holdDuration 是**告警不是错误** —— 不是错误这点
+    ///    很容易在重构时被顺手改成 `add_error`，钉住它。
+    #[test]
+    fn mode_data_msg_joystick_hold_missing_duration_is_warning() {
+        let js_hold = ModeData::JoystickHold(JoystickHoldData {
+            hold_duration: None,
+            auto_repeat: None,
+            repeat_interval: None,
+            joystick_id: None,
+        });
+        let mut r = ValidationResult::new();
+        ConfigValidator::validate_mode_data("g", "joystick_hold", &js_hold, &mut r);
+        assert!(r.errors.is_empty(), "缺 holdDuration 不应报错");
+        assert_eq!(
+            r.warnings,
+            vec!["[g] joystick_hold 模式未设置 holdDuration"]
+        );
+    }
+
+    /// ⑦ 未知模式：只报 `mode` 字段，**不校验** `mode_data` 的内容
+    ///    （这条是 `_` 分支兜底，别把它改成会去校验内容的版本）。
+    #[test]
+    fn mode_data_msg_unknown_mode_only_reports_mode_field() {
+        let mut r = ValidationResult::new();
+        ConfigValidator::validate_mode_data("g", "bogus_mode", &hold_mode_data(), &mut r);
+        assert_eq!(r.errors.len(), 1);
+        assert_eq!(r.errors[0].field, "mode");
+        assert_eq!(r.errors[0].message, "未知模式: bogus_mode");
+    }
 
     fn make_periodic_group() -> GroupConfig {
         GroupConfig {
