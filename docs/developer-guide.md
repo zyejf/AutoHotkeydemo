@@ -1624,9 +1624,8 @@ ESLint（G2c）等本机不跑的检查项。2026-09-16 的实测后果：**连�
 **推送后必须查结论**（成本一行命令）：
 
 ```bash
-# 推送（撞 502 时整条重试，见 .workbuddy-ai/memory/env-and-ci.md）
-git -c credential.helper= push \
-  "https://x-access-token:$(gh auth token)@github.com/zyejf/AutoHotkeydemo.git" main
+# 推送（撞 502 时交替直连/代理重试，并以远端 sha 核验 —— 见下）
+bash scripts/push-and-verify.sh main
 
 # 取最近一次 run 的 id，然后阻塞等它跑完并看每个 job 的结论
 id=$(gh run list --limit 1 --json databaseId --jq '.[0].databaseId')
@@ -1647,8 +1646,15 @@ gh run view "$id" --json conclusion,jobs \
 两个推送侧的坑（都踩过，详见 `.workbuddy-ai/memory/env-and-ci.md`）：
 
 - ⚠️ **别用 `git push ... | tail` 判退出码** —— `if` 取到的是 `tail` 的 0，502 失败也会打印
-  `PUSH_OK`。用 `> /tmp/p.log 2>&1; rc=$?`，并用 `gh api repos/zyejf/AutoHotkeydemo/commits/main`
-  核实远端确实到了新提交。
+  `PUSH_OK`。用 `> /tmp/p.log 2>&1; rc=$?`。
+- ⚠️ **`rc=0` 也不够**：实测过一次「打印 `PUSH_OK`、但 `rc` 取的是上一条残留值、远端根本没动」。
+  唯一可信的判据是**比对远端 sha**：
+  ```bash
+  LOCAL=$(git rev-parse HEAD)
+  R=$(git ls-remote https://github.com/zyejf/AutoHotkeydemo.git main | awk '{print $1}')
+  [ "$R" = "$LOCAL" ] && echo "VERIFIED" || echo "NOT PUSHED"
+  ```
+  （`gh api repos/.../commits/main` 也能查，但 `ls-remote` 更轻、不依赖 API 配额。）
 - ⚠️ **E2E 在 CI 上默认关闭**（`.github/workflows/ci.yml` 里 `workflow_dispatch` 手动触发），
   所以「CI 绿」**不包含**端到端链路。要验 E2E 必须手动触发或按 §4.7 本地跑。
 
