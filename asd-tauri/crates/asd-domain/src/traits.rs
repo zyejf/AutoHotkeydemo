@@ -9,13 +9,22 @@ pub trait IpcSender: Send + Sync {
     /// 向 AHK 子进程发送 IPC 命令。
     ///
     /// 返回命令的序列号（单调递增），用于关联响应消息。
-    /// 如果管道未连接或管理器未初始化，返回错误描述字符串。
+    ///
+    /// # Errors
+    /// 管道未连接、或 IPC 管理器尚未初始化时返回 `Err`。
+    /// 错误载体是 `String`（不是结构化错误类型），内容是给人看的原因描述，
+    /// 调用方**不应**靠解析这个字符串来决定行为。
     fn send_command(&self, cmd: IpcCommand) -> Result<u64, String>;
 
     /// 发送 IPC 命令并等待 AHK 子进程的响应。
     ///
     /// 在指定的超时时间内等待与命令序列号匹配的响应消息。
-    /// 默认实现返回错误，表示当前实现不支持等待响应。
+    ///
+    /// # Errors
+    /// - **默认实现恒定返回 `Err`**，内容是 `"send_and_wait not supported"`
+    ///   —— 它表达的是「该实现不具备等待响应的能力」，不是运行时故障。
+    ///   调用方据此降级为「只发不等」，而不是当成发送失败上报。
+    /// - 覆写后的实现应返回：超时未等到匹配 seq 的响应、或底层发送失败。
     fn send_and_wait(
         &self,
         cmd: IpcCommand,
@@ -28,7 +37,11 @@ pub trait IpcSender: Send + Sync {
     /// 转发 AHK→Rust 方向的 IPC 消息到前端。
     ///
     /// 用于将 AHK 子进程产生的消息（如热键事件）通过 outbound 通道转发。
-    /// 默认实现返回错误，表示当前实现不支持消息转发。
+    ///
+    /// # Errors
+    /// - **默认实现恒定返回 `Err`**，内容为 `"send_message not supported"`，
+    ///   语义同上：表达「不具备转发能力」，调用方据此跳过而非报错。
+    /// - 覆写后的实现应返回：outbound 通道未就绪或写入失败。
     fn send_message(&self, msg: &IpcMessage) -> Result<(), String> {
         let _ = msg;
         Err("send_message not supported".to_string())
@@ -55,6 +68,13 @@ pub trait ProcessWatcher: Send + Sync {
 
     fn restart_count(&self) -> u32;
 
+    /// 重置监控器内部的重启计数。
+    ///
+    /// # Errors
+    /// - **默认实现恒定返回 `Err`**，内容为 `"reset not supported"`
+    ///   —— 语义同 `IpcSender` 的两个默认实现：表达「该监控器不支持重置」，
+    ///   调用方据此忽略而不是把「不支持」当成「重置失败」上报。
+    /// - 覆写后的实现应返回：内部状态被锁或重置动作本身失败。
     fn reset(&self) -> Result<(), String> {
         Err("reset not supported".to_string())
     }

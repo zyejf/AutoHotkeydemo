@@ -1,3 +1,7 @@
+// TD-021：本文件的 `# Errors` 待补（见 `docs/tech-debt-register.md`）。
+// 补完即删除下面这行，本文件立刻受 `clippy::missing_errors_doc` 保护。
+#![allow(clippy::missing_errors_doc)]
+
 use asd_domain::config::Config;
 use std::fs;
 use std::path::Path;

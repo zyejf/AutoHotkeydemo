@@ -24,12 +24,15 @@ edition = "2021"
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 
-# —— 有意暂缓的两条（登记 TD-021）——
-# 不是漏网，是取舍：它们要求给 59 个返回 Result / 可能 panic 的公开函数
-# 补 `# Errors` / `# Panics` 小节，是文档工程而不是静态分析。
-# 硬塞进这次改动，只会让「收紧 lint」变成「批量补文档」，两头都做不干净。
-missing_errors_doc = "allow"
-missing_panics_doc = "allow"
+# —— TD-021：2026-09-16 起由 allow 改为 **warn**（分阶段收紧）——
+# 已补齐的 crate 立刻受保护：新增公开函数不写失败契约就会红。
+# 尚未补齐的两处在各自 crate 根显式 allow 并注明理由，**不要在这里改回 allow**：
+#   · asd-application：51 条，按文件分批（见台账 TD-021）
+#   · asd-test-harness：测试辅助函数 panic 是预期行为，不是生产契约
+# ⚠️ 当初 allow 的理由是「59 条一次性放开会淹没其它 lint 的真信号」——
+#    这个顾虑对 **asd-application 的 51 条**仍然成立，对已经收干的 crate 不再成立。
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }

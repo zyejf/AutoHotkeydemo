@@ -4,6 +4,12 @@
 //! 所有 Mock 实现均实现 `asd_domain::traits` 中定义的 trait。
 
 #![allow(dead_code)]
+// TD-021：不给测试辅助函数写 `# Panics` 契约。这里的 panic 源是
+// `.lock().unwrap()` / `TempDir::new().unwrap()` 一类，表达的是「用例自身出了意外」，
+// 而不是「调用方该处理的失败」—— 它本来就应当让整个测试红掉。给它们补契约文档，
+// 等于把「测试基础设施的失败语义」和「生产代码的失败契约」混为一谈，
+// 那是比缺文档更糟的**误导性文档**。
+#![allow(clippy::missing_panics_doc)]
 // 测试代码豁免几条「可读性」lint（TD-012）—— 它们在生产代码里是信号，在测试里是噪声：
 //   · similar_names：对照组命名（cfg1/cfg2、g1/g2）本身就是测试要表达的对照关系
 //   · match_wildcard_for_single_variants：`_ => panic!("Expected X")` 就是断言的意图

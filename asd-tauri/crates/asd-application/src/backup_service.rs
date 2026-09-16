@@ -1,3 +1,16 @@
+//! 配置备份与恢复：列出 / 创建 / 恢复 / 删除备份，导入导出，热重载。
+//!
+//! ## 错误处理的两条共同事实（写在这里，避免在每个函数下重复）
+//!
+//! · `AppState::read_config` 的 `Result` **恒定返回 `Ok`**，它只是为 API 稳定保留了
+//!   返回类型，调用方不必为它写错误处理。⚠️ `clippy::unnecessary_wraps` 报不出来：
+//!   该 lint 默认**不检查导出函数**（`avoid-breaking-exported-api`）。
+//! · `AppState::save_config_atomic` 在**写盘失败时会先回滚内存状态**再返回错误，
+//!   所以调用方拿到 `Err` 时，内存里的配置仍是旧值（不会「内存改了、磁盘没改」）。
+//!
+//! 除 `Validation`（配置内容校验不通过）外，本模块的错误基本都落在 `AppError::Config` ——
+//! 它们对调用方而言都属「操作没做成、状态未变」，没有各自区分处理的必要。
+
 use crate::config_repository::ConfigRepository;
 use crate::error::AppError;
 use crate::state::AppState;
@@ -106,6 +119,11 @@ fn get_backup_dir(state: &AppState) -> Result<std::path::PathBuf, AppError> {
         .join("backups"))
 }
 
+/// 列出备份目录下的所有备份，按时间戳倒序（最新在前）。
+///
+/// # Errors
+/// `Config`：配置路径未设置、备份目录创建或读取失败、备份文件元数据读取失败。
+/// ⚠️ 备份目录不存在时**不报错** —— 会自动创建并返回空列表。
 pub fn list_backups(state: &AppState) -> Result<Vec<BackupInfo>, AppError> {
     let backup_dir = get_backup_dir(state)?;
 
@@ -162,6 +180,10 @@ pub fn list_backups(state: &AppState) -> Result<Vec<BackupInfo>, AppError> {
     Ok(backups)
 }
 
+/// 把当前配置快照写入备份目录，返回备份文件名。
+///
+/// # Errors
+/// `Config`：配置路径未设置、备份目录创建失败、备份文件写入失败。
 pub fn create_backup(state: &AppState) -> Result<String, AppError> {
     let backup_dir = get_backup_dir(state)?;
 
@@ -182,6 +204,14 @@ pub fn create_backup(state: &AppState) -> Result<String, AppError> {
     Ok(backup_filename)
 }
 
+/// 用指定备份覆盖当前配置。
+///
+/// # Errors
+/// - `Validation`：文件名不以 `backup_` 开头；恢复出的配置校验不通过。
+/// - `Config`：配置路径未设置、备份文件不存在、备份读取或写回失败。
+///
+/// ⚠️ **恢复前会自动先备份当前配置，但那个自动备份失败不算失败**（只记 `warn` 后继续）。
+/// 代价是：若恢复后想反悔，可能已经拿不到恢复前的那份配置了。
 pub fn restore_backup(state: &AppState, filename: &str) -> Result<(), AppError> {
     if !filename.starts_with("backup_") {
         return Err(AppError::Validation(
@@ -218,6 +248,12 @@ pub fn restore_backup(state: &AppState, filename: &str) -> Result<(), AppError> 
     Ok(())
 }
 
+/// 删除指定备份文件。
+///
+/// # Errors
+/// - `Validation`：文件名不以 `backup_` 开头。
+/// - `Config`：配置路径未设置、备份文件不存在、路径解析失败、
+///   文件不在备份目录内（防路径逃逸）、删除失败。
 pub fn delete_backup(state: &AppState, filename: &str) -> Result<(), AppError> {
     if !filename.starts_with("backup_") {
         return Err(AppError::Validation(
@@ -241,6 +277,11 @@ pub fn delete_backup(state: &AppState, filename: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// 对比当前配置与指定备份，返回分组的新增 / 删除 / 变更清单。
+///
+/// # Errors
+/// `Config`：配置路径未设置、备份文件不存在、路径解析失败或不在备份目录内、备份读取失败。
+/// 本函数只按分组 id 做集合比较，**不校验配置内容**，因此不会返回 `Validation`。
 pub fn compare_configs(state: &AppState, backup_filename: &str) -> Result<ConfigDiff, AppError> {
     let current_config = state.read_config()?;
 
@@ -284,8 +325,14 @@ pub fn compare_configs(state: &AppState, backup_filename: &str) -> Result<Config
     })
 }
 
+/// 从磁盘重新加载配置并替换内存中的配置，返回新配置。
+///
 /// 返回 `Config` 是有意为之：前端需要新配置来更新 UI 状态。
 /// 即使调用方当前不需要返回值，保留返回类型可避免未来需要时再改签名。
+///
+/// # Errors
+/// - `Config`：配置路径未设置、读取失败、写回失败。
+/// - `Validation`：重载出的配置校验不通过 —— 此时**内存中的配置未被改动**。
 pub fn hot_reload(state: &AppState) -> Result<Config, AppError> {
     let config_path = state
         .get_config_path()
@@ -302,6 +349,11 @@ pub fn hot_reload(state: &AppState) -> Result<Config, AppError> {
     Ok(reloaded_config)
 }
 
+/// 把当前配置导出到指定路径。
+///
+/// # Errors
+/// `Config`：路径非法（含空字节 / 是相对路径 / 含 `..` / UNC 或设备路径 /
+/// 扩展名不是 `.json`），或目标文件写入失败。
 pub fn export_config(state: &AppState, path: &str) -> Result<(), AppError> {
     validate_file_path(path)?;
 
@@ -313,6 +365,11 @@ pub fn export_config(state: &AppState, path: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// 从指定路径导入配置并替换当前配置（含 BOM 剥离）。
+///
+/// # Errors
+/// - `Config`：路径非法、文件读取失败、JSON 解析失败、写回失败。
+/// - `Validation`：导入的配置校验不通过 —— 此时**不会写盘、内存配置也不变**。
 pub fn import_config(state: &AppState, path: &str) -> Result<(), AppError> {
     validate_file_path(path)?;
 
