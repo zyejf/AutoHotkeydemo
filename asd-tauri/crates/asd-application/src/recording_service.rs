@@ -1,7 +1,3 @@
-// TD-021：本文件的 `# Errors` 待补（见 `docs/tech-debt-register.md`）。
-// 补完即删除下面这行，本文件立刻受 `clippy::missing_errors_doc` 保护。
-#![allow(clippy::missing_errors_doc)]
-
 use crate::backup_service::validate_file_path;
 use crate::config_repository::ConfigRepository;
 use crate::error::AppError;
@@ -42,6 +38,17 @@ pub struct ImportedRecording {
 }
 
 /// 启动录制。
+///
+/// # Errors
+///
+/// - `Validation`：`group_id` / `mode` 为空（含纯空白）、`mode` 不在 `VALID_MODES` 内、
+///   已有录制正在进行，或验证进行中（录制与验证互斥）。
+/// - `GroupNotFound`：分组不存在（在写锁内检查，防止与删除操作的 TOCTOU）。
+/// - `Ipc`：IPC 发送失败，**此时 `recording_mode` 已回滚为 `None`**，可直接重试。
+///
+/// ⚠️ 本函数走的是 `send_ipc_command`（**不等响应**），所以 `Ok(())` 只表示
+/// 「命令已发出」，**不代表 AHK 侧真的开始了录制** —— AHK 侧处理失败不会反映到
+/// 返回值里，只有传输层失败才会。这是本文件里唯一一个不等响应的接口。
 ///
 /// # TOCTOU 权衡
 ///
@@ -99,6 +106,23 @@ pub fn start_recording(state: &AppState, group_id: &str, mode: &str) -> Result<(
     Ok(())
 }
 
+/// 停止录制，返回 AHK 侧采集到的录制结果。
+///
+/// # Errors
+///
+/// - `Validation`：没有正在进行的录制。
+/// - `Ipc`：三种情形，**三种都会把 `recording_mode` 清成 `None`**：
+///   - IPC 通信失败（超时 5 秒）—— 会先尽力补发一次 `StopRecording`（走
+///     `try_send_ipc_command`，失败只记日志）再清理；
+///   - AHK 返回错误响应；
+///   - AHK 已停止录制但响应数据无法解析（缺少按键序列 / 缺少 `mode` / 模式无效）。
+///
+/// ⚠️ 拿到 `Err` 时录制状态**已被清空**，所以不要用 `Err` 去重试 `stop_recording`
+/// —— 重试只会得到 `Validation`（没有正在进行的录制）。此时应按「Rust 侧状态已清、
+/// AHK 侧可能仍在录」处理，用户角度需要一次人工确认。
+///
+/// 另：请求时的模式与 AHK 返回的模式不一致时**不报错**，只记 `warn` 并以 AHK 的
+/// 返回值为准（`RecordingResult::mode` 取自响应）。
 pub fn stop_recording(state: &AppState) -> Result<RecordingResult, AppError> {
     // 前置检查：是否正在录制
     {
@@ -213,6 +237,14 @@ pub fn stop_recording(state: &AppState) -> Result<RecordingResult, AppError> {
 /// `stop_recording` + `start_recording` 可能替换了录制会话，导致 pause/resume
 /// 命令作用于新录制而非原始录制。此窗口极窄（微秒级），且影响有限
 ///（用户可手动恢复），当前作为已知权衡接受。
+///
+/// # Errors
+///
+/// - `Validation`：没有正在进行的录制。
+/// - `Ipc`：IPC 通信失败（超时 5 秒）或 AHK 返回错误响应。
+///
+/// ⚠️ 与 `stop_recording` 不同：失败时**不会**清理 `recording_mode` ——
+/// 暂停失败不意味着录制会话结束，调用方仍可重试，或改用 `stop_recording` 兜底。
 pub fn pause_recording(state: &AppState) -> Result<u64, AppError> {
     // 前置检查：是否正在录制
     {
@@ -232,6 +264,16 @@ pub fn pause_recording(state: &AppState) -> Result<u64, AppError> {
     Ok(response.seq)
 }
 
+/// 恢复被 [`pause_recording`] 暂停的录制。
+///
+/// 与 `pause_recording` 共享同一份 TOCTOU 权衡（见该函数上方说明）。
+///
+/// # Errors
+///
+/// - `Validation`：没有正在进行的录制。
+/// - `Ipc`：IPC 通信失败（超时 5 秒）或 AHK 返回错误响应。
+///
+/// ⚠️ 与 `stop_recording` 不同：失败时**不会**清理 `recording_mode`，可安全重试。
 pub fn resume_recording(state: &AppState) -> Result<u64, AppError> {
     // 前置检查：是否正在录制
     {
@@ -289,6 +331,19 @@ fn validate_recording_data(
     Ok(())
 }
 
+/// 把一条录制结果导出成 JSON 文件。
+///
+/// # Errors
+///
+/// - `Validation`：`keys` 为空、`mode` 不在 `VALID_MODES` 内，或录制数据本身不合法
+///   （按键含空串、periodic 缺间隔、sequence 缺延迟、间隔或延迟为 0）。
+/// - `Config`：路径不合法（非绝对路径、含 `..`、UNC 或设备路径前缀、扩展名不是
+///   `.json`），或录制数据序列化失败。
+/// - `Internal`：写盘失败。
+///
+/// 三个变体是刻意区分的：`Config` 属于「调用方传错了，重试也一样错」，
+/// `Internal` 属于「文件系统这一刻出了问题，可以重试」。写盘走 `atomic_write`，
+/// **不会留下半成品文件** —— 失败时目标文件保持导出前的状态。
 pub fn export_recording(
     path: &str,
     keys: &[String],
@@ -331,6 +386,18 @@ pub fn export_recording(
     Ok(())
 }
 
+/// 从 JSON 文件导入一条录制结果（读取时会自动剥离 BOM）。
+///
+/// # Errors
+///
+/// - `Config`：路径不合法（同 [`export_recording`]）、文件读取失败，或内容不是合法
+///   JSON。
+/// - `Validation`：文件里没有可用的 `keys`（字段缺失或为空数组）、缺少 `mode` 字段、
+///   `mode` 不在 `VALID_MODES` 内，或数据不合法（判据同 [`export_recording`]）。
+///
+/// ⚠️ `keys` / `intervals` / `delays` 的**类型不匹配会静默降级为空数组**，而不是报
+/// 类型错误 —— 例如 `"keys": [1, 2]` 会得到空的 `keys`，最终报成「录制数据缺少
+/// 按键序列」。排查导入失败时不能只看错误信息，要看原始 JSON。
 pub fn import_recording(path: &str) -> Result<ImportedRecording, AppError> {
     validate_file_path(path)?;
 
@@ -382,6 +449,19 @@ pub fn import_recording(path: &str) -> Result<ImportedRecording, AppError> {
     })
 }
 
+/// 启动验证（与录制互斥）。
+///
+/// # Errors
+///
+/// - `Validation`：`group_id` 为空（含纯空白）、已有录制正在进行，或已有验证正在
+///   进行（并发保护靠 `validation_in_progress` 的 `compare_exchange`，后到者失败）。
+/// - `GroupNotFound`：分组不存在（在写锁内检查，防止与删除操作的 TOCTOU）。
+/// - `Ipc`：IPC 通信失败或 AHK 返回错误响应。
+///
+/// ⚠️ 上面两种 `Ipc` 情形**都会把 `validation_in_progress` 回滚为 `false`**，
+/// 所以拿到 `Err` 时可以直接重试，不存在「标志卡死导致永远报已有验证正在进行」。
+/// 回滚本身走 `compare_exchange(...).ok()`：若已被并发清除（如 AHK 重连回调）
+/// 则跳过，不影响返回值。
 pub fn start_validation(state: &AppState, group_id: &str) -> Result<u64, AppError> {
     if group_id.trim().is_empty() {
         return Err(AppError::Validation("分组 ID 不能为空".to_string()));
@@ -456,6 +536,19 @@ pub fn start_validation(state: &AppState, group_id: &str) -> Result<u64, AppErro
     Ok(response.seq)
 }
 
+/// 停止验证。
+///
+/// # Errors
+///
+/// - `Validation`：`validation_in_progress` 为 `false`，即没有正在进行的验证。
+/// - `Ipc`：IPC 通信失败（超时 5 秒）或 AHK 返回错误响应。
+///
+/// ⚠️ 与 [`stop_recording`] 同构：**无论成功还是失败都强制清理
+/// `validation_in_progress`** —— 宁可让 Rust 侧标志与实际状态不一致，也不能让
+/// 标志卡住使后续 `start_validation` 永远失败。AHK 侧是否真的停下来无法从这里确认。
+///
+/// 另：`compare_exchange` 失败（例如 AHK 重连回调已并发清除）**不算错误**，只记
+/// `warn` —— 那时 IPC 已成功，验证确实停了。
 pub fn stop_validation(state: &AppState) -> Result<u64, AppError> {
     // 前置检查：验证是否正在进行
     if !state
