@@ -7,10 +7,10 @@
 # 认知复杂度：默认 30。低于此值都算「读得懂」。
 cognitive-complexity-threshold = 30
 
-# 单函数行数：默认 100，保持默认。当前有两处显式豁免（均登记 TD-023）：
-#   - asd-domain/src/validator.rs  validate_mode_data  294 行
-#   - asd-application/src/group_service.rs  register_hotkey  104 行
-# 阈值不为它们上调：上调等于宣布「这么长是合理的」，而它们只是还没拆。
+# 单函数行数：默认 100，保持默认。
+# 全仓**已无** `too_many_lines` 就地豁免（TD-023 于 2026-09-16 收干：
+# `validate_mode_data` 304 → 每个 `validate_*` 20 行内，`register_hotkey` 104 → 91 行）。
+# 阈值从未为它们上调过：上调等于宣布「这么长是合理的」，而它们只是还没拆。
 too-many-lines-threshold = 100
 
 # 参数个数：默认 7。

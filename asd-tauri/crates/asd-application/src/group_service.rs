@@ -460,9 +460,6 @@ pub fn reorder_groups(state: &AppState, group_ids: &[String]) -> Result<ReorderR
 /// ⚠️ 失败时会尽力回滚，但**回滚本身也可能失败**（只记 `warn` 并发
 /// `hotkey_conflict` 事件给前端）。所以拿到 `Err` 时不能假定「什么都没发生过」，
 /// 前端应提示用户手动刷新或重新注册。
-// TD-023：104 行（阈值 100），刚过线。函数内是「读状态 → 校验 → 写入 → 注册热键」
-// 的线性流程，强行切分只会把中间状态搬到参数里。先豁免并登记。
-#[allow(clippy::too_many_lines)]
 pub fn register_hotkey(state: &AppState, hotkey: &str, group_id: &str) -> Result<(), AppError> {
     if hotkey.trim().is_empty() {
         return Err(AppError::Validation("热键不能为空".to_string()));
@@ -518,27 +515,8 @@ pub fn register_hotkey(state: &AppState, hotkey: &str, group_id: &str) -> Result
             };
             if let Err(e) = state.send_ipc_command(&unreg_cmd) {
                 // IPC 注销旧热键失败，回滚 swap_hotkey 和 set_group_hotkey
-                if let Err(rollback_err) = state.swap_hotkey(old, group_id) {
-                    tracing::warn!(
-                        "register_hotkey 回滚失败: 旧热键 '{}' 无法恢复 (原因: {}), active_hotkeys 可能不一致",
-                        old, rollback_err
-                    );
-                    // 通知前端热键状态不一致，用户可手动刷新或重新注册
-                    state.emit_event(
-                        "hotkey_conflict",
-                        serde_json::json!({
-                            "groupId": group_id,
-                            "hotkey": old,
-                            "reason": format!("回滚失败: {}", rollback_err),
-                        }),
-                    );
-                }
-                if let Err(rollback_err) = state.set_group_hotkey(group_id, &original_hotkey) {
-                    tracing::warn!(
-                        "register_hotkey 回滚 set_group_hotkey 失败: 分组 '{}' 热键无法恢复为 '{}' (原因: {}), config_state 可能不一致",
-                        group_id, original_hotkey, rollback_err
-                    );
-                }
+                restore_active_hotkey(state, group_id, old);
+                restore_config_hotkey(state, group_id, &original_hotkey);
                 return Err(e);
             }
         }
@@ -550,43 +528,64 @@ pub fn register_hotkey(state: &AppState, hotkey: &str, group_id: &str) -> Result
     };
     if let Err(e) = state.send_ipc_command(&cmd) {
         // IPC 注册新热键失败，回滚 swap_hotkey 和 set_group_hotkey
-        if let Some(ref old) = old_hotkey {
-            if old != hotkey {
-                if let Err(rollback_err) = state.swap_hotkey(old, group_id) {
-                    tracing::warn!(
-                        "register_hotkey 回滚失败: 旧热键 '{}' 无法恢复 (原因: {}), active_hotkeys 可能不一致",
-                        old, rollback_err
-                    );
-                    // 通知前端热键状态不一致，用户可手动刷新或重新注册
-                    state.emit_event(
-                        "hotkey_conflict",
-                        serde_json::json!({
-                            "groupId": group_id,
-                            "hotkey": old,
-                            "reason": format!("回滚失败: {}", rollback_err),
-                        }),
-                    );
-                }
+        match old_hotkey.as_deref() {
+            // 旧热键就是新热键：活跃表里没变过，不需要回滚
+            Some(old) if old == hotkey => {}
+            Some(old) => {
+                restore_active_hotkey(state, group_id, old);
                 // 向 AHK 重新注册旧热键，恢复 AHK 侧热键监听
                 state.try_send_ipc_command(&IpcCommand::RegisterHotkey {
-                    hotkey: old.clone(),
+                    hotkey: old.to_string(),
                     group_id: group_id.to_string(),
                 });
             }
-        } else {
-            let _ = state.unregister_hotkey(hotkey);
+            // 原本没人占着这个热键：把刚刚占住的位置撤掉
+            None => {
+                let _ = state.unregister_hotkey(hotkey);
+            }
         }
-        if let Err(rollback_err) = state.set_group_hotkey(group_id, &original_hotkey) {
-            tracing::warn!(
-                "register_hotkey 回滚 set_group_hotkey 失败: 分组 '{}' 热键无法恢复为 '{}' (原因: {}), config_state 可能不一致",
-                group_id, original_hotkey, rollback_err
-            );
-        }
+        restore_config_hotkey(state, group_id, &original_hotkey);
         return Err(e);
     }
 
     tracing::info!("热键 '{}' 已注册到分组 '{}'", hotkey, group_id);
     Ok(())
+}
+
+/// 把**活跃热键表**里的热键**尽量**恢复成 `old`。
+///
+/// 只在 `register_hotkey` 的 IPC 失败路径上调用。刻意**不返回 `Result`** ——
+/// 回滚失败不该掩盖「最初那个 IPC 错误」，所以失败只 `warn`，并通过
+/// `hotkey_conflict` 事件让前端提示用户手动刷新；调用方拿它补救完仍然返回自己那个 `Err`。
+fn restore_active_hotkey(state: &AppState, group_id: &str, old: &str) {
+    if let Err(e) = state.swap_hotkey(old, group_id) {
+        tracing::warn!(
+            "register_hotkey 回滚失败: 旧热键 '{}' 无法恢复 (原因: {}), active_hotkeys 可能不一致",
+            old,
+            e
+        );
+        // 通知前端热键状态不一致，用户可手动刷新或重新注册
+        state.emit_event(
+            "hotkey_conflict",
+            serde_json::json!({
+                "groupId": group_id,
+                "hotkey": old,
+                "reason": format!("回滚失败: {}", e),
+            }),
+        );
+    }
+}
+
+/// 把**配置里**的热键**尽量**恢复成 `original_hotkey`。
+///
+/// 与 [`restore_active_hotkey`] 同理：失败只 `warn`，不返回 `Result`。
+fn restore_config_hotkey(state: &AppState, group_id: &str, original_hotkey: &str) {
+    if let Err(e) = state.set_group_hotkey(group_id, original_hotkey) {
+        tracing::warn!(
+            "register_hotkey 回滚 set_group_hotkey 失败: 分组 '{}' 热键无法恢复为 '{}' (原因: {}), config_state 可能不一致",
+            group_id, original_hotkey, e
+        );
+    }
 }
 
 /// 注销热键，并把占用它的分组一并停用。

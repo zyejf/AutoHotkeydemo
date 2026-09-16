@@ -67,13 +67,13 @@
 |-------|------|---------|-------|---------|
 | asd-application | 集成 | crates/asd-application/tests/integration_tests.rs | 28 | 跨服务集成（AppState + ConfigRepo） |
 | asd-application | 集成 | crates/asd-application/tests/backup_service_tests.rs | 17 | BackupService 备份创建与恢复 |
-| asd-application | 集成 | crates/asd-application/tests/group_service_tests.rs | 16 | GroupService 分组增删改查 |
+| asd-application | 集成 | crates/asd-application/tests/group_service_tests.rs | 19 | GroupService 分组增删改查 + **TD-023 新增 3 条 `register_hotkey` IPC 失败回滚特征测试**（注销旧键失败 / 注册新键失败 / 无旧热键时注册失败），用「选择性失败的 IPC 发送器」把此前零覆盖的三条回滚路径逼出来 |
 | asd-application | 集成 | crates/asd-application/tests/cross_crate_tests.rs | 13 | 跨 crate 边界（domain → application → ipc-protocol） |
 | asd-application | 集成 | crates/asd-application/tests/recording_service_tests.rs | 11 | RecordingService 按键录制 |
 | asd-application | 端到端 | crates/asd-application/tests/e2e_dataflow_tests.rs | 4 | 端到端数据流（Command → Bridge → AppState） |
 | asd-application | 集成 | crates/asd-application/tests/concurrency_tests.rs | 4 | AppState 并发安全（Arc<Mutex> 验证） |
-| **集成小计** | — | — | **93** | — |
-| **总计** | — | — | **163** | — |
+| **集成小计** | — | — | **96** | — |
+| **总计** | — | — | **166** | — |
 
 ## asd-test-harness
 
@@ -217,7 +217,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 | 类别 | 统计 |
 |------|------|
-| Rust 测试（运行时注册数，`--all-targets -- --list`） | 634（asd-domain 154 + asd-ipc-protocol 72 + asd-application 163 + asd-test-harness 3 + asd-tauri 242；其中 `#[ignore]` 15 个） |
+| Rust 测试（运行时注册数，`--all-targets -- --list`） | 637（asd-domain 154 + asd-ipc-protocol 72 + asd-application 166 + asd-test-harness 3 + asd-tauri 242；其中 `#[ignore]` 15 个） |
 | AHK 执行器测试（`Test_` 方法数） | 61 套件 / 279 个 `Test_` 方法（`tests/test_ahk_executor/` 5 文件；不含 `test_joy_hotkey_manager_ahu.ahk` 的 7 套件） |
 | AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 697 个用例 / 178 个套件。**本机**（`scripts/check-gates.sh`，默认）：通过 697 / 失败 0 / 跳过 0。**CI**（G3b，`ASD_HOST_TIMING=0`）：通过 690 / 失败 0 / **跳过 7** —— 跳过的是 `SenderPreciseTimingTests` 里 7 条绝对墙钟时延断言，原因见下。2026-09-16 起 +33 用例 / +13 套件：原 `tests/test_joystick.ahk`（独立脚本，断言从未执行）改名并转为 `tests/test_joystick_input.ahk` 接入套件（TD-002） |
 | 基准测试 | 7 个 criterion bench |
@@ -225,7 +225,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | 模糊测试 | 5 个 fuzz target |
 | E2E 测试 | 9 suite / 53 用例 |
 
-自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 154 + 72 + 163 + 3 + 242 = 634。
+自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 154 + 72 + 166 + 3 + 242 = 637。
 
 > **备注（T8-07† 处置）**：`docs/review/2026-08-20/task-8-tests.md` 分报告《总结》自报「发现总数 7（Important 3 + Minor 4）」，但正文仅列 T8-01~T8-06 共 6 条（其中 Minor 3 条：T8-04/T8-05/T8-06）。已核实第 4 条 Minor 无正文，属该报告自报计数笔误（正文实际为 Important 3 + Minor 3 = 6 条），无遗漏问题，占位 `T8-07†` 予以关闭。
 
