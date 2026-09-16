@@ -237,8 +237,10 @@
   刻意**顺序**而非并发：并发会让多个冷转换互相争抢（实测并发时 styles.css 52.7s /
   api.js 22.3s / env.mjs 20.7s 各自都慢），顺序时除第一个外均 <3s。
 - **验证:** `readyState` 阻塞 **53847ms → 837ms**；`loadEventEnd` **53809ms → 853ms**；
-  首次 `getTitle()` **54644ms → 7ms**。全量 E2E **Spec Files 8 passed / 1 failed / 9 total**
-  （修复前是 0 passed / 9 failed，全部卡在会话就绪）。
+  首次 `getTitle()` **54644ms → 7ms**。全量 E2E（修复后实测）**Spec Files 8 passed / 1 failed / 9 total，耗时 10m43s**；
+  唯一失败的 `E2E-MODE-002` 隔离复跑 **7/7 全绿**（负载相关抖动）。
+  ⚠️ **未取修复前的全量基线**：修复前只实测到单跑 smoke 必然失败（首个命令必吃满 60s 预算），
+  **没有**跑过 9 套件全量，因此不要引用「修复前 0 passed / 9 failed」—— 那是推断不是实测。
 - **副作用:** 每次 E2E 多付约 60s（一次性，在 onPrepare 内，不占用例预算）。
   预热失败**不阻塞**，只打 `[WARN]` 并退化成原来的慢首屏。
 
