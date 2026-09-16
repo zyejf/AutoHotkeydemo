@@ -59,6 +59,13 @@ SkillManager.Notifier := UIManager
 SkillManager.ConfigStore := ConfigStore
 ErrorSystem.Init()
 ModeRegistry._Init()
+; TD-038：`ConfigService.configPath` 默认是**相对路径** "config.json"，解析到 A_ScriptDir
+; （也就是 tests/），而这里恰好有一个**已入库的夹具** tests/config.json —— 于是每次跑测试
+; 都会把它覆写，git status 永远是脏的（本轮已因此手动 `git checkout` 还原过好几次）。
+; 改指向临时目录：既不再污染夹具，又顺带保证每次运行都从干净状态开始。
+ConfigService.configPath := A_Temp "\asd_webview2_bridge_config.json"
+FileDelete(ConfigService.configPath)
+
 ConfigService.LoadConfig()
 
 ; 上一次运行会把残留的 F8/F9 分组写进 tests/config.json（这个夹具本身就会被测试覆写，
