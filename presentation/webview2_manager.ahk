@@ -12,6 +12,10 @@
 #Warn Unreachable, OutputDebug
 #Warn LocalSameAsGlobal, Off
 
+; _DebugLog（本文件有 43 处调用）原先只定义在 gui_manager.ahk 里，而本模块并不
+; include 它 —— 靠 main.ahk 同时 include 两者才没暴露。2026-09-16 已把它下沉到
+; infrastructure/debug_logger.ahk（TD-037），这里显式声明依赖。
+#Include "..\infrastructure\debug_logger.ahk"
 #Include "..\lib\ahk2_lib\WebView2\WebView2.ahk"
 #Include "..\lib\ahk2_lib\deepclone.ahk"
 #Include "..\domain\interfaces.ahk"
@@ -665,10 +669,14 @@ class WebView2Manager extends IEventHook {
         }
     }
 
+    ; 返回值契约：成功 true / 失败 false（**布尔**，不要再用字符串）。
+    ; 2026-09-16 改正（TD-037）：三条失败路径原先都 `return "error"` —— 而在 AHK v2 里
+    ; 非空字符串是**真值**，`if _BridgeDeleteGroup(id)` 会把「分组不存在 / 删除失败」
+    ; 当成删除成功。成功路径却返回布尔 `true`，同一个函数两种类型。统一成 false。
     static _BridgeDeleteGroup(groupId) {
         try {
             if groupId = "" || !SkillManager.Groups.Has(groupId)
-                return "error"
+                return false
             _DebugLog("_BridgeDeleteGroup called: " groupId)
             oldConfigRaw := ConfigService.ConfigStore.GetGroupConfig(groupId)
             oldConfig := deepclone(oldConfigRaw)
@@ -680,12 +688,12 @@ class WebView2Manager extends IEventHook {
                 } catch as rbErr {
                     ErrorSystem.LogError("DeleteGroup 保存失败后回滚也失败: " rbErr.Message, "CRITICAL", A_ThisFunc, A_LineNumber)
                 }
-                return "error"
+                return false
             }
             return true
         } catch as e {
             ErrorSystem.LogError("DeleteGroup 失败: " e.Message, "ERROR", A_ThisFunc, A_LineNumber)
-            return "error"
+            return false
         }
     }
 

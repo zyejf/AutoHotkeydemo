@@ -61,6 +61,15 @@ ErrorSystem.Init()
 ModeRegistry._Init()
 ConfigService.LoadConfig()
 
+; 上一次运行会把残留的 F8/F9 分组写进 tests/config.json（这个夹具本身就会被测试覆写，
+; 见 TD-038），LoadConfig 又把它们读回来 —— 不清理的话第二次跑必撞「热键已被使用」。
+; 测试不应该只能跑一次。
+for _leftoverId, _leftover in SkillManager.Groups.Clone() {
+    _hk := _GetProp(_leftover, "hotkey", "")
+    if _hk = "F8" || _hk = "F9"
+        WebView2Manager._BridgeDeleteGroup(_leftoverId)
+}
+
 ; ============================================================
 ; 场景 A: _BridgeLoadConfig 返回有效 JSON
 ; ============================================================
@@ -198,7 +207,10 @@ TestReporter.Assert(SubStr(settingsJson, 1, 1) = "{" || SubStr(settingsJson, 1, 
 ; 场景 M: _BridgeSaveSettings 保存设置
 ; ============================================================
 TestReporter.Scenario("_BridgeSaveSettings 保存设置")
-saveResult := WebView2Manager._BridgeSaveSettings('{"CONTROL_HOTKEYS":{"emergency":"Esc","toggleAll":"F12"}}')
+; 控制热键是**整组替换**（_BridgeSaveSettings 里 `ch != ""` 时整体 Set），所以必须给全
+; 5 个键 —— 只给 2 个会被 ConfigValidator._ValidateHotkeys 判「缺少热键配置: showStatus」
+; 而拒绝保存。这是防止静默丢掉其它控制热键的正确行为，不是 bug，改测试而非改生产。
+saveResult := WebView2Manager._BridgeSaveSettings('{"CONTROL_HOTKEYS":{"emergency":"Esc","toggleAll":"F12","showStatus":"^0","toggleHoldMode":"^h","releaseAllHolds":"^r"}}')
 TestReporter.AssertEqual(saveResult, true, "_BridgeSaveSettings 返回 true")
 
 ; ============================================================

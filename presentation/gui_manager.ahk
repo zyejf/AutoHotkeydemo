@@ -11,6 +11,7 @@
 #Warn Unreachable, OutputDebug
 #Warn LocalSameAsGlobal, Off
 
+#Include "../infrastructure/debug_logger.ahk"
 #Include "../domain/skill_manager.ahk"
 #Include "../lib/ahk2_lib/deepclone.ahk"
 #Include "../application/config_service.ahk"
@@ -492,12 +493,6 @@ class TrayManager {
     }
 }
 
-_DebugLog(msg) {
-    try {
-        FileAppend(A_Now " " msg "`n", "logs/debug.log", "UTF-8")
-    } catch as e {
-        ; best-effort: 调试日志写入失败不影响主流程
-        OutputDebug("ASD [WARN] _DebugLog: " e.Message " at line " e.Line)
-    }
-    OutputDebug(A_Now " " msg)
-}
+; _DebugLog 已于 2026-09-16 下沉到 ../infrastructure/debug_logger.ahk（TD-037）。
+; 它原先定义在本文件，而 webview2_manager.ahk 有 43 处调用却未 include 本模块，
+; 属于「靠 main.ahk 同时 include 才成立」的隐式依赖。见 debug_logger.ahk 中的注释。
