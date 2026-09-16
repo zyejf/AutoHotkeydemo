@@ -86,7 +86,20 @@ CI 首次真正跑起来后，6 类失败**没有一类能在本机复现**，�
    `window.location.protocol` 是否为 `chrome-error:`。`startApp()` 已内置该检查。
 3. **窗口标题非空 ≠ 页面加载成功**（标题取自 `tauri.conf.json`，错误页上照样有值）。
 4. msedgedriver 须与 WebView2 运行时匹配；driver 是 gitignored 的 `*.exe`。
+   本机取法：`C:\Program Files (x86)\Microsoft\Edge\Application\<版本>\` 取版本号 →
+   `https://msedgedriver.microsoft.com/<版本>/edgedriver_win64.zip` → 解压到
+   `asd-tauri/e2e/drivers/`（该目录已被 .gitignore 忽略）。完整步骤见 developer-guide §4.7。
 5. 时序类 E2E（按键间隔）观察窗口须 **≥ 2 个周期**；取「最佳匹配周期」而非首个匹配。
+6. ⚠️ **改 `e2e/package.json` 必须重生成 `package-lock.json` 并提交**。CI 用 `npm ci`
+   （严格按 lock 装）。曾发生：lock 里漏了 `@wdio/local-runner`（`runner:'local'` 的实现包），
+   → runner 装不出来 → `npx wdio run` 必失败，而症状容易被当成「CI 上不稳定」。
+   自检：`npm ls --depth=0` 应能看到全部声明的依赖且**无 missing/invalid**。
+7. ⚠️ **审计/统计数字必须先确认依赖树完整**。上面那个缺失让「28 项漏洞」这个基线
+   整个失真（真实值 33）—— 与 TD-025 同类的「测量基线不可复现」。
+8. ⚠️ 安装被中断 → **node_modules 半损坏**（目录和 package.json 在，`index.js` 没了），
+   报 `Cannot find module '.../node_modules/<pkg>/index.js'`。`npm install` **自愈不了**
+   （看见目录在就认为装好了）→ 删掉那一个具体目录再 `npm install`。
+   ⚠️ 沙箱 safe-delete 会拦 `npm ci`（批量删超 50 条目触发确认），本机验证不了 `npm ci` 路径。
 
 ## AHK 测试运行与输出位置
 
