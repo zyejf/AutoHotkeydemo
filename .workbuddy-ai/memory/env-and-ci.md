@@ -17,6 +17,17 @@
   **直接重试**（1–3 次内成功），别改凭据。
 - `git fetch` 常被同一代理阻断 → 推送后本地 `origin/main` 停在旧值（显示 ahead N）。
   远端真实状态用 `gh api repos/zyejf/AutoHotkeydemo/commits/main` 核实。
+- ⚠️ **推送后必须查 CI 结论，别只看本地四闸门**（TD-028，2026-09-16 血的教训）：
+  ```bash
+  gh run list --limit 1 --json databaseId --jq '.[0].databaseId'   # 拿最新 run id
+  gh run view <id>            # 看结论；红的话 --log-failed 看日志
+  ```
+  本地 `check-gates.sh` 只跑 windows 一套，CI 另有 ubuntu（coverage / miri / eslint）。
+  曾出现**连续 9 次 main 推送 CI 全红、跨度 3 小时无人发现**。
+  ⚠️ **「所有 job 的 steps 为空、1～3 秒内失败」= 账户级问题，不是代码问题**：
+  注解是 `The job was not started because recent account payments have failed or your
+  spending limit needs to be increased` → 只能去 Settings → Billing & plans 处理，
+  **别去改代码/改 workflow**。判据：job 无 steps + 秒级失败 + 所有 job（含 ubuntu）一起挂。
 - ⚠️ **`git update-ref` 被包装器静默拦截**（ref 全在 `packed-refs`）。
   替代：Python 直接改 `.git/packed-refs` 对应行
   （`git fetch <url> +refs/heads/main:refs/remotes/origin/main` 打印成功但**不落盘**）。
