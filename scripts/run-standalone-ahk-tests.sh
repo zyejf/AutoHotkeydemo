@@ -25,6 +25,13 @@ if command -v cygpath >/dev/null 2>&1; then
 fi
 AHK_EXE="${AHK_EXE:-/d/Program Files/AutoHotkey/v2/AutoHotkey64.exe}"
 
+# CI（windows-latest）传进来的是 Windows 原生路径（C:\...），Git Bash 的 `-f` 认不了
+# 反斜杠 —— 会被当成转义符。先归一化成 POSIX 路径。
+if [ ! -f "$AHK_EXE" ] && command -v cygpath >/dev/null 2>&1; then
+  _converted="$(cygpath -u "$AHK_EXE" 2>/dev/null || true)"
+  [ -n "$_converted" ] && AHK_EXE="$_converted"
+fi
+
 if [ ! -f "$AHK_EXE" ]; then
   echo "未找到 AutoHotkey v2：$AHK_EXE"
   echo "请用 AHK_EXE 环境变量指定路径"

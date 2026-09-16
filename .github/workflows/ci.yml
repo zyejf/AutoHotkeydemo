@@ -217,6 +217,15 @@ jobs:
       - name: 'G3e 技术债度量（C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写数字）'
         run: python scripts/check-tech-debt.py
 
+      # tests/ 下 7 个独立脚本，不在 run_all_tests.ahk 的套件注册里，历史上从未被
+      # 任何 runner 执行过 —— 2026-09-16 首次接入执行就连挖三个生产 BUG（TD-034/035/036），
+      # 随后 TD-037 又挖出两个。不进门禁，它们会继续腐烂。
+      - name: 'G3g AHK 独立脚本（tests/test_*.ahk，逐个按退出码汇总）'
+        shell: bash
+        env:
+          AHK_EXE: ${{ steps.ahk.outputs.ahk64 }}
+        run: bash scripts/run-standalone-ahk-tests.sh
+
       # ------------------------------------------------------------ G4
       - name: 'G4 文档同步（人工核对清单）'
         shell: pwsh
