@@ -51,6 +51,10 @@ DEFAULT_AHK = r"D:\Program Files\AutoHotkey\v2\AutoHotkey64.exe"
 # 每轮超时（秒）。prod_escape 单轮本机约 3 s，prod_tick 约 10 s，CI 机器更慢，给足余量。
 ROUND_TIMEOUT = 300
 
+# 单轮超时后的重试次数（TD-041）。只对「超时」重试，不对「回归判定」重试 ——
+# 后者重试等于给回归第二次蒙混过关的机会。改大这个值前先想清楚这一点。
+ROUND_ATTEMPTS = 2
+
 # 「形态自描述」字段：基准自己声明它测的是什么规模/什么形状，门禁拿它跟基线比对。
 #   len   —— payload 长度（prod_escape）
 #   calls —— 每次采样内的调用数（prod_escape）
@@ -83,17 +87,43 @@ def _run_round(ahk: str, bench: str, outdir: str) -> str:
     if not os.path.isfile(script):
         print(f"[FATAL] 无此基准脚本：{script}")
         sys.exit(2)
-    subprocess.Popen([ahk, "/ErrorStdOut=UTF-8", script],
-                     env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    waited = 0
-    while not os.path.exists(done):
-        time.sleep(0.3)
-        waited += 0.3
-        if waited >= ROUND_TIMEOUT:
-            print(f"[FATAL] 基准 {bench} 超时 {ROUND_TIMEOUT}s —— "
-                  f"可能弹了模态错误框，检查 {csv} 末尾有无 FATAL 行")
-            sys.exit(2)
-    return csv
+    # 超时重试（TD-041）：一轮跑满 ROUND_TIMEOUT 是**基础设施故障**，不是耗时结论。
+    # 实测 2026-09-16 run 35159560198：prod_escape 第 1/3 轮正常完成后第 2 轮挂死 300s，
+    # 重跑整轮即绿、三个 metric 全部 PASS —— 代码无回归。
+    # 所以只重试「超时」，**绝不重试回归判定**；且重试必须打进输出，不能静默重试。
+    attempts = ROUND_ATTEMPTS
+    for attempt in range(1, attempts + 1):
+        for p in (csv, done):
+            if os.path.exists(p):
+                os.remove(p)
+        # 必须留住句柄：Popen 是非阻塞的，超时时若不起掉，挂住的 AHK 进程会一直留着，
+        # 既占 CPU 又会污染后续轮次（乃至后续 job）的计时。
+        proc = subprocess.Popen([ahk, "/ErrorStdOut=UTF-8", script],
+                                env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        waited = 0
+        while not os.path.exists(done):
+            time.sleep(0.3)
+            waited += 0.3
+            if waited >= ROUND_TIMEOUT:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                if attempt < attempts:
+                    print(f"[WARN] 基准 {bench} 第 {attempt}/{attempts} 次尝试超时 "
+                          f"{ROUND_TIMEOUT}s（已终止挂起的 AHK 进程），重试一次 —— "
+                          f"超时属基础设施故障，不计入耗时判定")
+                    break
+                print(f"[FATAL] 基准 {bench} 连续 {attempts} 次超时 {ROUND_TIMEOUT}s —— "
+                      f"检查 {csv} 末尾有无 FATAL 行（也可能是 AHK 弹了模态错误框）")
+                sys.exit(2)
+        else:
+            if attempt > 1:
+                print(f"  基准 {bench} 第 {attempt} 次尝试成功（前一次超时）")
+            return csv
+
+    print(f"[FATAL] 基准 {bench} 未能产出结果")
+    sys.exit(2)
 
 
 def _read_rows(path: str) -> list[dict]:
