@@ -200,6 +200,15 @@ C3 文档-代码一致性 / **C3b 文档硬写的 AHK 基线数字**。
 - Conventional Commits，描述用中文。⚠️ scope 正则 `[a-z-]+` **不允许数字**（`fix(e2e)` 因含 `2` 被拒）。
   长信息 `git commit -F <file>`（**不接受 MSYS 路径**，须 `cygpath -w`）；`-F` 与 `-m` 不能同用。
 - ⚠️ **禁用 `git rm`/safe-delete**（路径拼接 bug 会连带删 54 文件）→ `mv` 到 /tmp + `git add -A`。
+- ⚠️ **禁用 `git stash push -- <path>` 做「暂存验证」**：2026-09-16 用它验证覆盖率基线，
+  报 `fatal: <sha> is not a valid object` 之后 HEAD 指向的 3 个提交对象从 `.git/objects` 消失，
+  `git status` 直接 `fatal: bad object HEAD`。恢复靠
+  `git -c credential.helper= fetch "https://x-access-token:$(gh auth token)@github.com/zyejf/AutoHotkeydemo.git" main`
+  （提交都已推送才有救）。要临时还原文件：`cp` 到 `$TEMP` + `git checkout HEAD -- <path>`。
+- ⚠️ **G3f（覆盖率棘轮）只跑在 CI（ubuntu），不在 `scripts/check-gates.sh` 里**。
+  本机 Windows 跑必然报「统计口径漂移」FAIL —— `cfg(windows)` 让行数变多、命中数不动
+  （`group_service.rs` 367→710 而命中 232→232 一个没变）。**别在本机 `--update-baseline`**，
+  那等于把更长的尺子记成覆盖率提升（TD-024 要防的正是这个）。本机只能看同文件纵向趋势。
 - 提交信息**不写具体测试数字**；文档与代码**同 PR**。
 - ⚠️ 改完 AHK 测试要同步 **test-map 三处**：① 明细行（如 test_sender 13/57）②《汇总》表的
   AHK 两行（执行器套件/方法数、完整套件用例数与套件数）③ 文首「口径提示」里的静态/实跑数。
