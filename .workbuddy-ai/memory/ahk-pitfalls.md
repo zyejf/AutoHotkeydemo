@@ -73,3 +73,22 @@
 - ⚠️ 变异测试纪律：改实现前先 `cp` 备份，还原后校验「文件中不再含 MUTATION 标记」。
   ⚠️ **Sender 走 `SleepUntilUs`（µs 口径）不是 `SleepUntil`** —— 只变异 ms 版只能红 1 条。
 
+
+## AHK 排查手法（2026-09-16 实证好用）
+
+- **异常位置拿不到时**：临时给 catch 里的 `ErrorSystem.LogError(...)` 补上
+  `e.File ":" e.Line " what=" e.What " stack=" e.Stack`，跑一次，读日志，然后 `git checkout` 还原。
+  就这样定位到「`_DebugLog` 未定义」—— 原始信息「This local variable has not been
+  assigned a value」完全没指向真因。
+- **隐式依赖**：全局函数（如 `_DebugLog`）定义在 A 模块、被 B 模块调用却没 include A，
+  只要 main 同时 include 两者就不会暴露。查法：`grep -rn "^函数名" ` 看定义点，
+  再对比调用文件的 `#Include` 列表。
+- **AHK v2 里非空字符串是真值**：`return "error"` 配 `if fn()` 会把失败当成功。
+  跨语言边界的返回值不要用字符串表示失败。
+
+## 写 AHK 探针的两个硬要求
+
+1. 输出**写文件**（`A_Temp "\x.txt"`），不要写 `"*"`（stdout）—— 有缓冲，脚本不退出就不 flush，
+   会把「卡住」误判成「没输出」。
+2. 必须加 `#ErrorStdOut "UTF-8"` —— 否则 `#Include` 路径写错时 AHK 弹**阻塞式错误对话框**，
+   同样表现为「卡死」。从 `tests/` 引上级目录要写 `..\infrastructure\...`。
