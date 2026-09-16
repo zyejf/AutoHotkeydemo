@@ -55,6 +55,40 @@ const projectRoot = resolve(__dirname, '..');
 // 直接以 node 执行 vite 的 JS 入口：跨平台、无需 shell、无 .cmd/.ps1 扩展名歧义
 const viteBinPath = resolve(projectRoot, 'node_modules/vite/bin/vite.js');
 
+// Vite 冷启动预热的目标模块。
+// 真因（TD-016，2026-09-16 实测）：Vite dev server 的**首次**模块转换极慢 ——
+// `/src/styles.css` 的 `vite:transform` 实测 **51166ms**，之后走内存缓存只要 0.68ms。
+// 后果链：首屏 load 约 54s 才完成 → WebDriver 的 getTitle()/execute() 都会**阻塞到页面
+// load 完成**（不是它们慢，实测页面就绪后均为 5ms）→ 首个命令吃掉 mocha 的 60s 预算 →
+// 表现为「getTitle() 超时」，极易误判成「窗口没起来 / 页面加载失败」。
+// 因此在**建立 WebDriver 会话之前**把这 50 秒付掉，让真正受限的 60s 只覆盖应用本身。
+const WARMUP_PATHS = ['/', '/@vite/client', '/src/main.js', '/src/styles.css'];
+// 单个预热请求的超时：必须显著大于实测的 51s，否则预热自己先超时、等于没预热
+const WARMUP_TIMEOUT_MS = 120000;
+
+// 顺序预热 Vite 模块，返回诊断行。
+// 刻意**顺序**而非并发：并发会让多个冷转换互相争抢，总墙钟时间反而更长（实测并发时
+// styles.css 52.7s / api.js 22.3s / env.mjs 20.7s 各自都慢）；顺序时除第一个外均 <3s。
+async function warmupVite() {
+  const started = Date.now();
+  const lines = [];
+  for (const p of WARMUP_PATHS) {
+    const t = Date.now();
+    try {
+      const res = await fetch(`http://${VITE_HOST}:${VITE_PORT}${p}`, {
+        signal: AbortSignal.timeout(WARMUP_TIMEOUT_MS),
+      });
+      await res.text();
+      lines.push(`[OK] 预热 ${p} ${Date.now() - t}ms (HTTP ${res.status})`);
+    } catch (e) {
+      // 预热失败**不阻塞**：它只是加速手段，失败则退化成原来的慢首屏，由用例自己超时报错
+      lines.push(`[WARN] 预热 ${p} 失败 ${Date.now() - t}ms: ${e.message}`);
+    }
+  }
+  lines.push(`[INFO] Vite 预热总耗时 ${Date.now() - started}ms`);
+  return lines;
+}
+
 // 轮询等待端口进入监听状态
 async function waitForPort(host, port, timeoutMs = 40000) {
   const deadline = Date.now() + timeoutMs;
@@ -172,6 +206,11 @@ export const config = {
       writeFileSync(resolve(reportsDir, 'FATAL-vite-not-running.txt'), fatal, 'utf-8');
       throw new Error(fatal);
     }
+
+    // 3.5 预热 Vite（TD-016）：把首次模块转换的 ~51s 挪到会话建立之前。
+    // 复用外部已运行的 Vite 实例时也照样预热 —— 无法判断那个实例的冷热。
+    diagLines.push('[INFO] 开始预热 Vite 模块（首次转换极慢，见 TD-016）...');
+    diagLines.push(...(await warmupVite()));
 
     // 4. 检查 msedgedriver.exe
     if (existsSync(msedgedriverExePath)) {

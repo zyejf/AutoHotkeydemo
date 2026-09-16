@@ -210,3 +210,35 @@
 - **影响:** E2E 全部用例无法运行（WebDriver 会话建立失败，未进入任何测试用例）
 - **建议:** 更新 e2e/drivers/msedgedriver.exe 至与 WebView2 Runtime 151.0.4129.93 匹配的版本（从 https://msedgedriver.microsoft.com/ 下载对应 Edge 版本）
 
+### ISSUE-018 [RESOLVED] 首次 getTitle() 卡 60s（真因：Vite 首次模块转换 ~51s，非窗口未就绪）
+
+- **状态:** ✅ 已解决（2026-09-16）
+- **原描述:** WebDriver 会话创建成功、应用进程也已起来，但 `startApp()` 里的第一个
+  `browser.getTitle()` 要 **54~60 秒**才返回，直接吃满 mocha 的 60s 预算，报
+  `Timeout` / `App window did not become ready`。长期被记成「页面级加载问题」（TD-016）。
+- **⚠️ 定位过程中被排除的三个错误假设**（都实测推翻了，别再重复踩）：
+  1. ~~应用启动慢~~ —— 应用日志显示 `04:39:22.581` 启动、`04:39:23.393` 全部就绪，**0.8 秒**。
+  2. ~~前端编译慢 / 代理作祟~~ —— curl 直连 `http://127.0.0.1:5173/` 只要 0.046s；
+     去掉 `HTTP_PROXY`/`HTTPS_PROXY` 后重跑**依然 53s**。
+  3. ~~getTitle 本身慢~~ —— 页面就绪后实测 `getTitle()` **5ms**、`getWindowHandles()` **4ms**。
+- **真因:** Vite dev server 的**首次**模块转换极慢。实测 `vite --debug`：
+  ```
+  vite:load     549.79ms  [fs] /src/styles.css
+  vite:transform 51166.73ms /src/styles.css   ← 51.2 秒（0 imports rewritten）
+  vite:cache [memory] /src/styles.css → 0.68ms
+  ```
+  curl 冷请求 `/src/styles.css` 耗时 **59.79s** 且 `time_starttransfer` ≈ `time_total`
+  （整整 58s 一个字节都没发），热请求 0.004s。
+  于是首屏 `loadEventEnd` 约 54s；而 WebDriver 的 `getTitle()` / `execute()` 都会
+  **阻塞到页面 load 完成**（不是它们慢），首个命令因此吃掉整个 60s 预算 ——
+  **表面是 `getTitle()` 超时，真因是前端冷转换**。
+- **解决方案:** `wdio.conf.js` 的 `onPrepare` 在**建立 WebDriver 会话之前**预热 Vite
+  （顺序请求 `/`、`/@vite/client`、`/src/main.js`、`/src/styles.css`，单请求超时 120s）。
+  刻意**顺序**而非并发：并发会让多个冷转换互相争抢（实测并发时 styles.css 52.7s /
+  api.js 22.3s / env.mjs 20.7s 各自都慢），顺序时除第一个外均 <3s。
+- **验证:** `readyState` 阻塞 **53847ms → 837ms**；`loadEventEnd` **53809ms → 853ms**；
+  首次 `getTitle()` **54644ms → 7ms**。全量 E2E **Spec Files 8 passed / 1 failed / 9 total**
+  （修复前是 0 passed / 9 failed，全部卡在会话就绪）。
+- **副作用:** 每次 E2E 多付约 60s（一次性，在 onPrepare 内，不占用例预算）。
+  预热失败**不阻塞**，只打 `[WARN]` 并退化成原来的慢首屏。
+
