@@ -1488,6 +1488,16 @@ python -c "import zipfile;zipfile.ZipFile('asd-tauri/e2e/drivers/edriver.zip').e
 
 然后 `cd asd-tauri/e2e && npx wdio run wdio.conf.js --spec ./specs/smoke.spec.js`。
 
+> ⚠️ **看起来像「`getTitle()` 超时」的失败，真因往往是 Vite 冷转换，不是窗口没起来。**
+> 本机实测：Vite 首次转换 `/src/styles.css` 要 **51166ms**（热缓存 0.68ms）→ 首屏 load 约 54s →
+> WebDriver 的 `getTitle()` / `execute()` **都会阻塞到页面 load 完成**（页面就绪后实测均为 5ms）
+> → 首个命令吃满 mocha 的 60s 预算。**窗口标题其实是正确的、页面也是好的。**
+> `wdio.conf.js` 的 `onPrepare` 已在建会话前预热（顺序请求 `/`、`/@vite/client`、`/src/main.js`、
+> `/src/styles.css`），所以每次跑会先付约 60s 预热成本 —— 诊断行见
+> `asd-tauri/e2e/reports/e2e-diagnostic.log` 里的「预热」字样。完整定位过程（含被推翻的
+> 「应用启动慢 / 代理作祟 / getTitle 本身慢」三个错误假设）见
+> `asd-tauri/e2e/docs/e2e-known-issues.md` 的 **ISSUE-018**。
+
 > ⚠️ **改完 `e2e/package.json` 必须重生成 `package-lock.json` 并提交**。曾经 lock 里漏了
 > `@wdio/local-runner`，而 CI 用 `npm ci`（严格按 lock 装）→ runner 缺失 → `wdio` 直接起不来。
 > `npm ls --depth=0` 应能看到全部声明的依赖且无 `missing/invalid`。
@@ -1603,6 +1613,44 @@ npm run tauri build                  # 完整发布构建
 # === 日志 ===
 Get-Content "$env:APPDATA\asd-tauri\asd.log" -Tail 20 -Wait  # 实时查看日志
 ```
+
+### 4.10 推送与 CI 结论核查（TD-028）
+
+⚠️ 本地 `scripts/check-gates.sh` 全绿 **不等于 CI 绿** —— 两者连被测平台都不一样：
+本机只有 Windows，CI 跑 ubuntu + windows-latest，另有 coverage（G3f）、miri、依赖审计、
+ESLint（G2c）等本机不跑的检查项。2026-09-16 的实测后果：**连续 9 次 main 推送 CI 全红、
+跨度约 3 小时无人发现** —— 因为没有任何环节会去看 CI 结论。
+
+**推送后必须查结论**（成本一行命令）：
+
+```bash
+# 推送（撞 502 时整条重试，见 .workbuddy-ai/memory/env-and-ci.md）
+git -c credential.helper= push \
+  "https://x-access-token:$(gh auth token)@github.com/zyejf/AutoHotkeydemo.git" main
+
+# 取最近一次 run 的 id，然后阻塞等它跑完并看每个 job 的结论
+id=$(gh run list --limit 1 --json databaseId --jq '.[0].databaseId')
+gh run watch "$id"
+
+# 只要结论（非阻塞）
+gh run view "$id" --json conclusion,jobs \
+  --jq '{conclusion, jobs: [.jobs[] | {name, conclusion}]}'
+```
+
+⚠️ **判「红在哪」之前，先分辨是不是账户级故障**：
+
+| 现象 | 结论 |
+|---|---|
+| job 的 **steps 为空**、**1～3 秒内失败**、ubuntu 与 windows **一起挂**、连 miri / 依赖审计这些与改动无关的 job 也挂 | **账户级（额度/账单）**。注解为 `The job was not started because recent account payments have failed or your spending limit needs to be increased` → 去 Settings → Billing & plans 处理。**不要改代码、不要改 workflow** |
+| 只有某几个 job 红，steps 有内容、失败落在具体步骤上 | 真实失败，按 job 名定位 |
+
+两个推送侧的坑（都踩过，详见 `.workbuddy-ai/memory/env-and-ci.md`）：
+
+- ⚠️ **别用 `git push ... | tail` 判退出码** —— `if` 取到的是 `tail` 的 0，502 失败也会打印
+  `PUSH_OK`。用 `> /tmp/p.log 2>&1; rc=$?`，并用 `gh api repos/zyejf/AutoHotkeydemo/commits/main`
+  核实远端确实到了新提交。
+- ⚠️ **E2E 在 CI 上默认关闭**（`.github/workflows/ci.yml` 里 `workflow_dispatch` 手动触发），
+  所以「CI 绿」**不包含**端到端链路。要验 E2E 必须手动触发或按 §4.7 本地跑。
 
 ---
 
