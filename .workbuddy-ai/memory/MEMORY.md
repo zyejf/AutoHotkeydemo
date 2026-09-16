@@ -83,6 +83,18 @@ bash scripts/check-gates.sh [--quick]      # 一键四闸门（CARGO_INCREMENTAL
   ```
   **排查教训**：`git status --porcelain | head -20` 会把后面的几百行 `A` 截掉，
   看着像"只有 15 个改动"。判断索引是否干净必须用 `| wc -l` 数总数，别用 `head`。
+
+  **结论（2026-09-16 三次事故归纳）**：**任何会移动分支引用的操作都会清掉这个嵌套 ref** ——
+  `git reset` / `git commit` / `git merge` / `git rebase` 无一幸免，连 `--ff-only` 也一样。
+  现象是 `git log` 报 `your current branch does not have any commits yet`，但提交对象都在。
+  **对策：所有 git 写操作都放到主 worktree `D:/1demo/AutoHotkeydemo`（分支 `main`，顶层 ref，稳定）做；
+  这个 worktree 只用来读代码和跑 AHK/Rust 测试。** 需要同步分支时，不必在 worktree 里跑 git，
+  直接把 main 的 sha 写进引用文件即可：
+  ```bash
+  mkdir -p /d/1demo/AutoHotkeydemo/.git/refs/heads/workbuddy
+  git rev-parse <main 的 sha> > /d/1demo/AutoHotkeydemo/.git/refs/heads/workbuddy/main-5f18c6a6
+  ```
+  （注意 `mkdir -p` 不能省：引用被清时是整个 `workbuddy/` 目录一起没的。）
   相关：pre-commit 钩子会遍历所有暂存文件做体积检查，**暂存 825 个文件时钩子会跑很久**，
   命令被超时 SIGTERM 打断在 commit 中途 → 加剧上述问题。只暂存必要文件。
 - ⚠️ **禁用 `git stash push -- <path>` 做暂存验证**：2026-09-16 用它后 HEAD 指向的 3 个提交对象
