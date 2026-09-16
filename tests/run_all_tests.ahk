@@ -87,6 +87,7 @@ testManager.RegisterSuite(
     SkillManagerTests,
     JSONParserTests,
     JSONSerializerTests,
+    JSONSerializerScalarTypeTests,
     ConfigStoreTests,
     ConfigValidatorTests,
     ErrorSystemTests,

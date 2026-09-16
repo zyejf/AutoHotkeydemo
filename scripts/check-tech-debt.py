@@ -22,6 +22,14 @@
      且每个基准必须登记 `_baseline_runs`（基线来源可追溯）。
      —— 起因：`baselines.json` 把 K 从 2.0 改成 1.5 时，test-map.md 漏改，
      文档与代码漂移了两周没人发现。
+  C4 占位目录守卫：`src-tauri/src/{application,domain}/` 禁止放任何文件。
+  C5 冗余 Cargo.lock：workspace 成员目录下不得有 Cargo.lock。
+  C6 vendored 引擎纯净性：`AutoHotkey-2.0.26/` 必须与官方 v2.0.26 不多不少不改。
+  C7 布尔契约同步：Rust 侧 `bool` 字段（含 `Option<bool>`）的 JSON 键名，必须都登记在
+     AHK `JSONSerializer.BoolKeys` 白名单里。
+     —— 起因（TD-030）：AHK v2 没有布尔类型，`Type(true)` 是 "Integer"，
+     序列化器只能靠**键名**判断 JSON 布尔；白名单漏一个键，该字段就会被写成
+     0/1，Rust 侧 serde 直接 `invalid type`。以 Rust 契约为事实源反向校验白名单。
 
 棘轮（ratchet）语义
 --------------------
@@ -34,13 +42,15 @@ C1/C2 的现状是**存量债**，不可能一次清零。所以脚本不要求�
   - 想主动下调水位：清理掉若干项后跑 `--update-baseline`，把新的（更小的）集合
     冻结为新基线。基线文件 diff 会出现在 CR 里，收紧必须过 review。
 
-C3 不做棘轮：一致性问题是当次就必须修的，没有「先记账以后再说」的余地。
+C3 / C4 / C5 / C6 / C7 不做棘轮：它们守的是**规则**（文档与代码必须一致 / 占位目录
+不得放文件 / 成员目录不得有冗余 lock / vendored 引擎树必须与上游一致 / 布尔契约必须
+同步），没有「先记账以后再说」的余地。
 
 用法：
     python scripts/check-tech-debt.py                  # 三检 + 与基线比对（CI 用这个）
     python scripts/check-tech-debt.py --show           # 只打印当前结果，不与基线比对
     python scripts/check-tech-debt.py --update-baseline
-    python scripts/check-tech-debt.py --only c1        # 只跑某一检（c1/c2/c3）
+    python scripts/check-tech-debt.py --only c7        # 只跑某一检（c1…c7）
 
 退出码：0 = 通过；1 = 有新增债或一致性错误。
 """
@@ -524,8 +534,12 @@ def check_c3b(repo_root: Path) -> dict:
                 n = int(mm.group(1))
                 if n == total:
                     continue
+                # ⚠️ finding 里**不能**写当前权威数字 total：它被当作基线项的身份。
+                # 一旦写进去，AHK 用例总数每变一次（697→707），同一批历史豁免就会
+                # 全部变成「新增债」而 FAIL，把人训练成无脑 --update-baseline。
+                # 身份只认「路径:行号 + 硬写的数字」，与 total 无关。
                 findings.append(
-                    f"{rel(p)}:{i}: 硬写「{n} / {n}」，与 test-map 实跑总数 {total} 不符"
+                    f"{rel(p)}:{i}: 硬写「{n} / {n}」"
                     " —— 改为指向 test-map.md 的指针，不要复写数字"
                 )
 
@@ -769,6 +783,112 @@ def check_c6(repo_root: Path) -> dict:
             "extra": extra, "missing": missing, "changed": changed, "deleted": deleted}
 
 
+# ---------------------------------------------------------------- C7 常量
+AHK_SERIALIZER = Path("infrastructure") / "json_serializer.ahk"
+CRATES_SRC = Path("asd-tauri") / "crates"
+
+# `pub foo: bool` / `pub foo: Option<bool>`
+RUST_BOOL_FIELD_RE = re.compile(
+    r"^\s*pub\s+(\w+)\s*:\s*(?:Option<\s*)?bool\s*>?\s*,", re.M)
+RUST_RENAME_RE = re.compile(r"rename\s*=\s*\"([^\"]+)\"")
+AHK_BOOL_KEYS_RE = re.compile(r"static\s+BoolKeys\s*:=\s*Map\((.*?)\)", re.S)
+
+# 纯 Rust 内部、不经 AHK 序列化的布尔字段（附理由才允许登记）
+C7_EXEMPT: dict[str, str] = {}
+
+
+def _snake_to_camel(name: str) -> str:
+    head, *rest = name.split("_")
+    return head + "".join(w.capitalize() for w in rest)
+
+
+def _ahk_bool_keys(repo_root: Path) -> set[str]:
+    path = repo_root / AHK_SERIALIZER
+    if not path.exists():
+        return set()
+    m = AHK_BOOL_KEYS_RE.search(read_text(path))
+    if not m:
+        return set()
+    return set(re.findall(r'"([^"]+)"', m.group(1)))
+
+
+def _attr_balanced(buf: str) -> bool:
+    return buf.count("[") > 0 and buf.count("[") == buf.count("]")
+
+
+def _rust_bool_fields(repo_root: Path) -> dict[str, list[str]]:
+    """返回 {json 键名: [来源:行]}，键名取 serde rename，无 rename 则 snake→camel。
+
+    ⚠️ rename 必须与**紧邻其上的那个属性块**配对。早期版本回看固定行数取第一个
+    rename，会把上一个字段的重命名错配过来（实测把 releaseOnEmergency 报成
+    debounceDelay），那种误报会让人直接关掉这条检查。
+    """
+    out: dict[str, list[str]] = {}
+    crates_dir = repo_root / CRATES_SRC
+    if not crates_dir.exists():
+        return out
+    for rs in sorted(crates_dir.glob("*/src/**/*.rs")):
+        try:
+            lines = read_text(rs).splitlines()
+        except Exception:
+            continue
+        pending: list[str] = []      # 正在累积的属性块（可能跨行）
+        rename: str | None = None    # 最近一个完整属性块给出的 rename
+        for lineno, line in enumerate(lines, 1):
+            s = line.strip()
+            if pending or s.startswith("#["):
+                pending.append(line)
+                if _attr_balanced("\n".join(pending)):
+                    m = RUST_RENAME_RE.search("\n".join(pending))
+                    rename = m.group(1) if m else None
+                    pending = []
+                continue
+            if s == "" or s.startswith("//"):
+                continue
+            m = RUST_BOOL_FIELD_RE.match(line)
+            if m:
+                key = rename if rename else _snake_to_camel(m.group(1))
+                out.setdefault(key, []).append(f"{rel(rs)}:{lineno}")
+            rename = None
+    return out
+
+
+def check_c7(repo_root: Path) -> dict:
+    """C7 布尔契约同步：Rust 的 bool 字段必须都在 AHK 的 BoolKeys 白名单里。
+
+    AHK v2 没有布尔类型（`Type(true) == "Integer"`），序列化器只能靠**键名**判断
+    JSON 布尔（见 TD-030）。白名单漏一个键，该字段就会被写成 0/1，Rust 侧 serde
+    直接 `invalid type` 失败。这里把 Rust 侧契约当唯一事实源，反向校验白名单。
+    """
+    ahk_keys = _ahk_bool_keys(repo_root)
+    rust_keys = _rust_bool_fields(repo_root)
+
+    findings: list[str] = []
+    if not ahk_keys:
+        findings.append(
+            f"{rel(repo_root / AHK_SERIALIZER)}: 未能解析出 JSONSerializer.BoolKeys "
+            f"（C7 无法校验，按失败处理）"
+        )
+    if not rust_keys:
+        findings.append(
+            f"{rel(repo_root / CRATES_SRC)}: 未扫描到任何 Rust bool 字段"
+            f"（C7 无法校验，按失败处理）"
+        )
+
+    for key in sorted(set(rust_keys) - ahk_keys - set(C7_EXEMPT)):
+        src = "、".join(rust_keys[key][:3])
+        findings.append(
+            f"Rust 布尔字段 `{key}`（{src}）不在 AHK 的 JSONSerializer.BoolKeys 里 "
+            f"—— 会被序列化成 0/1，Rust 侧 serde 报 invalid type。请加入白名单"
+        )
+    for key in sorted(C7_EXEMPT):
+        if key not in rust_keys:
+            findings.append(f"C7_EXEMPT 里的 `{key}` 已无对应 Rust 字段，请删除该豁免")
+
+    return {"findings": findings, "ahk_keys": sorted(ahk_keys),
+            "rust_keys": sorted(rust_keys), "checked": len(rust_keys)}
+
+
 # ---------------------------------------------------------------- 基线 / 棘轮
 
 
@@ -827,11 +947,12 @@ def main() -> int:
     )
     ap.add_argument("--update-baseline", action="store_true", help="把当前结果冻结为新基线")
     ap.add_argument("--show", action="store_true", help="只打印当前结果，不与基线比对")
-    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4", "c5", "c6"], help="只跑某一检")
+    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4", "c5", "c6", "c7"], help="只跑某一检")
     args = ap.parse_args()
 
     print("=" * 60)
-    print("技术债度量检查（C1 孤儿文件 / C2 测试未接入 / C3 文档漂移 / C4 占位目录守卫 / C5 冗余 lock / C6 vendored 引擎纯净性）")
+    print("技术债度量检查（C1 孤儿文件 / C2 测试未接入 / C3 文档漂移 / C4 占位目录守卫 / "
+          "C5 冗余 lock / C6 vendored 引擎纯净性 / C7 布尔契约同步）")
     print("=" * 60)
 
     cur = {
@@ -842,13 +963,14 @@ def main() -> int:
         "c4": check_c4(REPO_ROOT),
         "c5": check_c5(REPO_ROOT),
         "c6": check_c6(REPO_ROOT),
+        "c7": check_c7(REPO_ROOT),
     }
 
     if args.update_baseline:
         save_baseline(cur)
         return 0
 
-    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5", "c6"}
+    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5", "c6", "c7"}
 
     # ---------- C3：硬失败，不做棘轮 ----------
     c3_errors = list(cur["c3"]["findings"])
@@ -898,6 +1020,17 @@ def main() -> int:
                 print(f"       … 另有 {len(c6_findings) - 20} 处")
         else:
             print("       通过：与官方 v2.0.26 不多、不少、不改")
+
+    # ---------- C7：硬失败，Rust bool 字段必须都在 AHK BoolKeys 里 ----------
+    c7_findings = list(cur["c7"]["findings"])
+    if "c7" in want:
+        print(f"\n[C7] 布尔契约同步（Rust bool 字段 ↔ AHK BoolKeys）："
+              f"Rust {cur['c7']['checked']} 个键 / AHK 白名单 {len(cur['c7']['ahk_keys'])} 个")
+        if c7_findings:
+            for f in c7_findings[:20]:
+                print(f"       - {f}")
+        else:
+            print("       通过：Rust 侧的布尔字段全部在 AHK 白名单内")
 
     # ---------- C1 / C2：棘轮 ----------
     base = None if args.show else load_baseline()
@@ -961,6 +1094,8 @@ def main() -> int:
             f"被改 {len(cur['c6']['changed'])} / "
             f"被删 {len(cur['c6']['deleted'])}）"
         )
+    if "c7" in want and c7_findings:
+        errors.append(f"Rust 布尔字段未登记进 AHK BoolKeys {len(c7_findings)} 处（C7）")
 
     if errors:
         print("[FAIL] 技术债检查未通过:")

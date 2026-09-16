@@ -24,16 +24,17 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 | 入库文件 | AHK 171 / md 162 / png 89 / json 89 / rs 57 / cpp 53 / c 44 / h 43 / js 23 / html 23 | 同左 |
 | 生产 AHK | ~32 文件 / 11.4k 行（infrastructure 15/3690、domain 8/3441、application 3/770、presentation 6/3524） | 同左 |
 | Rust crates | asd-domain 5/3709、asd-application 8/3754、asd-ipc-protocol 5/948、asd-test-harness 1/389 | 同左 |
-| 测试 | AHK 664（CI 657 + 跳过 7）；Rust 405；E2E 53（CI 默认关）；criterion bench 7；fuzz 5 | **AHK 697**（CI 690 + 跳过 7）—— +33 来自 TD-002 |
+| 测试 | AHK 664（CI 657 + 跳过 7）；Rust 405；E2E 53（CI 默认关）；criterion bench 7；fuzz 5 | **AHK 707**（CI 700 + 跳过 7）—— +33 来自 TD-002、+10 来自 TD-030 |
 | 覆盖率 | 仅 3 个纯逻辑 crate 采集，**无阈值、非阻断** | 同左 |
 | 仓库体积 | `AutoHotkey-2.0.26/` 221 文件 / 7.9M（vendored 引擎源码） | **181 文件 / 7.7M**（移出 40 个混入文件，TD-010） |
-| C1a 孤儿文件 | **19** 项（AHK 语料 109） | **16** 项（语料 103） |
+| C1a 孤儿文件 | **19** 项（AHK 语料 109） | **8** 项（语料 96）—— TD-029 清掉 5 个根目录死文件、TD-025 前的 3 个临时脚本 |
 | C1b 同名重复 | **7** 个 basename（14 个文件） | **1** 个 |
 | C1c 代码在非代码目录 | **4** 项（全在 `docs/review/2026-08-20/fix-plan/workspace-snapshot/`） | **0** 项 |
 | C2 测试未接入执行 | **10** 项（tests/ 语料 23，可达 13） | **8** 项（语料 22，可达 14） |
 | C3 文档-代码不一致 | **0** 项（**不做棘轮，必须恒 0**） | **0** 项 |
 | C3b 文档硬写基线数字 | ——（阶段 0 未设此检） | **3** 项（棘轮登记，见下） |
 | C6 vendored 引擎树纯净性 | ——（阶段 0 未设此检） | **0** 项（**不做棘轮，必须恒 0**） |
+| **C7 布尔契约同步** | ——（2026-09-16 随 TD-030 新增） | **0** 项（**不做棘轮，必须恒 0**；Rust 侧 5 个 bool 键 ↔ AHK `JSONSerializer.BoolKeys` 8 项） |
 | 覆盖率（纯逻辑 crate · 行） | ——（无阈值、非阻断） | **89.05%** 整体 + 15 个文件逐文件基线，**棘轮只阻下降**（G3f，TD-006；2026-09-16 补 `traits.rs` 后由 88.65% 收紧） |
 
 > 上表 C1a/C1b/C1c/C2/C3b 五行由 `scripts/check-tech-debt.py` 产出，基线在
@@ -88,10 +89,16 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 
 | TD-028 | D 门禁缺失 | **推送后没有任何环节会去看 CI 结论**：本地 `check-gates.sh` 全绿就当成「这次改动验证过了」，但 CI（`.github/workflows/ci.yml`）跑的是另一套环境（ubuntu / windows-latest、coverage、miri、eslint）。2026-09-16 实测后果：**连续 9 次 main 推送 CI 全红、跨度约 3 小时无人发现** —— 本次根因是账户级（`recent account payments have failed`，所有 job 的 steps 为空、1～3 秒内失败，与代码无关），但**换成任何真实的 CI 失败，发现得也一样晚**：本地四闸门绿 ≠ CI 绿，两者连被测平台都不一样 | 3 | 4 | 2 | 2 | 1 | 1.4 | **7.9** | P1 | 待排期（2026-09-16 发现。修法建议（按性价比排序）：① **推送后固定跑** `gh run watch <id>` 或 `gh run list --limit 1` 看结论，成本一行命令，已写入 `developer-guide.md` 推送章节与 `.workbuddy-ai/memory/env-and-ci.md`；② 把「查 CI 结论」加进 `scripts/check-gates.sh` 末尾（需 `gh` 登录态，CI 上跳过）；③ 长期：给仓库开 GitHub 通知 / 状态徽章，让红绿在写提交信息之前就可见。⚠️ 别把「本地四闸门绿」当成 CI 会绿的证据 —— 二者平台与检查项都不同） | 3 |
 
-**统计**：P0 **8** 项（**全部完成**）｜P1 **9** 项（8 项已完成、1 项待排期）｜P2 **11** 项（**4 项已完成**、4 项部分完成、1 项豁免、2 项待排期）｜合计 **28** 项。
+| TD-029 | A 死代码 / C1a 定性 | 台账早在阶段 0 就写明「C1a 孤儿需在阶段 1 逐一定性后再开债项」，但一直没做。13 项孤儿里 5 个在根目录：`config.ahk`（140 行，头部自称「⚠ 全局配置变量唯一定义点」，而 `main.ahk` 根本不 include 它，`GroupSettings`/`CONTROL_HOTKEYS`/`HoldSettings` 实际由 `ConfigStore` + `application/config_service.ahk:376-385` 提供 —— 是**会误导人的过期文档**，不只是死代码）、`SkillMgrDebugLogger.ahk`（85 行，全仓零引用，已被 `JSONLogger`/`DebugLogger` 取代）、`test_ob.ahk`（3 行，`OB := "{"` + MsgBox 的临时草稿）、`test_simple.ahk` / `test_val_btn.ahk`（各 14/19 行，需 GUI + 手工运行的 WebView2 探针，0 个 `Test_` 函数，**名字像测试但不是测试**）。全部最后改动于 2026-05-25 | 2 | 2 | 5 | 2 | 0.5 | 1.0 | **15.6** | P0 | **已完成**（2026-09-16：反向引用搜索确认（`main.ahk` 的 25 条 `#Include` 无一指向它们；全仓 grep 这两个文件名只命中基线 JSON 与历史 review 文档）后删除 5 个文件，移入 `%TEMP%` 备份，`git add -A` 收录删除。C1a **16 → 8**，语料 103 → 96，基线已收紧。**刻意没有**一次性清完剩下 8 项 —— 它们全是 `tests/` 下真有断言的 TestReporter 脚本，属 TD-031 的范围，不能按孤儿直接删） | 1 |
+| TD-030 | **E 生产 BUG** | `JSONSerializer._StringifyValue` 把**任何等于 1 的数值写成 `true`、等于 0 的写成 `false`**。根因：AHK v2 **没有布尔类型** —— `Type(true)` 返回 `"Integer"`，`true` 就是 `1`、`false` 就是 `0`，所以 `Type(value)="Boolean"` 恒假（死条件），而 `value = true` 对整数 1 成立。实测：`Stringify(1)`→`true`、`Stringify(0)`→`false`、`Stringify([1,0,2])`→`[true,false,2]`、`Stringify(1.0)`→`true`。**爆炸半径**：`config_io.ahk:47`（配置写盘）、`backup_core.ahk:41`（备份）、`ipc_channel.ahk:80/103`（IPC 报文）、`webview2_manager.ahk` 十余处（前端通信）。**跨语言后果实证**：Rust `asd-domain/src/config.rs:177` 的 `holdDuration` 是 `u64`，而 `validator.rs:858` 明确 `holdDuration=0` 是「无限保持」的合法值 —— 会被写成 `false`，serde 报 `invalid type: boolean false, expected u64`。反向同样严格（实测 `bool <- 0` 也报错），所以**不存在安全默认值**，不能简单地「一律输出数字」 | 4 | 3 | 5 | 4 | 0.5 | 1.0 | **22.6**（+ 硬性升档：数据丢失） | P0 | **已修复**（2026-09-16：既然 AHK 运行时**无法**区分布尔与 1/0，唯一可靠判据是**键名** —— 布尔字段是封闭集合，数值字段是开放的。新增 `JSONSerializer.BoolKeys` 白名单（跨语言契约里约定为 JSON 布尔的键），`_StringifyObject` 命中白名单才输出布尔，其余一律按数字；`_StringifyValue` 删掉按值判布尔的分支。白名单加了 `!IsObject && !(value is String)` 保护 —— 实测 `success`/`error` 等键也可能挂字符串或子对象，那必须走通用分派。**先补测试再动刀**：新增 `JSONSerializerScalarTypeTests` 10 条（双侧钉住数字与布尔），修复前实测 6 条红、修复后 707/707 全绿。阳性对照 5 组全红：恢复按值判布尔→6 红；白名单删一项→1 红；白名单清空→3 红；布尔分支失效→3 红；去掉 `IsObject` 保护→3 红（后三条是既有 `Test_I16/I17/I20` 抓到的，说明这层保护是承重的）。**防复发**：新增 `check-tech-debt.py` 的 **C7**，以 Rust 的 `bool` 字段为事实源反向校验白名单，漏登记即 FAIL） | 1 |
+| TD-031 | D 门禁缺陷 | **C3b 的基线项身份里嵌了可变数字**：finding 文案写作「硬写「`616 / 616`」，与 test-map 实跑总数 **697** 不符」，而 697 是每次测试增长都会变的当前值。于是 AHK 用例数一变（697→707），同一批 2026-09-13 的历史豁免**全部被判成「新增债」而 FAIL**。这是会训练人无脑 `--update-baseline` 的缺陷 —— 棘轮的水位本该只被真新增推高 | 2 | 3 | 5 | 3 | 0.5 | 1.0 | **18.4** | P0 | **已完成**（2026-09-16：finding 文案去掉当前权威数字，身份只认「路径:行号 + 硬写的数字」，与 total 无关。基线重取一次后即稳定。阳性对照：把 test-map 的权威数字改成 999 重跑，C3b 仍 0 新增、PASS） | 2 |
+| TD-032 | E 仓库卫生 | **测试运行产物入库**：`tests/reports/` 下 **47 个**时间戳命名的 `test_report_YYYYMMDD_HHMMSS.json` 已 tracked（目录共 408K），而 `.gitignore` 只忽略了 `asd-tauri/e2e/reports/`，没管 `tests/reports/`。每次跑 `run_all_tests.ahk` 都会新增一个，`git add -A` 就会带进去 —— 实测一次调试就产生 10 个待提交文件 | 2 | 3 | 5 | 1 | 2 | 1.0 | **7.8** | P1 | **部分完成**（2026-09-16：`.gitignore` 已加 `tests/reports/test_report_*.json`，阻止继续膨胀。**剩余**：已 tracked 的 47 个历史文件需 untrack（按工程约定用 `mv` + `git add -A`，不用 `git rm`），并确认 `latest.json` / `integration_full_report.json` 两个固定名文件是否该保留） | 2 |
+| TD-033 | D flaky | `Test_ToggleAll_DeactivatesAllGroups`（`tests/suites/fix_round_suites.ahk:115`）依赖 `SkillManager` 的**跨套件共享可变全局状态**：它先 `if GetActiveCount() = 0 then ToggleAll()` 再 `ToggleAll()`，期待结果恒为 0 —— 但前面的套件若留下活跃分组，该前提就被破坏。2026-09-16 实测 8 次中偶发 1 次 `1 != 0`；`.trae/specs/fix-critical-review-findings/checklist.md` 亦记为「1 预存失败，与本次修改无关」。与 `docs/code-review-report-2026-08-03.md:445` 指出的「多个测试文件通过静态属性赋值污染全局状态」同源 | 2 | 2 | 3 | 3 | 2 | 1.4 | **3.6** | P2 | 待排期（2026-09-16 复现并登记。修法建议：在 `Setup`/`Teardown` 里显式重置 `SkillManager` 状态，或让该用例自建 fixture 而不读全局计数。**未放宽断言**） | 3 |
 
-> P0 已于 2026-09-16 清零；P1 于同日新登记 TD-028（CI 结论无监控）。剩余集中在「测试补齐」（TD-005/007/016）
-> 与「静态分析 / 文档债」（TD-021/022/023），外加被 TD-016 阻塞的 TD-020。均不阻塞交付。
+**统计**：P0 **11** 项（**全部完成**）｜P1 **10** 项（8 项已完成、1 项部分完成、1 项待排期）｜P2 **12** 项（**4 项已完成**、4 项部分完成、1 项豁免、3 项待排期）｜合计 **33** 项。
+
+> P1 仅剩 TD-028（推送后无 CI 结论监控）待排期、TD-032（测试产物入库）部分完成。剩余集中在
+> 「测试补齐」（TD-005/007/016）与「静态分析 / 文档债」（TD-021/022/023），外加被 TD-016 阻塞的 TD-020。均不阻塞交付。
 
 > **TD-017 的意义**：它不是一个「债」，而是**把从未执行的测试接入 CI 的直接回报**——
 > 那 29 条断言躺了不知多久，第一次跑就抓出一个活跃的功能性 BUG。
@@ -111,15 +118,18 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 | **C4 占位目录守卫** | **TD-008**（`src-tauri/src/{application,domain}/` 禁放文件；**已修复**，脚本即防复发手段） | —（硬失败） |
 | **C5 冗余 Cargo.lock** | **TD-019**（workspace 成员目录下不得有 Cargo.lock；**已修复**，脚本即防复发手段） | —（硬失败） |
 | **C6 vendored 引擎纯净性** | **TD-010**（`AutoHotkey-2.0.26/` 必须与官方 v2.0.26 不多不少不改；**已修复**，脚本即防复发手段） | —（硬失败） |
+| **C7 布尔契约同步** | **TD-030**（Rust `bool` 字段的 JSON 键名必须都登记在 AHK `JSONSerializer.BoolKeys`；**已修复**，脚本即防复发手段） | —（硬失败） |
 
 C1a/C1b/C1c/C2/C3b 都是**棘轮**：存量债登记进 `.review-analysis/tech-debt-baseline.json`，
 只有**基线外的新增项**才让门禁变红。
-**C3、C4、C5、C6 是例外：硬失败、必须恒为 0** —— 它们守的是**规则**（文档与代码必须一致 / 占位目录不得放文件 / 成员目录不得有冗余 lock / vendored 引擎树必须与上游一致），
+**C3、C4、C5、C6、C7 是例外：硬失败、必须恒为 0** —— 它们守的是**规则**（文档与代码必须一致 / 占位目录不得放文件 / 成员目录不得有冗余 lock / vendored 引擎树必须与上游一致 / 布尔契约必须同步），
 不是存量债，没有「先登记、以后再说」的余地。
 
-C1a（19 项孤儿）目前**没有**对应已登记债项 —— 其中的 `config.ahk`、`SkillMgrDebugLogger.ahk`、
-`_diag/_mock/_rt.ahk`、`test_ob/test_simple/test_val_btn.ahk`、`tools/ahk-bench/lib/seqgen_test.ahk`
-需在阶段 1 逐一定性（弃用 / 保留并登记为豁免 / 接入执行）后再开债项，不要凭清单直接删。
+C1a 剩余 **8** 项（原 13，TD-029 已清 5 个根目录死文件）**没有**对应已登记债项，
+且**不能按孤儿直接删** —— 其中 7 项是 `tests/` 下用 `TestReporter` 的独立脚本，
+有真断言（合计 125 条 `TestReporter.Assert`）只是没接入执行，属 TD-031 的范围；
+另 1 项 `tools/ahk-bench/lib/seqgen_test.ahk` 有 20 个 `Test_` 函数、同样是**从未执行**的测试。
+需逐一定性（接入执行 / 迁移到 AutoHotUnit / 确认弃用）后再动。
 
 ---
 

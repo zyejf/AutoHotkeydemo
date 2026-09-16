@@ -274,6 +274,80 @@ class JSONSerializerTests extends AutoHotUnitSuite {
 }
 
 ; =================================================================
+; JSONSerializer 标量类型分派（TD-030）
+;
+; 背景：AHK v2 **没有布尔类型** —— `Type(true)` 返回 "Integer"，`true` 就是 `1`、
+; `false` 就是 `0`（下面 Test_AhkBoolean_IsIndistinguishableFromInteger 钉住这一事实）。
+; 于是「按值判断这是布尔还是数字」在运行时**不可能**：`1 = true` 为真。
+; 改动前 `_StringifyValue` 正是这么判的，结果**任何等于 1 的数值被写成 `true`、
+; 等于 0 的被写成 `false`**，而 Rust 侧 `serde` 双向严格（实测
+; `u64 <- false` 与 `bool <- 0` 都报 invalid type），配置/IPC 报文会整段解析失败。
+;
+; 因此布尔只能按**键名**判（键名是跨语言契约的一部分，见 JSONSerializer.BoolKeys），
+; 其余一律按数字输出。本套件同时钉住两侧，防止任一侧被改回去。
+; =================================================================
+class JSONSerializerScalarTypeTests extends AutoHotUnitSuite {
+    ; 根因：AHK v2 的布尔就是整数，运行时不可区分。这条是整套设计的依据，
+    ; 若哪天 AHK 引入真正的布尔类型，这条会先红，提示可以换回类型分派。
+    Test_AhkBoolean_IsIndistinguishableFromInteger() {
+        this.assert.equal(Type(true), "Integer")
+        this.assert.equal(Type(false), "Integer")
+        this.assert.equal(Type(1), "Integer")
+        ; 值相等 —— 这正是旧实现把 1 当 true、0 当 false 的原因
+        this.assert.isTrue(1 = true)
+        this.assert.isTrue(0 = false)
+    }
+
+    Test_IntegerOne_SerializesAsNumber_NotTrue() {
+        this.assert.equal(JSONSerializer.Stringify(1), "1")
+    }
+
+    Test_IntegerZero_SerializesAsNumber_NotFalse() {
+        this.assert.equal(JSONSerializer.Stringify(0), "0")
+    }
+
+    Test_FloatOne_SerializesAsNumber_NotTrue() {
+        this.assert.equal(JSONSerializer.Stringify(1.0), "1.0")
+    }
+
+    Test_NegativeOne_StaysNumber() {
+        this.assert.equal(JSONSerializer.Stringify(-1), "-1")
+    }
+
+    Test_Array_OneAndZero_StayNumbers() {
+        jsonStr := JSONSerializer.Stringify([1, 0, 2])
+        this.assert.isTrue(RegExMatch(jsonStr, "s)^\[\s*1,\s*0,\s*2\s*\]$") > 0)
+    }
+
+    ; 契约现场：holdDuration 是 Rust 的 u64，且 0 表示「无限保持」的合法取值。
+    ; 写成 false 会让整个配置段解析失败。
+    Test_ConfigContract_HoldDurationZero_StaysNumber() {
+        jsonStr := JSONSerializer.Stringify(Map("hotkey", "F1", "mode", "hold", "holdDuration", 0))
+        this.assert.isTrue(InStr(jsonStr, '"holdDuration": 0') > 0)
+    }
+
+    ; 反向：约定的布尔键必须仍然输出 JSON 布尔（写成 0/1 会被 Rust 的 bool 拒绝）
+    Test_BoolKey_AllowOverlap_StaysJsonBoolean() {
+        jsonStr := JSONSerializer.Stringify(Map("allowOverlap", false, "releaseOnEmergency", true))
+        this.assert.isTrue(InStr(jsonStr, '"allowOverlap": false') > 0)
+        this.assert.isTrue(InStr(jsonStr, '"releaseOnEmergency": true') > 0)
+    }
+
+    Test_BoolKey_SuccessAndError_StayJsonBoolean() {
+        jsonStr := JSONSerializer.Stringify(Map("success", false, "error", true))
+        this.assert.isTrue(InStr(jsonStr, '"success": false') > 0)
+        this.assert.isTrue(InStr(jsonStr, '"error": true') > 0)
+    }
+
+    ; 嵌套容器里同样成立：布尔语义跟键走，不跟容器走
+    Test_BoolKey_InsideNestedMap_StaysJsonBoolean() {
+        jsonStr := JSONSerializer.Stringify(Map("hold", Map("autoRepeat", false, "holdDuration", 0)))
+        this.assert.isTrue(InStr(jsonStr, '"autoRepeat": false') > 0)
+        this.assert.isTrue(InStr(jsonStr, '"holdDuration": 0') > 0)
+    }
+}
+
+; =================================================================
 ; JSONSerializer._EscapeString（T1 快路径）
 ;
 ; 快路径的三个判定（不含引号 / 不含反斜杠 / 不含控制字符）必须**合起来恰好覆盖**

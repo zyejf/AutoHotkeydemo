@@ -14,6 +14,33 @@
 class JSONSerializer {
     static _spacesCache := Map()
 
+    ; =================================================================
+    ; JSON 布尔键白名单（TD-030）
+    ;
+    ; AHK v2 **没有布尔类型**：`Type(true)` 返回 "Integer"，`true` 就是 `1`、
+    ; `false` 就是 `0`，运行时无法区分。因此「按值判断是不是布尔」必然误伤 ——
+    ; 旧实现正是这么判的，导致任何等于 1/0 的**数字**被写成 true/false，
+    ; 例如 `holdDuration: 0`（语义是「无限保持」，Rust 侧为 u64）会被写成 `false`，
+    ; serde 反序列化直接 invalid type 失败，整段配置解析不了。
+    ;
+    ; 反过来也不能一律输出数字：Rust 的 bool 字段同样严格，收到 0/1 也报错
+    ; （实测：`bool <- 0`、`u64 <- false` 双向均 invalid type）。
+    ;
+    ; 唯一可靠的判据是**键名** —— 跨语言契约里约定为 JSON 布尔的字段是封闭集合，
+    ; 而数值字段是开放的（随时会新增）。故这里白名单收布尔，其余一律按数字输出。
+    ; 新增布尔字段必须同步本集合（由 `scripts/check-tech-debt.py` 的 C7 守）。
+    ; =================================================================
+    static BoolKeys := Map(
+        "success", true,
+        "error", true,
+        "ok", true,
+        "valid", true,
+        "active", true,
+        "allowOverlap", true,
+        "releaseOnEmergency", true,
+        "autoRepeat", true
+    )
+
     static Stringify(value, indent := 2) {
         visited := Map()
         return this._StringifyValue(value, indent, 0, visited)
@@ -38,8 +65,6 @@ class JSONSerializer {
             return result
         } else if value is String {
             return '"' this._EscapeString(value) '"'
-        } else if Type(value) = "Boolean" || value = true || value = false {
-            return value ? "true" : "false"
         } else if value is Integer || value is Float {
             return String(value)
         }
@@ -60,7 +85,11 @@ class JSONSerializer {
                 result .= ",`n"
             first := false
             result .= nextSpaces '"' this._EscapeString(key) '": '
-            result .= this._StringifyValue(value, indent, currentIndent + indent, visited)
+            ; 白名单内的布尔键按 JSON 布尔输出；其余（含同为 1/0 的数字）走通用分派
+            if this.BoolKeys.Has(key) && !IsObject(value) && !(value is String)
+                result .= value ? "true" : "false"
+            else
+                result .= this._StringifyValue(value, indent, currentIndent + indent, visited)
         }
 
         result .= "`n" spaces "}"
