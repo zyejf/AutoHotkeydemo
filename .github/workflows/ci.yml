@@ -318,10 +318,17 @@ jobs:
           echo "以上 dev 依赖漏洞不阻断构建，但应随 TD-020 收敛。"
 
       # ---- cargo ----
+      # ⚠️ `working-directory` 必须显式给：该 action 默认 `.`，会以 `--file ./Cargo.lock`
+      # 去找锁文件，而本仓库的 Rust workspace 根是 `asd-tauri/`（仓库根没有 Cargo.lock）。
+      # 缺失时的症状极具误导性 —— 报的是
+      #   error: not found: Couldn't load ./Cargo.lock
+      #   ##[error]Unexpected end of JSON input      ← 下游 JSON 解析失败，看起来像工具崩了
+      # 而不是「路径写错了」。2026-09-16 CI 首轮真实触发即踩中（run 35059875838）。
       - name: 'cargo audit · Rust 依赖（阻断）'
         uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: asd-tauri
 
   miri:
     name: Miri UB Check
