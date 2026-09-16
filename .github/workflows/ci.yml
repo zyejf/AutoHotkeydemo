@@ -293,6 +293,14 @@ jobs:
   security-audit:
     name: 依赖安全审计（TD-014）
     runs-on: ubuntu-latest
+    # ⚠️ 必须显式开 checks: write。默认 GITHUB_TOKEN 没有这个权限，
+    # rustsec/audit-check 在**最后一步**把结果写回 Checks API 时会报
+    #   Resource not accessible by integration
+    # 而**审计本身其实是跑完了的** —— 于是 job 红了、日志里却只看到一句权限错误，
+    # 极容易被误读成「action 配置坏了」或者「没装成功」。2026-09-16 run 35113576002 实测。
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@v4
 
