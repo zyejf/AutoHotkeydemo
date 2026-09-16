@@ -1,7 +1,3 @@
-// TD-021：本文件的 `# Errors` 待补（见 `docs/tech-debt-register.md`）。
-// 补完即删除下面这行，本文件立刻受 `clippy::missing_errors_doc` 保护。
-#![allow(clippy::missing_errors_doc)]
-
 use asd_domain::config::Config;
 use std::fs;
 use std::path::Path;
@@ -32,6 +28,26 @@ impl ConfigRepository {
     /// 原子写入文件：先写临时文件，再重命名到目标路径。
     ///
     /// rename 失败时回退到 copy + remove，避免跨文件系统 rename 限制导致的写入失败。
+    ///
+    /// # Errors
+    ///
+    /// - `"无效的文件路径"`：`path` 没有文件名部分（例如以 `..` 结尾）。
+    /// - `"写入临时文件失败: …"`：临时文件写不出来（目录不存在 / 权限不足 / 磁盘满）。
+    ///   **此时目标文件完全没被碰过**。
+    /// - `"重命名和复制均失败: rename=…, copy=…"`：rename 与 copy 双重失败，
+    ///   临时文件已尽力删除。
+    ///
+    /// ⚠️ 两处与「原子」这个名字**不完全相符**，调用方必须知道：
+    ///
+    /// - 一旦走到 copy 分支，**写入就不再是原子的**（`fs::copy` 是边拷边写），
+    ///   中途崩溃会留下半截的目标文件。只有同文件系统内的 rename 才是真原子。
+    /// - copy 成功但临时文件删除失败时**只记 `warn` 并返回 `Ok`**，会留下 `.tmp_*` 残留。
+    ///
+    /// ⚠️ 陈旧临时文件（`.tmp_<name>_<pid>_<纳秒>`）的清理只在 [`save_to_path`]
+    /// 里发生（删除同目录下超过 1 小时的）。直接调用本函数**不会**触发清理 ——
+    /// 自己产生的临时文件照样会删，但别的调用留下的残留不会被清。
+    ///
+    /// [`save_to_path`]: Self::save_to_path
     pub fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
         let file_name = path
             .file_name()
@@ -122,6 +138,24 @@ impl ConfigRepository {
         }
     }
 
+    /// 加载配置文件，**失败时返回错误而不是静默回退到默认配置**。
+    ///
+    /// 与 [`load_from_file`](Self::load_from_file) 的区别就在这里：后者在解析失败或
+    /// 读取失败时返回 `Config::default()`，调用方无从得知加载其实没成功。
+    ///
+    /// # Errors
+    ///
+    /// - [`ConfigLoadError::FileNotFound`]：文件读不出来。
+    /// - [`ConfigLoadError::ParseError`]：内容不是合法 JSON（BOM 已剥离）。
+    ///
+    /// ⚠️ `FileNotFound` 这个变体名**有误导**：它是 `fs::read_to_string` 的**全部**
+    /// 错误的兜底映射，不止「不存在」一种 —— 权限不足、路径其实是目录、内容不是
+    /// 合法 UTF-8 都会落到这里。而它的 `#[error(...)]` 模板是「配置文件不存在: {0}」，
+    /// 于是实际消息可能是「配置文件不存在: Permission denied (os error 13)」。
+    ///
+    /// 因此**不能把「拿到 `FileNotFound`」当成「文件不存在」来处理** —— 例如据此走
+    /// 「首次启动、写一份默认配置」的分支，会在真实故障（权限问题）时**覆盖掉排查线索**。
+    /// 需要区分时请检查 `#[source]` 里的 `io::ErrorKind`。已登记为 TD-027。
     pub fn load_from_file_checked<P: AsRef<Path>>(path: P) -> Result<Config, ConfigLoadError> {
         let path = path.as_ref();
         // 注意：cleanup_stale_temp_files 仅在 save_to_path 中调用，
@@ -131,11 +165,23 @@ impl ConfigRepository {
         serde_json::from_str(cleaned).map_err(|e| ConfigLoadError::ParseError(e.to_string()))
     }
 
+    /// # Errors
+    ///
+    /// 与 [`save_to_path`](Self::save_to_path) 完全一致 —— 本函数只是它的转发，
+    /// 连原子写入保证也是同一个（见那里关于「原子」的注意事项）。
     #[deprecated(since = "4.0.0", note = "使用 save_to_path 替代，提供原子写入保证")]
     pub fn save_to_file<P: AsRef<Path>>(config: &Config, path: P) -> Result<(), String> {
         Self::save_to_path(config, path)
     }
 
+    /// # Errors
+    ///
+    /// - `"读取配置文件失败: …"`：文件读不出来。**不区分**「不存在」与「权限不足 /
+    ///   其实是目录 / 内容非 UTF-8」，需要区分请用
+    ///   [`load_from_file_checked`](Self::load_from_file_checked) 并检查 `#[source]`。
+    /// - `"解析配置文件失败: …"`：内容不是合法 JSON（BOM 已剥离）。
+    ///
+    /// 错误是**扁平的字符串**，调用方无法程序化地区分具体原因，只能展示给人看。
     pub fn load_from_path<P: AsRef<Path>>(path: P) -> Result<Config, String> {
         let path = path.as_ref();
         let content = fs::read_to_string(path).map_err(|e| format!("读取配置文件失败: {e}"))?;
@@ -143,6 +189,15 @@ impl ConfigRepository {
         serde_json::from_str(cleaned).map_err(|e| format!("解析配置文件失败: {e}"))
     }
 
+    /// # Errors
+    ///
+    /// - `"序列化配置失败: …"`：配置无法序列化成 JSON。这是**逻辑错误不是 I/O 故障**，
+    ///   正常不会发生，重试也没有意义。
+    /// - 其余错误来自 [`atomic_write`](Self::atomic_write)（写盘失败），见该函数。
+    ///
+    /// ⚠️ 无论成功还是失败，返回前都会清理同目录下超过 1 小时的陈旧临时文件
+    /// （`cleanup_stale_temp_files`），清理失败静默忽略 —— 所以本函数的返回值
+    /// **不反映清理结果**。
     pub fn save_to_path<P: AsRef<Path>>(config: &Config, path: P) -> Result<(), String> {
         let path = path.as_ref();
         let json =
@@ -165,6 +220,12 @@ impl ConfigRepository {
     /// 读取文件内容为字符串，自动剥离 UTF-8 BOM。
     ///
     /// 用于替代 `std::fs::read_to_string`，统一 BOM 处理逻辑。
+    ///
+    /// # Errors
+    ///
+    /// `"读取文件失败: …"`：文件不存在、权限不足、路径其实是目录，或内容不是合法
+    /// UTF-8（`read_to_string` 对非 UTF-8 一律失败）。错误是扁平字符串，
+    /// **无法程序化区分**这几种情况。
     pub fn read_file_to_string<P: AsRef<Path>>(path: P) -> Result<String, String> {
         let path = path.as_ref();
         let content = fs::read_to_string(path).map_err(|e| format!("读取文件失败: {e}"))?;
@@ -174,6 +235,11 @@ impl ConfigRepository {
     /// 确保目录存在，不存在则递归创建。
     ///
     /// 用于替代 `std::fs::create_dir_all`。
+    ///
+    /// # Errors
+    ///
+    /// `"创建目录失败: …"`：路径已存在但是个文件、父目录不可写、或权限不足。
+    /// **目录已存在不算错误**，会返回 `Ok(())`（幂等，这正是 `create_dir_all` 的语义）。
     pub fn ensure_dir_all<P: AsRef<Path>>(path: P) -> Result<(), String> {
         fs::create_dir_all(path).map_err(|e| format!("创建目录失败: {e}"))
     }
@@ -181,6 +247,14 @@ impl ConfigRepository {
     /// 列出目录中的文件条目。
     ///
     /// 用于替代 `std::fs::read_dir`，返回 `DirEntry` 向量。
+    ///
+    /// # Errors
+    ///
+    /// - `"读取目录失败: …"`：目录打不开（不存在 / 权限不足 / 路径其实是文件）。
+    /// - `"读取目录条目失败: …"`：遍历过程中某一项读不出来（多为并发删除或权限）。
+    ///
+    /// 两者都**不代表「目录为空」** —— 空目录返回的是 `Ok(vec![])`。另外
+    /// **`DirEntry` 的顺序不保证**（取决于文件系统），需要稳定顺序请自行排序。
     pub fn list_dir_files<P: AsRef<Path>>(path: P) -> Result<Vec<fs::DirEntry>, String> {
         let path = path.as_ref();
         fs::read_dir(path)
@@ -192,6 +266,14 @@ impl ConfigRepository {
     /// 删除文件。
     ///
     /// 用于替代 `std::fs::remove_file`。
+    ///
+    /// # Errors
+    ///
+    /// `"删除文件失败: …"`：文件不存在、权限不足，或**被其它进程打开**
+    ///（Windows 上打开的文件默认无法删除，这是备份清理失败最常见的原因）。
+    /// 错误是扁平字符串，无法区分这几种；想先判存在再删的话注意那是 TOCTOU。
+    ///
+    /// 注意：**删除目录要用 `std::fs::remove_dir_all`**，本函数只删文件。
     pub fn delete_file<P: AsRef<Path>>(path: P) -> Result<(), String> {
         fs::remove_file(path).map_err(|e| format!("删除文件失败: {e}"))
     }
