@@ -73,6 +73,16 @@ bash scripts/check-gates.sh [--quick]      # 一键四闸门（CARGO_INCREMENTAL
   兜底：同时建一个**顶层单名**分支（`git branch techdebt-2026-09-16 <sha>`）——
   顶层 ref 能正常创建且不会被清。主 worktree `D:/1demo/AutoHotkeydemo`（分支 `main`）始终完好，
   丢的只是这个 worktree 的分支指针。
+  **第二次事故（同日，更隐蔽）**：`git commit` 自己也触发。这次不是 status 全 A，
+  而是**新提交变成无父的 root commit** —— `git log` 只剩一条，`--stat` 显示
+  825 files / 345417 insertions（整棵树被重新 add）。恢复（内容零丢失）：
+  ```bash
+  git log -1 --format=%B <root-commit> > _msg.txt
+  NEW=$(git commit-tree "$(git rev-parse '<root-commit>^{tree}')" -p <原HEAD> -F "$(cygpath -w $PWD/_msg.txt)")
+  git rev-parse "$NEW" > /d/1demo/AutoHotkeydemo/.git/refs/heads/workbuddy/main-5f18c6a6
+  ```
+  **排查教训**：`git status --porcelain | head -20` 会把后面的几百行 `A` 截掉，
+  看着像"只有 15 个改动"。判断索引是否干净必须用 `| wc -l` 数总数，别用 `head`。
   相关：pre-commit 钩子会遍历所有暂存文件做体积检查，**暂存 825 个文件时钩子会跑很久**，
   命令被超时 SIGTERM 打断在 commit 中途 → 加剧上述问题。只暂存必要文件。
 - ⚠️ **禁用 `git stash push -- <path>` 做暂存验证**：2026-09-16 用它后 HEAD 指向的 3 个提交对象
