@@ -4,8 +4,21 @@ use std::path::Path;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigLoadError {
+    /// 文件确实不存在（`io::ErrorKind::NotFound`）。
+    ///
+    /// ⚠️ 这个变体**只**表示「不存在」。权限不足、路径其实是目录、内容不是合法
+    /// UTF-8 一律走 [`IoError`](Self::IoError) —— 2026-09-16 之前本变体是
+    /// `fs::read_to_string` **全部**错误的兜底，于是实际消息会出现
+    /// 「配置文件不存在: Permission denied (os error 13)」这种自相矛盾的话（TD-027）。
     #[error("配置文件不存在: {0}")]
     FileNotFound(#[source] std::io::Error),
+    /// 文件存在但**读不出来**：权限不足 / 路径其实是目录 / 内容不是合法 UTF-8 等。
+    ///
+    /// 与 [`FileNotFound`](Self::FileNotFound) 的区别是**处置方式**：文件不存在通常
+    /// 意味着「首次启动」，可以写一份默认配置；而这里意味着**出了故障**，拿默认配置
+    /// 顶上会掩盖真实原因。
+    #[error("配置文件无法读取: {0}")]
+    IoError(#[source] std::io::Error),
     #[error("配置文件解析失败: {0}")]
     ParseError(String),
 }
@@ -145,22 +158,19 @@ impl ConfigRepository {
     ///
     /// # Errors
     ///
-    /// - [`ConfigLoadError::FileNotFound`]：文件读不出来。
+    /// - [`ConfigLoadError::FileNotFound`]：**只**表示文件不存在（`ErrorKind::NotFound`）。
+    ///   拿到它可以合理地走「首次启动、写一份默认配置」。
+    /// - [`ConfigLoadError::IoError`]：文件存在但读不出来 —— 权限不足 / 路径其实是
+    ///   目录 / 内容不是合法 UTF-8。这是**出了故障**，不是首次启动，别拿默认配置顶上。
     /// - [`ConfigLoadError::ParseError`]：内容不是合法 JSON（BOM 已剥离）。
-    ///
-    /// ⚠️ `FileNotFound` 这个变体名**有误导**：它是 `fs::read_to_string` 的**全部**
-    /// 错误的兜底映射，不止「不存在」一种 —— 权限不足、路径其实是目录、内容不是
-    /// 合法 UTF-8 都会落到这里。而它的 `#[error(...)]` 模板是「配置文件不存在: {0}」，
-    /// 于是实际消息可能是「配置文件不存在: Permission denied (os error 13)」。
-    ///
-    /// 因此**不能把「拿到 `FileNotFound`」当成「文件不存在」来处理** —— 例如据此走
-    /// 「首次启动、写一份默认配置」的分支，会在真实故障（权限问题）时**覆盖掉排查线索**。
-    /// 需要区分时请检查 `#[source]` 里的 `io::ErrorKind`。已登记为 TD-027。
     pub fn load_from_file_checked<P: AsRef<Path>>(path: P) -> Result<Config, ConfigLoadError> {
         let path = path.as_ref();
         // 注意：cleanup_stale_temp_files 仅在 save_to_path 中调用，
         // 避免在读取路径中引入额外 I/O 延迟
-        let content = fs::read_to_string(path).map_err(ConfigLoadError::FileNotFound)?;
+        let content = fs::read_to_string(path).map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => ConfigLoadError::FileNotFound(e),
+            _ => ConfigLoadError::IoError(e),
+        })?;
         let cleaned = content.trim_start_matches('\u{feff}');
         serde_json::from_str(cleaned).map_err(|e| ConfigLoadError::ParseError(e.to_string()))
     }
@@ -178,7 +188,8 @@ impl ConfigRepository {
     ///
     /// - `"读取配置文件失败: …"`：文件读不出来。**不区分**「不存在」与「权限不足 /
     ///   其实是目录 / 内容非 UTF-8」，需要区分请用
-    ///   [`load_from_file_checked`](Self::load_from_file_checked) 并检查 `#[source]`。
+    ///   [`load_from_file_checked`](Self::load_from_file_checked) —— 它把这两种情况
+    ///   分别映射到 `FileNotFound` 与 `IoError` 两个变体，不用去翻 `#[source]`。
     /// - `"解析配置文件失败: …"`：内容不是合法 JSON（BOM 已剥离）。
     ///
     /// 错误是**扁平的字符串**，调用方无法程序化地区分具体原因，只能展示给人看。
@@ -523,6 +534,55 @@ mod tests {
             ConfigLoadError::FileNotFound(_) => {}
             other => panic!("Expected FileNotFound, got: {other}"),
         }
+    }
+
+    /// 文件**存在**但读不出来时，必须报 [`ConfigLoadError::IoError`]，
+    /// 而且消息里**不能出现「不存在」**。
+    ///
+    /// ⚠️ 这条测试专门钉 TD-027 修掉的那个缺陷：改造之前，`FileNotFound` 是
+    /// `fs::read_to_string` **全部**错误的兜底，于是读一个非 UTF-8 文件会得到
+    /// 「配置文件不存在: stream did not contain valid UTF-8」这种自相矛盾的消息。
+    /// 后果不是文案难看 —— 而是调用方据此把「读不出来」当成「首次启动」处理。
+    #[test]
+    fn test_load_from_file_checked_io_error_is_not_reported_as_not_found() {
+        let dir = std::env::temp_dir().join("asd_app_test_checked_io");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let path = dir.join("not_utf8.json");
+        // 0xFF 不是合法 UTF-8 起始字节 → read_to_string 必然失败（InvalidData）
+        std::fs::write(&path, [0xFF_u8, 0xFE, 0x00, 0x7B]).unwrap();
+
+        let result = ConfigRepository::load_from_file_checked(&path);
+        let err = result.expect_err("非 UTF-8 文件应当读取失败");
+        match &err {
+            ConfigLoadError::IoError(_) => {}
+            other => panic!("文件存在但读不出来应报 IoError，实际: {other}"),
+        }
+        let msg = err.to_string();
+        assert!(
+            !msg.contains("不存在"),
+            "错误消息不该声称文件不存在（那会让调用方误判成首次启动）: {msg}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 读一个**目录**同样属于「读不出来」，不该混进 `FileNotFound`。
+    #[test]
+    fn test_load_from_file_checked_directory_is_io_error() {
+        let dir = std::env::temp_dir().join("asd_app_test_checked_dir");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let err =
+            ConfigRepository::load_from_file_checked(&dir).expect_err("把目录当文件读应当失败");
+        match &err {
+            ConfigLoadError::IoError(_) => {}
+            other => panic!("目录应报 IoError，实际: {other}"),
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
