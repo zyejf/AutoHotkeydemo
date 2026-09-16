@@ -138,3 +138,16 @@ CI 首次真正跑起来后，6 类失败**没有一类能在本机复现**，�
   -u ALL_PROXY -u all_proxy git -c credential.helper= push ...`。
 - ⚠️ **判「推送成功」必须以远端为准**：`gh api repos/zyejf/AutoHotkeydemo/commits/main`
   比对 sha。别信 `git push ... | tail` 的退出码（取到的是 `tail` 的 0）。
+
+## 依赖漏洞排查（2026-09-16，TD-039）
+
+- **判「依赖被锁死」之前，先对被锁的那个中间包做 `cargo update -p <中间包> --dry-run`。**
+  实测：`cargo update -p quick-xml --precise 0.41.0` 被 `plist 1.9.0` 的 `^0.39.2` 拒绝，
+  看着像必须升 tauri；但 `cargo update -p plist` 直接把 plist 升到 1.10.1 并带出
+  quick-xml 0.42.0，而 tauri 的约束是 `plist ^1` —— **tauri 一行都不用动**。
+- `cargo search` 在本机不可用（crates-io 被 ustc 镜像替换，需 `--registry crates-io`）；
+  查可升范围用 `cargo update -p <pkg> --dry-run` 更省事。
+- 定位漏洞包的引入路径：`cargo tree -i <pkg>@<ver>`，能看出是**生产依赖 / dev 依赖 / 构建期依赖**，
+  直接决定处置优先级（dev-only 的补丁级 bump 基本可以顺手做掉）。
+- `rustsec/audit-check` 需要 `permissions: checks: write`，否则审计跑完了却写不回结果，
+  job 红、日志只剩一句 `Resource not accessible by integration`，极易误读。
