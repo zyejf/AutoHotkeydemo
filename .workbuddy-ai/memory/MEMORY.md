@@ -333,3 +333,24 @@ C3 文档-代码一致性 / **C3b 文档硬写的 AHK 基线数字**。
 4. `AutoHotkey64.exe` 是 GUI 程序：PowerShell 须 `Start-Process -Wait -PassThru`；从 Bash 调用更简单。
 5. E2E：debug 构建**一定走 Vite devUrl**，`"Origin header is not a valid URL"` 是「页面没加载」的
    下游症状（**改 `useHttpsScheme` 不对症**）；看 `window.location.protocol` 是否 `chrome-error:`。
+
+## E2E / WebDriver 排错（2026-09-16，TD-016）
+
+- ⚠️ **「`getTitle()` 超时」几乎从来不是窗口没起来。** WebDriver 的 `getTitle()` /
+  `execute()` **都会阻塞到页面 load 完成** —— 页面就绪后实测两者均 **5ms**，
+  `getWindowHandles()` 4~10ms。所以首个命令耗时 ≈ 首屏 load 耗时，吃满 mocha 的
+  60s 预算就报 `Timeout`，而**窗口标题其实是对的**（`技能管理器 v3.0`）。
+- **本机 Vite 首次模块转换约 51s**：`/src/styles.css` 的 `vite:transform` 实测
+  **51166ms**，热缓存 0.68ms；curl 冷请求 59.79s 且 `time_starttransfer`≈`time_total`。
+  已在 `wdio.conf.js` 的 `onPrepare` 里**建会话前顺序预热**（`/`、`/@vite/client`、
+  `/src/main.js`、`/src/styles.css`，单请求超时 120s；**顺序而非并发** —— 并发会
+  让冷转换互相争抢）。效果：首次 `getTitle()` 54644ms→**7ms**。每次跑多付约 60s。
+- 定位时**别急着改代码**，先用「探针 spec」量：给每条命令计时 + 打
+  `performance.getEntriesByType('resource')`，慢资源一眼可见。
+- ⚠️ **CI 上的 E2E job 从未真正跑过**（2026-09-16 核对 96 次运行：4 次
+  `workflow_dispatch` 的 `run_e2e` 都没勾，job 全部 skipped）。台账里凡写「实测」
+  都要说清是本机还是 CI —— 本机 Windows ≠ CI（ubuntu/windows-latest）。
+- 本机 E2E 前置：`tauri-driver` 已装；`msedgedriver.exe` 须放
+  `asd-tauri/e2e/drivers/` 且版本与 Edge 一致。应用日志在
+  `%APPDATA%\com.asd.tauri\asd.<date>.log`（**不是** `asd-tauri/asd.log`）。
+- **仓库已于 2026-09-16 转公开**（转前对 825 个 tracked 文件做了高危密钥扫描，零命中）。

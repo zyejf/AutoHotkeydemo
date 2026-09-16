@@ -121,3 +121,20 @@ CI 首次真正跑起来后，6 类失败**没有一类能在本机复现**，�
 - 全量跑约 **27 秒**（664 用例）。做变异测试时 8 次全量约 4 分钟，可接受，不必拆隔离 runner。
 - 注册新套件：`run_all_tests.ahk` 末尾那个 `RegisterSuite(...)` 块的**最后一项后加逗号**。
   忘了注册 = 套件永不执行 = 静默零覆盖；跑完要 `grep <用例名> tests/test_results.log` 确认。
+
+## 仓库可见性与推送（2026-09-16 更新）
+
+- **仓库已于 2026-09-16 从 PRIVATE 转为 PUBLIC**：
+  `gh repo edit zyejf/AutoHotkeydemo --visibility public --accept-visibility-change-consequences`
+  （**必须**带 `--accept-visibility-change-consequences`，否则 gh 只打印 usage 并退出 1）。
+  转前对 825 个 tracked 文件做了高危密钥模式扫描（`ghp_`/`github_pat_`/`BEGIN PRIVATE KEY`/
+  `AKIA`/`xoxb-`/明文 password），**零命中**。
+  **动机之一：公开仓库的 Actions 不消耗付费额度**，可绕开之前「所有 job 秒级失败、
+  steps 为空」的账户账单问题。
+- **推送撞 502（代理 `127.0.0.1:6958`）时**：`CONNECT tunnel failed, response 502`
+  或 `schannel: server closed abruptly`。实测**连续 8 次全 502、间隔 5s**，换
+  「交替直连/代理 + 8s 间隔」后第 1 次就成功 —— 所以**多试几次通常即可**，
+  不必改 remote。直连写法：`env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy
+  -u ALL_PROXY -u all_proxy git -c credential.helper= push ...`。
+- ⚠️ **判「推送成功」必须以远端为准**：`gh api repos/zyejf/AutoHotkeydemo/commits/main`
+  比对 sha。别信 `git push ... | tail` 的退出码（取到的是 `tail` 的 0）。
