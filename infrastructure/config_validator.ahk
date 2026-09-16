@@ -317,10 +317,14 @@ class ConfigValidator {
                     errors.Push(Map("type", "ERROR", "message", "分组" id "手柄周期模式按键(joyKeys)不能为空数组"))
                 else
                     errors.Push(ConfigValidator._ValidateKeyArray(id, _GetProp(config, "joyKeys"), "joyKeys", true)*)
-                if !ConfigValidator._HasField(config, "intervals")
-                    errors.Push(Map("type", "ERROR", "message", "分组" id "手柄周期模式缺少间隔(intervals)"))
+                ; 间隔字段是 joyIntervals，不是 intervals —— 运行时（domain/joystick_executor.ahk
+                ; 与 v4 的 ahk_executor/joystick.ahk）读的就是 joyIntervals。校验器原来查 intervals，
+                ; 于是任何手柄分组都会被判 ERROR；而 SaveConfig 遇到 ERROR 级问题会**整份配置拒绝保存**，
+                ; 等于一个手柄分组就让用户连普通分组都存不下来。
+                if !ConfigValidator._HasField(config, "joyIntervals")
+                    errors.Push(Map("type", "ERROR", "message", "分组" id "手柄周期模式缺少间隔(joyIntervals)"))
                 else
-                    errors.Push(ConfigValidator._ValidateArrayLength(id, config, "joyKeys", "intervals", "手柄周期模式")*)
+                    errors.Push(ConfigValidator._ValidateArrayLength(id, config, "joyKeys", "joyIntervals", "手柄周期模式")*)
 
             case "joystick_sequence":
                 if !ConfigValidator._HasField(config, "joyKeys")
@@ -329,10 +333,11 @@ class ConfigValidator {
                     errors.Push(Map("type", "ERROR", "message", "分组" id "手柄序列模式按键(joyKeys)不能为空数组"))
                 else
                     errors.Push(ConfigValidator._ValidateKeyArray(id, _GetProp(config, "joyKeys"), "joyKeys", true)*)
-                if !ConfigValidator._HasField(config, "delays")
-                    errors.Push(Map("type", "ERROR", "message", "分组" id "手柄序列模式缺少延迟(delays)"))
+                ; 同上：序列模式的延迟字段是 joyDelays（见 joystick_executor.ahk / joystick.ahk）
+                if !ConfigValidator._HasField(config, "joyDelays")
+                    errors.Push(Map("type", "ERROR", "message", "分组" id "手柄序列模式缺少延迟(joyDelays)"))
                 else
-                    errors.Push(ConfigValidator._ValidateArrayLength(id, config, "joyKeys", "delays", "手柄序列模式")*)
+                    errors.Push(ConfigValidator._ValidateArrayLength(id, config, "joyKeys", "joyDelays", "手柄序列模式")*)
 
             case "joystick_hold":
                 if !ConfigValidator._HasField(config, "joyKeys")

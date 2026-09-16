@@ -348,6 +348,59 @@ class JSONSerializerScalarTypeTests extends AutoHotUnitSuite {
 }
 
 ; =================================================================
+; JSONSerializer 缩进：compact（indent<=0）与 pretty（indent>0）
+;
+; `indent <= 0` 在调用方眼里的语义是「单行紧凑」，不是「缩进 0 个空格」。
+; ErrorSystem._ToJsonLine / JSONLogger._ToJsonLine 都按「一条记录一行」落盘
+; （函数名就叫 _ToJsonLine），IPCChannel 也是按行分帧。
+; 旧实现的换行是无条件的，indent=0 只让缩进变成 0 个空格 —— 于是日志文件
+; 每条记录横跨多行，任何逐行解析的消费方全军覆没。
+; =================================================================
+class JSONSerializerIndentTests extends AutoHotUnitSuite {
+    Test_Compact_IndentZero_ObjectHasNoNewline() {
+        jsonStr := JSONSerializer.Stringify(Map("a", 1, "b", "x"), 0)
+        this.assert.isTrue(InStr(jsonStr, "`n") = 0)
+    }
+
+    Test_Compact_IndentZero_NestedStaysSingleLine() {
+        jsonStr := JSONSerializer.Stringify(Map("a", Map("b", [1, 2, Map("c", 3)])), 0)
+        this.assert.isTrue(InStr(jsonStr, "`n") = 0)
+    }
+
+    ; JSONL 契约现场：_ToJsonLine 的产出拼上换行后，按 `n 切分必须只剩一行
+    Test_Compact_OneRecordPerLine() {
+        line := JSONSerializer.Stringify(Map("timestamp", "2026-09-16T00:00:00", "level", "ERROR", "message", "boom"), 0)
+        parts := StrSplit(line "`n", "`n", "`r")
+        nonEmpty := 0
+        for p in parts
+            if Trim(p) != ""
+                nonEmpty++
+        this.assert.equal(nonEmpty, 1)
+    }
+
+    Test_Compact_RoundTripsThroughParser() {
+        original := Map("level", "ERROR", "code", 7, "nested", Map("k", [1, 2]))
+        parsed := JSONParser.Parse(JSONSerializer.Stringify(original, 0))
+        this.assert.equal(parsed["level"], "ERROR")
+        this.assert.equal(parsed["code"], 7)
+        this.assert.equal(parsed["nested"]["k"][2], 2)
+    }
+
+    ; 默认 indent=2 必须仍然是 pretty —— 别把「紧凑」修成了「永远紧凑」
+    Test_Default_IndentTwoRemainsPretty() {
+        jsonStr := JSONSerializer.Stringify(Map("a", 1))
+        this.assert.isTrue(InStr(jsonStr, "`n") > 0)
+    }
+
+    ; 两个修复的交集：紧凑模式下布尔白名单与数字 0 仍要各归各位
+    Test_Compact_BoolWhitelistStillHolds() {
+        jsonStr := JSONSerializer.Stringify(Map("holdDuration", 0, "allowOverlap", false), 0)
+        this.assert.isTrue(InStr(jsonStr, '"holdDuration": 0') > 0)
+        this.assert.isTrue(InStr(jsonStr, '"allowOverlap": false') > 0)
+    }
+}
+
+; =================================================================
 ; JSONSerializer._EscapeString（T1 快路径）
 ;
 ; 快路径的三个判定（不含引号 / 不含反斜杠 / 不含控制字符）必须**合起来恰好覆盖**
@@ -515,6 +568,77 @@ class ConfigStoreTests extends AutoHotUnitSuite {
         ; 从 ConfigStore 读取，内部状态应不受影响（深拷贝隔离）
         saved := ConfigStore.GetGroupConfig("__i15__")
         this.assert.equal(saved["hotkey"], "F1")
+    }
+}
+
+; =================================================================
+; ConfigValidator 手柄字段契约
+;
+; 手柄模式的间隔/延迟字段是 joyIntervals / joyDelays —— 运行时（domain/joystick_executor.ahk
+; 与 v4 的 ahk_executor/joystick.ahk）读的就是这两个名字。校验器曾误查 intervals / delays，
+; 于是任何手柄分组都被判 ERROR；而 SaveConfig 遇到 ERROR 级问题会拒绝保存**整份**配置，
+; 影响面是「配了手柄就连普通分组也存不下」，不是「只提示这一组有问题」。
+; =================================================================
+class ConfigValidatorJoystickFieldTests extends AutoHotUnitSuite {
+    ; 最强的一条：出厂默认配置必须能过自家校验器。
+    ; 默认分组 7 正是 joystick_periodic，这条直接钉住上面那起事故。
+    Test_DefaultConfig_PassesValidation() {
+        ConfigStore.InitDefaults()
+        errors := ConfigValidator.Validate(ConfigStore.Load())
+        hardErrors := []
+        for e in errors {
+            if e is Map && e.Has("type") && e["type"] = "ERROR"
+                hardErrors.Push(e["message"])
+        }
+        this.assert.equal(hardErrors.Length, 0)
+    }
+
+    Test_JoystickPeriodic_UsesJoyIntervals_NotIntervals() {
+        cfg := Map("GroupSettings", Map("1", Map(
+            "hotkey", "Joy1", "mode", "joystick_periodic",
+            "joyKeys", ["Joy1", "Joy2"], "joyIntervals", [100, 100]
+        )))
+        for e in ConfigValidator.Validate(cfg) {
+            if e is Map && e.Has("type") && e["type"] = "ERROR"
+                this.assert.fail("合法手柄周期配置被判 ERROR: " e["message"])
+        }
+    }
+
+    Test_JoystickPeriodic_MissingJoyIntervals_IsError() {
+        cfg := Map("GroupSettings", Map("1", Map(
+            "hotkey", "Joy1", "mode", "joystick_periodic",
+            "joyKeys", ["Joy1", "Joy2"]
+        )))
+        found := false
+        for e in ConfigValidator.Validate(cfg) {
+            if e is Map && e.Has("type") && e["type"] = "ERROR" && InStr(e["message"], "joyIntervals")
+                found := true
+        }
+        this.assert.isTrue(found)
+    }
+
+    Test_JoystickSequence_UsesJoyDelays_NotDelays() {
+        cfg := Map("GroupSettings", Map("1", Map(
+            "hotkey", "Joy2", "mode", "joystick_sequence",
+            "joyKeys", ["Joy1", "Joy2"], "joyDelays", [100, 100]
+        )))
+        for e in ConfigValidator.Validate(cfg) {
+            if e is Map && e.Has("type") && e["type"] = "ERROR"
+                this.assert.fail("合法手柄序列配置被判 ERROR: " e["message"])
+        }
+    }
+
+    Test_JoystickSequence_MissingJoyDelays_IsError() {
+        cfg := Map("GroupSettings", Map("1", Map(
+            "hotkey", "Joy2", "mode", "joystick_sequence",
+            "joyKeys", ["Joy1", "Joy2"]
+        )))
+        found := false
+        for e in ConfigValidator.Validate(cfg) {
+            if e is Map && e.Has("type") && e["type"] = "ERROR" && InStr(e["message"], "joyDelays")
+                found := true
+        }
+        this.assert.isTrue(found)
     }
 }
 

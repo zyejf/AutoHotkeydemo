@@ -75,14 +75,22 @@ class JSONSerializer {
         if obj.Count = 0
             return "{}"
 
-        spaces := this._BuildSpaces(currentIndent)
-        nextSpaces := this._BuildSpaces(currentIndent + indent)
-        result := "{`n"
+        ; compact（indent <= 0）= 单行紧凑输出，用于 JSONL。
+        ; 旧实现无条件换行，indent=0 只让缩进变成 0 个空格、换行照旧，于是
+        ; `Stringify(x, 0)` 仍是多行 —— 而 ErrorSystem/JSONLogger 的 _ToJsonLine 都按
+        ; 「一条记录一行」落盘，IPCChannel 也是按行分帧。结果是日志文件每条记录横跨
+        ; 多行，任何按行解析的消费方全军覆没。indent<=0 必须真的不换行。
+        compact := indent <= 0
+        nl := compact ? "" : "`n"
+        sep := compact ? "," : ",`n"
+        spaces := compact ? "" : this._BuildSpaces(currentIndent)
+        nextSpaces := compact ? "" : this._BuildSpaces(currentIndent + indent)
+        result := "{" nl
         first := true
 
         for key, value in obj {
             if !first
-                result .= ",`n"
+                result .= sep
             first := false
             result .= nextSpaces '"' this._EscapeString(key) '": '
             ; 白名单内的布尔键按 JSON 布尔输出；其余（含同为 1/0 的数字）走通用分派
@@ -92,7 +100,7 @@ class JSONSerializer {
                 result .= this._StringifyValue(value, indent, currentIndent + indent, visited)
         }
 
-        result .= "`n" spaces "}"
+        result .= nl spaces "}"
         return result
     }
 
@@ -100,19 +108,23 @@ class JSONSerializer {
         if arr.Length = 0
             return "[]"
 
-        spaces := this._BuildSpaces(currentIndent)
-        nextSpaces := this._BuildSpaces(currentIndent + indent)
-        result := "[`n"
+        ; 同 _StringifyObject：indent<=0 必须输出单行紧凑，否则 JSONL 契约不成立
+        compact := indent <= 0
+        nl := compact ? "" : "`n"
+        sep := compact ? "," : ",`n"
+        spaces := compact ? "" : this._BuildSpaces(currentIndent)
+        nextSpaces := compact ? "" : this._BuildSpaces(currentIndent + indent)
+        result := "[" nl
         first := true
 
         for item in arr {
             if !first
-                result .= ",`n"
+                result .= sep
             first := false
             result .= nextSpaces this._StringifyValue(item, indent, currentIndent + indent, visited)
         }
 
-        result .= "`n" spaces "]"
+        result .= nl spaces "]"
         return result
     }
 

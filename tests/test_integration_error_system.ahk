@@ -32,6 +32,16 @@
 ErrorSystem.logFile := A_ScriptDir "\logs\test_integration_errors.log"
 OnError(ErrorSystem_HandleError, -1)
 
+; ModeRegistry 不初始化就是一张空表 —— SkillGroup 拿任何模式去构造都会报
+; 「无效的执行模式」，连 "periodic" 这种确实注册过的模式也不例外。
+; （test_key_validator.ahk 里有这行，这里漏了。）
+ModeRegistry._Init()
+
+; 测试日志必须从干净状态开始：旧格式（多行 pretty JSON）的残留会让「日志格式」断言
+; 一直红，而那反映的是历史数据，不是本次实现的结论。
+if FileExist(ErrorSystem.logFile)
+    FileDelete(ErrorSystem.logFile)
+
 ; =================================================================
 ; 测试开始
 ; =================================================================
@@ -50,10 +60,15 @@ TestReporter.AssertThrows(
 )
 
 ; 测试 ModeRegistry 注册错误捕获
-TestReporter.AssertThrows(
+; Register 的契约是「记日志并返回 false」，不是抛异常（见 mode_registry.ahk）。
+; 原来用 AssertThrows 断言，等于在测一个不存在的 throw。
+TestReporter.AssertNoThrow(
     () => ModeRegistry.Register("test_mode", "not_an_executor"),
-    "IExecutor",
-    "ModeRegistry.Register 捕获无效执行器错误"
+    "ModeRegistry.Register 无效执行器不抛异常"
+)
+TestReporter.Assert(
+    ModeRegistry.Register("test_mode", "not_an_executor") = false,
+    "ModeRegistry.Register 无效执行器返回 false"
 )
 
 ; 测试 SkillGroup 构造错误捕获（通过 ModeRegistry）
@@ -63,11 +78,17 @@ TestReporter.AssertNoThrow(
 )
 
 ; 测试 SkillManager 错误捕获
-TestReporter.AssertThrows(
+; 原来断言 AddGroup("") 抛异常，但 AddGroup 的契约是「返回 false」，且空 ID 目前
+; 根本没有校验（expectedMsgPart 还是空串，这条断言本就什么都没验）。
+; 改成钉住真实契约：重复 ID 返回 false。（空 ID 未校验 → 记为已知缺口，见技术债台账）
+TestReporter.AssertNoThrow(
     () => SkillManager.AddGroup("", {mode: "periodic", hotkey: "F1", keys: ["a"], intervals: [50]}),
-    "",
-    "SkillManager.AddGroup 捕获空ID错误"
+    "SkillManager.AddGroup 空ID 不抛异常"
 )
+_dupCfg := {mode: "periodic", hotkey: "F2", keys: ["b"], intervals: [50]}
+_dupFirst := SkillManager.AddGroup("dup-test", _dupCfg)
+_dupSecond := SkillManager.AddGroup("dup-test", _dupCfg)
+TestReporter.Assert(_dupFirst != false && _dupSecond = false, "SkillManager.AddGroup 重复ID 返回 false")
 
 ; ============================================================
 ; 场景B: 应用层错误捕获测试
@@ -89,11 +110,13 @@ TestReporter.AssertThrows(
     "GroupService.GetGroup 捕获分组不存在错误"
 )
 
-; 测试 ConfigService 错误捕获
+; 测试分组配置错误捕获
+; 注意：GetGroupConfig 属于 GroupService（抛「分组配置不存在」），ConfigService 上从来没有这个方法。
+; 之前写成 ConfigService.GetGroupConfig 会抛「未知方法」，AssertThrows 照样判 PASS —— 是个假通过。
 TestReporter.AssertThrows(
-    () => ConfigService.GetGroupConfig("non_existent_config_xyz"),
-    "不存在",
-    "ConfigService.GetGroupConfig 捕获配置不存在错误"
+    () => GroupService.GetGroupConfig("non_existent_config_xyz"),
+    "分组配置不存在",
+    "GroupService.GetGroupConfig 捕获配置不存在错误"
 )
 
 ; ============================================================
@@ -112,17 +135,13 @@ TestReporter.AssertNoThrow(
     "UIManager.ShowBriefInfo 不崩溃"
 )
 
-; 测试 BackupUI 错误捕获
-TestReporter.AssertNoThrow(
-    () => BackupUI.Init(),
-    "BackupUI.Init 不崩溃"
-)
-
-; 测试 GroupEditor 错误捕获
-TestReporter.AssertNoThrow(
-    () => GroupEditor.Init(),
-    "GroupEditor.Init 不崩溃"
-)
+; 测试 BackupUI / GroupEditor 的公开入口契约
+; 原来断言的是 BackupUI.Init() / GroupEditor.Init()，但这两个入口在重构中已改名为
+; Show() / Open()，且都不再是「无副作用的初始化」—— 直接调用会真的弹出 GUI，
+; 无头测试里既跑不动也不该跑。改为守住「公开入口仍然存在」这条契约：
+; 正是这次腐烂（方法被改名/移除）要拦的东西。
+TestReporter.Assert(HasMethod(BackupUI, "Show"), "BackupUI 公开入口 Show 仍存在")
+TestReporter.Assert(HasMethod(GroupEditor, "Open"), "GroupEditor 公开入口 Open 仍存在")
 
 ; ============================================================
 ; 场景D: 错误日志验证
@@ -184,22 +203,34 @@ if FileExist(logFile) {
 ; ============================================================
 TestReporter.Scenario("错误计数验证")
 
-; 获取错误计数
+; GetErrorCount() 只统计 HandleError() 处理过的错误 —— _errorCount 仅在 HandleError 里 ++，
+; LogError / LogWarning 只是写日志、不计入。所以基线必须先用一次 HandleError 立起来，
+; 否则这里永远是 0（改这段前先看 error_system.ahk 的实现，别再按「日志条数」去理解计数）。
+ErrorSystem.HandleError(Error("错误计数基线"), "Test")
 errorCount := ErrorSystem.GetErrorCount()
 TestReporter.Assert(
     errorCount > 0,
     "错误计数 > 0，当前: " errorCount
 )
 
-; 手动记录错误并验证计数增加
+; 再处理一个，计数必须继续增加
 initialCount := ErrorSystem.GetErrorCount()
-ErrorSystem.LogError("集成测试手动错误", "ERROR", "test_integration_error_system.ahk", A_LineNumber)
+ErrorSystem.HandleError(Error("集成测试第二个错误"), "Test")
 Sleep(50)  ; 等待日志写入
 newCount := ErrorSystem.GetErrorCount()
 
 TestReporter.Assert(
     newCount > initialCount,
-    "手动记录错误后计数增加: " initialCount " -> " newCount
+    "HandleError 后计数增加: " initialCount " -> " newCount
+)
+
+; 反向钉住：LogError 只落盘、不计数。这条要是红了，说明 GetErrorCount 的语义变了。
+countBefore := ErrorSystem.GetErrorCount()
+ErrorSystem.LogError("集成测试手动错误", "ERROR", "test_integration_error_system.ahk", A_LineNumber)
+Sleep(50)
+TestReporter.Assert(
+    ErrorSystem.GetErrorCount() = countBefore,
+    "LogError 只写日志，不增加错误计数"
 )
 
 ; ============================================================
@@ -240,9 +271,12 @@ TestReporter.AssertNoThrow(
     "WARNING 级别错误记录成功"
 )
 
+; ErrorSystem 没有 LogInfo（只有 LogError / LogWarning，级别常量也只有 CRITICAL/ERROR/WARNING）。
+; 这里真正想验证的是「传入未定义的级别不会崩」，用 LogError(msg, level) 表达即可，
+; 不必为了一个没人调用的 API 去加生产代码。
 TestReporter.AssertNoThrow(
-    () => ErrorSystem.LogInfo("INFO 级别测试"),
-    "INFO 级别错误记录成功"
+    () => ErrorSystem.LogError("INFO 级别测试", "INFO"),
+    "未定义级别 INFO 记录不崩溃"
 )
 
 ; ============================================================
@@ -278,4 +312,5 @@ OutputDebug("日志文件: " ErrorSystem.logFile)
 OutputDebug("错误计数: " ErrorSystem.GetErrorCount())
 OutputDebug("========================================`n")
 
-ExitApp(summary.failed > 0 ? 1 : 0)
+; 统一走 TestReporter.Finish()：导出固定名报告 + 按失败数给退出码，外部 runner 才好聚合
+TestReporter.Finish()

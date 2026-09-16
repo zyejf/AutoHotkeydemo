@@ -23,6 +23,10 @@ global g_testFailed := 0
 ; 初始化
 ; =================================================================
 ErrorSystem.logFile := A_ScriptDir "\logs\test_errors.log"
+; 日志从干净状态开始：旧格式（多行 pretty JSON）的残留会让「日志格式验证」一直红，
+; 而那反映的是历史数据，不是本次实现的结论。
+if FileExist(ErrorSystem.logFile)
+    FileDelete(ErrorSystem.logFile)
 ; 偏离标准 OnError 模板说明（合理偏差）：
 ; 标准测试模板要求 OnError 使用 FileAppend 输出 RUNTIME_ERROR 到 stdout。
 ; 但本测试专测 ErrorSystem 的错误接管功能，需使用 ErrorSystem_HandleError 回调
@@ -165,22 +169,25 @@ TestManualLogging() {
     result := {name: "手动记录功能", passed: false, details: ""}
     
     try {
-        initialCount := ErrorSystem.GetErrorCount()
-        
+        ; 两个坑（改这里前务必先看 ErrorSystem 实现）：
+        ;   1) ErrorSystem 没有 LogInfo，只有 LogError / LogWarning；
+        ;   2) GetErrorCount() 只统计 HandleError() 处理过的错误 —— _errorCount 仅在 HandleError 里 ++，
+        ;      LogError/LogWarning 只是写日志，不计入该计数。
+        ; 所以这里验证「手动记录不抛异常且真的落盘」，而不是计数增量。
+        beforeSize := FileExist(ErrorSystem.logFile) ? FileGetSize(ErrorSystem.logFile) : 0
+
         ErrorSystem.LogError("手动错误记录测试", "ERROR")
         ErrorSystem.LogWarning("手动警告记录测试")
-        ErrorSystem.LogInfo("手动信息记录测试")
-        
+
         Sleep(100)
-        
-        newCount := ErrorSystem.GetErrorCount()
-        errorIncrease := newCount - initialCount
-        
-        if (errorIncrease >= 3) {
+
+        afterSize := FileExist(ErrorSystem.logFile) ? FileGetSize(ErrorSystem.logFile) : 0
+
+        if (afterSize > beforeSize) {
             result.passed := true
-            result.details := "成功记录 " errorIncrease " 条手动日志"
+            result.details := "手动记录已落盘，日志增长 " (afterSize - beforeSize) " 字节"
         } else {
-            result.details := "手动记录数量不足: " errorIncrease " (预期 >= 3)"
+            result.details := "日志文件未增长: " beforeSize " -> " afterSize
         }
     } catch as e {
         result.details := "测试异常: " e.Message
@@ -246,8 +253,11 @@ _PrintSummary() {
     summary .= "日志文件: " ErrorSystem.logFile "`n"
     summary .= "错误计数: " ErrorSystem.GetErrorCount() "`n"
     summary .= "========================================`n"
-    
-    MsgBox(summary, "错误系统测试结果", 0)
+
+    ; 原来是 MsgBox —— 模态框会让自动化 runner 永久挂住，改成 OutputDebug + 退出码。
+    OutputDebug(summary)
+    FileAppend(summary, "*")
+    ExitApp(g_testFailed > 0 ? 1 : 0)
 }
 
 ; =================================================================

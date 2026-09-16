@@ -95,6 +95,8 @@ asd-tauri/e2e/reports/
 #    需要单独 untrack（按工程约定用 mv + git add -A，不用 git rm）；
 #    latest.json / integration_full_report.json 是固定名，不在此列。
 tests/reports/test_report_*.json
+# 独立脚本（tests/test_*.ahk）的固定名报告，同样是每次运行都会刷新的产物
+tests/reports/standalone/
 
 # E2E 浏览器驱动目录：driver 与机器的 WebView2 运行时版本强绑定，
 # 且随包附带的 Driver_Notes/（EULA/LICENSE/credits）约 21MB，均不应入版本控制。
