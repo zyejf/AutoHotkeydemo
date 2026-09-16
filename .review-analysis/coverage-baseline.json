@@ -1,7 +1,7 @@
 {
   "_comment": "覆盖率基线（scripts/check-coverage.py 生成，TD-006）。棘轮：只允许上升，容差内的小回落不报。整体容差 0.5pp，单文件 2.0pp。files 里的 lines/hits 是**口径指纹**：换 llvm-cov 命令或换平台都可能改变统计行数，届时百分比不可比，脚本会判定为口径漂移并要求重取基线。⚠️ 重取基线必须用**同一条命令**（见 developer-guide §4.6.1.2），否则等于换量程。",
-  "generated_at": "2026-09-15T19:51:47+00:00",
-  "global_lines_pct": 88.65,
+  "generated_at": "2026-09-16T00:47:43+00:00",
+  "global_lines_pct": 89.05,
   "files": {
     "asd-application/src/backup_service.rs": {
       "pct": 78.31,
@@ -49,9 +49,9 @@
       "hits": 123
     },
     "asd-domain/src/traits.rs": {
-      "pct": 0.0,
-      "lines": 15,
-      "hits": 0
+      "pct": 95.89,
+      "lines": 146,
+      "hits": 140
     },
     "asd-domain/src/validator.rs": {
       "pct": 93.75,
@@ -80,8 +80,8 @@
     }
   },
   "totals": {
-    "lines": 5861,
-    "hits": 5196,
+    "lines": 5992,
+    "hits": 5336,
     "files": 15
   },
   "tolerance": {

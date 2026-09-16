@@ -176,6 +176,22 @@ C3 文档-代码一致性 / **C3b 文档硬写的 AHK 基线数字**。
   光枚举 23s；剪掉 `target/node_modules/.git/AutoHotkey-2.0.26/archive` 后 2.5s。
 - 只扫 AHK；JS/TS 的孤儿与未注册测试**未覆盖**（已知盲区）。
 
+## 覆盖率棘轮（`scripts/check-coverage.py`，**G3f**）
+
+只测 3 个纯逻辑 crate。取数命令必须与 CI 一致（`--package` ×3，不能 `--workspace`）。
+基线 `.review-analysis/coverage-baseline.json`（2026-09-16：**89.05%** 整体）。
+
+- ⚠️ **分母含 `#[cfg(test)]` 测试代码**（cargo-llvm-cov 测测试二进制）。实测测试代码占比
+  0%~84% 不等（`time_format.rs` 83.9%、`validator.rs` 60.9%；`group_service.rs` 0%）
+  → **跨文件百分比不可比**，「最低的 5 个文件」只能看同文件纵向趋势。登记 TD-026 豁免不修：
+  `#[coverage(off)]` 在 rustc 1.95 仍是实验特性；`LF` 与逐行 `DA` 有 10/15 文件不一致，
+  无法按行剔除。**别再重复调查这两条路。**
+- ⚠️ **trait 默认方法体恒 0% 的正常原因**：只为**实例化的具体类型**生成代码。
+  没有类型实现该 trait → llvm 不生成 → 0%，不是漏测。`traits.rs` 补 11 个用例后已覆盖。
+- ⚠️ 漂移检测的判据是**命中数是否与行数同向变化**（`|Δhits/Δlines| ≥ 0.5` 判真实改动）。
+  只判行数会把「补测试」误报成换尺子 → 训练出无脑 `--update-baseline`，棘轮失效。
+  新增 `--baseline <path>` 参数可用副本做阳性对照，不用动真基线。
+
 ## 工程约定
 
 - 换行符：`.gitattributes` 强制 LF（`.ps1`/`.bat`/`.cmd` 除外）。⚠️ 既有入库文件在 worktree

@@ -30,8 +30,9 @@
 | asd-domain | 单元 | crates/asd-domain/src/config.rs | 35 | Config / GroupConfig / ModeData / ControlHotkeys 序列化与默认值 |
 | asd-domain | 单元 | crates/asd-domain/src/validator.rs | 55 | ConfigValidator 配置验证规则（按键、间隔、模式、热键）+ BUG-6 可疑值 warning（长度不匹配／超长间隔／超长热键） |
 | asd-domain | 单元 | crates/asd-domain/src/models.rs | 3 | SkillGroup 领域模型构造与字段访问 |
+| asd-domain | 单元 | crates/asd-domain/src/traits.rs | 11 | IpcSender / EventEmitter / ProcessWatcher 三 trait：**默认方法体必须「明确拒绝」而非 panic**（send_and_wait / send_message / reset）、默认体可被覆写、序列号单调递增、对象安全性与 `Send + Sync` 超trait 约束（编译期钉子） |
 | asd-domain | 集成 | crates/asd-domain/tests/integration_tests.rs | 43 | 跨模块配置解析与验证集成 |
-| **小计** | — | — | **136** | — |
+| **小计** | — | — | **147** | — |
 
 ## asd-ipc-protocol
 
@@ -141,7 +142,16 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 > 基线文件 `.review-analysis/coverage-baseline.json`（本表是其可读镜像，
 > **数字冲突时以该 JSON 为准**）。
 
-**整体 88.65%**（命中 5196 / 总行 5861，15 个文件）
+**整体 89.05%**（命中 5336 / 总行 5992，15 个文件）
+
+> ⚠️ **口径：分母含 `#[cfg(test)]` 测试代码，跨文件百分比不可比。**
+> cargo-llvm-cov 测的是测试二进制，`src/*.rs` 的内联测试一并进分母。实测测试代码占比
+> `time_format.rs` 83.9% / `traits.rs` 77.9% / `validator.rs` 60.9% / `config.rs` 58.0%，
+> 而 `group_service.rs`、`recording_service.rs`、`backup_service.rs` 是 0%。
+> 所以下表**只能看同一个文件的纵向趋势，不能当横向排名** —— `time_format.rs` 的 100%
+> 里有六成在测测试自己，`group_service.rs` 的 63.22% 反倒是纯生产代码。
+> 已登记为 **TD-026（豁免不修）**：两条修法实测都堵死（`#[coverage(off)]` 在 rustc 1.95
+> 仍是实验特性；`LF` 与逐行 `DA` 有 10/15 文件不一致，无法按行剔除），详见技术债台账。
 
 > ⚠️ **2026-09-16 重取基线：81.64% → 88.65% 不是覆盖率提升，是量程变了。**
 > 同一份代码换用 CI 那条 `llvm-cov` 命令后，`validator.rs` 的统计行数从 2367 变成 1856
@@ -152,21 +162,21 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 | 文件 | 行覆盖率 | 备注 |
 |------|---------|------|
-| asd-domain/src/traits.rs | **0.00%** | 15 行全未覆盖 —— trait 定义无测试，优先级最高 |
-| asd-application/src/group_service.rs | 63.22% | 覆盖最低的非 trait 文件 |
+| asd-application/src/group_service.rs | 63.22% | 覆盖最低（该文件无内联测试，分母是纯生产代码） |
 | asd-application/src/recording_service.rs | 67.28% | |
-| asd-domain/src/validator.rs | 93.75% | 最大文件（1856 行），116 行未覆盖 |
 | asd-application/src/backup_service.rs | 78.31% | |
 | asd-domain/src/models.rs | 86.62% | |
 | asd-application/src/state.rs | 87.73% | |
 | asd-application/src/config_repository.rs | 93.51% | |
+| asd-domain/src/validator.rs | 93.75% | 最大文件（1856 行），116 行未覆盖 |
 | asd-domain/src/config.rs | 95.74% | |
+| asd-domain/src/traits.rs | 95.89% | 2026-09-16 由 **0.00%** 补到 95.89%（TD-007，新增 11 个用例）。0% 的根因是 trait 默认方法体**只为实例化的具体类型生成代码**，此前没有任何类型实现这三个 trait，llvm 根本没生成代码。按行核对**生产代码 15/15 = 100%**；分母里其余 131 行是本次新增的测试代码 |
 | asd-ipc-protocol/src/error.rs | 96.08% | |
 | asd-ipc-protocol/src/message.rs | 96.88% | |
 | asd-ipc-protocol/src/command.rs | 97.70% | |
 | asd-ipc-protocol/src/hotkey_merger.rs | 98.73% | |
 | asd-application/src/error.rs | 100.00% | |
-| asd-application/src/time_format.rs | 100.00% | |
+| asd-application/src/time_format.rs | 100.00% | 分母 83.9% 是测试代码（口径见上） |
 
 覆盖范围：仅 `asd-domain` / `asd-ipc-protocol` / `asd-application` 三个纯逻辑 crate。
 `src-tauri` 依赖 windows / tauri 系列 crate，在 Linux 上无法编译，不纳入。
@@ -207,7 +217,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 | 类别 | 统计 |
 |------|------|
-| Rust 测试（运行时注册数，`--all-targets -- --list`） | 616（asd-domain 136 + asd-ipc-protocol 72 + asd-application 163 + asd-test-harness 3 + asd-tauri 242；其中 `#[ignore]` 15 个） |
+| Rust 测试（运行时注册数，`--all-targets -- --list`） | 627（asd-domain 147 + asd-ipc-protocol 72 + asd-application 163 + asd-test-harness 3 + asd-tauri 242；其中 `#[ignore]` 15 个） |
 | AHK 执行器测试（`Test_` 方法数） | 61 套件 / 279 个 `Test_` 方法（`tests/test_ahk_executor/` 5 文件；不含 `test_joy_hotkey_manager_ahu.ahk` 的 7 套件） |
 | AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 697 个用例 / 178 个套件。**本机**（`scripts/check-gates.sh`，默认）：通过 697 / 失败 0 / 跳过 0。**CI**（G3b，`ASD_HOST_TIMING=0`）：通过 690 / 失败 0 / **跳过 7** —— 跳过的是 `SenderPreciseTimingTests` 里 7 条绝对墙钟时延断言，原因见下。2026-09-16 起 +33 用例 / +13 套件：原 `tests/test_joystick.ahk`（独立脚本，断言从未执行）改名并转为 `tests/test_joystick_input.ahk` 接入套件（TD-002） |
 | 基准测试 | 7 个 criterion bench |
@@ -215,7 +225,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | 模糊测试 | 5 个 fuzz target |
 | E2E 测试 | 9 suite / 53 用例 |
 
-自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 136 + 72 + 163 + 3 + 242 = 616。
+自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 147 + 72 + 163 + 3 + 242 = 627。
 
 > **备注（T8-07† 处置）**：`docs/review/2026-08-20/task-8-tests.md` 分报告《总结》自报「发现总数 7（Important 3 + Minor 4）」，但正文仅列 T8-01~T8-06 共 6 条（其中 Minor 3 条：T8-04/T8-05/T8-06）。已核实第 4 条 Minor 无正文，属该报告自报计数笔误（正文实际为 Important 3 + Minor 3 = 6 条），无遗漏问题，占位 `T8-07†` 予以关闭。
 

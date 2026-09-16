@@ -42,6 +42,45 @@
 
 新出现的文件**只登记不判**（棘轮精神：新代码第一次不背历史包袱，
 第二次起就有基线了），但会在输出里标出来。
+
+## 漂移检测要能区分「换尺子」和「真的改了代码」（TD-007 实测修正）
+
+2026-09-16 给 `asd-domain/src/traits.rs` 补 11 个用例后，该文件的统计行数
+15 -> 146（+873%），漂移检测直接 FAIL —— 但这**不是换尺子，是我真的加了
+131 行代码**，而且这些行几乎全被执行了。若不区分，后果是：以后每次补测试都会
+撞到一个红色 FAIL，人会养成「无脑 `--update-baseline`」的习惯，棘轮就此失效
+（和随便 `--update` 图谱基线下场一样）。
+
+区分依据是**命中数是否与行数同向变化**：
+- 换尺子（换命令/换平台）：代码没变 → 命中数几乎不动，只有行数剧变
+  （实测 `validator.rs` 2367 -> 1856 时命中数只变了 1）。
+- 真实改动：新增/删除的代码绝大多数会被执行 → 命中数与行数同步变化。
+
+所以只有 `|Δhits| / |Δlines| < SCALE_NEW_HIT_RATIO` 时才判漂移。
+
+## ⚠️ 已知口径缺陷：分母里含 `#[cfg(test)]` 测试代码（未修，TD-007 记录）
+
+cargo-llvm-cov 测的是**测试二进制**，所以 `src/*.rs` 里的 `#[cfg(test)] mod tests`
+会一并进分母。实测占比（`td007` 统计，总行口径）：
+
+    time_format.rs 83.9% / traits.rs 77.9% / validator.rs 60.9% / config.rs 58.0%
+    state.rs 51.7% ... 而 group_service.rs、recording_service.rs、backup_service.rs 是 0%
+
+也就是说：**跨文件的百分比不可比**（同一个 90%，可能指「生产代码覆盖 90%」，
+也可能指「其中六成是测试代码」），且「往文件里加测试」本身会抬高该文件的百分比。
+`最低的 5 个文件` 只能当**同文件纵向趋势**看，不能当横向排名。
+
+为什么没顺手修掉（两条路都实测堵死，别重复踩）：
+1. `#[coverage(off)]` 标记的官方方案 —— rustc 1.95.0 上仍是实验特性
+   （`error[E0658]: the #[coverage] attribute is an experimental feature`），
+   CI 用 stable，不可用。
+2. 按源码定位 `#[cfg(test)]` 区间后在 lcov 里逐行剔除 —— 不可行：llvm-cov 的
+   `LF`（行数）与逐行 `DA` 记录**并不是一套口径**，实测 15 个文件里 10 个不一致
+   （`validator.rs` LF 1856 / DA 1805，差 51；`config.rs` 704 / 682）。
+   按行剔除等于又引入一层新的口径误差，比现在更难解释。
+
+要保持这个口径，就必须**始终用同一条命令**取数（见 developer-guide §4.6.1.2）。
+想看某个文件的**生产代码**覆盖率，只能人工按行核对（该文件的 LF 与 DA 一致时方可）。
 """
 from __future__ import annotations
 
@@ -71,6 +110,11 @@ DEFAULT_TOL_FILE_PP = 2.0
 # 加绝对量是为了不让 15 行的小文件（traits.rs）动一行就报警。
 SCALE_FILE_PCT = 10.0
 SCALE_MIN_LINES = 20
+
+# 行数剧变时，用「命中数是否跟着变」区分真实改动与换尺子：
+# 比值 >= 此阈值 → 判定为真实的代码增减（多半是补测试），只提示不 FAIL。
+# 见模块 docstring「漂移检测要能区分『换尺子』和『真的改了代码』」。
+SCALE_NEW_HIT_RATIO = 0.5
 
 # lcov 的 SF 在不同平台都是**绝对路径**（本机 D:\...、CI /home/runner/...），
 # 必须归一化成「crate 相对路径」才能跨平台比基线。
@@ -130,6 +174,9 @@ def main() -> int:
         description="覆盖率门禁（棘轮）：三个纯逻辑 crate 的行覆盖率不得低于基线"
     )
     ap.add_argument("--lcov", default=str(DEFAULT_LCOV), help="lcov 文件路径")
+    ap.add_argument("--baseline", default=str(BASELINE),
+                    help="基线路径（默认 .review-analysis/coverage-baseline.json）。"
+                         "给一个副本就能安全地做漂移检测的阳性对照，不用动真基线")
     ap.add_argument("--update-baseline", action="store_true", help="把当前结果冻结为新基线")
     ap.add_argument("--show", action="store_true", help="只打印当前结果，不与基线比对")
     ap.add_argument("--tolerance-global", type=float, default=DEFAULT_TOL_GLOBAL_PP,
@@ -150,6 +197,7 @@ def main() -> int:
         print("           --package asd-application --lcov --output-path coverage/lcov.info")
         return 1
 
+    baseline = Path(args.baseline)
     files = parse_lcov(lcov)
     if not files:
         print(f"[FAIL] {lcov} 里没有任何文件记录（LF>0）—— 覆盖率数据为空")
@@ -175,7 +223,7 @@ def main() -> int:
     }
 
     if args.update_baseline:
-        BASELINE.parent.mkdir(parents=True, exist_ok=True)
+        baseline.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "_comment": (
                 "覆盖率基线（scripts/check-coverage.py 生成，TD-006）。"
@@ -188,19 +236,19 @@ def main() -> int:
             "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             **cur,
         }
-        with BASELINE.open("w", encoding="utf-8", newline="\n") as f:
+        with baseline.open("w", encoding="utf-8", newline="\n") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
             f.write("\n")
-        print(f"OK: 基线已写入 -> {BASELINE.relative_to(REPO_ROOT).as_posix()}")
+        print(f"OK: 基线已写入 -> {baseline}")
         return 0
 
-    if not BASELINE.exists():
+    if not baseline.exists():
         print("[WARN] 尚无基线，本次只打印现状（生成基线加 --update-baseline）：")
         for k, v in sorted(per_file.items(), key=lambda kv: kv[1]):
             print(f"       {v:6.2f}%  {k}")
         return 0
 
-    base = json.loads(BASELINE.read_text(encoding="utf-8"))
+    base = json.loads(baseline.read_text(encoding="utf-8"))
     tol_g = float(base.get("tolerance", {}).get("global_pp", args.tolerance_global))
     tol_f = float(base.get("tolerance", {}).get("file_pp", args.tolerance_file))
     base_g = float(base["global_lines_pct"])
@@ -210,6 +258,7 @@ def main() -> int:
     improved: list[str] = []
     new_files: list[str] = []
     scale: list[str] = []
+    real_change: list[str] = []
 
     # ---- 整体 ----
     delta_g = round(g_pct - base_g, 2)
@@ -228,22 +277,44 @@ def main() -> int:
             continue
         b_raw = base_files[k]
         b_lines = 0
+        b_hits = None
         if isinstance(b_raw, dict):
             b = float(b_raw.get("pct", 0.0))
             b_lines = int(b_raw.get("lines", 0) or 0)
+            if "hits" in b_raw:
+                b_hits = int(b_raw["hits"] or 0)
         else:
             # 旧格式：只有百分比，无法做口径漂移检测
             b = float(b_raw)
 
         # ---- 口径漂移：统计行数变了，百分比就不可比 ----
+        # 但「行数剧变」有两种截然不同的成因，必须分开（见模块 docstring）：
+        #   a) 换尺子（换命令/换平台）：代码没变 -> 命中数几乎不动，只有行数动；
+        #   b) 真的改了代码（典型是补测试）：新增的行大多会被执行 -> 命中数同步变。
+        # 只有 (a) 才需要人确认。把 (b) 也报成 FAIL，会训练出「无脑 --update-baseline」。
         cur_lines = files[k]["lines"]
         if b_lines > 0:
             d_lines = cur_lines - b_lines
             if abs(d_lines) >= SCALE_MIN_LINES and abs(d_lines) * 100.0 / b_lines > SCALE_FILE_PCT:
-                scale.append(
-                    f"{k} 统计行数 {b_lines} -> {cur_lines}（{d_lines:+d}，"
-                    f"{d_lines * 100.0 / b_lines:+.1f}%）"
-                )
+                msg = (f"{k} 统计行数 {b_lines} -> {cur_lines}（{d_lines:+d}，"
+                       f"{d_lines * 100.0 / b_lines:+.1f}%）")
+                if b_hits is None:
+                    # 旧基线没记命中数，无从区分 -> 保守按换尺子处理
+                    scale.append(msg + "（旧基线无 hits 字段，无法判定是否真实改动）")
+                else:
+                    d_hits = files[k]["hits"] - b_hits
+                    ratio = abs(d_hits) / abs(d_lines) if d_lines else 0.0
+                    if ratio >= SCALE_NEW_HIT_RATIO:
+                        real_change.append(
+                            msg + f"，命中数同步变化 {b_hits} -> {files[k]['hits']}"
+                                  f"（|Δhits/Δlines|={ratio:.2f}）—— 判定为真实代码增减"
+                        )
+                    else:
+                        scale.append(
+                            msg + f"，但命中数几乎没变 {b_hits} -> {files[k]['hits']}"
+                                  f"（|Δhits/Δlines|={ratio:.2f} < {SCALE_NEW_HIT_RATIO}）"
+                                  "—— 典型换尺子特征"
+                        )
 
         d = round(v - b, 2)
         if d > 0:
@@ -271,10 +342,19 @@ def main() -> int:
             print(f"       ... 另 {len(improved) - 15} 项")
         print()
 
-    print(f"最低的 5 个文件（改进优先级）：")
+    print("最低的 5 个文件（改进优先级）：")
     for k, v in sorted(per_file.items(), key=lambda kv: kv[1])[:5]:
         print(f"       {v:6.2f}%  {k}")
+    print("  ⚠️ 分母含 `#[cfg(test)]` 测试代码且各文件占比 0~84% 不等，"
+          "此表**只能看同文件的纵向趋势，不能当横向排名**（见模块 docstring）。")
     print()
+
+    if real_change:
+        print(f"[NOTE] {len(real_change)} 个文件统计行数大幅变化，但命中数同步变化"
+              " —— 判定为真实代码增减（多半是补测试），不算口径漂移：")
+        for x in real_change:
+            print(f"       - {x}")
+        print()
 
     if args.show:
         print("[SKIP] --show：不做通过/失败判定")
@@ -286,9 +366,10 @@ def main() -> int:
               "百分比已不可比：")
         for x in scale:
             print(f"  - {x}")
-        print("\n  常见原因：换了 cargo llvm-cov 的命令（--workspace 与 -p 的"
-              "结果不同）、换了平台（Windows / ubuntu 的 cfg 分支不同）、"
-              "或大段代码被删除。")
+        print("\n  判据：行数剧变而**命中数几乎不动** —— 说明代码没变、是尺子变了。")
+        print("  常见原因：换了 cargo llvm-cov 的命令（--workspace 与 -p 的"
+              "结果不同）、换了平台（Windows / ubuntu 的 cfg 分支不同）。")
+        print("  （行数与命中数**同步**变化的，已在上面的 [NOTE] 里记为真实改动，不在此列。）")
         print("  ⚠️ 不要用 --update-baseline 把「量程变小」当成「覆盖率提升」记进台账。")
         print("     确认是真实改动后：")
         print("       python scripts/check-coverage.py --lcov <path> --update-baseline")

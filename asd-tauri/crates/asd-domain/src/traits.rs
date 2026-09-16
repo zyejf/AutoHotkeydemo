@@ -59,3 +59,223 @@ pub trait ProcessWatcher: Send + Sync {
         Err("reset not supported".to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    fn sample_cmd() -> IpcCommand {
+        IpcCommand::RegisterHotkey {
+            hotkey: "F1".to_string(),
+            group_id: "g1".to_string(),
+        }
+    }
+
+    // ------------------------------------------------------------ IpcSender
+    // 只实现必选方法 —— 用来验证三个**默认实现**的契约：它们必须是「明确拒绝」
+    // 而不是 panic，调用方才能据此降级。
+
+    struct MinimalSender;
+
+    impl IpcSender for MinimalSender {
+        fn send_command(&self, _cmd: IpcCommand) -> Result<u64, String> {
+            Ok(42)
+        }
+    }
+
+    #[test]
+    fn test_send_and_wait_default_rejects() {
+        let err = MinimalSender
+            .send_and_wait(sample_cmd(), Duration::from_millis(10))
+            .unwrap_err();
+        assert_eq!(err, "send_and_wait not supported");
+    }
+
+    #[test]
+    fn test_send_message_default_rejects() {
+        let msg = IpcMessage::command(1, &sample_cmd());
+        let err = MinimalSender.send_message(&msg).unwrap_err();
+        assert_eq!(err, "send_message not supported");
+    }
+
+    /// 覆写全部默认方法 —— 证明默认实现**可被覆盖**，不是永远失败的死代码。
+    struct FullSender {
+        seq: AtomicU64,
+    }
+
+    impl IpcSender for FullSender {
+        fn send_command(&self, _cmd: IpcCommand) -> Result<u64, String> {
+            Ok(self.seq.fetch_add(1, Ordering::SeqCst) + 1)
+        }
+
+        fn send_and_wait(
+            &self,
+            cmd: IpcCommand,
+            _timeout: std::time::Duration,
+        ) -> Result<IpcMessage, String> {
+            let seq = self.send_command(cmd)?;
+            Ok(IpcMessage::command(seq, &sample_cmd()))
+        }
+
+        fn send_message(&self, msg: &IpcMessage) -> Result<(), String> {
+            if msg.r#type.is_empty() {
+                return Err("empty message type".to_string());
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_send_command_returns_monotonic_seq() {
+        let s = FullSender {
+            seq: AtomicU64::new(0),
+        };
+        assert_eq!(s.send_command(sample_cmd()).unwrap(), 1);
+        assert_eq!(s.send_command(sample_cmd()).unwrap(), 2);
+    }
+
+    #[test]
+    fn test_overridden_send_and_wait_returns_message() {
+        let s = FullSender {
+            seq: AtomicU64::new(0),
+        };
+        let msg = s
+            .send_and_wait(sample_cmd(), Duration::from_millis(0))
+            .unwrap();
+        assert_eq!(msg.seq, 1);
+    }
+
+    #[test]
+    fn test_overridden_send_message_rejects_empty_type() {
+        let s = FullSender {
+            seq: AtomicU64::new(0),
+        };
+        let mut msg = IpcMessage::command(1, &sample_cmd());
+        msg.r#type = String::new();
+        assert!(s.send_message(&msg).is_err());
+
+        msg.r#type = "hotkey".to_string();
+        assert!(s.send_message(&msg).is_ok());
+    }
+
+    #[test]
+    fn test_ipc_sender_is_object_safe_and_send_sync() {
+        // 钉住 trait 的 `Send + Sync` 超trait 约束与对象安全性：
+        // 谁把这两条改掉，这里就编译不过。
+        fn assert_send_sync<T: ?Sized + Send + Sync>() {}
+        assert_send_sync::<dyn IpcSender>();
+
+        let boxed: Box<dyn IpcSender> = Box::new(MinimalSender);
+        assert_eq!(boxed.send_command(sample_cmd()).unwrap(), 42);
+    }
+
+    // ---------------------------------------------------------- EventEmitter
+
+    struct RecordingEmitter {
+        events: Mutex<Vec<(String, serde_json::Value)>>,
+    }
+
+    impl EventEmitter for RecordingEmitter {
+        fn emit(&self, event: &str, payload: serde_json::Value) -> bool {
+            self.events
+                .lock()
+                .unwrap()
+                .push((event.to_string(), payload));
+            true
+        }
+    }
+
+    struct NoListenerEmitter;
+
+    impl EventEmitter for NoListenerEmitter {
+        fn emit(&self, _event: &str, _payload: serde_json::Value) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn test_emit_records_event_and_payload() {
+        let e = RecordingEmitter {
+            events: Mutex::new(Vec::new()),
+        };
+        assert!(e.emit("config-changed", serde_json::json!({ "id": 1 })));
+
+        let events = e.events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].0, "config-changed");
+        assert_eq!(events[0].1, serde_json::json!({ "id": 1 }));
+    }
+
+    #[test]
+    fn test_emit_returns_false_when_no_listener() {
+        assert!(!NoListenerEmitter.emit("config-changed", serde_json::json!(null)));
+    }
+
+    // --------------------------------------------------------- ProcessWatcher
+
+    struct FakeWatcher {
+        state: WatchdogStateEnum,
+        restarts: u32,
+    }
+
+    impl ProcessWatcher for FakeWatcher {
+        fn state(&self) -> WatchdogStateEnum {
+            self.state.clone()
+        }
+
+        fn restart_count(&self) -> u32 {
+            self.restarts
+        }
+    }
+
+    #[test]
+    fn test_process_watcher_reports_state_and_restart_count() {
+        let w = FakeWatcher {
+            state: WatchdogStateEnum::Running,
+            restarts: 3,
+        };
+        assert_eq!(w.state(), WatchdogStateEnum::Running);
+        assert_eq!(w.restart_count(), 3);
+    }
+
+    #[test]
+    fn test_process_watcher_default_reset_rejects() {
+        let w = FakeWatcher {
+            state: WatchdogStateEnum::Idle,
+            restarts: 0,
+        };
+        assert_eq!(w.reset().unwrap_err(), "reset not supported");
+    }
+
+    struct ResettableWatcher {
+        resets: AtomicU32,
+    }
+
+    impl ProcessWatcher for ResettableWatcher {
+        fn state(&self) -> WatchdogStateEnum {
+            WatchdogStateEnum::Idle
+        }
+
+        fn restart_count(&self) -> u32 {
+            0
+        }
+
+        fn reset(&self) -> Result<(), String> {
+            self.resets.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_overridden_reset_succeeds_and_counts() {
+        let w = ResettableWatcher {
+            resets: AtomicU32::new(0),
+        };
+        assert!(w.reset().is_ok());
+        assert!(w.reset().is_ok());
+        assert_eq!(w.resets.load(Ordering::SeqCst), 2);
+    }
+}
