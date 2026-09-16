@@ -1398,16 +1398,22 @@ T3 把基线里的 `keys`/`sends` 伪造成别的值（形态不匹配 → FAIL�
 > `--package-lock-only` 是为了**不装 node_modules** 直接审 lock 文件，省掉几分钟安装时间；
 > 代价是只信 lock 里记录的版本，与 `npm ci` 的实际结果一致，可以接受。
 
-#### 首轮基线（2026-09-16 实测）
+#### 首轮基线（2026-09-16 实测）与 TD-020 处置后的现值
 
-| 范围 | high+ 漏洞数 |
-|---|---:|
-| 前端生产依赖 | **0** |
-| E2E 生产依赖 | **0** |
-| 前端 dev 依赖 | 3（vite `server.fs.deny` bypass） |
-| E2E dev 依赖 | 28（6 low / 3 moderate / 19 high） |
+| 范围 | 首轮（2026-09-16） | 现值 |
+|---|---:|---:|
+| 前端生产依赖 | **0** | **0** |
+| E2E 生产依赖 | **0** | **0** |
+| 前端 dev 依赖 | 3（vite `server.fs.deny` bypass） | **0** |
+| E2E dev 依赖 | 28（6 low / 3 moderate / 19 high） | **29**（5 / 3 / 21） |
 
-生产依赖干净，说明**当前交付物没有已知 CVE**；dev 侧的 28 项已登记 TD-020（P2，不阻塞）。
+生产依赖干净，说明**当前交付物没有已知 CVE**。
+
+⚠️ **E2E 那两栏数字不可直接相比**：首轮的 28 是在**不完整的 `node_modules`** 上测出来的 ——
+当时 committed 的 `e2e/package-lock.json` 缺了 `@wdio/local-runner`（TD-016），`npm ci`
+装不出 runner，审计自然也扫不到它的子树。补齐 lock 后的完整依赖树真实值是 **33**，
+经「删未使用的 `@wdio/allure-reporter` + 两轮非破坏性 `npm audit fix`」降到 **29**，
+且剩余 29 项**全部**要求 WDIO 8→9 major 升级 → 阻塞于 TD-016，见台账 TD-020。
 
 > ⚠️ **Rust 侧结果以 CI 首轮为准**：本机 `cargo audit` 拉不到 RustSec advisory-db
 > （与推送 502 同源的代理问题），无法本地取证。若 CI 首轮红，按需加 allowlist 或升级，
@@ -1417,6 +1423,37 @@ T3 把基线里的 `keys`/`sends` 伪造成别的值（形态不匹配 → FAIL�
 # 本地复现（CI 同命令）
 cd asd-tauri      && npm audit --package-lock-only --omit=dev --audit-level=high
 cd asd-tauri/e2e  && npm audit --package-lock-only --omit=dev --audit-level=high
+```
+
+### 4.7 E2E 本地跑起来（Windows）
+
+CI 的 E2E job **默认关闭**（`workflow_dispatch` 且 `run_e2e` 为真才跑，见 TD-016）。
+要在本机实跑，四个前提缺一不可：
+
+| 前提 | 怎么确认 / 怎么装 |
+|------|------------------|
+| Tauri debug 二进制 | `asd-tauri/target/debug/asd-tauri.exe`（`npm run tauri build -- --debug`） |
+| `tauri-driver` | `cargo install tauri-driver` → `%USERPROFILE%\.cargo\bin\tauri-driver.exe` |
+| **`msedgedriver.exe`** | 版本须与本机 Edge **完全一致**，放在 `asd-tauri/e2e/drivers/`（该目录已被 .gitignore 忽略，不会误提交） |
+| Vite dev server | `wdio.conf.js` 会自动拉起 5173；已运行时则复用 |
+
+msedgedriver 的取法（版本号看 `C:\Program Files (x86)\Microsoft\Edge\Application\<版本>\`）：
+
+```bash
+mkdir -p asd-tauri/e2e/drivers
+curl -sSL -o asd-tauri/e2e/drivers/edriver.zip \
+  "https://msedgedriver.microsoft.com/<EDGE_VERSION>/edgedriver_win64.zip"
+python -c "import zipfile;zipfile.ZipFile('asd-tauri/e2e/drivers/edriver.zip').extract('msedgedriver.exe','asd-tauri/e2e/drivers')"
+```
+
+然后 `cd asd-tauri/e2e && npx wdio run wdio.conf.js --spec ./specs/smoke.spec.js`。
+
+> ⚠️ **改完 `e2e/package.json` 必须重生成 `package-lock.json` 并提交**。曾经 lock 里漏了
+> `@wdio/local-runner`，而 CI 用 `npm ci`（严格按 lock 装）→ runner 缺失 → `wdio` 直接起不来。
+> `npm ls --depth=0` 应能看到全部声明的依赖且无 `missing/invalid`。
+>
+> ⚠️ 若报 `Cannot find module '.../node_modules/<pkg>/index.js'` 之类，是 **node_modules 半损坏**
+> （安装过程中途被中断）。`npm install` 往往自愈不了 —— 删掉那个具体目录再 `npm install` 即可。
 cd asd-tauri      && cargo audit        # 需要能访问 RustSec advisory-db
 ```
 
