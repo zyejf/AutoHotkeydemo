@@ -61,6 +61,20 @@ bash scripts/check-gates.sh [--quick]      # 一键四闸门（CARGO_INCREMENTAL
 - Conventional Commits，描述中文。⚠️ scope 正则 `[a-z-]+` **不允许数字**（`fix(e2e)` 因含 `2` 被拒）。
   长信息 `git commit -F <file>`（**不接受 MSYS 路径**，须 `cygpath -w`）；`-F` 与 `-m` 不能同用。
 - ⚠️ **禁用 `git rm`/safe-delete**（路径拼接 bug 连带删 54 文件）→ `mv` 到 /tmp + `git add -A`。
+- ⚠️⚠️ **在本 worktree 里禁用裸 `git reset`**（2026-09-16 两次事故）：分支是
+  `refs/heads/workbuddy/main-5f18c6a6`（**带 `/` 的嵌套 ref**），执行 `git reset` 或
+  `git commit` 后该引用文件会被清掉，worktree 变成 unborn HEAD，`git status` 于是把
+  全部 825 个文件显示成 `A`（看着像"仓库没了"，其实提交对象都还在）。
+  恢复方法（git **建不出**嵌套 ref，`git branch`/`update-ref` 都静默失败）：
+  ```bash
+  cd /d/1demo/AutoHotkeydemo && mkdir -p .git/refs/heads/workbuddy \
+    && git rev-parse <sha> > .git/refs/heads/workbuddy/main-5f18c6a6
+  ```
+  兜底：同时建一个**顶层单名**分支（`git branch techdebt-2026-09-16 <sha>`）——
+  顶层 ref 能正常创建且不会被清。主 worktree `D:/1demo/AutoHotkeydemo`（分支 `main`）始终完好，
+  丢的只是这个 worktree 的分支指针。
+  相关：pre-commit 钩子会遍历所有暂存文件做体积检查，**暂存 825 个文件时钩子会跑很久**，
+  命令被超时 SIGTERM 打断在 commit 中途 → 加剧上述问题。只暂存必要文件。
 - ⚠️ **禁用 `git stash push -- <path>` 做暂存验证**：2026-09-16 用它后 HEAD 指向的 3 个提交对象
   从 `.git/objects` 消失，`git status` 直接 `fatal: bad object HEAD`（靠 fetch 远端救回）。
   要临时还原：`cp` 到 `$TEMP` + `git checkout HEAD -- <path>`。
