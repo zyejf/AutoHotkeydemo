@@ -102,10 +102,12 @@ config := KeyRecorder.ExportAsGroupConfig("periodic", 15)
 TestReporter.Assert(config["keys"].Length = 3, "混合事件应全部导出")
 
 TestReporter.Scenario("3.6 验证报告偏差计算")
+; 同 test_key_validator 2.8：details 需要「期望序列 + 同一键两次 down」两个前提
+SkillManager.Groups["dev-test"] := {mode: "periodic", keys: ["A", "B"], intervals: [50, 50]}
 KeyValidator.Start("dev-test", (evt) => "")
-KeyValidator.OnSend("dev-test", "A", "press", 0)
-KeyValidator.OnSend("dev-test", "B", "press", 60)
-KeyValidator.OnSend("dev-test", "C", "press", 115)
+KeyValidator.OnSend("dev-test", "A", "down", 0)
+KeyValidator.OnSend("dev-test", "B", "down", 60)
+KeyValidator.OnSend("dev-test", "A", "down", 115)
 report := KeyValidator.Stop()
 TestReporter.Assert(report.Has("avgIntervalDeviation"), "报告应包含平均偏差")
 TestReporter.Assert(report.Has("maxIntervalDeviation"), "报告应包含最大偏差")
@@ -151,5 +153,4 @@ report := KeyValidator.Stop()
 TestReporter.Assert(report["totalActual"] = 3, "端到端：应记录3个事件")
 TestReporter.Assert(report.Has("orderCorrect"), "端到端：报告应包含顺序正确性")
 
-TestReporter.EndTest()
-ExitApp()
+TestReporter.Finish()

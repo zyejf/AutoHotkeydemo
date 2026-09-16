@@ -161,8 +161,22 @@ class TestReporter {
     ; =================================================================
     static EndTest() {
         summary := TestReporter.Summarize()
-        reportPath := TestReporter.ExportReport()
+        ; 报告名按脚本名固定（不再用时间戳）：外部 runner 才知道该读哪个文件
+        reportPath := TestReporter.ExportReport(StrReplace(A_ScriptName, ".ahk", ".json"))
         return {summary: summary, reportPath: reportPath}
+    }
+
+    ; =================================================================
+    ; 独立脚本的收尾（C2：tests/ 下不走 run_all_tests 的那批）
+    ;
+    ; ⚠️ 必须用 Finish() 取代 EndTest() + 裸 ExitApp()：裸 ExitApp() 退出码恒为 0，
+    ; 于是「有断言失败」和「全过」在外部看来一模一样 —— 实测
+    ; test_key_test_integration 有 11 条断言失败，退出码仍然是 0。
+    ; 这些脚本各自要独立进程（全局状态互相污染），只能靠退出码把结果带出来。
+    ; =================================================================
+    static Finish() {
+        r := TestReporter.EndTest()
+        ExitApp(r.summary.failed > 0 ? 1 : 0)
     }
 
     static Summarize() {
@@ -209,7 +223,8 @@ class TestReporter {
             }
         }
 
-        reportDir := A_ScriptDir "\reports"
+        ; standalone 子目录：与 run_all_tests 的产物分开，且整体被 .gitignore 忽略
+        reportDir := A_ScriptDir "\reports\standalone"
         if !InStr(FileExist(reportDir), "D")
             DirCreate(reportDir)
 

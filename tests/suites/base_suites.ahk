@@ -505,6 +505,21 @@ class IDTypeConsistencyTests extends AutoHotUnitSuite {
         newId := GroupService._GenerateGroupId()
         this.assert.isTrue(newId is String)
     }
+
+    ; ID 生成与唯一性检查必须用同一个真值源：CreateGroup 拿 ConfigStore.HasGroup() 判重，
+    ; _GenerateGroupId() 原先只看 SkillManager.Groups。两者不同步时（SkillManager 还没
+    ; 初始化、或配置里有分组但尚未建实例）会生成已存在的 ID，CreateGroup 立刻抛
+    ; 「分组已存在」，新分组永远建不出来。上面这段正是事故现场：
+    ; SkillManager 已清空，而 ConfigStore.InitDefaults() 里有默认分组 1..7。
+    Test_GroupService_GenerateId_AvoidsConfigStoreCollision() {
+        GroupService.SkillManager := SkillManager
+        GroupService.ConfigStore := ConfigStore
+        ConfigStore.InitDefaults()
+        for id in SkillManager.Groups
+            SkillManager.DeleteGroup(id)
+        newId := GroupService._GenerateGroupId()
+        this.assert.isTrue(!ConfigStore.HasGroup(newId))
+    }
 }
 
 class MapIterationSafetyTests extends AutoHotUnitSuite {

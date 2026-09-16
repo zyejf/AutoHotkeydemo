@@ -1,15 +1,7 @@
 {
-  "_comment": "技术债 0 号基线（scripts/check-tech-debt.py 生成）。C1/C2 是存量债白名单：只有「基线外的新增项」才会让门禁变红；清理后重新 --update-baseline 即收紧水位。C3 不做棘轮，必须恒为 0。",
-  "generated_at": "2026-09-15T18:02:16+00:00",
+  "_comment": "技术债基线（scripts/check-tech-debt.py 生成）。C1a/C1b/C1c/C2/C3b 是存量债白名单（棘轮）：只有「基线外的新增项」才会让门禁变红；清理后重新 --update-baseline 即收紧水位。C3b 的存量项多为带日期的历史报告里的当日实测快照，本身合法，故只登记不修。C3 不做棘轮，必须恒为 0。",
+  "generated_at": "2026-09-16T12:15:02+00:00",
   "c1a_orphan_files": [
-    "SkillMgrDebugLogger.ahk",
-    "_diag.ahk",
-    "_mock.ahk",
-    "_rt.ahk",
-    "config.ahk",
-    "test_ob.ahk",
-    "test_simple.ahk",
-    "test_val_btn.ahk",
     "tests/test_error_system.ahk",
     "tests/test_integration_error_system.ahk",
     "tests/test_joy_hotkey_manager.ahk",
@@ -35,12 +27,12 @@
   ],
   "c3_doc_drift": [],
   "c3b_stale_counts": [
-    "docs/review/2026-09-13/bug-fix-plan.md:398: 硬写「616 / 616」，与 test-map 实跑总数 697 不符 —— 改为指向 test-map.md 的指针，不要复写数字",
-    "docs/review/2026-09-13/usability-test-report.md:19: 硬写「616 / 616」，与 test-map 实跑总数 697 不符 —— 改为指向 test-map.md 的指针，不要复写数字",
-    "docs/perf/key-latency-benchmark-2026-09-13.md:231: 硬写「642 / 642」，与 test-map 实跑总数 697 不符 —— 改为指向 test-map.md 的指针，不要复写数字"
+    "docs/review/2026-09-13/bug-fix-plan.md:398: 硬写「616 / 616」 —— 改为指向 test-map.md 的指针，不要复写数字",
+    "docs/review/2026-09-13/usability-test-report.md:19: 硬写「616 / 616」 —— 改为指向 test-map.md 的指针，不要复写数字",
+    "docs/perf/key-latency-benchmark-2026-09-13.md:231: 硬写「642 / 642」 —— 改为指向 test-map.md 的指针，不要复写数字"
   ],
   "stats": {
-    "c1_corpus": 103,
+    "c1_corpus": 96,
     "c1_unresolved_includes": 0,
     "c2_corpus": 22,
     "c2_reachable": 14

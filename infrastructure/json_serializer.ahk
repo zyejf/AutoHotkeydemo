@@ -14,6 +14,33 @@
 class JSONSerializer {
     static _spacesCache := Map()
 
+    ; =================================================================
+    ; JSON 布尔键白名单（TD-030）
+    ;
+    ; AHK v2 **没有布尔类型**：`Type(true)` 返回 "Integer"，`true` 就是 `1`、
+    ; `false` 就是 `0`，运行时无法区分。因此「按值判断是不是布尔」必然误伤 ——
+    ; 旧实现正是这么判的，导致任何等于 1/0 的**数字**被写成 true/false，
+    ; 例如 `holdDuration: 0`（语义是「无限保持」，Rust 侧为 u64）会被写成 `false`，
+    ; serde 反序列化直接 invalid type 失败，整段配置解析不了。
+    ;
+    ; 反过来也不能一律输出数字：Rust 的 bool 字段同样严格，收到 0/1 也报错
+    ; （实测：`bool <- 0`、`u64 <- false` 双向均 invalid type）。
+    ;
+    ; 唯一可靠的判据是**键名** —— 跨语言契约里约定为 JSON 布尔的字段是封闭集合，
+    ; 而数值字段是开放的（随时会新增）。故这里白名单收布尔，其余一律按数字输出。
+    ; 新增布尔字段必须同步本集合（由 `scripts/check-tech-debt.py` 的 C7 守）。
+    ; =================================================================
+    static BoolKeys := Map(
+        "success", true,
+        "error", true,
+        "ok", true,
+        "valid", true,
+        "active", true,
+        "allowOverlap", true,
+        "releaseOnEmergency", true,
+        "autoRepeat", true
+    )
+
     static Stringify(value, indent := 2) {
         visited := Map()
         return this._StringifyValue(value, indent, 0, visited)
@@ -38,8 +65,6 @@ class JSONSerializer {
             return result
         } else if value is String {
             return '"' this._EscapeString(value) '"'
-        } else if Type(value) = "Boolean" || value = true || value = false {
-            return value ? "true" : "false"
         } else if value is Integer || value is Float {
             return String(value)
         }
@@ -50,20 +75,32 @@ class JSONSerializer {
         if obj.Count = 0
             return "{}"
 
-        spaces := this._BuildSpaces(currentIndent)
-        nextSpaces := this._BuildSpaces(currentIndent + indent)
-        result := "{`n"
+        ; compact（indent <= 0）= 单行紧凑输出，用于 JSONL。
+        ; 旧实现无条件换行，indent=0 只让缩进变成 0 个空格、换行照旧，于是
+        ; `Stringify(x, 0)` 仍是多行 —— 而 ErrorSystem/JSONLogger 的 _ToJsonLine 都按
+        ; 「一条记录一行」落盘，IPCChannel 也是按行分帧。结果是日志文件每条记录横跨
+        ; 多行，任何按行解析的消费方全军覆没。indent<=0 必须真的不换行。
+        compact := indent <= 0
+        nl := compact ? "" : "`n"
+        sep := compact ? "," : ",`n"
+        spaces := compact ? "" : this._BuildSpaces(currentIndent)
+        nextSpaces := compact ? "" : this._BuildSpaces(currentIndent + indent)
+        result := "{" nl
         first := true
 
         for key, value in obj {
             if !first
-                result .= ",`n"
+                result .= sep
             first := false
             result .= nextSpaces '"' this._EscapeString(key) '": '
-            result .= this._StringifyValue(value, indent, currentIndent + indent, visited)
+            ; 白名单内的布尔键按 JSON 布尔输出；其余（含同为 1/0 的数字）走通用分派
+            if this.BoolKeys.Has(key) && !IsObject(value) && !(value is String)
+                result .= value ? "true" : "false"
+            else
+                result .= this._StringifyValue(value, indent, currentIndent + indent, visited)
         }
 
-        result .= "`n" spaces "}"
+        result .= nl spaces "}"
         return result
     }
 
@@ -71,19 +108,23 @@ class JSONSerializer {
         if arr.Length = 0
             return "[]"
 
-        spaces := this._BuildSpaces(currentIndent)
-        nextSpaces := this._BuildSpaces(currentIndent + indent)
-        result := "[`n"
+        ; 同 _StringifyObject：indent<=0 必须输出单行紧凑，否则 JSONL 契约不成立
+        compact := indent <= 0
+        nl := compact ? "" : "`n"
+        sep := compact ? "," : ",`n"
+        spaces := compact ? "" : this._BuildSpaces(currentIndent)
+        nextSpaces := compact ? "" : this._BuildSpaces(currentIndent + indent)
+        result := "[" nl
         first := true
 
         for item in arr {
             if !first
-                result .= ",`n"
+                result .= sep
             first := false
             result .= nextSpaces this._StringifyValue(item, indent, currentIndent + indent, visited)
         }
 
-        result .= "`n" spaces "]"
+        result .= nl spaces "]"
         return result
     }
 

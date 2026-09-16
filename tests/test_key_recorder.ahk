@@ -85,11 +85,17 @@ KeyRecorder.Start((evt) => "")
 KeyRecorder.OnKey("A", "down", 0)
 r1 := KeyRecorder.Stop()
 r2 := KeyRecorder.Stop()
-TestReporter.Assert(r2 = "", "重复 Stop 应返回空")
+; 注意：KeyRecorder.Stop() 空闲时返回空 Map，而 KeyValidator.Stop() 空闲时返回 ""。
+; 两个兄弟类的 idle 返回值类型不一致（已知契约差异，改任一方都会牵动调用方），
+; 此处按 KeyRecorder 的实现现状断言，不要照抄 KeyValidator 那边的 `= ""`。
+TestReporter.Assert(IsObject(r2) && r2.Count = 0, "重复 Stop 应返回空")
 
 TestReporter.Scenario("1.9 KeyRecorder 未启动时 OnKey 忽略")
+; Stop() 故意不清空 _events —— ExportAsGroupConfig() 是在 Stop() 之后读它的（见 1.6/1.7）。
+; 所以这里只能断言「数量不变」，不能断言「等于 0」（上一个场景会残留事件）。
+_baseCount := KeyRecorder.GetEventCount()
 KeyRecorder.OnKey("Z", "down", 0)
-TestReporter.Assert(KeyRecorder.GetEventCount() = 0, "未启动时不应记录")
+TestReporter.Assert(KeyRecorder.GetEventCount() = _baseCount, "未启动时不应记录")
 
 TestReporter.Scenario("1.10 OnMouse 记录鼠标事件")
 KeyRecorder.Start((evt) => "")
@@ -103,5 +109,4 @@ KeyRecorder.Stop()
 config := KeyRecorder.ExportAsGroupConfig("periodic", 15)
 TestReporter.Assert(config.Count = 0, "空事件应返回空Map")
 
-TestReporter.EndTest()
-ExitApp()
+TestReporter.Finish()

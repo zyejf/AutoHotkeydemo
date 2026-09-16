@@ -274,6 +274,133 @@ class JSONSerializerTests extends AutoHotUnitSuite {
 }
 
 ; =================================================================
+; JSONSerializer 标量类型分派（TD-030）
+;
+; 背景：AHK v2 **没有布尔类型** —— `Type(true)` 返回 "Integer"，`true` 就是 `1`、
+; `false` 就是 `0`（下面 Test_AhkBoolean_IsIndistinguishableFromInteger 钉住这一事实）。
+; 于是「按值判断这是布尔还是数字」在运行时**不可能**：`1 = true` 为真。
+; 改动前 `_StringifyValue` 正是这么判的，结果**任何等于 1 的数值被写成 `true`、
+; 等于 0 的被写成 `false`**，而 Rust 侧 `serde` 双向严格（实测
+; `u64 <- false` 与 `bool <- 0` 都报 invalid type），配置/IPC 报文会整段解析失败。
+;
+; 因此布尔只能按**键名**判（键名是跨语言契约的一部分，见 JSONSerializer.BoolKeys），
+; 其余一律按数字输出。本套件同时钉住两侧，防止任一侧被改回去。
+; =================================================================
+class JSONSerializerScalarTypeTests extends AutoHotUnitSuite {
+    ; 根因：AHK v2 的布尔就是整数，运行时不可区分。这条是整套设计的依据，
+    ; 若哪天 AHK 引入真正的布尔类型，这条会先红，提示可以换回类型分派。
+    Test_AhkBoolean_IsIndistinguishableFromInteger() {
+        this.assert.equal(Type(true), "Integer")
+        this.assert.equal(Type(false), "Integer")
+        this.assert.equal(Type(1), "Integer")
+        ; 值相等 —— 这正是旧实现把 1 当 true、0 当 false 的原因
+        this.assert.isTrue(1 = true)
+        this.assert.isTrue(0 = false)
+    }
+
+    Test_IntegerOne_SerializesAsNumber_NotTrue() {
+        this.assert.equal(JSONSerializer.Stringify(1), "1")
+    }
+
+    Test_IntegerZero_SerializesAsNumber_NotFalse() {
+        this.assert.equal(JSONSerializer.Stringify(0), "0")
+    }
+
+    Test_FloatOne_SerializesAsNumber_NotTrue() {
+        this.assert.equal(JSONSerializer.Stringify(1.0), "1.0")
+    }
+
+    Test_NegativeOne_StaysNumber() {
+        this.assert.equal(JSONSerializer.Stringify(-1), "-1")
+    }
+
+    Test_Array_OneAndZero_StayNumbers() {
+        jsonStr := JSONSerializer.Stringify([1, 0, 2])
+        this.assert.isTrue(RegExMatch(jsonStr, "s)^\[\s*1,\s*0,\s*2\s*\]$") > 0)
+    }
+
+    ; 契约现场：holdDuration 是 Rust 的 u64，且 0 表示「无限保持」的合法取值。
+    ; 写成 false 会让整个配置段解析失败。
+    Test_ConfigContract_HoldDurationZero_StaysNumber() {
+        jsonStr := JSONSerializer.Stringify(Map("hotkey", "F1", "mode", "hold", "holdDuration", 0))
+        this.assert.isTrue(InStr(jsonStr, '"holdDuration": 0') > 0)
+    }
+
+    ; 反向：约定的布尔键必须仍然输出 JSON 布尔（写成 0/1 会被 Rust 的 bool 拒绝）
+    Test_BoolKey_AllowOverlap_StaysJsonBoolean() {
+        jsonStr := JSONSerializer.Stringify(Map("allowOverlap", false, "releaseOnEmergency", true))
+        this.assert.isTrue(InStr(jsonStr, '"allowOverlap": false') > 0)
+        this.assert.isTrue(InStr(jsonStr, '"releaseOnEmergency": true') > 0)
+    }
+
+    Test_BoolKey_SuccessAndError_StayJsonBoolean() {
+        jsonStr := JSONSerializer.Stringify(Map("success", false, "error", true))
+        this.assert.isTrue(InStr(jsonStr, '"success": false') > 0)
+        this.assert.isTrue(InStr(jsonStr, '"error": true') > 0)
+    }
+
+    ; 嵌套容器里同样成立：布尔语义跟键走，不跟容器走
+    Test_BoolKey_InsideNestedMap_StaysJsonBoolean() {
+        jsonStr := JSONSerializer.Stringify(Map("hold", Map("autoRepeat", false, "holdDuration", 0)))
+        this.assert.isTrue(InStr(jsonStr, '"autoRepeat": false') > 0)
+        this.assert.isTrue(InStr(jsonStr, '"holdDuration": 0') > 0)
+    }
+}
+
+; =================================================================
+; JSONSerializer 缩进：compact（indent<=0）与 pretty（indent>0）
+;
+; `indent <= 0` 在调用方眼里的语义是「单行紧凑」，不是「缩进 0 个空格」。
+; ErrorSystem._ToJsonLine / JSONLogger._ToJsonLine 都按「一条记录一行」落盘
+; （函数名就叫 _ToJsonLine），IPCChannel 也是按行分帧。
+; 旧实现的换行是无条件的，indent=0 只让缩进变成 0 个空格 —— 于是日志文件
+; 每条记录横跨多行，任何逐行解析的消费方全军覆没。
+; =================================================================
+class JSONSerializerIndentTests extends AutoHotUnitSuite {
+    Test_Compact_IndentZero_ObjectHasNoNewline() {
+        jsonStr := JSONSerializer.Stringify(Map("a", 1, "b", "x"), 0)
+        this.assert.isTrue(InStr(jsonStr, "`n") = 0)
+    }
+
+    Test_Compact_IndentZero_NestedStaysSingleLine() {
+        jsonStr := JSONSerializer.Stringify(Map("a", Map("b", [1, 2, Map("c", 3)])), 0)
+        this.assert.isTrue(InStr(jsonStr, "`n") = 0)
+    }
+
+    ; JSONL 契约现场：_ToJsonLine 的产出拼上换行后，按 `n 切分必须只剩一行
+    Test_Compact_OneRecordPerLine() {
+        line := JSONSerializer.Stringify(Map("timestamp", "2026-09-16T00:00:00", "level", "ERROR", "message", "boom"), 0)
+        parts := StrSplit(line "`n", "`n", "`r")
+        nonEmpty := 0
+        for p in parts
+            if Trim(p) != ""
+                nonEmpty++
+        this.assert.equal(nonEmpty, 1)
+    }
+
+    Test_Compact_RoundTripsThroughParser() {
+        original := Map("level", "ERROR", "code", 7, "nested", Map("k", [1, 2]))
+        parsed := JSONParser.Parse(JSONSerializer.Stringify(original, 0))
+        this.assert.equal(parsed["level"], "ERROR")
+        this.assert.equal(parsed["code"], 7)
+        this.assert.equal(parsed["nested"]["k"][2], 2)
+    }
+
+    ; 默认 indent=2 必须仍然是 pretty —— 别把「紧凑」修成了「永远紧凑」
+    Test_Default_IndentTwoRemainsPretty() {
+        jsonStr := JSONSerializer.Stringify(Map("a", 1))
+        this.assert.isTrue(InStr(jsonStr, "`n") > 0)
+    }
+
+    ; 两个修复的交集：紧凑模式下布尔白名单与数字 0 仍要各归各位
+    Test_Compact_BoolWhitelistStillHolds() {
+        jsonStr := JSONSerializer.Stringify(Map("holdDuration", 0, "allowOverlap", false), 0)
+        this.assert.isTrue(InStr(jsonStr, '"holdDuration": 0') > 0)
+        this.assert.isTrue(InStr(jsonStr, '"allowOverlap": false') > 0)
+    }
+}
+
+; =================================================================
 ; JSONSerializer._EscapeString（T1 快路径）
 ;
 ; 快路径的三个判定（不含引号 / 不含反斜杠 / 不含控制字符）必须**合起来恰好覆盖**
@@ -441,6 +568,77 @@ class ConfigStoreTests extends AutoHotUnitSuite {
         ; 从 ConfigStore 读取，内部状态应不受影响（深拷贝隔离）
         saved := ConfigStore.GetGroupConfig("__i15__")
         this.assert.equal(saved["hotkey"], "F1")
+    }
+}
+
+; =================================================================
+; ConfigValidator 手柄字段契约
+;
+; 手柄模式的间隔/延迟字段是 joyIntervals / joyDelays —— 运行时（domain/joystick_executor.ahk
+; 与 v4 的 ahk_executor/joystick.ahk）读的就是这两个名字。校验器曾误查 intervals / delays，
+; 于是任何手柄分组都被判 ERROR；而 SaveConfig 遇到 ERROR 级问题会拒绝保存**整份**配置，
+; 影响面是「配了手柄就连普通分组也存不下」，不是「只提示这一组有问题」。
+; =================================================================
+class ConfigValidatorJoystickFieldTests extends AutoHotUnitSuite {
+    ; 最强的一条：出厂默认配置必须能过自家校验器。
+    ; 默认分组 7 正是 joystick_periodic，这条直接钉住上面那起事故。
+    Test_DefaultConfig_PassesValidation() {
+        ConfigStore.InitDefaults()
+        errors := ConfigValidator.Validate(ConfigStore.Load())
+        hardErrors := []
+        for e in errors {
+            if e is Map && e.Has("type") && e["type"] = "ERROR"
+                hardErrors.Push(e["message"])
+        }
+        this.assert.equal(hardErrors.Length, 0)
+    }
+
+    Test_JoystickPeriodic_UsesJoyIntervals_NotIntervals() {
+        cfg := Map("GroupSettings", Map("1", Map(
+            "hotkey", "Joy1", "mode", "joystick_periodic",
+            "joyKeys", ["Joy1", "Joy2"], "joyIntervals", [100, 100]
+        )))
+        for e in ConfigValidator.Validate(cfg) {
+            if e is Map && e.Has("type") && e["type"] = "ERROR"
+                this.assert.fail("合法手柄周期配置被判 ERROR: " e["message"])
+        }
+    }
+
+    Test_JoystickPeriodic_MissingJoyIntervals_IsError() {
+        cfg := Map("GroupSettings", Map("1", Map(
+            "hotkey", "Joy1", "mode", "joystick_periodic",
+            "joyKeys", ["Joy1", "Joy2"]
+        )))
+        found := false
+        for e in ConfigValidator.Validate(cfg) {
+            if e is Map && e.Has("type") && e["type"] = "ERROR" && InStr(e["message"], "joyIntervals")
+                found := true
+        }
+        this.assert.isTrue(found)
+    }
+
+    Test_JoystickSequence_UsesJoyDelays_NotDelays() {
+        cfg := Map("GroupSettings", Map("1", Map(
+            "hotkey", "Joy2", "mode", "joystick_sequence",
+            "joyKeys", ["Joy1", "Joy2"], "joyDelays", [100, 100]
+        )))
+        for e in ConfigValidator.Validate(cfg) {
+            if e is Map && e.Has("type") && e["type"] = "ERROR"
+                this.assert.fail("合法手柄序列配置被判 ERROR: " e["message"])
+        }
+    }
+
+    Test_JoystickSequence_MissingJoyDelays_IsError() {
+        cfg := Map("GroupSettings", Map("1", Map(
+            "hotkey", "Joy2", "mode", "joystick_sequence",
+            "joyKeys", ["Joy1", "Joy2"]
+        )))
+        found := false
+        for e in ConfigValidator.Validate(cfg) {
+            if e is Map && e.Has("type") && e["type"] = "ERROR" && InStr(e["message"], "joyDelays")
+                found := true
+        }
+        this.assert.isTrue(found)
     }
 }
 

@@ -15,7 +15,7 @@
 > **口径差异提示**：同一文件可能因计数方式不同而得出不同数字，两者均有效、不得互相「纠正」。
 > - `watchdog_integration_tests.rs`：`#[test]` 属性数 = **14**（本文档口径）；`fn` 定义数 = **17**（`TESTING.md` 口径）。
 > - 套件数：`test_executor.ahk` 的 `Test_` 方法分布在不同 `class ... extends AutoHotUnitSuite` 中，套件数按类计。
-> - AHK 完整套件汇总：runner 除 `Test_` 方法外还执行 `Setup`/`Teardown` 生命周期钩子，故实跑总数（**697**）略高于静态 `Test_` 计数（**695**；静态计数不含 `tests/run_tests.ahk` 的 24 个，那是另一个 runner）。
+> - AHK 完整套件汇总：runner 除 `Test_` 方法外还执行 `Setup`/`Teardown` 生命周期钩子，故实跑总数（**719**）略高于静态 `Test_` 计数（**717**；静态计数不含 `tests/run_tests.ahk` 的 24 个，那是另一个 runner）。
 
 自洽关系：**小计 = 明细之和 = 汇总 = 各 crate 总计相加**。
 
@@ -202,6 +202,14 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 **JSON 转义快路径（`tests/suites/core_suites.ahk` 的 `JSONSerializerEscapeTests`，7 个用例）**：守护 `infrastructure/json_serializer.ahk` 的 `_EscapeString` T1 快路径 —— 快路径三判定（不含引号／不含反斜杠／不含 0x00-0x1F）必须恰好覆盖需转义字符集、反斜杠必须先于引号替换、`\uXXXX` 兜底集合不能漏字符，并做 0..127 逐字符与逐字符版 `_EscapeStringCharByChar` 的等价性扫描。已做 7 项变异阳性对照（替换顺序颠倒／三处快路径判定各漏一项／兜底集合漏 `\x0B` 与 `\x00-\x07`／漏 `\t` 短写法），全部变红。
 
+**JSON 标量类型分派（`tests/suites/core_suites.ahk` 的 `JSONSerializerScalarTypeTests`，10 个用例）**：守护 `JSONSerializer` 的布尔／数字分派（TD-030）。AHK v2 没有布尔类型（`Type(true)` 是 `"Integer"`），序列化器只能靠 `BoolKeys` 键名白名单判定 JSON 布尔 —— 白名单外的 1/0 必须按数字输出（否则 `holdDuration=0` 之类的 u64 字段被写成 `false`，Rust 侧 serde 直接 invalid type）。用例双侧钉住：数字侧（标量 1/0/1.0/-1、`[1,0,2]`、配置契约 `holdDuration`）与布尔侧（`allowOverlap`/`releaseOnEmergency`/`success`/`error`/嵌套 `autoRepeat`）。已做 5 项变异阳性对照（恢复按值判布尔／白名单删一项／白名单清空／布尔分支失效／去掉 `IsObject` 保护），全部变红。
+
+**JSON 缩进分派（`tests/suites/core_suites.ahk` 的 `JSONSerializerIndentTests`，6 个用例）**：钉住 `indent <= 0` 必须输出**单行紧凑** JSON（TD-034）。旧实现无条件换行，`indent=0` 只让缩进变成 0 个空格，于是 `Stringify(x, 0)` 仍是多行 —— 而 `ErrorSystem._ToJsonLine` 与 `JSONLogger._ToJsonLine` 都按「一条记录一行」落盘（函数名就叫 `_ToJsonLine`），`IPCChannel` 也是按行分帧，逐行解析全军覆没。用例覆盖：对象/嵌套容器无换行、拼上换行后按 `` `n `` 切分只剩一行、`JSONParser` 往返、以及**默认 `indent=2` 仍必须是 pretty**（防「修成永远紧凑」）。阳性对照两组：改回无条件换行 → 3 条红；改成永远紧凑 → 1 条红。
+
+**手柄字段校验（`tests/suites/core_suites.ahk` 的 `ConfigValidatorJoystickFieldTests`，5 个用例）**：钉住手柄模式的间隔/延迟字段是 `joyIntervals` / `joyDelays`（TD-035）。运行时（`domain/joystick_executor.ahk`、v4 的 `ahk_executor/joystick.ahk`）读的就是这两个名字，校验器却曾查 `intervals` / `delays`。危害被放大是因为 `ConfigService.SaveConfig()` 遇到 **ERROR 级**校验问题会拒绝保存**整份**配置 —— 一个手柄分组就能让用户连普通分组都存不下。最强的一条用例是「出厂默认配置必须能过自家校验器」（默认分组 7 正是 `joystick_periodic`）。阳性对照两组，分别红 2 条 / 1 条。
+
+**分组 ID 生成（`tests/suites/base_suites.ahk`，1 个用例）**：`CreateGroup` 用 `ConfigStore.HasGroup()` 判重，`_GenerateGroupId()` 原先只看 `SkillManager.Groups` —— 两个真值源不同步时会生成已存在的 ID，随即抛「分组已存在」（TD-036）。用例构造的正是事故现场：SkillManager 已清空而 `ConfigStore.InitDefaults()` 里有默认分组 1..7。
+
 ---
 
 ## 测试固件
@@ -219,7 +227,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 |------|------|
 | Rust 测试（运行时注册数，`--all-targets -- --list`） | 639（asd-domain 154 + asd-ipc-protocol 72 + asd-application 168 + asd-test-harness 3 + asd-tauri 242；其中 `#[ignore]` 15 个） |
 | AHK 执行器测试（`Test_` 方法数） | 61 套件 / 279 个 `Test_` 方法（`tests/test_ahk_executor/` 5 文件；不含 `test_joy_hotkey_manager_ahu.ahk` 的 7 套件） |
-| AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 697 个用例 / 178 个套件。**本机**（`scripts/check-gates.sh`，默认）：通过 697 / 失败 0 / 跳过 0。**CI**（G3b，`ASD_HOST_TIMING=0`）：通过 690 / 失败 0 / **跳过 7** —— 跳过的是 `SenderPreciseTimingTests` 里 7 条绝对墙钟时延断言，原因见下。2026-09-16 起 +33 用例 / +13 套件：原 `tests/test_joystick.ahk`（独立脚本，断言从未执行）改名并转为 `tests/test_joystick_input.ahk` 接入套件（TD-002） |
+| AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 719 个用例 / 181 个套件。**本机**（`scripts/check-gates.sh`，默认）：通过 719 / 失败 0 / 跳过 0。**CI**（G3b，`ASD_HOST_TIMING=0`）：通过 712 / 失败 0 / **跳过 7** —— 跳过的是 `SenderPreciseTimingTests` 里 7 条绝对墙钟时延断言，原因见下。2026-09-16 三次增长：① +33 用例 / +13 套件，原 `tests/test_joystick.ahk`（独立脚本，断言从未执行）改名并转为 `tests/test_joystick_input.ahk` 接入套件（TD-002）；② +10 用例 / +1 套件，`JSONSerializerScalarTypeTests` 钉住 JSON 标量的布尔/数字分派（TD-030，AHK v2 无布尔类型导致的 1/0 串味）；③ +12 用例 / +2 套件，`JSONSerializerIndentTests`（+6，TD-034：`Stringify(x, 0)` 必须是单行紧凑）与 `ConfigValidatorJoystickFieldTests`（+5，TD-035：手柄模式的间隔/延迟字段是 `joyIntervals`/`joyDelays`），另在 `base_suites.ahk` 的 `ConfigStoreGroupTests` 补 1 条 `_GenerateGroupId` 配置侧碰撞用例（TD-036）。接入 `tests/` 下从未执行的独立脚本时一并修好了一批陈旧断言 |
 | 基准测试 | 7 个 criterion bench |
 | AHK 生产基准（CI 门禁，T11） | 2 个基准脚本 / 8 个 metric：`bench_prod_escape.ahk` 5 个（直接测 `JSONSerializer._EscapeString`，T1，**K=1.5**，warn 1.25）+ `bench_prod_tick.ahk` 3 个（直接测 `Sender._ExecutePeriodic`，T6，**K=1.4**，warn 1.2）；两个 bench 的 p50 **都是归一化值**（÷ 同进程紧邻测得的参考负载），判据「p50 中位数 ≤ 基线 ×K」，两个都进 CI 的 `ahk-bench` job 并阻断合并。K 不同是按信噪比定的（T1 信号 41~49×，T6 仅 ~1.7×），详见 `docs/developer-guide.md` §4.6.4 |
 | 模糊测试 | 5 个 fuzz target |

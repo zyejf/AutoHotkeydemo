@@ -87,7 +87,10 @@ testManager.RegisterSuite(
     SkillManagerTests,
     JSONParserTests,
     JSONSerializerTests,
+    JSONSerializerScalarTypeTests,
+    JSONSerializerIndentTests,
     ConfigStoreTests,
+    ConfigValidatorJoystickFieldTests,
     ConfigValidatorTests,
     ErrorSystemTests,
     DebugLoggerTests,
@@ -289,4 +292,6 @@ testManager.RegisterSuite(
 testManager.RunSuites()
 
 ; 退出程序
-ExitApp(0)
+; 退出码必须反映失败数：原来硬编码 ExitApp(0)，任何按退出码判断的 runner 都会静默放行。
+; G3b 现在靠解析 test_results.log 的「失败:」兜住，但那层兜底不该是唯一防线。
+ExitApp(reporter.failures.Length > 0 ? 1 : 0)

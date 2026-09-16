@@ -84,15 +84,19 @@ KeyValidator.OnSend("1", "A", "press", 0)
 TestReporter.Assert(KeyValidator.GetActualCount() = 0, "未激活时不应记录")
 
 TestReporter.Scenario("2.8 报告包含偏差详情")
+; 两个前提，缺一个 details 就恒为空（这里踩过坑，改动前先看 _BuildReport）：
+;   1) 期望序列来自 SkillManager.Groups —— 未装配分组时 _expectedSeq 为空，details 无从计算；
+;   2) 偏差按「同一按键相邻两次 down 的间隔」算（_BuildReport 用 lastDownByKey 按 key 聚合），
+;      所以必须有键重复出现，且事件必须是 down（press 会被 continue 掉）。
+SkillManager.Groups["1"] := {mode: "periodic", keys: ["A", "B"], intervals: [50, 50]}
 KeyValidator.Start("1", (evt) => "")
-KeyValidator.OnSend("1", "A", "press", 0)
-KeyValidator.OnSend("1", "B", "press", 55)
-KeyValidator.OnSend("1", "C", "press", 110)
+KeyValidator.OnSend("1", "A", "down", 0)
+KeyValidator.OnSend("1", "B", "down", 55)
+KeyValidator.OnSend("1", "A", "down", 110)
 report := KeyValidator.Stop()
 TestReporter.Assert(report.Has("details"), "报告应包含 details")
 TestReporter.Assert(report["details"].Length > 0, "details 不应为空")
 TestReporter.Assert(report.Has("avgIntervalDeviation"), "报告应包含 avgIntervalDeviation")
 TestReporter.Assert(report.Has("maxIntervalDeviation"), "报告应包含 maxIntervalDeviation")
 
-TestReporter.EndTest()
-ExitApp()
+TestReporter.Finish()

@@ -238,18 +238,38 @@ class GroupService {
     ; =================================================================
     ; 内部
     ; =================================================================
+    ; 只统计可转成整数的键，非数字 ID 直接跳过（与调用方的容错口径一致）
+    static _MaxNumericId(groups, maxSoFar := 0) {
+        for id in groups {
+            try {
+                idNum := Integer(String(id))
+                if idNum > maxSoFar
+                    maxSoFar := idNum
+            } catch {
+                continue
+            }
+        }
+        return maxSoFar
+    }
+
     static _GenerateGroupId() {
         try {
-            maxId := 0
-            for id in GroupService.SkillManager.Groups {
-                try {
-                    idNum := Integer(String(id))
-                    if idNum > maxId
-                        maxId := idNum
-                } catch {
-                    continue
-                }
+            ; 真值源必须与唯一性检查一致：CreateGroup 用 ConfigStore.HasGroup() 判重，
+            ; 这里原先只看 SkillManager.Groups —— 两者不同步时（SkillManager 尚未初始化，
+            ; 或配置里有分组但还没建实例）会生成已存在的 ID，CreateGroup 立刻抛
+            ; 「分组已存在」，新分组永远建不出来。改成取两边并集的最大值。
+            maxId := GroupService._MaxNumericId(GroupService.SkillManager.Groups)
+
+            ; ConfigStore 侧单独兜错：拿不到就以 SkillManager 的结果为准，
+            ; 不能让「读不到配置」把「新建分组」也一起废掉。
+            try {
+                storeCfg := GroupService.ConfigStore ? GroupService.ConfigStore.Load() : ""
+                if storeCfg is Map && storeCfg.Has("GroupSettings") && storeCfg["GroupSettings"] is Map
+                    maxId := GroupService._MaxNumericId(storeCfg["GroupSettings"], maxId)
+            } catch {
+                ; best-effort：ConfigStore 不可用时退回只看 SkillManager
             }
+
             return String(maxId + 1)
         } catch as e {
             ErrorSystem.LogError(e.Message, "ERROR", A_ThisFunc, A_LineNumber)
