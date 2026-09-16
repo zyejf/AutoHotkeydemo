@@ -95,6 +95,12 @@ bash scripts/check-gates.sh [--quick]      # 一键四闸门（CARGO_INCREMENTAL
   git rev-parse <main 的 sha> > /d/1demo/AutoHotkeydemo/.git/refs/heads/workbuddy/main-5f18c6a6
   ```
   （注意 `mkdir -p` 不能省：引用被清时是整个 `workbuddy/` 目录一起没的。）
+  **直接写 ref 文件只改了 HEAD，worktree 的索引不会跟着动** —— 之后 `git status`
+  会把 HEAD 里已删除/已变更的文件显示成 `A` 或 `M`（2026-09-16 untrack 47 个报告后
+  实测冒出 47 条 `A`）。补一步即可，`git checkout HEAD -- .` 不够（它只处理 HEAD 里有的文件）：
+  ```bash
+  git read-tree HEAD     # 只重写索引，不动工作区；不要用 git reset
+  ```
   相关：pre-commit 钩子会遍历所有暂存文件做体积检查，**暂存 825 个文件时钩子会跑很久**，
   命令被超时 SIGTERM 打断在 commit 中途 → 加剧上述问题。只暂存必要文件。
 - ⚠️ **禁用 `git stash push -- <path>` 做暂存验证**：2026-09-16 用它后 HEAD 指向的 3 个提交对象
