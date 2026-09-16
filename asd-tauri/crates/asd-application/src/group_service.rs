@@ -1,7 +1,3 @@
-// TD-021：本文件的 `# Errors` 待补（见 `docs/tech-debt-register.md`）。
-// 补完即删除下面这行，本文件立刻受 `clippy::missing_errors_doc` 保护。
-#![allow(clippy::missing_errors_doc)]
-
 use crate::error::AppError;
 use crate::state::AppState;
 use asd_domain::models::SkillGroup;
@@ -57,6 +53,14 @@ pub fn build_toggle_command(group_id: &str, active: bool, group: &SkillGroup) ->
     }
 }
 
+/// 切换单个分组的启用状态，成功时返回切换后的状态。
+///
+/// # Errors
+/// - `Validation`：`group_id` 为空。
+/// - `GroupNotFound`：`group_id` 不存在。
+/// - `Ipc`：向 AHK 发送切换命令失败。此时已尽力回滚（分组状态 + 热键注册），
+///   但回滚走的是 `try_send_ipc_command`，**失败只记 `warn`**，
+///   所以拿到 `Err` 时 AHK 侧不保证与内存一致。
 pub fn toggle_group(state: &AppState, group_id: &str) -> Result<GroupStatus, AppError> {
     if group_id.trim().is_empty() {
         return Err(AppError::Validation("分组 ID 不能为空".to_string()));
@@ -120,6 +124,12 @@ pub fn toggle_group(state: &AppState, group_id: &str) -> Result<GroupStatus, App
     })
 }
 
+/// 删除单个分组（含它在配置与内存中的状态）。
+///
+/// # Errors
+/// - `Validation`：`group_id` 为空。
+/// - `GroupNotFound`：配置中不存在该分组。
+/// - `Config`：删除后写回配置文件失败 —— 此时内存中的删除**已回滚**。
 pub fn delete_group(state: &AppState, group_id: &str) -> Result<(), AppError> {
     if group_id.trim().is_empty() {
         return Err(AppError::Validation("分组 ID 不能为空".to_string()));
@@ -211,6 +221,12 @@ fn batch_toggle_impl(
     }
 }
 
+/// 把所有分组统一切换为启用 / 停用，返回批量结果。
+///
+/// # Errors
+/// 当前实现**不会失败**：`read_groups` 恒定返回 `Ok`，单个分组出问题也只记进
+/// `BatchToggleResult` 的 `state_errors` / `ipc_rolled_back`。
+/// 保留 `Result` 是为了与另外两个批量接口签名一致（将来加前置校验不用改调用方）。
 pub fn toggle_all(state: &AppState, active: bool) -> Result<BatchToggleResult, AppError> {
     let (toggle_data, skipped) = {
         let groups = state.read_groups()?;
@@ -228,6 +244,12 @@ pub fn toggle_all(state: &AppState, active: bool) -> Result<BatchToggleResult, A
     Ok(result)
 }
 
+/// 批量切换指定分组的启用 / 停用状态。
+///
+/// # Errors
+/// `Validation`：`group_ids` 为空列表。
+/// 单个分组**出问题不算整体失败**：不存在的记进 `not_found`、状态更新失败的记进
+/// `state_errors`、IPC 失败且已回滚的记进 `ipc_rolled_back`。
 pub fn batch_toggle_groups(
     state: &AppState,
     group_ids: &[String],
@@ -282,6 +304,13 @@ pub struct ReorderResult {
     pub appended_groups: Vec<String>,
 }
 
+/// 批量删除分组，逐个独立处理、互不影响。
+///
+/// # Errors
+/// `Validation`：`group_ids` 为空列表。
+/// ⚠️ **单个分组删除失败不会让整体失败**：失败项连同原因记进
+/// `BatchDeleteResult::failed`，成功项照常删除。调用方必须看 `failed`，
+/// 不能只看有没有 `Err`。
 pub fn batch_delete_groups(
     state: &AppState,
     group_ids: &[String],
@@ -317,6 +346,13 @@ pub fn batch_delete_groups(
 /// 配置可能已被其他线程修改（如添加/删除分组、修改热键）。
 /// 此方法基于读取时的配置构建排序，可能覆盖并发修改的结果。
 /// 实际场景中排序操作极少与修改操作同时发生，风险较低。
+///
+/// # Errors
+/// - `Validation`：列表为空、列表含不存在的分组 id、或 id 重复。
+/// - `Config`：排好序的配置写盘失败（内存中的排序**会回滚**）。
+///
+/// ⚠️ 未出现在列表里的分组**不会报错**，而是追加到末尾 —— 见返回值的
+/// `appended_groups`。
 pub fn reorder_groups(state: &AppState, group_ids: &[String]) -> Result<ReorderResult, AppError> {
     if group_ids.is_empty() {
         return Err(AppError::Validation("分组 ID 列表不能为空".to_string()));
@@ -415,6 +451,15 @@ pub fn reorder_groups(state: &AppState, group_ids: &[String]) -> Result<ReorderR
 /// `toggle_group` 或 `sync_config_changes_to_ahk` 时自动修复。
 /// 合并 `is_active` 和 `original_hotkey` 为单次 `get_group` 读取已将窗口
 /// 最小化，但无法完全消除跨锁 TOCTOU。
+///
+/// # Errors
+/// - `Validation`：热键或分组 id 为空；热键已被**其它**分组占用（`swap_hotkey` 冲突）。
+/// - `GroupNotFound`：分组不存在。
+/// - `Ipc`：向 AHK 注册 / 注销热键失败。
+///
+/// ⚠️ 失败时会尽力回滚，但**回滚本身也可能失败**（只记 `warn` 并发
+/// `hotkey_conflict` 事件给前端）。所以拿到 `Err` 时不能假定「什么都没发生过」，
+/// 前端应提示用户手动刷新或重新注册。
 // TD-023：104 行（阈值 100），刚过线。函数内是「读状态 → 校验 → 写入 → 注册热键」
 // 的线性流程，强行切分只会把中间状态搬到参数里。先豁免并登记。
 #[allow(clippy::too_many_lines)]
@@ -544,6 +589,14 @@ pub fn register_hotkey(state: &AppState, hotkey: &str, group_id: &str) -> Result
     Ok(())
 }
 
+/// 注销热键，并把占用它的分组一并停用。
+///
+/// # Errors
+/// - `Validation`：热键为空，或该热键当前未被注册。
+/// - `Ipc`：向 AHK 发送注销命令失败 —— 此时会尝试把热键重新注册回去。
+///
+/// ⚠️ 注销成功后会把原分组置为非活跃并通知 AHK 停止执行：否则 AHK 重连后
+/// 该分组会被启用、热键却已丢失。
 pub fn unregister_hotkey(state: &AppState, hotkey: &str) -> Result<(), AppError> {
     if hotkey.trim().is_empty() {
         return Err(AppError::Validation("热键不能为空".to_string()));
