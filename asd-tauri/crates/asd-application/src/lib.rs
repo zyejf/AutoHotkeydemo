@@ -4,7 +4,7 @@
 // 所以不放 crate 级豁免，而是**在尚未补齐的每个文件顶部单独 allow**：
 // 补完一个文件就删掉那一行的 allow，该文件立刻受 lint 保护，不会整体回退。
 // 已补齐：`backup_service.rs`、`group_service.rs`、`recording_service.rs`、
-// `config_repository.rs`。
+// `config_repository.rs`、`state.rs` —— **本 crate 已全部补齐，无文件级豁免**。
 // 进度与理由见 `docs/tech-debt-register.md` 的 TD-021。
 // 测试代码豁免几条「可读性」lint（TD-012）—— 它们在生产代码里是信号，在测试里是噪声：
 //   · similar_names：对照组命名（cfg1/cfg2、g1/g2）本身就是测试要表达的对照关系

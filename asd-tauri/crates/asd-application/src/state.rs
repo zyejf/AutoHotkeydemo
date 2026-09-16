@@ -1,7 +1,3 @@
-// TD-021：本文件的 `# Errors` 待补（见 `docs/tech-debt-register.md`）。
-// 补完即删除下面这行，本文件立刻受 `clippy::missing_errors_doc` 保护。
-#![allow(clippy::missing_errors_doc)]
-
 use crate::config_repository::ConfigRepository;
 use crate::error::AppError;
 use asd_domain::config::{Config, WatchdogStateEnum};
@@ -132,11 +128,23 @@ impl AppState {
         groups
     }
 
+    /// # Errors
+    ///
+    /// **当前实现不会失败**：取的是 `RwLock` 读锁后克隆，恒定返回 `Ok`。
+    /// `Result` 只是为 API 稳定保留的返回类型。
+    ///
+    /// ⚠️ `clippy::unnecessary_wraps` 报不出来 —— 该 lint 默认**不检查导出函数**
+    /// （`avoid-breaking-exported-api`）。本文件 18 个返回 `Result` 的公开方法里
+    /// 有 **10 个**是这种情况，别把「返回了 `Result`」当成「这里可能出错」。
     pub fn read_config(&self) -> Result<Config, AppError> {
         let guard = self.config_state.read();
         Ok(guard.config.clone())
     }
 
+    /// # Errors
+    ///
+    /// **当前实现不会失败**（理由与 [`read_config`](Self::read_config) 相同，
+    /// 该方法处的说明同样适用于这里）。
     pub fn read_groups(&self) -> Result<IndexMap<String, SkillGroup>, AppError> {
         let guard = self.config_state.read();
         Ok(guard.groups.clone())
@@ -187,6 +195,11 @@ impl AppState {
     /// 1. 时间窗口极短（微秒级）
     /// 2. 不影响 IPC 命令发送（IPC 命令在锁外发送）
     /// 3. 合并两个 `RwLock` 会增加锁争用（热键注册是高频操作）
+    ///
+    /// # Errors
+    ///
+    /// `GroupNotFound`：`id` 不存在。**这是唯一的失败路径** —— 把状态设成它
+    /// 当前已有的值不算错误（幂等）。
     pub fn set_group_active(&self, id: &str, active: bool) -> Result<(), AppError> {
         let hotkey_update: Option<(bool, String)> = {
             let mut cs = self.config_state.write();
@@ -240,6 +253,9 @@ impl AppState {
         Ok(())
     }
 
+    /// # Errors
+    ///
+    /// `GroupNotFound`：`id` 不存在，此时**状态未被修改**。
     pub fn toggle_group_active(&self, id: &str) -> Result<(bool, SkillGroup), AppError> {
         let (new_active, group, hotkey) = {
             let mut cs = self.config_state.write();
@@ -273,6 +289,15 @@ impl AppState {
         self.active_hotkeys.read().values().cloned().collect()
     }
 
+    /// 发送 IPC 命令（**不等响应**），返回 `seq`。
+    ///
+    /// # Errors
+    ///
+    /// `Ipc`：发送失败。**这只表示「命令没发出去」** —— `Ok` 也不代表 AHK 侧
+    /// 处理成功，甚至不代表它收到了。需要确认结果请用
+    /// [`send_ipc_and_wait`](Self::send_ipc_and_wait)。
+    ///
+    /// 想「尽力而为、失败只记日志」时用 [`try_send_ipc_command`](Self::try_send_ipc_command)。
     pub fn send_ipc_command(&self, cmd: &IpcCommand) -> Result<u64, AppError> {
         self.ipc_sender
             .send_command(cmd.clone())
@@ -285,6 +310,20 @@ impl AppState {
         }
     }
 
+    /// 发送 IPC 命令并等待响应，超时时间由调用方指定。
+    ///
+    /// # Errors
+    ///
+    /// `Ipc`：发送失败**或**在 `timeout` 内没等到响应。
+    ///
+    /// ⚠️ 两种情形共用同一个变体且错误是字符串，**调用方无法程序化区分「发不出去」
+    /// 和「AHK 超时没回」** —— 重试语义完全不同（前者可重试，后者重试会叠加请求）。
+    /// 另外**超时不等于 AHK 没收到**：命令可能已经执行，只是响应没赶上。
+    ///
+    /// ⚠️ 返回的 `Ok(IpcMessage)` **不代表业务成功**：AHK 侧的处理结果要看
+    /// [`IpcMessage::is_error`]，本函数不会替你判。
+    ///
+    /// [`IpcMessage::is_error`]: asd_ipc_protocol::IpcMessage::is_error
     pub fn send_ipc_and_wait(
         &self,
         cmd: &IpcCommand,
@@ -320,6 +359,10 @@ impl AppState {
         self.event_emitter.emit(event, payload)
     }
 
+    /// # Errors
+    ///
+    /// `Internal`：看门狗重置失败（消息为「重置看门狗失败: …」）。失败时
+    /// **看门狗状态未变更**，可安全重试。
     pub fn reset_watchdog(&self) -> Result<(), AppError> {
         self.watchdog
             .reset()
@@ -334,6 +377,25 @@ impl AppState {
         *self.config_path.write() = Some(path);
     }
 
+    /// 原子保存配置：先校验 → 再更新内存 → 再写磁盘 → 最后同步 AHK。
+    ///
+    /// # Errors
+    ///
+    /// - `Validation`：`new_config` 没通过 `ConfigValidator`。**校验发生在动内存之前**，
+    ///   所以失败时内存与磁盘都还是旧值；多条错误用 `"; "` 拼成一个字符串。
+    /// - `Config`：写盘失败。**此时内存已尽力回滚**（见下）。
+    ///
+    /// ⚠️ 三条容易踩的语义：
+    ///
+    /// - **回滚不是无条件的**：只有 `version == old_version + 1`（即期间没人再改过）
+    ///   才回滚；否则跳过回滚并记 `warn`。也就是说**并发保存时**，一次失败可能
+    ///   留下「内存是新配置、磁盘是旧配置」的不一致，而返回值仍是 `Err` ——
+    ///   别默认「拿到 `Err` 就等于没改过」。
+    /// - **`config_path` 未设置时不写盘也不报错**：只记 `warn` 并返回 `Ok`，
+    ///   配置仅存在于内存、进程退出即丢。
+    /// - **成功后的 AHK 同步是 fire-and-forget**（`try_send_ipc_command`），
+    ///   失败只记 `warn`，不进返回值。`Ok(())` 表示「内存和磁盘一致」，
+    ///   不表示 AHK 侧已经生效。
     pub fn save_config_atomic(&self, mut new_config: Config) -> Result<(), AppError> {
         // 内部验证配置，防止无效配置被写入内存和磁盘
         let validation = asd_domain::validator::ConfigValidator::validate_config(&new_config);
@@ -435,6 +497,15 @@ impl AppState {
     ///
     /// 若同一 `group_id` 已注册了其他热键，调用方必须先调用 `unregister_hotkey`
     /// 注销旧热键，否则旧热键将残留在 `active_hotkeys` 中导致热键泄漏。
+    ///
+    /// # Errors
+    ///
+    /// **当前实现不会失败**，但返回值的语义**反直觉**，必须细看：
+    ///
+    /// - `Ok(None)`：注册成功，此前没有占用者。
+    /// - `Ok(Some(占用的 group_id))`：**热键已被别的分组占用，本次没有注册**。
+    ///   这是「没做成」却返回 `Ok` —— 只看 `Result` 是不是 `Ok` 会误判成注册成功，
+    ///   必须再检查 `Option`。
     pub fn register_hotkey(
         &self,
         hotkey: &str,
@@ -448,26 +519,48 @@ impl AppState {
         Ok(existing)
     }
 
+    /// # Errors
+    ///
+    /// **当前实现不会失败**。返回值表示「**是否真的删掉了**」：
+    /// `Ok(false)` = 这个热键本来就没注册。删一个不存在的热键**不算错误**。
     pub fn unregister_hotkey(&self, hotkey: &str) -> Result<bool, AppError> {
         let mut registry = self.active_hotkeys.write();
         Ok(registry.remove(hotkey).is_some())
     }
 
+    /// # Errors
+    ///
+    /// **当前实现不会失败**。`Ok(None)` 表示这个热键本来就没注册
+    /// （**不是错误**），`Ok(Some(group_id))` 返回被注销者。
     pub fn unregister_hotkey_return_group(&self, hotkey: &str) -> Result<Option<String>, AppError> {
         let mut registry = self.active_hotkeys.write();
         Ok(registry.remove(hotkey))
     }
 
+    /// # Errors
+    ///
+    /// **当前实现不会失败**。
     pub fn is_hotkey_registered(&self, hotkey: &str) -> Result<bool, AppError> {
         let registry = self.active_hotkeys.read();
         Ok(registry.contains_key(hotkey))
     }
 
+    /// # Errors
+    ///
+    /// **当前实现不会失败**。`Ok(None)` 表示未注册（**不是错误**）。
     pub fn get_hotkey_group(&self, hotkey: &str) -> Result<Option<String>, AppError> {
         let registry = self.active_hotkeys.read();
         Ok(registry.get(hotkey).cloned())
     }
 
+    /// 按 `group_id` 反查它注册的热键。
+    ///
+    /// # Errors
+    ///
+    /// **当前实现不会失败**。`Ok(None)` 表示该分组没有注册热键（**不是错误**）。
+    ///
+    /// ⚠️ 反查是**线性扫描**且**只返回第一个匹配项**：一个分组理论上只应有一个热键，
+    /// 若因数据异常注册了多个，返回哪个是未定义行为（取决于 `HashMap` 迭代顺序）。
     pub fn get_hotkey_group_id(&self, group_id: &str) -> Result<Option<String>, AppError> {
         let registry = self.active_hotkeys.read();
         Ok(registry
@@ -476,12 +569,24 @@ impl AppState {
             .map(|(h, _)| h.clone()))
     }
 
+    /// # Errors
+    ///
+    /// **当前实现不会失败**。删一个**不存在**的分组的热键同样返回 `Ok(())` ——
+    /// 「没有可删的」不是错误。
     pub fn remove_group_hotkeys(&self, group_id: &str) -> Result<(), AppError> {
         let mut registry = self.active_hotkeys.write();
         registry.retain(|_, gid| gid != group_id);
         Ok(())
     }
 
+    /// 把 `group_id` 的热键换成 `new_hotkey`，返回它的**旧热键**。
+    ///
+    /// # Errors
+    ///
+    /// `Validation`：`new_hotkey` 已被**另一个**分组占用。此时**未做任何修改**。
+    ///
+    /// 注意区分：`new_hotkey` 已被**自己**占用时不算错误，会走正常替换路径
+    /// 并返回 `Ok(Some(new_hotkey))`。
     pub fn swap_hotkey(
         &self,
         new_hotkey: &str,
@@ -508,6 +613,12 @@ impl AppState {
         Ok(old_hotkey)
     }
 
+    /// # Errors
+    ///
+    /// **当前实现不会失败**。
+    ///
+    /// ⚠️ 返回的是 `(hotkey, group_id)` 二元组，**顺序不保证**（来自 `HashMap`
+    /// 迭代顺序），需要稳定输出请自行排序。
     pub fn get_all_registered_hotkeys(&self) -> Result<Vec<(String, String)>, AppError> {
         let registry = self.active_hotkeys.read();
         Ok(registry
@@ -634,6 +745,22 @@ impl AppState {
     /// 若 IPC 发送失败，内存和磁盘状态已提交（分组已删除），但 AHK 子进程可能
     /// 仍在执行该分组的按键序列且热键钩子仍然注册。此为已知设计权衡——
     /// IPC 失败时无法回滚磁盘写入，使用 `try_send_ipc_command` 仅记录警告。
+    ///
+    /// # Errors
+    ///
+    /// - `GroupNotFound`：`group_id` 不存在，**未做任何修改**。
+    /// - `Config`：写盘失败，**内存已尽力回滚**（与
+    ///   [`save_config_atomic`](Self::save_config_atomic) 一样，回滚以
+    ///   `version == old_version + 1` 为条件，并发下可能跳过）。
+    ///
+    /// ⚠️ 两条容易误读的地方：
+    ///
+    /// - **返回值是「被删的分组是否处于激活状态」，不是「是否删除成功」**。
+    ///   删除成功却返回 `Ok(false)` 是合法的（删的是个未激活分组）。
+    /// - **IPC 失败不进返回值**：写盘成功后发给 AHK 的 `ToggleGroup(false)` /
+    ///   `UnregisterHotkey` 走 `try_send_ipc_command`，失败只记 `warn`。
+    ///   所以 `Ok(_)` 时 AHK 侧**可能仍在跑该分组、热键也仍挂着**，
+    ///   直到 AHK 重连后由 `post_connect_callback` 重新同步。
     pub fn delete_group_atomic(&self, group_id: &str) -> Result<bool, AppError> {
         let config_path = self.get_config_path();
 
