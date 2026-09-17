@@ -306,6 +306,32 @@ G3d  test-map.md 登记自洽（含运行时对账）
 
 ---
 
+## 六之七、TD-056：逆向边此前**只靠文档兜着**，已补门禁（`c8cc631`）
+
+图谱此前只统计「跨层边」**数量**并打印 TOP（`is_layer_cross`），**完全不判方向**。
+
+于是这 3 条 `infrastructure -> domain` 的反向依赖长期只靠 AGENTS.md「已知架构妥协 #1」的**文档白名单**兜着——**既无门禁也无计数**，新人再加一条不会被任何东西拦住：
+
+| 逆向边 | 授权理由 |
+|---|---|
+| `config_validator.ahk` → `domain/joystick_input.ahk` | 复用 `JoystickInput.IsJoystickKey()` 纯静态方法 |
+| `joy_hotkey_manager.ahk` → `domain/joystick_input.ahk` | 复用 `JoystickInput` 纯工具函数以消除重复实现 |
+| `joy_sender.ahk` → `domain/interfaces.ahk` | `JoySender` 实现 `IJoySender`（依赖倒置） |
+
+**分层语义**（AGENTS.md）：依赖方向恒由 depth 大 → 小，`infrastructure 0 → domain 1 → application 2 → presentation 3`；`entry`/`tests`/`executor`/`other` 豁免。故「小 → 大」即逆向边。
+
+**修法**：`check-graph-baseline.py` 新增 `check_reverse_edges()`——
+
+- 复用 **`gen_graph_html.is_reverse_edge`** 判方向（分层常量以 `gen_graph_html.py` 为唯一事实来源，AGENTS.md 明确要求，**不要**在别处再抄一份 depth 表）
+- `ALLOWED_REVERSE_EDGES` 收录既有 3 条，每条带 **reason + expires（2027-03-18）**，沿用 TD-009 规矩（缺一即硬失败）
+- 白名单外一律硬失败，报错写明方向规则与「若为有意妥协需同步 AGENTS.md」
+
+**阳性对照**：注入 `infrastructure/utils.ahk -> domain/skill_manager.ahk` → 闸门① **FAIL** 并精确报出；还原后回绿。
+
+⚠️ **2027-03-18 复审**：3 条豁免到期逐条确认。尤其 `joy_hotkey_manager` / `config_validator` 那两条——若 `JoystickInput` 的纯函数可上移到无状态工具模块，应**消除**而不是续期。
+
+---
+
 ## 七、两个必须记住的教训
 
 **1. 门禁自己就是负载源 —— 已处理（`11da447`）。** G3b 紧接在 G3a（`cargo test`，72~104s）之后运行，正是这段残留负载触发过 `Test_Sequence_PreservesPhaseAndCountsDropped`（报 `24 != 12`，2 倍说明中间多过去约 184ms；单独连跑两次均 722 全绿）。**只修用例而不解决门禁自负载，flaky 会换个地方继续爆。**
