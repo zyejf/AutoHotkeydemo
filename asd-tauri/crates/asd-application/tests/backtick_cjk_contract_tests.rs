@@ -72,7 +72,9 @@ const KNOWN_GOOD_SPANS: &[&str] = &[
 
 fn is_ideograph(c: char) -> bool {
     let o = u32::from(c);
-    IDEOGRAPH_RANGES.iter().any(|&(lo, hi)| (lo..=hi).contains(&o))
+    IDEOGRAPH_RANGES
+        .iter()
+        .any(|&(lo, hi)| (lo..=hi).contains(&o))
 }
 
 fn is_ident_char(c: char) -> bool {
@@ -172,7 +174,9 @@ fn judge(span: &str) -> Option<String> {
     for &(start, end) in &runs {
         if glued_left(&masked_chars, start) || glued_right(&masked_chars, end - 1) {
             let sample: String = span.chars().skip(start).take(end - start).collect();
-            return Some(format!("反引号边界落在中文中间（与 ASCII 标识符粘连）：{sample:?}"));
+            return Some(format!(
+                "反引号边界落在中文中间（与 ASCII 标识符粘连）：{sample:?}"
+            ));
         }
     }
 
@@ -195,7 +199,13 @@ fn judge(span: &str) -> Option<String> {
 fn backtick_spans(line: &str) -> Vec<String> {
     line.split('`')
         .enumerate()
-        .filter_map(|(i, part)| if i % 2 == 1 { Some(part.to_string()) } else { None })
+        .filter_map(|(i, part)| {
+            if i % 2 == 1 {
+                Some(part.to_string())
+            } else {
+                None
+            }
+        })
         .collect()
 }
 
