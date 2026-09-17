@@ -185,6 +185,32 @@ Windows 本机实测 `src-tauri`（Linux 编译不过，所以只在 Windows 上
 
 ---
 
+## 六之四、给 `src-tauri` 补了第一批测试（`30dd76a`）
+
+`infrastructure/logging.rs` 原本 **0% 覆盖**。原因是 `init(app: &tauri::App)` 依赖真实 Tauri App，单测构造不了——**不是没写测试，是设计上不可测**。
+
+但里面有个**写进文档注释却完全没守护的契约**：「默认 `info`，可用 `RUST_LOG` 覆盖」。把它抽成纯函数后即可测：
+
+```rust
+fn env_filter_from(log_spec: Option<&str>) -> EnvFilter {
+    match log_spec {
+        Some(spec) => EnvFilter::try_new(spec).unwrap_or_else(|_| EnvFilter::new("info")),
+        None => EnvFilter::new("info"),
+    }
+}
+```
+
+**3 条测试 + 两组阳性对照**：
+
+| 注入的回归 | 反应 |
+|---|---|
+| 默认级别 `info`→`warn` | 对应测试 **FAILED**，报出精确原因 |
+| `unwrap_or_else`→`unwrap` | 非法 spec 那条 **FAILED** |
+
+**实现时踩到的坑（clippy 直接阻断，值得记）**：新增 `fn` 的 `///` 文档块**不能与前一个函数的 `///` 首尾相接**——两段会被合并成同一份文档，导致前一个 `pub fn` 丢掉自己的文档（触发 `missing_errors_doc`），新的第一行又被当成上个列表项的续行。解法是把私有辅助函数与 `#[cfg(test)]` 放在**文件末尾**。
+
+---
+
 ## 七、两个必须记住的教训
 
 **1. 门禁自己就是负载源 —— 已处理（`11da447`）。** G3b 紧接在 G3a（`cargo test`，72~104s）之后运行，正是这段残留负载触发过 `Test_Sequence_PreservesPhaseAndCountsDropped`（报 `24 != 12`，2 倍说明中间多过去约 184ms；单独连跑两次均 722 全绿）。**只修用例而不解决门禁自负载，flaky 会换个地方继续爆。**
