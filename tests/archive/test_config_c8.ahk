@@ -19,7 +19,9 @@ OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line 
 ; 验证废弃的 test-manifest feature 已从 Cargo.toml 中删除
 Test_CargoToml_NoTestManifestFeature() {
     try {
-        cargoPath := "D:\1demo\AutoHotkeydemo\asd-tauri\src-tauri\Cargo.toml"
+        ; 相对 A_ScriptDir 解析，不要硬编码绝对路径 —— 本仓库还有 worktree
+        ; 在别的盘符/目录下，写死 D:\1demo\... 会在 CI 与 worktree 上直接失败。
+        cargoPath := A_ScriptDir "\..\..\asd-tauri\src-tauri\Cargo.toml"
         content := FileRead(cargoPath, "UTF-8")
         if InStr(content, "test-manifest") {
             FileAppend("FAIL: Test_CargoToml_NoTestManifestFeature - Cargo.toml 仍包含 test-manifest`n", "*")
@@ -37,7 +39,7 @@ Test_CargoToml_NoTestManifestFeature() {
 ; 验证所有 test-manifest 相关文档描述已移除
 Test_AGENTS_MD_NoTestManifestRef() {
     try {
-        agentsPath := "D:\1demo\AutoHotkeydemo\AGENTS.md"
+        agentsPath := A_ScriptDir "\..\..\AGENTS.md"
         content := FileRead(agentsPath, "UTF-8")
         if InStr(content, "test-manifest") {
             FileAppend("FAIL: Test_AGENTS_MD_NoTestManifestRef - AGENTS.md 仍包含 test-manifest 引用`n", "*")
@@ -55,7 +57,7 @@ Test_AGENTS_MD_NoTestManifestRef() {
 ; 验证 joy_hotkey_manager.ahk 模块已在文档中登记
 Test_AGENTS_MD_HasJoyHotkeyManager() {
     try {
-        agentsPath := "D:\1demo\AutoHotkeydemo\AGENTS.md"
+        agentsPath := A_ScriptDir "\..\..\AGENTS.md"
         content := FileRead(agentsPath, "UTF-8")
         if !InStr(content, "joy_hotkey_manager") {
             FileAppend("FAIL: Test_AGENTS_MD_HasJoyHotkeyManager - AGENTS.md 未提及 joy_hotkey_manager`n", "*")
@@ -74,7 +76,15 @@ Test_AGENTS_MD_HasJoyHotkeyManager() {
 ; =================================================================
 
 FileAppend("=== C8 Config Consistency Test Start ===`n", "*")
-Test_CargoToml_NoTestManifestFeature()
-Test_AGENTS_MD_NoTestManifestRef()
-Test_AGENTS_MD_HasJoyHotkeyManager()
-FileAppend("=== C8 Config Consistency Test End ===`n", "*")
+r1 := Test_CargoToml_NoTestManifestFeature()
+r2 := Test_AGENTS_MD_NoTestManifestRef()
+r3 := Test_AGENTS_MD_HasJoyHotkeyManager()
+
+c8Fail := (r1 ? 0 : 1) + (r2 ? 0 : 1) + (r3 ? 0 : 1)
+c8Pass := 3 - c8Fail
+FileAppend("=== C8 Config Consistency Test End: " c8Pass " passed, "
+    c8Fail " failed ===`n", "*")
+
+; 退出码必须反映失败数：本脚本原先连 ExitApp 都没有，走到文件底部退出码恒为 0，
+; 三个用例全 FAIL 也照样「通过」。本脚本已被 G3g（run-standalone-ahk-tests.sh）逐个汇总。
+ExitApp(c8Fail > 0 ? 1 : 0)

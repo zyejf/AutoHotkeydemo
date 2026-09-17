@@ -145,7 +145,8 @@ if [ "$QUICK" -eq 0 ]; then
   # tests/ 下的独立脚本（不在 run_all_tests.ahk 的套件注册里）。2026-09-16 首次
   # 接入执行即连挖三个生产 BUG（TD-034/035/036）—— 这些断言以前是一次都没跑过的。
   # 编号取 G3g 而不是 G3f —— G3f 已经是覆盖率棘轮（跑在 CI 的 coverage job，见 developer-guide §4.6.1）
-  run_gate "G3g" "AHK 独立脚本（不在 run_all_tests 注册里的 8 个，逐个按退出码汇总）" "$REPO_ROOT" \
+  # 数量不写死在标题里 —— 清单在 run-standalone-ahk-tests.sh 的 SCRIPTS 数组里维护
+  run_gate "G3g" "AHK 独立脚本（不在 run_all_tests 注册里的那些，逐个按退出码汇总）" "$REPO_ROOT" \
     bash "$REPO_ROOT_NATIVE/scripts/run-standalone-ahk-tests.sh"
 fi
 

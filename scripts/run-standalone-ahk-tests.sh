@@ -49,6 +49,9 @@ SCRIPTS=(
   tests/test_key_validator.ahk
   tests/test_webview2_bridge.ahk
   tools/ahk-bench/lib/seqgen_test.ahk
+  tests/archive/test_all_tests_have_onerror_c6.ahk
+  tests/archive/test_config_c8.ahk
+  tests/archive/test_migration_logger_c2.ahk
 )
 
 passed=0
