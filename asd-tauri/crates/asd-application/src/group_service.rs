@@ -439,7 +439,7 @@ pub fn reorder_groups(state: &AppState, group_ids: &[String]) -> Result<ReorderR
 ///
 /// # TOCTOU 权衡
 ///
-/// `set_group_hotkey`（更新 `config_state）和` `swap_hotkey`（更新 `active_hotkeys`）
+/// `set_group_hotkey`（更新 `config_state`）和 `swap_hotkey`（更新 `active_hotkeys`）
 /// 使用不同的 RwLock，两者之间存在极短的 TOCTOU 窗口（微秒级），期间
 /// `config_state` 中的热键已更新但 `active_hotkeys` 尚未同步。这与 `set_group_active`
 /// 的 TOCTOU 权衡一致（见 state.rs 文档）。

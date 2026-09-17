@@ -118,7 +118,7 @@ fn test_start_recording_ipc_failure_rollback() {
     ///
     /// `start_recording` 采用"先状态后 IPC"模式：先在 `recording_mode` 写锁内
     /// 设置状态，释放锁后发送 IPC。如果 IPC 失败，重新获取写锁回滚状态。
-    /// `此测试验证回滚逻辑正确执行，recording_mode` 在 IPC 失败后为 None。
+    /// 此测试验证回滚逻辑正确执行，`recording_mode` 在 IPC 失败后为 None。
     struct FailingIpcSender;
     impl IpcSender for FailingIpcSender {
         fn send_command(&self, _cmd: IpcCommand) -> Result<u64, String> {
