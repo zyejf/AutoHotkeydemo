@@ -144,8 +144,14 @@ def parse_summary_total(text: str) -> int | None:
 
 
 def runtime_count(crate: str) -> int:
+    # ⚠️ 用 `--tests`（= lib 测试 + 集成测试）而不是 `--all-targets`：
+    # 后者会**额外构建 criterion benches**，而 benches 的 `harness = false`，
+    # 在 `--list` 下注册数为 0 —— 白白多花编译时间却一个测试都不多。
+    # 2026-09-18 实测：5 个 crate 在两种口径下计数**完全一致**
+    # （asd-domain 154 / asd-ipc-protocol 72 / asd-application 173 /
+    #   asd-test-harness 3 / asd-tauri 249）。
     proc = subprocess.run(
-        ["cargo", "test", "-p", crate, "--all-targets", "--", "--list"],
+        ["cargo", "test", "-p", crate, "--tests", "--", "--list"],
         cwd=str(TAURI_DIR),
         capture_output=True,
         text=True,

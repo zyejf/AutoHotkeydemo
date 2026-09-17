@@ -180,8 +180,14 @@ if [ "$QUICK" -eq 0 ]; then
       node --test e2e/helpers/__tests__/*.test.js src/__tests__/*.test.js
   fi
 
-  run_gate "G3d" "test-map.md 登记自洽（--no-cargo 快速档）" "$REPO_ROOT" \
-    "$PY" "$REPO_ROOT_NATIVE/scripts/check-test-map.py" --no-cargo
+  # 2026-09-18 起**不再**用 --no-cargo：快速档只查文档内部自洽，从不与真实
+  # 运行时核对，导致登记的测试数长期漂移（实测 8 项，见 TD-055）。
+  # ⚠️ 必须 `env CARGO_INCREMENTAL=0`：实测不带会触发 rustc ICE（退出码 101），
+  #    容易被误读成「数字漂移」 —— 与 G3a/G2b 同理。
+  # 脚本内部已改用 `--tests`（而非 --all-targets），不会额外构建 criterion
+  # benches，实测 5 个 crate 两种口径计数完全一致，增量约 15s。
+  run_gate "G3d" "test-map.md 登记自洽（含运行时对账）" "$REPO_ROOT" \
+    env CARGO_INCREMENTAL=0 "$PY" "$REPO_ROOT_NATIVE/scripts/check-test-map.py"
 
   # 静态检查，约 2.5s。C1a/C1b/C1c/C2/C3b 走棘轮（只阻新增），C3 恒 0 硬阻断。
   run_gate "G3e" "技术债度量（C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写数字）" "$REPO_ROOT" \
