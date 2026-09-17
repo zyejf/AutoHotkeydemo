@@ -54,6 +54,12 @@ SCRIPTS=(
   tests/archive/test_migration_logger_c2.ahk
 )
 
+# 只跑指定的几个（相对仓库根的路径）—— 单脚本调试与阳性对照用，省掉 4 分钟全量。
+# 例：bash scripts/run-standalone-ahk-tests.sh tests/test_webview2_bridge.ahk
+if [ "$#" -gt 0 ]; then
+  SCRIPTS=("$@")
+fi
+
 passed=0
 failed=0
 failed_names=""
@@ -70,18 +76,55 @@ for rel in "${SCRIPTS[@]}"; do
   # AHK 是原生 Windows 程序，要的是反斜杠路径
   native_rel="$(echo "$rel" | tr '/' '\\')"
   log="$(mktemp)"
+  # 起始时刻锚点：用它判断「报告是不是本次运行产出的」，避免旧报告冒充
+  marker="$(mktemp)"
+
   # 在仓库根下运行：这些脚本用 A_ScriptDir 定位配置与报告目录，换 cwd 会改变解析结果
   ( cd "$REPO_ROOT" && "$AHK_EXE" "$REPO_ROOT_NATIVE\\$native_rel" ) >"$log" 2>&1
   rc=$?
-  rm -f "$log" 2>/dev/null || true
 
-  if [ "$rc" -eq 0 ]; then
+  # ---- 假绿防护（2026-09-17 实测事故）----
+  # 退出码 0 **不足以**证明脚本跑到了结尾。AHK v2 里「OnError 回调返回 true（已处理）」
+  # 会把运行时错误吞掉、主线程静默终止、退出码仍是 0 —— 于是「一条断言都没跑」在门禁里
+  # 显示为 ✓。实测触发方式：`FileDelete` 对**不存在**的文件会抛错（对照组：目标存在时正常
+  # 返回），配合吞错写法就让 test_webview2_bridge.ahk 静默空转了很久，38 条断言从未执行。
+  # 所以退出码为 0 时，还必须证明脚本真的走到了结尾：
+  #   · 用 TestReporter 的脚本 → 必须新产出一份 standalone 报告（Finish() 才会写）
+  #   · 其它脚本              → stdout 必须有内容
+  # 判定「跑到了结尾」的通用办法：本次运行必须留下**新鲜产物**（比 marker 新）。
+  # 三种产物形态都在实际脚本里出现过，所以并集判断，不能只认一种：
+  #   · stdout                                   （test_error_system / joy_hotkey_manager / c6 / c8 / c2）
+  #   · tests/reports/standalone/*.json          （TestReporter；Finish() 写固定名，
+  #                                               ExportReport() 写时间戳名 —— 两种都要认）
+  #   · 脚本同目录的 *.log                        （seqgen_test 写 seqgen_test_result.log）
+  ran_to_end=0
+  reason=""
+  if [ -s "$log" ]; then
+    ran_to_end=1
+  else
+    script_dir="$(dirname "$script")"
+    if [ -n "$(find "$script_dir" "$REPO_ROOT/tests/reports/standalone" -maxdepth 1 \
+                \( -name '*.json' -o -name '*.log' \) -newer "$marker" -print -quit 2>/dev/null)" ]; then
+      ran_to_end=1
+    else
+      reason="既无 stdout 也无新鲜产物"
+    fi
+  fi
+
+  rm -f "$log" "$marker" 2>/dev/null || true
+
+  if [ "$rc" -eq 0 ] && [ "$ran_to_end" -eq 1 ]; then
     echo "  ✓ $rel"
     passed=$((passed + 1))
   else
-    echo "  ✗ $rel（exit=$rc）"
+    if [ "$rc" -ne 0 ]; then
+      echo "  ✗ $rel（exit=$rc）"
+      failed_names="$failed_names $rel"
+    else
+      echo "  ✗ $rel（假绿：exit=0 但${reason}——脚本很可能中途静默终止，一条断言都没跑）"
+      failed_names="$failed_names $rel(假绿)"
+    fi
     failed=$((failed + 1))
-    failed_names="$failed_names $rel"
   fi
 done
 

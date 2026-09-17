@@ -33,7 +33,12 @@ Persistent(false)
 #Include "../presentation/ui_manager.ahk"
 #Include "../presentation/webview2_manager.ahk"
 
-OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "*"), true))
+; ⚠️ 绝不要在这里返回 true（「已处理」）：那会让运行时错误被吞掉、主线程静默终止、
+; 退出码仍是 0 —— 于是「一条断言都没跑」在门禁里显示为**通过**。
+; 2026-09-17 实测本脚本正是这样假绿的：下面那个 `FileDelete` 对不存在的文件抛错 →
+; 被吞 → exit 0，38 条断言从未执行过一次（G3g 一直显示 ✓）。改为打到 stderr 并以
+; 非 0 退出，让 G3g 抓得住。同类写法在 tests/ 下还有多处，见 TD-046 的后续项。
+OnError((e, mode) => (FileAppend("RUNTIME_ERROR: " e.Message " at line " e.Line "`n", "**"), ExitApp(99)))
 
 TestReporter.BeginTest("test_webview2_bridge.ahk")
 
@@ -64,7 +69,11 @@ ModeRegistry._Init()
 ; 都会把它覆写，git status 永远是脏的（本轮已因此手动 `git checkout` 还原过好几次）。
 ; 改指向临时目录：既不再污染夹具，又顺带保证每次运行都从干净状态开始。
 ConfigService.configPath := A_Temp "\asd_webview2_bridge_config.json"
-FileDelete(ConfigService.configPath)
+; ⚠️ AHK v2.0.26 实测：`FileDelete` 对**不存在**的文件会**抛错并中止当前线程**
+; （对照实验：目标存在时正常返回；目标不存在时直接中断，后面的代码一行都不跑）。
+; 所以删除前必须先判 FileExist —— 第一次跑（临时文件还不存在）时这行会把整个脚本打死。
+if FileExist(ConfigService.configPath)
+    FileDelete(ConfigService.configPath)
 
 ConfigService.LoadConfig()
 
