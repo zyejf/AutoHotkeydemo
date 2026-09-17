@@ -570,6 +570,38 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
     ; 端到端：periodic 模式下「计划时刻 → 抬起完成」P95 ≤ 20ms
     Test_ExecutePeriodic_EndToEndLatencyP95Within20ms() {
         this._HostTiming()
+        ; ---- TD-052：宿主负载下偶发红（与 hybrid 同因，见 Test_ExecuteHybrid_SubGroupsKeepTheirOwnRhythm）----
+        ; 采样窗口 4.2s → 8.4s（n≈42 → ≈84）。P95 是**上分位估计**：n≈42 时 _Pct(0.95) 索引=40
+        ; 等价「第 3 大值」，宿主一次抢占（Windows 调度网格 15.625ms）即可顶穿 20.0；
+        ; n≈84 时索引=80 等价「第 4 大值」。阈值一律不动。
+        ; 重试口径同 TD-041：**只重试**「中位数判据全过、仅 P95 兜底越界」这一种宿主抢占签名，
+        ; 中位数一旦失败即系统性漂移=真回归，立即失败、绝不重试；重试留痕，不静默。
+        m := this._SamplePeriodicE2E(8400)
+        if (this._PeriodicE2ETailOnlyFail(m)) {
+            msg := "[TD-052] periodic 端到端时延 P95=" Round(m["p95"], 3)
+                . " 越界（偏差中位数 " Round(m["jitterP50"], 3) . "ms 正常，n=" m["n"]
+                . "）→ 判定为宿主抢占，重试 1 次"
+            FileAppend(msg "`n", "*", "UTF-8")
+            FileAppend("      " msg "`r`n", A_ScriptDir "\test_results.log", "UTF-8")
+            m := this._SamplePeriodicE2E(8400)
+        }
+
+        this.assert.isAtLeast(m["n"], 20)
+        ; 中位数判系统性漂移（真正的回归信号）：口径同 Test_HighResClock_SleepUntil_ErrorBelow1ms，
+        ; 「计划时刻 → 抬起完成」减去 kpd(15ms) 后的**调度偏差**中位数必须 ≤1ms。
+        this.assert.isAtMost(m["jitterP50"], 1.0)
+        ; P95 兜底：含 kpd 在内的端到端时延上限，原阈值 20.0 原样保留。
+        this.assert.isAtMost(m["p95"], 20.0)
+    }
+
+    ; 是否属于「只有 P95 兜底越界、其余判据全过」——宿主抢占签名，允许重试一次。
+    ; 样本不足或中位数漂移都不属于宿主噪声，一律不重试。（本用例专用，勿与同族其它用例混用）
+    _PeriodicE2ETailOnlyFail(m) {
+        return (m["n"] >= 20) && (m["jitterP50"] <= 1.0) && (m["p95"] > 20.0)
+    }
+
+    ; periodic 端到端采样：返回 n / 调度偏差中位数 / 时延 P95（下划线开头，不收集为用例）
+    _SamplePeriodicE2E(windowMs) {
         gid := "__prec_e2e"
         interval := 100
         events := []
@@ -583,11 +615,8 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
         ; 而 events 里记录的 up/down 时刻仍是毫秒，interval 也是毫秒 —— 这里换算回 ms 再比较。
         t0 := Sender._activeGroups[gid]["lastTriggerTimes"][1] / 1000
 
-        ; 采样量必须足够大：样本数 7 时 _Pct(0.95) 的索引 = 7，等同断言「最大值」，
-        ; 宿主一次调度抖动就会失败，测的其实是 P100 而非 P95。
-        ; 取 ~42 个样本后，P95 索引 = 40，才真正容忍 5%（2 个）离群。
         try {
-            Sleep 4200
+            Sleep windowMs
         } finally {
             Sender.ToggleGroup(gid, false)
             Sender._sendHook := ""
@@ -601,7 +630,6 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
             else if e[1] = "up"
                 ups.Push(e[2])
         }
-        this.assert.isAtLeast(downs.Length, 20)
 
         ; 第 i 次按下的计划时刻 = t0 + i * interval
         latencies := []
@@ -611,7 +639,18 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
             i++
         }
         this._Sort(latencies)
-        this.assert.isAtMost(this._Pct(latencies, 0.95), 20.0)
+        ; 偏差 = 端到端时延 - kpd：剩下的才是调度误差（中位数口径的回归信号）
+        jitter := []
+        for L in latencies
+            jitter.Push(L - 15)
+        this._Sort(jitter)
+
+        ; 空样本时给必然越界的哨兵值，让断言如实失败而不是在这里抛下标越界
+        return Map(
+            "n", latencies.Length,
+            "jitterP50", jitter.Length ? this._Pct(jitter, 0.5) : 999999.0,
+            "p95", latencies.Length ? this._Pct(latencies, 0.95) : 999999.0
+        )
     }
 
     _Join(arr) {
@@ -647,14 +686,43 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
     ; 保持时长被压成 ~0ms —— 实测过该退化为 0.022ms。
     Test_MultiKeySameSchedule_AllKeysHoldFullKpd() {
         this._HostTiming()
+        ; ---- TD-052：宿主负载下偶发红（与 hybrid 同因）----
+        ; 采样窗口 2.2s → 4.4s（n≈44 → ≈88）。宿主抢占无法从代码侧消除：实测 p50 稳定 0.03ms，
+        ; 但负载高时偶发 ~15ms（正好一个 15.625ms 定时器网格）的**孤立**离群点。n≈44 时
+        ; P95 索引只容忍 2 个离群点，n≈88 时容忍 4 个。阈值一律不动。
+        ; 重试口径同 TD-041：**只重试**「中位数判据全过、仅 P95 兜底越界」这一种宿主抢占签名；
+        ; 中位数失败 = 系统性漂移 = 真回归，立即失败、绝不重试；重试留痕，不静默。
+        m := this._SampleMultiKeyHold(4400)
+        if (this._MultiKeyTailOnlyFail(m)) {
+            msg := "[TD-052] multiKey 保持时长 P95=" Round(m["p95"], 3)
+                . " 越界（中位数 " Round(m["p50"], 3) . "ms 正常，n=" m["n"]
+                . "）→ 判定为宿主抢占，重试 1 次"
+            FileAppend(msg "`n", "*", "UTF-8")
+            FileAppend("      " msg "`r`n", A_ScriptDir "\test_results.log", "UTF-8")
+            m := this._SampleMultiKeyHold(4400)
+        }
+
+        this.assert.isAtLeast(m["n"], 20)
+        ; 中位数判系统性漂移（真正的回归信号），P95 用「一个调度网格」量级兜底。
+        this.assert.isAtMost(m["p50"], 1.0)
+        this.assert.isAtMost(m["p95"], 20.0)
+    }
+
+    ; 是否属于「只有 P95 兜底越界、其余判据全过」——宿主抢占签名，允许重试一次。
+    ; （本用例专用，勿与同族其它用例混用）
+    _MultiKeyTailOnlyFail(m) {
+        return (m["n"] >= 20) && (m["p50"] <= 1.0) && (m["p95"] > 20.0)
+    }
+
+    ; 同刻多键保持时长采样：返回 n / 保持时长偏差中位数 / P95（下划线开头，不收集为用例）
+    _SampleMultiKeyHold(windowMs) {
         gid := "__prec_multi"
         events := []
         Sender.EmergencyRelease()
         Sender._sendHook := (key, st) => events.Push([key, st, HighResClock.Now()])
         Sender.StartPeriodic(gid, ["F1", "F2"], [100, 100], 15)
-        ; 足量样本 + P95：旧写法逐个样本断言（等价 P100），一次宿主抖动即失败
         try {
-            Sleep 2200
+            Sleep windowMs
         } finally {
             Sender.ToggleGroup(gid, false)
             Sender._sendHook := ""
@@ -670,14 +738,13 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
                 lastDown.Delete(e[1])
             }
         }
-        this.assert.isAtLeast(holds.Length, 20)
         this._Sort(holds)
-        ; 宿主抖动无法从代码侧消除：实测 p50 稳定 0.03ms，但负载高时偶发 ~15ms
-        ; （正好一个 15.625ms 定时器网格）的**孤立**离群点。n≈44 时 P95 索引只容忍 2 个
-        ; 离群点，用它当主判据会在 CI（紧跟 cargo test 之后）随机红。
-        ; 故：**中位数**判系统性漂移（真正的回归信号），P95 用「一个调度网格」量级兜底。
-        this.assert.isAtMost(this._Pct(holds, 0.5), 1.0)
-        this.assert.isAtMost(this._Pct(holds, 0.95), 20.0)
+
+        return Map(
+            "n", holds.Length,
+            "p50", holds.Length ? this._Pct(holds, 0.5) : 999999.0,
+            "p95", holds.Length ? this._Pct(holds, 0.95) : 999999.0
+        )
     }
 
     ; 确定性守卫：整数化后返回值必须是**精确的整数微秒**，且 1:3 比例不破
@@ -1044,15 +1111,44 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
     ; 实测 delay=100ms 时步进退化成 111.9ms，3 秒内 P95 达 248~263ms。
     Test_ExecuteSequence_EndToEndLatencyP95Within20ms() {
         this._HostTiming()
+        ; ---- TD-052：宿主负载下偶发红（与 hybrid 同因）----
+        ; 采样窗口 4.2s → 8.4s（n≈42 → ≈84）。P95 是上分位估计：n≈42 时索引=40 等价
+        ; 「第 3 大值」，宿主一次抢占即可顶穿 20.0；n≈84 时索引=80 等价「第 4 大值」。
+        ; 阈值一律不动。重试口径同 TD-041：**只重试**「中位数判据全过、仅 P95 兜底越界」
+        ; 这一种宿主抢占签名；中位数失败 = 系统性漂移 = 真回归，立即失败、绝不重试。
+        m := this._SampleSequenceE2E(8400)
+        if (this._SequenceE2ETailOnlyFail(m)) {
+            msg := "[TD-052] sequence 端到端时延 P95=" Round(m["p95"], 3)
+                . " 越界（偏差中位数 " Round(m["jitterP50"], 3) . "ms 正常，n=" m["n"]
+                . "）→ 判定为宿主抢占，重试 1 次"
+            FileAppend(msg "`n", "*", "UTF-8")
+            FileAppend("      " msg "`r`n", A_ScriptDir "\test_results.log", "UTF-8")
+            m := this._SampleSequenceE2E(8400)
+        }
+
+        this.assert.isAtLeast(m["n"], 20)
+        ; 中位数判系统性漂移（口径同 Test_HighResClock_SleepUntil_ErrorBelow1ms）
+        this.assert.isAtMost(m["jitterP50"], 1.0)
+        ; P95 兜底：含 kpd 在内的端到端时延上限，原阈值 20.0 原样保留
+        this.assert.isAtMost(m["p95"], 20.0)
+    }
+
+    ; 是否属于「只有 P95 兜底越界、其余判据全过」——宿主抢占签名，允许重试一次。
+    ; （本用例专用，勿与同族其它用例混用）
+    _SequenceE2ETailOnlyFail(m) {
+        return (m["n"] >= 20) && (m["jitterP50"] <= 1.0) && (m["p95"] > 20.0)
+    }
+
+    ; sequence 端到端采样：返回 n / 调度偏差中位数 / 时延 P95（下划线开头，不收集为用例）
+    _SampleSequenceE2E(windowMs) {
         gid := "__prec_seq_e2e"
         delay := 100
         events := []
         Sender.EmergencyRelease()
         Sender._sendHook := (key, st) => events.Push([st, HighResClock.Now()])
         Sender.StartSequence(gid, ["F1", "F2"], [delay, delay], 15)
-        ; 同 periodic：样本量 ~42，保证 P95 是真正的 P95（可容忍 2 个宿主抖动离群）
         try {
-            Sleep 4200
+            Sleep windowMs
         } finally {
             Sender.ToggleGroup(gid, false)
             Sender._sendHook := ""
@@ -1066,7 +1162,6 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
             else if e[1] = "up"
                 ups.Push(e[2])
         }
-        this.assert.isAtLeast(downs.Length, 20)
 
         ; 第 i 次按下的计划时刻 = 首次按下 + (i-1) * delay
         latencies := []
@@ -1076,7 +1171,16 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
             i++
         }
         this._Sort(latencies)
-        this.assert.isAtMost(this._Pct(latencies, 0.95), 20.0)
+        jitter := []
+        for L in latencies
+            jitter.Push(L - 15)
+        this._Sort(jitter)
+
+        return Map(
+            "n", latencies.Length,
+            "jitterP50", jitter.Length ? this._Pct(jitter, 0.5) : 999999.0,
+            "p95", latencies.Length ? this._Pct(latencies, 0.95) : 999999.0
+        )
     }
 
     ; sequence 步进必须等于配置的 delay，且不随时间漂移
@@ -1119,6 +1223,56 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
     ; hybrid：periodic 子组与 sequence 子组各自按配置节奏触发，且保持时长都等于 kpd
     Test_ExecuteHybrid_SubGroupsKeepTheirOwnRhythm() {
         this._HostTiming()
+        ; ---- TD-052：宿主负载下偶发红（2026-09-17 G3b：722 跑 1 红，重跑即绿）----
+        ; 成因已实测确认是**宿主抢占**，不是产品缺陷：
+        ;   · 离群点恰好落在 Windows 调度网格 15.625ms 上（实测 14.97~15.30、21.9、26.4…）；
+        ;   · 离群点在 F1 / F2 / F3 三个键上**均匀**出现，而每个键的中位数恒为 0.03ms
+        ;     —— 若是某个键的实现缺陷，该键的分布会整体平移（中位数跟着走），实测没有。
+        ; 判据一律不动（保持时长中位数 ≤1.0、P95 ≤20.0、步进中位数 ≤2.0），只做两件事：
+        ;   ① 采样窗口 3.2s → 6.4s（n≈54 → ≈107）。P95 是**上分位估计**，n≈54 时它等价于
+        ;      「第 3 大值」，个别极端离群点即可顶穿；n≈107 时等价「第 5 大值」，同样的
+        ;      离群点数量不再顶穿 20.0。样本量同时满足「≥40」的既定规范。
+        ;   ② 仍越界时按 TD-041 口径**重试一次**，且**只重试**「中位数判据全过、仅 P95
+        ;      兜底越界」这一种宿主抢占签名（见 _HybridTailOnlyFail）。中位数一旦失败即
+        ;      系统性漂移 = 真回归，立即失败、绝不重试；重试写进 stdout 与测试日志，不静默。
+        m := this._SampleHybridRhythm(6400)
+        if (this._HybridTailOnlyFail(m)) {
+            msg := "[TD-052] hybrid 保持时长 P95=" Round(m["holdP95"], 3)
+                . " 越界（中位数 " Round(m["holdP50"], 3) . "ms 正常，n=" m["holds"]
+                . "）→ 判定为宿主抢占，重试 1 次"
+            FileAppend(msg "`n", "*", "UTF-8")
+            FileAppend("      " msg "`r`n", A_ScriptDir "\test_results.log", "UTF-8")
+            m := this._SampleHybridRhythm(6400)
+        }
+
+        ; 两个子组都应有足够产出
+        this.assert.isAtLeast(m["holds"], 20)
+        this.assert.isAtLeast(m["seqSteps"], 15)
+
+        ; 保持时长都精确等于 kpd：中位数判系统性漂移（真正的回归信号），
+        ; P95 按一个调度网格量级兜底，拦住「整体拖尾崩坏」而不拦单次宿主抢占。
+        this.assert.isAtMost(m["holdP50"], 1.0)
+        this.assert.isAtMost(m["holdP95"], 20.0)
+
+        ; periodic 子组保持 100ms 节奏（中位数判漂移，理由同 sequence 步进用例）
+        this.assert.isAtLeast(m["f1Steps"], 20)
+        this.assert.isAtMost(m["f1P50"], 2.0)
+
+        ; sequence 子组内部相邻按下保持 150ms 节奏
+        this.assert.isAtMost(m["seqP50"], 2.0)
+    }
+
+    ; 是否属于「只有 P95 兜底越界、其余判据全过」——这是宿主抢占的签名，允许重试一次。
+    ; 样本不足或中位数漂移都不属于宿主噪声（是产品/采集问题），一律不重试。
+    _HybridTailOnlyFail(m) {
+        return (m["holds"] >= 20) && (m["seqSteps"] >= 15) && (m["f1Steps"] >= 20)
+            && (m["holdP50"] <= 1.0) && (m["f1P50"] <= 2.0) && (m["seqP50"] <= 2.0)
+            && (m["holdP95"] > 20.0)
+    }
+
+    ; hybrid 采样：驱动 periodic + sequence 两个子组，返回各判据的统计量。
+    ; 抽成私有方法（下划线开头，不会被收集为用例）只为让上面的重试能复用同一段采集。
+    _SampleHybridRhythm(windowMs) {
         gid := "__prec_hybrid"
         events := []
         Sender.EmergencyRelease()
@@ -1128,10 +1282,9 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
             Map("type", "sequence", "pressKeys", ["F2", "F3"], "delays", [150, 150])
         ]
         Sender.StartHybrid(gid, groups, 15)
-        ; 同 periodic / sequence：用足量样本（窗口 ~3.2s），避免 P95 退化成「最大值」。
         ; 旧写法把 holds / steps 存进 Map，只留下最后一个样本 —— 一次宿主抖动即失败。
         try {
-            Sleep 3200
+            Sleep windowMs
         } finally {
             Sender.ToggleGroup(gid, false)
             Sender._sendHook := ""
@@ -1161,22 +1314,11 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
             }
         }
 
-        ; 两个子组都应有足够产出
-        this.assert.isAtLeast(holds.Length, 20)
-        this.assert.isAtLeast(seqSteps.Length, 15)
-
-        ; 保持时长都精确等于 kpd（P95，容忍个别宿主抖动）
         holdErr := []
         for h in holds
             holdErr.Push(Abs(h - 15))
         this._Sort(holdErr)
-        ; 口径同 Test_MultiKeySameSchedule_AllKeysHoldFullKpd：中位数判漂移，P95 按一个
-        ; 调度网格兜底。hybrid 两个子组并发 → 主线程占用更高、离群点更多，
-        ; n≈54 时 P95(1.0ms) 只容忍 2 个离群点，实测在负载下出现过 3 个（11.2ms）而误报。
-        this.assert.isAtMost(this._Pct(holdErr, 0.5), 1.0)
-        this.assert.isAtMost(this._Pct(holdErr, 0.95), 20.0)
 
-        ; periodic 子组保持 100ms 节奏（中位数判漂移，理由同 sequence 步进用例）
         f1 := perSteps.Has("F1") ? perSteps["F1"] : []
         f1Steps := []
         i := 2
@@ -1184,15 +1326,22 @@ class SenderPreciseTimingTests extends AutoHotUnitSuite {
             f1Steps.Push(Abs(f1[i] - f1[i - 1] - 100))
             i++
         }
-        this.assert.isAtLeast(f1Steps.Length, 20)
         this._Sort(f1Steps)
-        this.assert.isAtMost(this._Pct(f1Steps, 0.5), 2.0)
 
-        ; sequence 子组内部相邻按下保持 150ms 节奏
         seqErr := []
         for s in seqSteps
             seqErr.Push(Abs(s - 150))
         this._Sort(seqErr)
-        this.assert.isAtMost(this._Pct(seqErr, 0.5), 2.0)
+
+        ; 空样本时给一个必然越界的哨兵值，让断言如实失败（而不是在这里抛下标越界）
+        return Map(
+            "holds", holdErr.Length,
+            "holdP50", holdErr.Length ? this._Pct(holdErr, 0.5) : 999999.0,
+            "holdP95", holdErr.Length ? this._Pct(holdErr, 0.95) : 999999.0,
+            "f1Steps", f1Steps.Length,
+            "f1P50", f1Steps.Length ? this._Pct(f1Steps, 0.5) : 999999.0,
+            "seqSteps", seqErr.Length,
+            "seqP50", seqErr.Length ? this._Pct(seqErr, 0.5) : 999999.0
+        )
     }
 }
