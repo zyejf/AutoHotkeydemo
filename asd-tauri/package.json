@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "lint": "eslint src --max-warnings 70"
+    "lint": "eslint src --max-warnings 69",
+    "test": "node --test e2e/helpers/__tests__/*.test.js src/__tests__/*.test.js"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

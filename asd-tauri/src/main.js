@@ -1062,8 +1062,13 @@ function stopRecording() {
 }
 
 function exportRecording() {
-  var mode = document.getElementById("exportMode").value; var dur = parseInt(document.getElementById("exportKeyPressDuration").value) || 15;
-  api.exportRecording(mode, dur).then(function(r) { showToast("导出功能开发中","warning"); }).catch(function(e) { showToast(errMsg(e, "导出失败"),"error"); });
+  // ⚠️ 这里原先调用 api.exportRecording(mode, dur)，与 Rust 命令的签名
+  //    (path, keys, intervals, delays, mode) 完全对不上（参数错位且漏传 delays），
+  //    于是每次点导出都走 catch —— 用户看到的是「导出失败」而不是下面这句「开发中」。
+  //    录制导出需要文件路径与按键/间隔序列，而当前 UI 还没有路径选择器，
+  //    所以如实告知「开发中」，不再发一个必然失败的请求。
+  //    （api.js 与 Rust 的签名一致性由 src/__tests__/api_contract.test.js 守住）
+  showToast("导出功能开发中", "warning");
 }
 
 function clearRecording() {

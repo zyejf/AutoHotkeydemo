@@ -201,11 +201,15 @@ jobs:
           }
 
       - name: 'G3c JS 单元测试'
-        working-directory: asd-tauri/e2e/helpers/__tests__
+        working-directory: asd-tauri
         shell: pwsh
         run: |
           # 不能用 `node --test <目录>`：会被 node 当成 CJS 模块去 require
-          $files = @(Get-ChildItem -Filter *.test.js | Select-Object -ExpandProperty Name)
+          # 两处：e2e 辅助模块的测试 + 前端 src/ 的测试（TD-005 起有 src/__tests__）
+          $files = @(
+            Get-ChildItem -Path 'e2e/helpers/__tests__' -Filter *.test.js | ForEach-Object { $_.FullName }
+            Get-ChildItem -Path 'src/__tests__'         -Filter *.test.js | ForEach-Object { $_.FullName }
+          )
           if ($files.Count -eq 0) { throw '未找到任何 *.test.js' }
           node --test @files
 

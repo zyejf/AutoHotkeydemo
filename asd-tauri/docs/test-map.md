@@ -283,6 +283,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | asd-tauri/e2e/helpers/spec-hooks.js | 共享 spec 生命周期钩子工厂（before/beforeEach/afterEach/after + `extractCaseId` + `DEFAULT_FAILURE_SEVERITY`） |
 | asd-tauri/e2e/helpers/__tests__/ahk_path.test.js | ahk_path.js 单元测试（node:test） |
 | asd-tauri/e2e/helpers/__tests__/error_utils.test.js | error_utils.js 单元测试（node:test） |
+| asd-tauri/src/__tests__/api_contract.test.js | **前端 api.js ↔ Rust 命令的契约测试**（TD-005）：静态双向核对 —— JS 调用的命令集 == Rust 的 `#[tauri::command]` 命令集、JS 传的每个参数名能对上 Rust 的 snake_case 参数、Rust 的必填参数都被前端传了。7 个用例（含一条「解析器不许静默失效」的锚点）。首次运行即抓到 `export_recording` 漏传 `delays` |
 
 ### 运行方式
 

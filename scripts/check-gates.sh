@@ -130,9 +130,11 @@ if [ "$QUICK" -eq 0 ]; then
   if [ "$SKIP_JS" -eq 0 ]; then
     # 不能写 `node --test <目录>`：该形式会被 node 当成 CJS 模块去 require，
     # 报 Cannot find module。改为进目录后传通配文件名（shell 在 cd 之后才展开）。
+    # 两处：e2e 辅助模块的测试 + 前端 src/ 的测试（TD-005 起有 src/__tests__）。
+    # 不要写成 `node --test <目录>` —— 会被 node 当成 CJS 模块去 require。
     run_gate "G3c" "JS 单元测试 (node --test)" \
-      "$REPO_ROOT/asd-tauri/e2e/helpers/__tests__" \
-      node --test *.test.js
+      "$REPO_ROOT/asd-tauri" \
+      node --test e2e/helpers/__tests__/*.test.js src/__tests__/*.test.js
   fi
 
   run_gate "G3d" "test-map.md 登记自洽（--no-cargo 快速档）" "$REPO_ROOT" \

@@ -117,8 +117,11 @@ export async function resumeRecording() {
   return invoke('resume_recording', {});
 }
 
-export async function exportRecording(path, keys, intervals, mode) {
-  return invoke('export_recording', { path: path, keys: keys, intervals: intervals, mode: mode });
+// ⚠️ 参数必须与 Rust 命令 export_recording(path, keys, intervals, delays, mode) 一一对应。
+// 这里原先漏了 delays —— Tauri 会以「missing required key delays」拒收，调用必失败。
+// 契约测试 src/__tests__/api_contract.test.js 会守住这条。
+export async function exportRecording(path, keys, intervals, delays, mode) {
+  return invoke('export_recording', { path: path, keys: keys, intervals: intervals, delays: delays, mode: mode });
 }
 
 export async function importRecording(path) {
