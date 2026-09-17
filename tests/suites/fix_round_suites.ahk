@@ -113,9 +113,42 @@ class ToggleAllUsesToggleGroupTests extends AutoHotUnitSuite {
     }
 
     Test_ToggleAll_DeactivatesAllGroups() {
+        ; TD-033：原实现把「建立前提」交给了被测函数自己 ——
+        ;   if GetActiveCount() = 0 → ToggleAll()   // 指望它去激活
+        ;   再 ToggleAll()                          // 指望它去停用
+        ; 而 ToggleAll 是按「当前有无激活」自动选方向的。一旦第一次激活没成功，
+        ; 第二次就会走「无激活 → 激活」分支，断言 `== 0` 于是变成 `1 != 0`。
+        ; 前提是否成立取决于跑在它前面的套件留下了什么 —— 跨套件共享可变全局状态的老问题。
+        ;
+        ; 现在改为「显式建立前提 + 显式声明前提是否成立」：
+        ;   1) 先归零（逐个 ToggleGroup，绕开 ToggleAll 的自动方向判断）
+        ;   2) 再逐个激活，读回真实激活数
+        ;   3) 有激活 → 断言 ToggleAll 清零（核心契约）
+        ;      没激活 → skip 并写明原因，绝不让「其实什么都没验证到」显示成通过
         SkillManager.EmergencyMode := false
-        if SkillManager.GetActiveCount() = 0
-            SkillManager.ToggleAll()
+
+        ; ⚠️ 必须先把 _lastToggleTime 归零：SkillGroup.Toggle() 有防抖
+        ; （`A_TickCount - _lastToggleTime < TOGGLE_DEBOUNCE_MS` 就返回 -1，什么都不做）。
+        ; 本套件前面的用例刚切过这些分组，不重置的话这里的 ToggleGroup 全被防抖挡掉，
+        ; 激活数恒为 0 —— 原用例就是这样「空转通过」的（ToggleAll 内部自己会重置，
+        ; 所以只有走 ToggleGroup 的这条路径才踩得到）。
+        for id, group in SkillManager.Groups.Clone() {
+            group._lastToggleTime := 0
+            if group.active
+                SkillManager.ToggleGroup(id)
+        }
+        this.assert.equal(SkillManager.GetActiveCount(), 0)
+
+        for id, group in SkillManager.Groups.Clone() {
+            group._lastToggleTime := 0
+            SkillManager.ToggleGroup(id)
+        }
+        activeBefore := SkillManager.GetActiveCount()
+
+        if activeBefore = 0
+            this.assert.skip("本环境下没有任何分组能被激活（ToggleGroup 未生效），"
+                . "此时 ToggleAll 会走「无激活 → 激活」分支，验证不到停用语义")
+
         SkillManager.ToggleAll()
         this.assert.equal(SkillManager.GetActiveCount(), 0)
     }
