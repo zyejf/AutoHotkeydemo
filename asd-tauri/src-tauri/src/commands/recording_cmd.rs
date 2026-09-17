@@ -17,6 +17,17 @@ use std::sync::Arc;
 // 因为它们是纯文件 I/O 操作，不涉及内存状态或 IPC 通信。
 
 /// `start_recording` 的核心逻辑。
+///
+/// # Errors
+///
+/// - `Validation`：`group_id` / `mode` 为空（含纯空白）、`mode` 不在 `VALID_MODES`
+///   内、已有录制正在进行、或**验证进行中**（录制与验证互斥）。
+/// - `GroupNotFound`：分组不存在（在写锁内检查，防与删除操作的 TOCTOU）。
+/// - `Ipc`：发送失败 —— 此时 `recording_mode` 已回滚为 `None`，可直接重试。
+///
+/// ⚠️ 底层走的是**不等响应**的 `send_ipc_command`，所以 `Ok(())` 只表示
+/// 「命令已发出」，**不代表 AHK 侧真的开始录制** —— AHK 侧处理失败不会反映到
+/// 返回值里。这是本模块唯一一个不等响应的接口。
 pub fn start_recording_impl(state: &AppState, group_id: &str, mode: &str) -> Result<(), AppError> {
     if group_id.trim().is_empty() {
         return Err(AppError::Validation("分组 ID 不能为空".to_string()));
@@ -28,16 +39,42 @@ pub fn start_recording_impl(state: &AppState, group_id: &str, mode: &str) -> Res
 }
 
 /// `stop_recording` 的核心逻辑。
+///
+/// # Errors
+///
+/// - `Validation`：没有正在进行的录制。
+/// - `Ipc`：三种情形 —— 通信失败（超时 5 秒，会先尽力补发一次 `StopRecording`）、
+///   AHK 返回错误响应、AHK 已停止但响应数据无法解析（缺按键序列 / 缺 `mode` /
+///   模式无效）。**三种都会把 `recording_mode` 清成 `None`**。
+///
+/// ⚠️ 因此**不要用 `Err` 去重试 `stop_recording`** —— 重试只会得到
+/// `Validation`（没有正在进行的录制）。此时应按「Rust 侧已清、AHK 侧未知」处理：
+/// 提示用户，必要时用紧急释放兜住按键。
 pub fn stop_recording_impl(state: &AppState) -> Result<RecordingResult, AppError> {
     recording_service::stop_recording(state)
 }
 
 /// `pause_recording` 的核心逻辑。
+///
+/// # Errors
+///
+/// - `Validation`：没有正在进行的录制。
+/// - `Ipc`：通信失败（超时 5 秒）或 AHK 返回错误响应。
+///
+/// ⚠️ 与 `stop_recording` **相反**：失败时**不会**清理 `recording_mode` ——
+/// 暂停失败不意味着会话结束，可以安全重试，或改用 `stop_recording` 兜底。
 pub fn pause_recording_impl(state: &AppState) -> Result<u64, AppError> {
     recording_service::pause_recording(state)
 }
 
 /// `resume_recording` 的核心逻辑。
+///
+/// # Errors
+///
+/// - `Validation`：没有正在进行的录制。
+/// - `Ipc`：通信失败（超时 5 秒）或 AHK 返回错误响应。
+///
+/// ⚠️ 与 `pause_recording` 一样，失败时**不会**清理 `recording_mode`，可安全重试。
 pub fn resume_recording_impl(state: &AppState) -> Result<u64, AppError> {
     recording_service::resume_recording(state)
 }
@@ -46,6 +83,17 @@ pub fn resume_recording_impl(state: &AppState) -> Result<u64, AppError> {
 ///
 /// 注意：此函数不需要 AppState，因为导出操作是纯文件 I/O，
 /// 不涉及内存状态或 IPC 通信。
+///
+/// # Errors
+///
+/// - `Validation`：路径为空（本函数先查）；`keys` 为空；`mode` 不在
+///   `VALID_MODES` 内；录制数据不合法（按键含空串、periodic 缺间隔、
+///   sequence 缺延迟、间隔或延迟为 0）。
+/// - `Config`：路径不合法（非绝对路径 / 含 `..` / UNC 或设备路径前缀 /
+///   扩展名不是 `.json`），或序列化失败 —— **重试也一样错**。
+/// - `Internal`：写盘失败 —— 文件系统的瞬时问题，**可以重试**。
+///
+/// 写盘走 `atomic_write`，失败时不会留下半成品文件。
 pub fn export_recording_impl(
     path: &str,
     keys: &[String],
@@ -63,6 +111,16 @@ pub fn export_recording_impl(
 ///
 /// 注意：此函数不需要 AppState，因为导入仅返回数据供前端使用，
 /// 不直接修改内存配置或触发 IPC 同步。
+///
+/// # Errors
+///
+/// - `Validation`：路径为空（本函数先查）；文件里没有可用的 `keys`、缺 `mode`
+///   字段、`mode` 不在 `VALID_MODES` 内，或数据不合法。
+/// - `Config`：路径不合法、文件读取失败，或内容不是合法 JSON。
+///
+/// ⚠️ `keys` / `intervals` / `delays` **类型不匹配会静默降级为空数组**而不是报
+/// 类型错误（例如 `"keys": [1, 2]` 会得到空 `keys`，最终报成「缺少按键序列」）。
+/// 排查导入失败时不能只看错误信息，要看原始 JSON。
 pub fn import_recording_impl(path: &str) -> Result<ImportedRecording, AppError> {
     if path.trim().is_empty() {
         return Err(AppError::Validation("导入路径不能为空".to_string()));
@@ -71,6 +129,14 @@ pub fn import_recording_impl(path: &str) -> Result<ImportedRecording, AppError> 
 }
 
 /// `start_validation` 的核心逻辑。
+///
+/// # Errors
+///
+/// - `Validation`：`group_id` 为空（含纯空白）、已有录制正在进行、或已有验证
+///   正在进行（并发保护靠 `compare_exchange`，后到者失败）。
+/// - `GroupNotFound`：分组不存在（在写锁内检查，防 TOCTOU）。
+/// - `Ipc`：通信失败或 AHK 返回错误响应 —— **两种都会把 `validation_in_progress`
+///   回滚为 `false`**，可以直接重试，不存在「标志卡死」。
 pub fn start_validation_impl(state: &AppState, group_id: &str) -> Result<u64, AppError> {
     if group_id.trim().is_empty() {
         return Err(AppError::Validation("分组 ID 不能为空".to_string()));
@@ -79,6 +145,16 @@ pub fn start_validation_impl(state: &AppState, group_id: &str) -> Result<u64, Ap
 }
 
 /// `stop_validation` 的核心逻辑。
+///
+/// # Errors
+///
+/// - `Validation`：没有正在进行的验证。
+/// - `Ipc`：通信失败（超时 5 秒）或 AHK 返回错误响应。
+///
+/// ⚠️ 与 `stop_recording` 同构：**无论成功还是失败都强制清理
+/// `validation_in_progress`** —— 宁可让 Rust 侧标志与实际状态不一致，
+/// 也不让标志卡住使后续 `start_validation` 永远失败。
+/// 反过来说，`Ok` 也不保证 AHK 侧真的停了。
 pub fn stop_validation_impl(state: &AppState) -> Result<u64, AppError> {
     recording_service::stop_validation(state)
 }
@@ -87,6 +163,12 @@ pub fn stop_validation_impl(state: &AppState) -> Result<u64, AppError> {
 // Tauri Command 函数
 // =================================================================
 
+/// 开始录制（与验证互斥）。
+///
+/// # Errors
+///
+/// 见 [`start_recording_impl`]：`Validation`（含「验证进行中」）/ `GroupNotFound` /
+/// `Ipc`。⚠️ `Ok(())` **只表示命令已发出**，AHK 侧是否真的开始录制不反映在返回值里。
 #[tauri::command]
 pub async fn start_recording(
     state: tauri::State<'_, Arc<AppState>>,
@@ -96,6 +178,13 @@ pub async fn start_recording(
     start_recording_impl(&state, &group_id, &mode)
 }
 
+/// 停止录制并取回 AHK 侧采集的结果。
+///
+/// # Errors
+///
+/// 见 [`stop_recording_impl`]：`Validation` / `Ipc`。
+/// ⚠️ **不要用 `Err` 重试本命令** —— 失败时状态已被清空，重试只会拿到
+/// `Validation`。
 #[tauri::command]
 pub async fn stop_recording(
     state: tauri::State<'_, Arc<AppState>>,
@@ -103,11 +192,21 @@ pub async fn stop_recording(
     stop_recording_impl(&state)
 }
 
+/// 暂停录制，返回已录制的毫秒数。
+///
+/// # Errors
+///
+/// 见 [`pause_recording_impl`]：`Validation` / `Ipc`。失败时状态**不清**，可重试。
 #[tauri::command]
 pub async fn pause_recording(state: tauri::State<'_, Arc<AppState>>) -> Result<u64, AppError> {
     pause_recording_impl(&state)
 }
 
+/// 继续录制，返回恢复时的毫秒数。
+///
+/// # Errors
+///
+/// 见 [`resume_recording_impl`]：`Validation` / `Ipc`。失败时状态**不清**，可重试。
 #[tauri::command]
 pub async fn resume_recording(state: tauri::State<'_, Arc<AppState>>) -> Result<u64, AppError> {
     resume_recording_impl(&state)
@@ -117,6 +216,15 @@ pub async fn resume_recording(state: tauri::State<'_, Arc<AppState>>) -> Result<
 ///
 /// 注意：此命令不需要 AppState，因为导出操作是纯文件 I/O，
 /// 不涉及内存状态或 IPC 通信。
+///
+/// # Errors
+///
+/// 见 [`export_recording_impl`]：`Validation`（数据不合法）/ `Config`（路径或
+/// 数据问题，重试无用）/ `Internal`（写盘失败，可重试）。
+///
+/// ⚠️ `delays` 是**必填**参数 —— Rust 侧签名要求它，漏传会被 Tauri 以
+/// missing required key 拒收（前端契约测试 `src/__tests__/api_contract.test.js`
+/// 会拦住这种漏传）。
 #[tauri::command]
 pub async fn export_recording(
     path: String,
@@ -132,11 +240,22 @@ pub async fn export_recording(
 ///
 /// 注意：此命令不需要 AppState，因为导入仅返回数据供前端使用，
 /// 不直接修改内存配置或触发 IPC 同步。
+///
+/// # Errors
+///
+/// 见 [`import_recording_impl`]：`Validation`（内容不合法）/ `Config`（路径或
+/// JSON 问题）。⚠️ 类型不匹配会静默降级成空数组，排查要看原始 JSON。
 #[tauri::command]
 pub async fn import_recording(path: String) -> Result<ImportedRecording, AppError> {
     import_recording_impl(&path)
 }
 
+/// 开始验证（与录制互斥）。
+///
+/// # Errors
+///
+/// 见 [`start_validation_impl`]：`Validation`（含「录制 / 验证进行中」）/
+/// `GroupNotFound` / `Ipc`。失败时标志已回滚，可直接重试。
 #[tauri::command]
 pub async fn start_validation(
     state: tauri::State<'_, Arc<AppState>>,
@@ -145,6 +264,12 @@ pub async fn start_validation(
     start_validation_impl(&state, &group_id)
 }
 
+/// 停止验证。
+///
+/// # Errors
+///
+/// 见 [`stop_validation_impl`]：`Validation` / `Ipc`。
+/// ⚠️ 无论成败都会清标志，所以 `Ok` 也不保证 AHK 侧真的停了。
 #[tauri::command]
 pub async fn stop_validation(state: tauri::State<'_, Arc<AppState>>) -> Result<u64, AppError> {
     stop_validation_impl(&state)

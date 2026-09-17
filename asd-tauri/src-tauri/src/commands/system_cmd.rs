@@ -26,6 +26,13 @@ use std::sync::Arc;
 // 这是不改变外部行为的最小可测试性重构。
 
 /// `get_executor_status` 的核心逻辑。
+///
+/// # Errors
+///
+/// 当前实现**不会失败**：只读一次 `watchdog_state` 的读锁并克隆，`Result` 是为了
+/// 与同模块的其它 command 签名一致（将来若要加「未连接时报错」的前置校验，
+/// 调用方不用改）。调用方**不要**靠 `Err` 判断「执行器是否活着」——
+/// 那要看返回的 `WatchdogState::status`。
 pub fn get_executor_status_impl(state: &AppState) -> Result<WatchdogState, AppError> {
     let ws = state.watchdog_state.read();
     Ok(ws.clone())
@@ -36,6 +43,14 @@ pub fn get_executor_status_impl(state: &AppState) -> Result<WatchdogState, AppEr
 /// 紧急释放是安全关键操作，始终发送 IPC 命令，即使已处于紧急模式。
 /// 原因：AHK 子进程可能已重启（post_connect_callback 清除了 Rust 侧标志），
 /// 但 AHK 侧可能仍持有按键。重发 IPC 确保按键释放。
+///
+/// # Errors
+///
+/// `Ipc`：向 AHK 发送 `EmergencyRelease` 失败 —— 此时**按键可能仍被按住**，
+/// 这是本函数唯一真正危险的失败路径。失败时仅在「本次调用是首次激活
+/// （CAS false→true 成功）」时把 `emergency_mode` 回滚为 `false`；
+/// 重复调用（标志已是 true）**不回滚**，以免覆盖并发的 `clear_emergency`。
+/// 调用方（前端）拿到 `Err` 必须明确提示用户，不能当作「可能已经生效」。
 pub fn emergency_release_impl(state: &AppState) -> Result<(), AppError> {
     let already_active = state
         .emergency_mode
@@ -63,6 +78,13 @@ pub fn emergency_release_impl(state: &AppState) -> Result<(), AppError> {
 }
 
 /// `toggle_hold_mode` 的核心逻辑。
+///
+/// # Errors
+///
+/// - `Internal`：CAS 竞争超过 10 次仍未抢到（并发翻转极激烈），此时**状态未变更**。
+/// - `Ipc`：向 AHK 发送 `HoldModeToggle` 失败 —— 此时会把 `hold_mode_enabled`
+///   回滚成翻转前的值，但**只在值仍等于刚写入的新值时才回滚**（用带条件的
+///   `compare_exchange`），避免覆盖并发的另一次翻转。
 pub fn toggle_hold_mode_impl(state: &AppState) -> Result<bool, AppError> {
     let new_value;
     let mut attempts = 0;
@@ -104,6 +126,11 @@ pub fn toggle_hold_mode_impl(state: &AppState) -> Result<bool, AppError> {
 // Tauri Command 函数
 // =================================================================
 
+/// 查询 AHK 执行器（子进程）的看门狗状态。
+///
+/// # Errors
+///
+/// 见 [`get_executor_status_impl`]：当前实现不会失败。
 #[tauri::command]
 pub fn get_executor_status(
     state: tauri::State<'_, Arc<AppState>>,
@@ -111,11 +138,24 @@ pub fn get_executor_status(
     get_executor_status_impl(&state)
 }
 
+/// 紧急释放：通知 AHK 松开所有按住的键。安全关键操作，即使已处于紧急模式也会重发。
+///
+/// # Errors
+///
+/// 见 [`emergency_release_impl`]：`Ipc` 失败意味着按键可能仍被按住，
+/// 前端必须显式提示用户。
 #[tauri::command]
 pub async fn emergency_release(state: tauri::State<'_, Arc<AppState>>) -> Result<(), AppError> {
     emergency_release_impl(&state)
 }
 
+/// 清除紧急释放标志。不发 IPC —— 它只是解除 Rust 侧的拦截状态。
+///
+/// # Errors
+///
+/// 当前实现**不会失败**。`Result` 是为了与其它 command 签名一致：
+/// 用 `compare_exchange(true, false)` 而不是 `store(false)`，
+/// 「标志已经是 false」只是记一条 `debug` 日志，不是错误。
 #[tauri::command]
 pub async fn clear_emergency(state: tauri::State<'_, Arc<AppState>>) -> Result<(), AppError> {
     // 使用 compare_exchange 而非 store，与 emergency_release 对称，
@@ -132,11 +172,23 @@ pub async fn clear_emergency(state: tauri::State<'_, Arc<AppState>>) -> Result<(
     Ok(())
 }
 
+/// 翻转长按模式，返回翻转后的新值。
+///
+/// # Errors
+///
+/// 见 [`toggle_hold_mode_impl`]：`Internal`（CAS 竞争超限）或 `Ipc`（通知 AHK 失败，
+/// 已回滚内存状态）。
 #[tauri::command]
 pub async fn toggle_hold_mode(state: tauri::State<'_, Arc<AppState>>) -> Result<bool, AppError> {
     toggle_hold_mode_impl(&state)
 }
 
+/// 重置看门狗，触发子进程重新启动。
+///
+/// # Errors
+///
+/// `Internal`：看门狗重置失败（消息形如「重置看门狗失败: …」）。失败时**看门狗
+/// 状态未变更**，可安全重试 —— 前端可以据此直接提供「重试」按钮。
 #[tauri::command]
 pub async fn reset_watchdog(state: tauri::State<'_, Arc<AppState>>) -> Result<(), AppError> {
     state.reset_watchdog()?;

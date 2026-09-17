@@ -2,6 +2,22 @@ use asd_application::error::AppError;
 use asd_application::state::AppState;
 use std::sync::Arc;
 
+/// 把 `hotkey` 注册给 `group_id` 指定的分组。
+///
+/// 只做参数透传，真正的语义（活跃分组发 IPC / 非活跃分组仅改配置、TOCTOU 权衡）
+/// 见 [`asd_application::group_service::register_hotkey`]。
+///
+/// # Errors
+///
+/// 全部来自被委托的 `group_service::register_hotkey`：
+///
+/// - `Validation`：热键或分组 id 为空；热键已被**其它**分组占用。
+/// - `GroupNotFound`：分组不存在。
+/// - `Ipc`：向 AHK 注册 / 注销热键失败。
+///
+/// ⚠️ 失败时会尽力回滚，但回滚本身也可能失败（只记 `warn` 并发 `hotkey_conflict`
+/// 事件）。因此拿到 `Err` 时**不能假定「什么都没发生过」** —— 前端应提示用户
+/// 刷新或重新注册，而不是静默重试。
 #[tauri::command]
 pub async fn register_hotkey(
     state: tauri::State<'_, Arc<AppState>>,
@@ -11,6 +27,19 @@ pub async fn register_hotkey(
     asd_application::group_service::register_hotkey(&state, &hotkey, &group_id)
 }
 
+/// 注销 `hotkey`，并把占用它的分组一并停用。
+///
+/// 只做参数透传，语义见 [`asd_application::group_service::unregister_hotkey`]。
+///
+/// # Errors
+///
+/// 全部来自被委托的 `group_service::unregister_hotkey`：
+///
+/// - `Validation`：热键为空，或该热键当前未被注册。
+/// - `Ipc`：向 AHK 发送注销命令失败 —— 此时会尝试把热键重新注册回去。
+///
+/// ⚠️ 注销成功后原分组会被置为非活跃并通知 AHK 停止执行：否则 AHK 重连后该分组
+/// 会被启用、热键却已丢失。也就是说 `Ok(())` 也**附带有副作用**，不只是「删掉一条记录」。
 #[tauri::command]
 pub async fn unregister_hotkey(
     state: tauri::State<'_, Arc<AppState>>,

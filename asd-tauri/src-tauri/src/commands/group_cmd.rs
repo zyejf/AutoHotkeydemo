@@ -32,12 +32,26 @@ use std::sync::Arc;
 // 这是不改变外部行为的最小可测试性重构。
 
 /// `get_groups` 的核心逻辑。
+///
+/// # Errors
+///
+/// 当前实现**不会失败**：读锁克隆 + 映射成 `GroupSummary`，恒定 `Ok`。
+/// `Result` 只是为 API 稳定保留 —— 别把「返回 `Result`」当成「这里可能出错」。
 pub fn get_groups_impl(state: &AppState) -> Result<Vec<GroupSummary>, AppError> {
     let groups = state.read_groups()?;
     Ok(groups.values().map(GroupSummary::from).collect())
 }
 
 /// `toggle_group` 的核心逻辑。
+///
+/// # Errors
+///
+/// - `Validation`：`group_id` 为空或全空白（command 层提前校验，与 service 层
+///   重复是为了让错误响应不依赖 service 的实现细节）。
+/// - `GroupNotFound`：`group_id` 不存在。
+/// - `Ipc`：向 AHK 发送切换命令失败。此时已尽力回滚（分组状态 + 热键注册），
+///   但回滚走 `try_send_ipc_command`，**失败只记 `warn`**，所以拿到 `Err` 时
+///   AHK 侧不保证与内存一致 —— 前端应提示刷新。
 pub fn toggle_group_impl(state: &AppState, group_id: &str) -> Result<GroupStatus, AppError> {
     // M34: command 层输入验证，与 get_group_detail_impl 保持一致。
     // service 层（group_service::toggle_group）也有相同验证，此处提前验证
@@ -49,6 +63,13 @@ pub fn toggle_group_impl(state: &AppState, group_id: &str) -> Result<GroupStatus
 }
 
 /// `get_group_detail` 的核心逻辑。
+///
+/// # Errors
+///
+/// - `Validation`：`group_id` 为空或全空白。
+/// - `GroupNotFound`：配置中不存在该分组。
+///
+/// 只查内存中的配置，不读磁盘、不碰 AHK —— 拿不到就是拿不到，没有兜底。
 pub fn get_group_detail_impl(state: &AppState, group_id: &str) -> Result<SkillGroup, AppError> {
     if group_id.trim().is_empty() {
         return Err(AppError::Validation("分组 ID 不能为空".to_string()));
@@ -59,6 +80,13 @@ pub fn get_group_detail_impl(state: &AppState, group_id: &str) -> Result<SkillGr
 }
 
 /// `delete_group` 的核心逻辑。
+///
+/// # Errors
+///
+/// - `Validation`：`group_id` 为空或全空白。
+/// - `GroupNotFound`：配置中不存在该分组。
+/// - `Config`：删除后写回配置文件失败 —— 此时**内存中的删除已回滚**，
+///   所以磁盘与内存仍然一致（都还在）。
 pub fn delete_group_impl(state: &AppState, group_id: &str) -> Result<(), AppError> {
     // M34: command 层输入验证，与 get_group_detail_impl 保持一致。
     // service 层（group_service::delete_group）也有相同验证，此处提前验证
@@ -70,11 +98,27 @@ pub fn delete_group_impl(state: &AppState, group_id: &str) -> Result<(), AppErro
 }
 
 /// `toggle_all` 的核心逻辑。
+///
+/// # Errors
+///
+/// 当前实现**不会失败**：`read_groups` 恒定 `Ok`，单个分组出问题也只记进
+/// 返回值的 `state_errors` / `ipc_rolled_back`。`Result` 是为与另外两个批量
+/// 接口签名一致而保留的。
+///
+/// ⚠️ 所以 **必须看返回值里的错误清单**，只看 `Ok` 会以为全部成功了。
 pub fn toggle_all_impl(state: &AppState, active: bool) -> Result<BatchToggleResult, AppError> {
     asd_application::group_service::toggle_all(state, active)
 }
 
 /// `batch_toggle_groups` 的核心逻辑。
+///
+/// # Errors
+///
+/// `Validation`：`group_ids` 为空列表（这是**唯一**会让整体失败的情况）。
+///
+/// ⚠️ 单个分组出问题**不算整体失败**：不存在的记进 `not_found`、状态更新失败的
+/// 记进 `state_errors`、IPC 失败且已回滚的记进 `ipc_rolled_back`。
+/// 调用方必须检查这三个清单，只看 `Ok` 会漏掉部分失败。
 pub fn batch_toggle_groups_impl(
     state: &AppState,
     group_ids: &[String],
@@ -84,6 +128,14 @@ pub fn batch_toggle_groups_impl(
 }
 
 /// `batch_delete_groups` 的核心逻辑。
+///
+/// # Errors
+///
+/// `Validation`：`group_ids` 为空列表。
+///
+/// ⚠️ **单个分组删除失败不会让整体失败**：失败项连同原因记进
+/// `BatchDeleteResult::failed`，成功项照常删除。这是最容易误读的一条 ——
+/// 拿到 `Ok` 且 `failed` 非空是**常见情况**，不是异常。
 pub fn batch_delete_groups_impl(
     state: &AppState,
     group_ids: &[String],
@@ -92,6 +144,15 @@ pub fn batch_delete_groups_impl(
 }
 
 /// `reorder_groups` 的核心逻辑。
+///
+/// # Errors
+///
+/// - `Validation`：列表为空、列表含不存在的分组 id、或 id 重复。
+/// - `Config`：排好序的配置写盘失败 —— 此时内存中的排序**会回滚**，
+///   所以磁盘与内存仍然一致。
+///
+/// ⚠️ **未出现在列表里的分组不会报错**，而是追加到末尾 —— 见返回值的
+/// `appended_groups`。想「必须全量传」，调用方要自己比对数量。
 pub fn reorder_groups_impl(
     state: &AppState,
     group_ids: &[String],
@@ -103,11 +164,22 @@ pub fn reorder_groups_impl(
 // Tauri Command 函数
 // =================================================================
 
+/// 列出所有分组的摘要。
+///
+/// # Errors
+///
+/// 见 [`get_groups_impl`]：当前实现不会失败。
 #[tauri::command]
 pub fn get_groups(state: tauri::State<'_, Arc<AppState>>) -> Result<Vec<GroupSummary>, AppError> {
     get_groups_impl(&state)
 }
 
+/// 切换单个分组的激活状态。
+///
+/// # Errors
+///
+/// 见 [`toggle_group_impl`]：`Validation` / `GroupNotFound` / `Ipc`。
+/// `Ipc` 失败时回滚本身也可能失败，前端应提示刷新而不是静默重试。
 #[tauri::command]
 pub async fn toggle_group(
     state: tauri::State<'_, Arc<AppState>>,
@@ -116,6 +188,11 @@ pub async fn toggle_group(
     toggle_group_impl(&state, &group_id)
 }
 
+/// 读取单个分组的完整定义。
+///
+/// # Errors
+///
+/// 见 [`get_group_detail_impl`]：`Validation`（id 为空）或 `GroupNotFound`。
 #[tauri::command]
 pub fn get_group_detail(
     state: tauri::State<'_, Arc<AppState>>,
@@ -124,6 +201,12 @@ pub fn get_group_detail(
     get_group_detail_impl(&state, &group_id)
 }
 
+/// 删除单个分组。
+///
+/// # Errors
+///
+/// 见 [`delete_group_impl`]：`Validation` / `GroupNotFound` / `Config`
+/// （写盘失败时内存删除已回滚）。
 #[tauri::command]
 pub async fn delete_group(
     state: tauri::State<'_, Arc<AppState>>,
@@ -132,6 +215,12 @@ pub async fn delete_group(
     delete_group_impl(&state, &group_id)
 }
 
+/// 一次性把所有分组切到 `active` 指定的状态。
+///
+/// # Errors
+///
+/// 见 [`toggle_all_impl`]：当前实现不会失败。⚠️ 部分失败只体现在返回值的
+/// `state_errors` / `ipc_rolled_back` 里。
 #[tauri::command]
 pub async fn toggle_all(
     state: tauri::State<'_, Arc<AppState>>,
@@ -140,6 +229,12 @@ pub async fn toggle_all(
     toggle_all_impl(&state, active)
 }
 
+/// 批量切换指定分组的激活状态。
+///
+/// # Errors
+///
+/// 见 [`batch_toggle_groups_impl`]：仅 `Validation`（空列表）会让整体失败，
+/// 单个分组的问题都在返回值的三个清单里。
 #[tauri::command]
 pub async fn batch_toggle_groups(
     state: tauri::State<'_, Arc<AppState>>,
@@ -149,6 +244,12 @@ pub async fn batch_toggle_groups(
     batch_toggle_groups_impl(&state, &group_ids, active)
 }
 
+/// 批量删除指定分组。
+///
+/// # Errors
+///
+/// 见 [`batch_delete_groups_impl`]：仅 `Validation`（空列表）会让整体失败。
+/// ⚠️ `Ok` + 非空 `failed` 是常见情况，前端要逐条展示失败原因。
 #[tauri::command]
 pub async fn batch_delete_groups(
     state: tauri::State<'_, Arc<AppState>>,
@@ -157,6 +258,12 @@ pub async fn batch_delete_groups(
     batch_delete_groups_impl(&state, &group_ids)
 }
 
+/// 按给定顺序重排分组。
+///
+/// # Errors
+///
+/// 见 [`reorder_groups_impl`]：`Validation`（空列表 / 含不存在 id / id 重复）
+/// 或 `Config`（写盘失败时内存排序已回滚）。未列出的分组会追加到末尾，不报错。
 #[tauri::command]
 pub fn reorder_groups(
     state: tauri::State<'_, Arc<AppState>>,

@@ -75,10 +75,11 @@ pedantic = { level = "warn", priority = -1 }
 # 批次 7 的 2 项豁免（理由/前置条件/到期日见上方批次 7 注释）
 too_many_lines = "allow"
 
-# ——— 文档类（290 项）：TD-045 批次 8，先关 ———
+# ——— 文档类：TD-045 批次 8，按模块分批 ———
+#   missing_errors_doc 79 项 ✅（2026-09-17 批次 8a 全部补完，lint 已开）
+#   missing_panics_doc  1 项 ✅（2026-09-17：`lib.rs::run` 补 `# Panics`，lint 已开）
+#   doc_markdown      211 项 ⬜（生产 167 + 测试 44，批次 9）
 doc_markdown = "allow"
-missing_errors_doc = "allow"
-missing_panics_doc = "allow"
 
 # ——— 非文档类：按批开启，进度见台账 TD-045 ———
 # ⚠️ 数字口径：以下均为**去重后**的告警数。`cargo clippy --all-targets` 会把同一条
@@ -113,4 +114,13 @@ missing_panics_doc = "allow"
 #     按 C4「先有网再动刀」，前置条件是 **E2E 能跑通**；到期 2026-10-17 复审。
 #     ⚠️ 复审时不要直接改阈值：clippy.toml 里写明过，上调阈值等于宣布「这么长是
 #     合理的」，而它们只是还没拆。
-# 批次 8 ⬜：文档类 290 项（doc_markdown 210 / missing_errors_doc 79 / missing_panics_doc 1）
+# 批次 8 ✅（2026-09-17）：文档类里的「契约类」共 80 项——
+#     8a `missing_errors_doc` 79 项：按模块分批，每补完一个模块就删掉该模块头的
+#        `#![allow(clippy::missing_errors_doc)]`（与 TD-021 收干 asd-application 同一
+#        套做法）。7 个 command / infrastructure 模块 + `logging.rs`，共 78 个函数，
+#        外加 `lib.rs::run` 之外的入口。⚠️ 补的过程中发现 5 个函数**恒定返回 Ok**
+#        （`get_config_impl` / `validate_config_impl` / `get_groups_impl` /
+#        `toggle_all_impl` / `clear_emergency` 类）—— 文档里明确写了「不会失败」并
+#        点出「别把返回 Result 当成可能出错」，而不是编一条假的失败原因。
+#     8b `missing_panics_doc` 1 项：`lib.rs::run` 的 `.expect("Tauri 应用启动失败")`。
+# 批次 9 ⬜：`doc_markdown` 211 项（纯排版，无语义风险，另开一轮）

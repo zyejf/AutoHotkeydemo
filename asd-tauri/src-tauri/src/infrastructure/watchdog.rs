@@ -171,6 +171,15 @@ impl ProcessWatchdog {
 
     /// 终止并等待子进程退出，但保留 child 字段以便后续 is_child_exited 检测。
     /// 用于测试场景下模拟子进程崩溃。
+    ///
+    /// # Errors
+    ///
+    /// - 当前没有附加子进程时返回 `"no child"`。
+    /// - `kill()` 或 `wait()` 失败时返回其错误文本（典型：进程已被外部终止、
+    ///   或权限不足）。
+    ///
+    /// 想「终止但不关心结果」时用 [`kill_and_reap`](Self::kill_and_reap)（私有，
+    /// 内部三处重启 / 关机路径复用它）。
     pub fn kill_child(&mut self) -> Result<(), String> {
         if let Some(child) = self.child.as_mut() {
             child.with_mut(|c| {
@@ -197,6 +206,15 @@ impl ProcessWatchdog {
         }
     }
 
+    /// 把已启动的子进程纳入看门狗跟踪：挂 JobObject（尽力而为）+ 重置心跳计数
+    /// + 状态置 `Running`。
+    ///
+    /// # Errors
+    ///
+    /// 当前实现**不会失败**，恒定返回 `Ok(())`。⚠️ **这不代表子进程已被妥善托管**：
+    /// JobObject 的创建与分配失败都只记 `warn` 后继续 —— 那种情况下子进程仍被跟踪，
+    /// 但**不会随主进程自动退出**（主进程崩溃会留下孤儿进程）。
+    /// 想确认托管是否成功，去看日志里有没有「已创建并分配 PID=…」。
     pub fn attach_child(&mut self, child: Child) -> Result<(), String> {
         let pid = child.id();
         match JobObjectGuard::create() {
@@ -239,6 +257,15 @@ impl ProcessWatchdog {
     ///
     /// `auth_token` 通过环境变量 `ASD_AUTH_TOKEN` 传递给 AHK 子进程，
     /// 用于 IPC 认证。子进程必须在首条消息中发送此 token 才能通过认证。
+    ///
+    /// # Errors
+    ///
+    /// - `auth_token` 为空 → 直接拒绝启动（带 token 才能过 IPC 认证，空 token
+    ///   等于把认证关掉）。**此时 `exe_path` 尚未保存**，调用方必须重新传完整参数。
+    /// - `Command::spawn` 失败 → 消息形如「启动子进程失败: … (program=…, args=…)」。
+    ///   注意此时 `exe_path` / `auth_token` **已保存进 self**，就是为了让你能原样重试。
+    /// - `exe_path` 后缀不认识（不是 `.exe` / `.bat` / `AutoHotkey64.exe`）不报错，
+    ///   退化成「无参直接执行」—— 便携模式下这是有意的兜底，不是遗漏。
     pub fn spawn_child(&mut self, exe_path: &str, auth_token: &str) -> Result<(), String> {
         // I36 补偿机制：启动新子进程前清理遗留进程，防止 JobObject 失败导致僵尸进程堆积
         cleanup_stale_executor_processes();
@@ -465,6 +492,14 @@ impl ProcessWatchdog {
 /// ① 发送 IPC shutdown → ② 发送 WM_CLOSE → ③ 强制 kill_and_reap。
 /// 每个阶段的进程退出轮询（原 `wait_for_exit`）通过 [`poll_watchdog_exit`]
 /// 以「短暂加锁检查 → 释放锁 sleep」的方式执行，不再长时间持锁。
+///
+/// # Errors
+///
+/// 当前实现**不会失败**，恒定返回 `Ok(())`。三阶段是**降级链**，不是全成功才算成功：
+/// ① IPC shutdown 超时 → ② 发 `WM_CLOSE` 再等（`EnumWindows` 失败也只 `warn`
+/// 并继续） → ③ 强制 `kill_and_reap`。所以拿到 `Ok(())` 只说明「走完了流程」，
+/// **不说明子进程是被礼貌请走的** —— 最坏情况是走到 Phase 3 被杀掉，
+/// 那种情况下 AHK 侧没有机会做清理。没有子进程时直接 `Ok(())` 返回。
 pub async fn graceful_shutdown_watchdog(
     watchdog: &Arc<Mutex<ProcessWatchdog>>,
 ) -> Result<(), String> {
@@ -855,6 +890,15 @@ pub fn register_panic_hook() {
     });
 }
 
+/// 向 `pid` 所属的所有顶层窗口投递 `WM_CLOSE`（通过 `EnumWindows` 枚举匹配）。
+///
+/// # Errors
+///
+/// `EnumWindows` 调用失败时返回「EnumWindows 失败 for PID=…: …」。
+/// ⚠️ **找不到窗口不算错误** —— 无窗口的进程（纯控制台 / `CREATE_NO_WINDOW`
+/// 启动的 AHK 执行器正是这种情况）会正常返回 `Ok(())`，一格窗口都没枚举到也一样。
+/// 所以调用方**不能**用 `Ok` 推断「关闭消息已送达」；
+/// [`graceful_shutdown_watchdog`] 之后还得靠轮询退出或 Phase 3 兜底。
 pub fn send_wm_close(pid: u32) -> Result<(), String> {
     let guard = RawBoxGuard::new(pid);
     unsafe {

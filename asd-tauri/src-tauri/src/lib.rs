@@ -637,6 +637,15 @@ fn resolve_ahk_executor_path(app: &tauri::App) -> std::path::PathBuf {
 /// `cargo build` 失败。待可用后再在 `tauri::Builder::default()` 前以
 /// `.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| { ... }))` 注册，
 /// 回调内通过 `app.get_webview_window("main")` show + set_focus 聚焦首实例。
+///
+/// # Panics
+///
+/// 仅一处：`tauri::Builder::run()` 返回 `Err` 时 `.expect("Tauri 应用启动失败")`
+/// 会 panic（错误已先经 `inspect_err` 记进日志）。
+/// 这是**启动期致命错误**（典型是 `generate_context!()` 读不到
+/// `tauri.conf.json`、图标等资源，或 WebView2 运行时缺失）—— 此时没有任何
+/// 可降级的状态可以返回，也没有 UI 可以提示用户，让它带着日志崩掉是刻意的选择，
+/// 不要把它改成「记日志后静默退出」：那会让启动失败表现为「双击没反应」。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()

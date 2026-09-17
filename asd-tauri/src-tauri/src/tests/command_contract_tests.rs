@@ -292,3 +292,60 @@ fn tauri_commands_have_no_duplicate_registration() {
         "发现重复注册的 Tauri command：{dups:?}。同一命令注册两次会导致 handler 歧义。"
     );
 }
+
+/// TD-045 批次 8 的防复发守护：**不允许用「文件头 blanket allow」把文档契约
+/// lint 整体关掉**。
+///
+/// 为什么需要这条：批次 8 的做法是「补完一个模块就删掉该模块头的 allow」，
+/// 靠的是 G2b（`-D warnings`）。但 `#![allow(...)]` 是**源码级**的，编译期完全
+/// 合法 —— 谁顺手加回一行，那整个模块的 `# Errors` 契约就瞬间失去保护，
+/// 而 G2b 依然全绿（与批次 5 补 `tauri_command_args_stay_owned` 是同一个洞：
+/// allow 之后编译期就没有信号了）。本测试补上这一层静态扫描。
+///
+/// 与 `tauri_command_args_stay_owned` 同思路：扫的是源码文本，所以要带
+/// 「解析器不许静默失效」的锚点，否则扫不到东西时会退化成空集通过的永真式。
+#[test]
+fn no_blanket_missing_errors_doc_allow() {
+    const BANNED: &[&str] = &["clippy::missing_errors_doc", "clippy::missing_panics_doc"];
+
+    let src_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut scanned = 0usize;
+    let mut offenders = Vec::new();
+
+    let mut stack = vec![src_root.clone()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("无法读取 {dir:?}: {e}"))
+        {
+            let path = entry.expect("目录项读取失败").path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().and_then(|s| s.to_str()) != Some("rs") {
+                continue;
+            }
+            let src = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("无法读取 {}: {e}", path.display()));
+            scanned += 1;
+            for banned in BANNED {
+                if src.contains(&format!("#![allow({banned})]")) {
+                    offenders.push(format!(
+                        "{} 里有 blanket `#![allow({banned})]`",
+                        path.display()
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        scanned >= 10,
+        "只扫到 {scanned} 个 .rs 文件 —— 目录遍历失效了，本条测试会退化成永真式"
+    );
+    assert!(
+        offenders.is_empty(),
+        "不该用 blanket allow 关掉文档契约 lint（TD-045 批次 8 已全部补完，\
+         缺哪一条就补哪一条，不要整模块关掉）：\n  {}",
+        offenders.join("\n  ")
+    );
+}

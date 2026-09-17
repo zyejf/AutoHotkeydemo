@@ -144,6 +144,15 @@ impl IpcManager {
         self.shutting_down.load(Ordering::SeqCst)
     }
 
+    /// 作为**客户端**主动连上 AHK 监听的命名管道（Rust 侧发起连接的路径）。
+    ///
+    /// # Errors
+    ///
+    /// - `NameError`：管道名转换失败（`to_ns_name` 拒绝非法名）。
+    /// - `IoError` / `PipeBroken`：`Stream::connect` 失败 —— 典型是 AHK 侧还没
+    ///   开始监听，或管道不存在。这是**可重试**的失败，连上之前状态不变。
+    ///
+    /// ⚠️ 连上之后**不做认证**：认证只发生在服务端侧（[`accept_from_ahk`](Self::accept_from_ahk)）。
     pub async fn connect_to_ahk(&self) -> Result<(), IpcError> {
         let name = (*self.pipe_name)
             .clone()
@@ -159,6 +168,18 @@ impl IpcManager {
         Ok(())
     }
 
+    /// 作为**服务端**接受 AHK 的连接，并校验首条消息必须是 token 匹配的 `auth`。
+    ///
+    /// # Errors
+    ///
+    /// - `IoError`：`accept()` 失败。
+    /// - `AuthFailed`：首条消息类型不是 `auth`、token 不匹配、或 5 秒内没收到首条消息。
+    /// - 读取认证消息时出错则原样返回该错误（`ConnectionClosed` / `PipeBroken` 还会
+    ///   额外触发 `notify_pipe_broken`）。
+    ///
+    /// ⚠️ **任何失败路径都会先 `cleanup_connection()` 再返回** —— 拿到 `Err` 时连接
+    /// 已被清空，不能继续复用，必须重新 `accept_from_ahk`。
+    /// 认证成功后才会调用 `post_connect_callback`（发送状态恢复命令）。
     pub async fn accept_from_ahk(&self, listener: &Listener) -> Result<(), IpcError> {
         use interprocess::local_socket::traits::tokio::Listener as ListenerTrait;
         let stream = listener
@@ -294,6 +315,22 @@ impl IpcManager {
         self.seq_counter.clone()
     }
 
+    /// 把一条 `IpcMessage` 序列化成单行 JSON 写进管道（`write_all` + `flush`，
+    /// 两步各自带 `SEND_TIMEOUT`）。
+    ///
+    /// # Errors
+    ///
+    /// - `JsonError`（`serde_json` 失败）：消息序列化失败，连接不受影响。
+    /// - `MessageTooLarge`：单行超过 `MAX_MESSAGE_SIZE`，**发送前**就被拒，
+    ///   管道里没有留下半个消息。
+    /// - `ConnectionClosed`：还没有建立连接（`send_half` 为空）。
+    /// - `SendTimeout`：写或 flush 超时 —— 视同管道不可靠，会清空 `send_half`
+    ///   并触发 `notify_pipe_broken`。
+    /// - `PipeBroken` / `IoError`：底层写失败。`PipeBroken` 会清空 `send_half`
+    ///   并触发 `notify_pipe_broken`。
+    ///
+    /// ⚠️ `Ok(())` **只表示字节写进了管道**，不代表 AHK 收到或处理成功 ——
+    /// 需要确认结果请用 [`send_and_wait`](Self::send_and_wait)。
     pub async fn send(&self, msg: &IpcMessage) -> Result<(), IpcError> {
         let mut line = serde_json::to_string(msg)?;
         line.push('\n');
@@ -355,6 +392,14 @@ impl IpcManager {
         }
     }
 
+    /// 发送一条命令（不等响应），返回它的 `seq`。
+    ///
+    /// # Errors
+    ///
+    /// 同 [`send`](Self::send)：`JsonError` / `MessageTooLarge` /
+    /// `ConnectionClosed` / `SendTimeout` / `PipeBroken` / `IoError`。
+    /// 失败时 `seq` **已经被消耗掉了**（`next_seq()` 在发送前调用），
+    /// 重试会拿到新的 `seq` —— 依赖 `seq` 做关联的调用方要注意。
     pub async fn send_command(&self, cmd: IpcCommand) -> Result<u64, IpcError> {
         let seq = self.next_seq();
         let msg = IpcMessage::command(seq, &cmd);
@@ -362,6 +407,17 @@ impl IpcManager {
         Ok(seq)
     }
 
+    /// 只等**已经发出**的命令的响应（不负责发送），按 `seq` 匹配。
+    ///
+    /// ⚠️ 它会在 `pending_responses` 里**新登记一个条目覆盖同 `seq` 的旧条目** ——
+    /// 正常用法是先 [`prepare_send_and_wait`](Self::prepare_send_and_wait)
+    /// （那里面已经登记过），本函数留给「自己发了命令、只想等回包」的场景。
+    ///
+    /// # Errors
+    ///
+    /// - `Timeout`：`timeout` 内没等到响应 —— 会把 `pending` 条目移除，
+    ///   **但 AHK 侧可能仍在正常处理**，迟到的响应会被丢弃。
+    /// - `ChannelClosed`：oneshot 发送端被丢弃（典型是连接清理时清空了 `pending`）。
     pub async fn wait_response(
         &self,
         seq: u64,
@@ -401,6 +457,16 @@ impl IpcManager {
     /// 响应内容而非仅依赖 `Ok`/`Err` 判断操作结果。例如 `pipe_broken` 错误
     /// 响应由 `IpcBridge::send_and_wait` 转换为 `Err`，但其他 AHK 侧错误
     /// 仍以 `Ok(msg)` 返回。
+    ///
+    /// # Errors
+    ///
+    /// - 发送阶段失败：同 [`send`](Self::send)（`JsonError` / `MessageTooLarge` /
+    ///   `ConnectionClosed` / `SendTimeout` / `PipeBroken` / `IoError`），
+    ///   此时 `pending` 条目已被移除，不会泄漏。
+    /// - `Timeout`：`timeout` 内没有响应，同样会移除 `pending` 条目。
+    ///   ⚠️ 若 `timeout` 超过 `PENDING_CLEANUP_MAX_AGE`，条目可能**先被清理任务
+    ///   扫掉**，于是表现为 `ChannelClosed` 而不是 `Timeout`（只打一条 `warn`）。
+    /// - `ChannelClosed`：响应通道被丢弃。
     pub async fn send_and_wait(
         &self,
         cmd: IpcCommand,
@@ -430,6 +496,16 @@ impl IpcManager {
         }
     }
 
+    /// 登记 `pending` 条目**并**发出命令，返回 `(seq, 响应接收端)`。
+    ///
+    /// 把「登记 + 发送」和「等待」拆开，是为了让调用方能先拿到 `seq` 再决定
+    /// 等多久（[`send_and_wait`](Self::send_and_wait) 内部就是这么用的）。
+    ///
+    /// # Errors
+    ///
+    /// 只在**发送失败**时返回（错误同 [`send`](Self::send)），并且会先把刚登记的
+    /// `pending` 条目移除 —— 不会留下永远收不到响应的悬挂条目。
+    /// 返回 `Ok` 只表示「已发出并登记」，响应内容要自己 `await` 接收端去看。
     pub async fn prepare_send_and_wait(
         &self,
         cmd: IpcCommand,
@@ -458,6 +534,20 @@ impl IpcManager {
         Ok((seq, rx))
     }
 
+    /// 从管道读一行并解析成 `IpcMessage`（读取上限 `MAX_MESSAGE_SIZE`）。
+    ///
+    /// # Errors
+    ///
+    /// - `ConnectionClosed`：没有连接，或读到 EOF（0 字节，`Ok(0)` 分支会把
+    ///   `recv_half` 清空）。
+    /// - `EmptyMessage`：读到的行是空的。
+    /// - `MessageTooLarge`：单行超过 `MAX_MESSAGE_SIZE`，或读满上限仍无换行。
+    /// - `PipeBroken`：超大消息的残余数据超过 1MB 丢弃上限，管道已无法对齐，
+    ///   会清空 `recv_half` —— **这个连接不能再用**。
+    /// - `JsonError` / `IoError`：解析失败或底层读失败。
+    ///
+    /// ⚠️ 持 `recv_half` 锁期间会 `await` 读，所以**并发调用会串行化**；
+    /// 监听循环里同一时刻只应有一个 `recv`。
     pub async fn recv(&self) -> Result<IpcMessage, IpcError> {
         let mut reader_guard = self.recv_half.lock().await;
         let reader = reader_guard.as_mut().ok_or(IpcError::ConnectionClosed)?;
@@ -817,6 +907,16 @@ fn classify_message(msg: &IpcMessage) -> MessageKind {
     }
 }
 
+/// 创建命名管道监听端（服务端侧）。
+///
+/// # Errors
+///
+/// - 管道名非法（`to_ns_name`）→ 返回其错误。
+/// - `create_tokio()` 失败 → 典型是**同名管道已被占用**（上一实例没退出干净，
+///   或同类应用抢先建了同名管道）。
+///
+/// 调用方通常要把这个错误当成「启动失败」直接上报给用户，因为监听端建不起来
+/// 意味着 AHK 永远连不上，重试同一个名字大概率还是同样的结果。
 pub fn create_listener(
     pipe_name: &str,
 ) -> Result<Listener, Box<dyn std::error::Error + Send + Sync>> {
