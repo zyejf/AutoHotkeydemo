@@ -16,8 +16,10 @@ edition = "2021"
 #
 # 只对 **纯逻辑 crate** 生效（asd-domain / asd-ipc-protocol / asd-application /
 # asd-test-harness），它们各自 Cargo.toml 里有 `[lints] workspace = true`。
-# `src-tauri` **不承接**：那里 587 项 pedantic 告警里 476 项是 Tauri 样板代码的
-# 文档类噪声，开了等于把真信号淹掉 —— 先守住业务逻辑，再谈入口层。
+# `src-tauri` **不承接**：2026-09-17 用 `--message-format=json` 精确实测，它若承接
+# workspace lints 会出 **618 项**告警，其中 **425 项是文档类**
+# （doc_markdown 265 / missing_errors_doc 158 / missing_panics_doc 2）——
+# 大量是 Tauri 样板代码的文档噪声，开了等于把真信号淹掉。先守住业务逻辑，入口层另行排期（TD-045）。
 #
 # `priority = -1` 是为了让下面逐条的 allow 能盖住 pedantic（否则同级别下
 # 组 lint 与单条 lint 的优先级由定义顺序决定，容易写错）。
@@ -31,7 +33,7 @@ pedantic = { level = "warn", priority = -1 }
 # ✅ asd-application 已于 2026-09-16 **全量补齐**（55 条 `# Errors`，按文件分批推进、
 #    补完一个文件删一个文件头 allow；进度与发现的真信号见台账 TD-021）。
 # ⚠️ 当初 allow 的理由是「一次性放开会淹没其它 lint 的真信号」——
-#    这个顾虑对已收干的 crate 不再成立，对尚未启用的 `src-tauri`（476 项）仍然成立：
+#    这个顾虑对已收干的 crate 不再成立，对尚未启用的 `src-tauri`（618 项 / 文档类 425）仍然成立：
 #    它没有 `[lints]` 段，不吃 workspace lints，所以目前不受影响。
 missing_errors_doc = "warn"
 missing_panics_doc = "warn"

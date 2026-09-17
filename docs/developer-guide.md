@@ -1539,7 +1539,7 @@ cd asd-tauri      && cargo audit        # 需要能访问 RustSec advisory-db
 | 范围 | 档位 | 理由 |
 |---|---|---|
 | `asd-domain` / `asd-ipc-protocol` / `asd-application` / `asd-test-harness` | **pedantic**（`[lints] workspace = true`） | 业务逻辑与调度在这里，最需要护栏 |
-| `src-tauri` | 默认档 | 实测 pedantic 有 **587** 项，其中 **476** 项是 Tauri 样板代码的文档类噪声。开了等于把真信号淹掉 —— 先守住业务逻辑，入口层另行排期 |
+| `src-tauri` | 默认档 | 2026-09-17 用 `--message-format=json` 精确实测：承接 workspace lints 会出 **618** 项，其中 **425** 项是文档类（`doc_markdown` 265 / `missing_errors_doc` 158 / `missing_panics_doc` 2），其余以 `uninlined_format_args` 60 / `must_use_candidate` 40 / `needless_pass_by_value` 22 为主。大量是 Tauri 样板代码的文档噪声，开了等于把真信号淹掉 —— 先守住业务逻辑，入口层另行排期（TD-045） |
 
 - **阈值**只放 `asd-tauri/clippy.toml`；**启停**只放根 `Cargo.toml` 的 `[workspace.lints]`。
   两处都能改级别，分散了就没人看得全，最后变成「不知道某条 lint 到底开没开」。
