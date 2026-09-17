@@ -1643,19 +1643,34 @@ Get-Content "$env:APPDATA\asd-tauri\asd.log" -Tail 20 -Wait  # 实时查看日�
 ESLint（G2c）等本机不跑的检查项。2026-09-16 的实测后果：**连续 9 次 main 推送 CI 全红、
 跨度约 3 小时无人发现** —— 因为没有任何环节会去看 CI 结论。
 
-**推送后必须查结论**（成本一行命令）：
+**推送与查结论已合成一条命令**（2026-09-17 起，TD-028）：
 
 ```bash
-# 推送（撞 502 时交替直连/代理重试，并以远端 sha 核验 —— 见下）
+# 推送 + 核验远端 sha + 等 CI 结论，一步到位
 bash scripts/push-and-verify.sh main
 
-# 取最近一次 run 的 id，然后阻塞等它跑完并看每个 job 的结论
-id=$(gh run list --limit 1 --json databaseId --jq '.[0].databaseId')
-gh run watch "$id"
+# 只要推送、不等 CI（CI 很慢或只想先推上去时）
+CI_CHECK=0 bash scripts/push-and-verify.sh main
 
-# 只要结论（非阻塞）
+# 事后单独核查某个 commit 的 CI 结论（不推送）
+CI_ONLY_SHA=$(git rev-parse HEAD) bash scripts/push-and-verify.sh
+```
+
+脚本退出码：**0** = 推送成功且 CI 绿（或按 `CI_CHECK=0` 跳过）；
+**1** = 重试耗尽仍未推送成功；**2** = **推送成功但 CI 未通过**（会打印失败的 job 与
+`--log-failed` 尾部 25 行）。拿到 2 就去修，**不要靠重跑掩盖**。
+
+`gh` 在本机需要显式 token：`gh auth status` 会误报「not logged into any GitHub hosts」，
+但 `gh auth token` 能拿到有效 token —— 脚本内部已经 `export GH_TOKEN`，手工调 `gh run *`
+时记得自己也导一下。
+
+也可以手工查（脚本做的就是这些）：
+
+```bash
+id=$(gh run list --limit 1 --json databaseId --jq '.[0].databaseId')
+gh run watch "$id"                                   # 阻塞等完
 gh run view "$id" --json conclusion,jobs \
-  --jq '{conclusion, jobs: [.jobs[] | {name, conclusion}]}'
+  --jq '{conclusion, jobs: [.jobs[] | {name, conclusion}]}'   # 只看结论
 ```
 
 ⚠️ **判「红在哪」之前，先分辨是不是账户级故障**：
