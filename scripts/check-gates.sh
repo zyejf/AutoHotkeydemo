@@ -105,25 +105,68 @@ if [ "$QUICK" -eq 0 ]; then
       echo "  请用 AHK_EXE 环境变量指定路径"
       FAILED+=("G3b")
     else
-      AHK_LOG="$(mktemp)"
-      ( cd "$REPO_ROOT" && "$AHK_EXE" "$REPO_ROOT_NATIVE/tests/run_all_tests.ahk" ) >"$AHK_LOG" 2>&1
-      # 汇总既可能在 stdout，也可能只写进 tests/test_results.log（runner 行为），两边都兜。
       RESULT_LOG="$REPO_ROOT/tests/test_results.log"
-      SRC="$AHK_LOG"
-      if [ -f "$RESULT_LOG" ] && grep -q '总计:' "$RESULT_LOG"; then
-        SRC="$RESULT_LOG"
-      fi
-      summary=$(grep -E '^(总计|通过|失败):' "$SRC" | tr '\n' ' ')
-      fail=$(grep -E '^失败:' "$SRC" | grep -oE '[0-9]+' | head -1)
-      if [ -z "$fail" ]; then
+
+      # ⚠️ 汇总必须写**文件**，不能用全局变量：`fail=$(run_ahk_once)` 的命令替换在
+      #    **子 shell** 里执行，函数内的赋值传不回父 shell —— 而本脚本开了 `set -u`，
+      #    外层直接引用会报 `unbound variable` 并中断闸门。这个坑是用桩程序做
+      #    阳性对照时抓出来的，不是靠读代码看出来的。
+      AHK_SUMMARY_FILE="$(mktemp)"
+
+      # 跑一次套件，把「失败数」打到 stdout；汇总文字写进 AHK_SUMMARY_FILE。
+      # 汇总既可能在 stdout，也可能只写进 tests/test_results.log（runner 行为），两边都兜。
+      run_ahk_once() {
+        local log src summary fail
+        log="$(mktemp)"
+        ( cd "$REPO_ROOT" && "$AHK_EXE" "$REPO_ROOT_NATIVE/tests/run_all_tests.ahk" ) >"$log" 2>&1
+        src="$log"
+        if [ -f "$RESULT_LOG" ] && grep -q '总计:' "$RESULT_LOG"; then
+          src="$RESULT_LOG"
+        fi
+        summary=$(grep -E '^(总计|通过|失败):' "$src" | tr '\n' ' ')
+        fail=$(grep -E '^失败:' "$src" | grep -oE '[0-9]+' | head -1)
+        rm -f "$log" 2>/dev/null || true
+        printf '%s' "$summary" >"$AHK_SUMMARY_FILE"
+        if [ -z "$fail" ]; then
+          echo "UNPARSEABLE"
+        else
+          echo "$fail"
+        fi
+      }
+
+      fail=$(run_ahk_once)
+      AHK_SUMMARY="$(cat "$AHK_SUMMARY_FILE")"
+      if [ "$fail" = "UNPARSEABLE" ]; then
         echo "  无法解析 AHK 结果汇总（未找到 总计/通过/失败）"
-        tail -20 "$SRC"
         FAILED+=("G3b")
+      elif [ "$fail" -ne 0 ]; then
+        echo "  AHK: $AHK_SUMMARY"
+        # ⚠️ 重试只有一次，且**不区分失败原因** —— 因为区分不了：确定性回归会在
+        #    重试中再次失败，偶发的宿主抖动则不会。这正是 TD-041 给 bench 门禁
+        #    加重试时用的同一条理由（「只重试，绝不重试回归判定」）。
+        #    根因是**门禁自负载**：G3b 紧接 G3a(cargo test --workspace) 运行，
+        #    而 cargo test 要先编译再跑测试（实测 72~104s），残留负载会让时延类
+        #    用例偶发红（曾触发 Test_Sequence_PreservesPhaseAndCountsDropped）。
+        echo "  ⚠️ 首次失败 ${fail} 个 —— 按 TD-041 口径重试 1 次"
+        echo "     确定性回归会在重试中再次失败，不会因此被掩盖。"
+        fail2=$(run_ahk_once)
+        AHK_SUMMARY="$(cat "$AHK_SUMMARY_FILE")"
+        if [ "$fail2" = "UNPARSEABLE" ]; then
+          echo "  无法解析 AHK 结果汇总（重试）"
+          FAILED+=("G3b")
+        else
+          echo "  AHK(重试): $AHK_SUMMARY"
+          if [ "$fail2" -eq 0 ]; then
+            echo "  ✅ 重试通过 —— 判定为宿主负载导致的偶发，G3b PASS"
+          else
+            echo "  ❌ 重试仍失败 ${fail2} 个 —— 判定为确定性回归，G3b FAIL"
+            FAILED+=("G3b")
+          fi
+        fi
       else
-        echo "  AHK: $summary"
-        [ "${fail:-0}" -eq 0 ] || FAILED+=("G3b")
+        echo "  AHK: $AHK_SUMMARY"
       fi
-      rm -f "$AHK_LOG" 2>/dev/null || true
+      rm -f "$AHK_SUMMARY_FILE" 2>/dev/null || true
     fi
   fi
 
