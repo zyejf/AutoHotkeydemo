@@ -318,6 +318,76 @@ def check_untracked(raw: dict) -> list[str]:
             + "。请 `git add` 后重跑，或确认是临时文件后删除 / 加入 .gitignore"]
 
 
+# ── 逆向边（分层反向依赖）白名单（TD-056）─────────────────────────────
+#
+# AGENTS.md：依赖方向恒由 depth 大 → 小；`infrastructure -> domain` 这类
+# 「小 → 大」即逆向边。既有 3 条都在 AGENTS.md「已知架构妥协 #1」里**逐条授权**
+# 过，但此前**只靠文档兜着、没有任何自动守护** —— 新人再加一条不会被任何东西拦。
+#
+# 与 TD-009 同一规矩：每条必须有**非空 reason 与未过期 expires**，到期必须复审。
+ALLOWED_REVERSE_EDGES: dict[tuple[str, str], dict[str, str]] = {
+    ("infrastructure/config_validator.ahk", "domain/joystick_input.ahk"): {
+        "reason": "校验摇杆按键名合法性时复用 `JoystickInput.IsJoystickKey()` 纯静态方法"
+                  "（无副作用、无状态）—— AGENTS.md 已知架构妥协 #1 明确授权",
+        "expires": "2027-03-18",
+    },
+    ("infrastructure/joy_hotkey_manager.ahk", "domain/joystick_input.ahk"): {
+        "reason": "复用 `JoystickInput` 纯工具函数以消除重复实现（此前为避免反向依赖而复制过"
+                  "整个类）—— AGENTS.md 已知架构妥协 #1 明确授权",
+        "expires": "2027-03-18",
+    },
+    ("infrastructure/joy_sender.ahk", "domain/interfaces.ahk"): {
+        "reason": "`JoySender` 实现 `IJoySender` 抽象接口，属依赖倒置"
+                  "（domain 定义接口 / joy_sender 实现），引用仅用于类型继承、无副作用无状态"
+                  " —— AGENTS.md 已知架构妥协 #1 明确授权",
+        "expires": "2027-03-18",
+    },
+}
+
+
+def _reverse_edge_fn():
+    """复用 `gen_graph_html.is_reverse_edge` —— 分层常量以那里为**唯一事实来源**
+    （AGENTS.md 明确要求），避免两处定义漂移。"""
+    sys.path.insert(0, str(REPO_ROOT / ".review-analysis"))
+    import gen_graph_html as g  # noqa: E402
+    return g.is_reverse_edge
+
+
+def check_reverse_edges(raw: dict) -> list[str]:
+    """逆向边守护（TD-056）：新增的、白名单外的分层反向依赖一律硬失败。
+
+    为什么单列一条：图谱此前只统计「跨层边」数量并打印 TOP，**完全不判方向**。
+    结果是 3 条 `infrastructure -> domain` 的反向依赖长期只靠 AGENTS.md 文档兜着，
+    既没有门禁也没有计数 —— 属于典型的「记录在案但无人看守」。
+    """
+    is_reverse = _reverse_edge_fn()
+    errs: list[str] = []
+    cur: set[tuple[str, str]] = set()
+    for e in raw.get("ahk", {}).get("edges", []):
+        if not e.get("in_scope"):
+            continue
+        if is_reverse(e.get("from_layer"), e.get("to_layer")):
+            cur.add((e["from"], e["to"]))
+
+    for edge in sorted(cur):
+        src, dst = edge
+        if edge not in ALLOWED_REVERSE_EDGES:
+            errs.append(
+                f"新增逆向边（分层反向依赖）{src} -> {dst} —— 依赖方向必须 depth 大 → 小。"
+                f"若为有意的架构妥协，请加进 ALLOWED_REVERSE_EDGES 并写明 reason 与 expires，"
+                f"同时同步 AGENTS.md「已知架构妥协」"
+            )
+            continue
+        meta = ALLOWED_REVERSE_EDGES[edge]
+        if not meta.get("reason"):
+            errs.append(f"逆向边白名单 {src} -> {dst} 缺 reason（TD-009 起强制）")
+        exp = str(meta.get("expires") or "")
+        if not exp or exp < str(date.today()):
+            errs.append(f"逆向边白名单 {src} -> {dst} 的 expires 缺失或已过期"
+                        f"（当前 {exp or '空'}）—— 到期必须复审")
+    return errs
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--no-rebuild", action="store_true", help="跳过重建图谱")
@@ -382,6 +452,7 @@ def main() -> int:
     errors.extend(check_extra_exclude_guard(raw))
     errors.extend(check_scan_anchors(cur_counts))
     errors.extend(check_untracked(raw))
+    errors.extend(check_reverse_edges(raw))
 
     # 2b) 硬失败：白名单外的新依赖违规
     allowed = {
