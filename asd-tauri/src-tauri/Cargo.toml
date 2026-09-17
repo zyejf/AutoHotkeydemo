@@ -76,32 +76,30 @@ doc_markdown = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 
-# ——— 非文档类 193 项：按批开启，进度见台账 TD-045 ———
-# ✅ 批次 1（2026-09-17）：uninlined_format_args 60 项 —— 已收干
-# ✅ 批次 2（2026-09-17）：must_use_candidate 40 项 —— 已收干
-# ⬜ 批次 3：needless_pass_by_value 22 项（动签名，风险最高）
-# ⬜ 批次 4：cast_* 13 项（需逐个判断是改写法还是登记豁免）
-# ⬜ 批次 5：too_many_lines 5 项（真重构）
-# ⬜ 批次 6：其余零散 ~53 项
+# ——— 非文档类：按批开启，进度见台账 TD-045 ———
+# ⚠️ 数字口径：以下均为**去重后**的告警数。`cargo clippy --all-targets` 会把同一条
+#    告警在 lib / test 两个 target 各报一遍，必须按 (lint, 文件, 行, 列) 去重后再数。
+#    台账 TD-045 最初登记的「618 项 / 文档类 425 / 非文档类 193」是**未去重**的原始
+#    计数，去重后真实为「约 430 / 290 / 140」，2026-09-17 已订正。
+#
+# 批次 1 ✅（2026-09-17）：uninlined_format_args 59 项
+# 批次 2 ✅（2026-09-17）：must_use_candidate 20 项
+# 批次 3 ✅（2026-09-17）：零散可自动修 ~27 项（map_unwrap_or / unnested_or_patterns /
+#     single_match_else / redundant_closure_for_method_calls / cloned_instead_of_copied /
+#     needless_continue / unreadable_literal / format_push_string / match_same_arms /
+#     semicolon_if_nothing_returned / items_after_statements /
+#     match_wildcard_for_single_variants / duration_suboptimal_units）
+# 批次 4 ⬜：needless_pass_by_value 11 项（动签名，风险最高，需逐个确认语义）
+# 批次 5 ⬜：cast_* 12 项（逐个判断「改写法」还是「登记豁免 + 理由」）
+# 批次 6 ⬜：unchecked_time_subtraction 4 + borrow_as_ptr/ptr_as_ptr 3 + unused_async 1
+# 批次 7 ⬜：too_many_lines 3 项（真重构，先补测试再动刀）
+# 批次 8 ⬜：文档类 290 项（doc_markdown 210 / missing_errors_doc 79 / missing_panics_doc 1）
 needless_pass_by_value = "allow"
-map_unwrap_or = "allow"
-unnested_or_patterns = "allow"
-single_match_else = "allow"
-duration_suboptimal_units = "allow"
-redundant_closure_for_method_calls = "allow"
 borrow_as_ptr = "allow"
-match_wildcard_for_single_variants = "allow"
 unchecked_time_subtraction = "allow"
 too_many_lines = "allow"
 cast_sign_loss = "allow"
 cast_precision_loss = "allow"
 cast_possible_truncation = "allow"
-unreadable_literal = "allow"
-needless_continue = "allow"
-format_push_string = "allow"
 ptr_as_ptr = "allow"
 unused_async = "allow"
-semicolon_if_nothing_returned = "allow"
-cloned_instead_of_copied = "allow"
-items_after_statements = "allow"
-match_same_arms = "allow"

@@ -134,9 +134,8 @@ async fn test_roundtrip_latency() {
         for _ in 0..200 {
             let mut line = String::new();
             match tokio::io::AsyncBufReadExt::read_line(&mut reader, &mut line).await {
-                Ok(0) => break,
+                Ok(0) | Err(_) => break,
                 Ok(_) => {}
-                Err(_) => break,
             }
             let msg: IpcMessage = match serde_json::from_str(line.trim()) {
                 Ok(m) => m,
@@ -181,8 +180,8 @@ async fn test_roundtrip_latency() {
     }
 
     let avg = latencies.iter().sum::<f64>() / latencies.len() as f64;
-    let min = latencies.iter().cloned().fold(f64::INFINITY, f64::min);
-    let max = latencies.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let min = latencies.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = latencies.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let mut sorted = latencies.clone();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let p50 = sorted[sorted.len() / 2];
@@ -283,14 +282,12 @@ fn test_hotkey_merger() {
     let has_f1 = flushed.iter().any(|m| {
         m.keys
             .as_ref()
-            .map(|k| k.contains(&"F1".to_string()))
-            .unwrap_or(false)
+            .is_some_and(|k| k.contains(&"F1".to_string()))
     });
     let has_f2 = flushed.iter().any(|m| {
         m.keys
             .as_ref()
-            .map(|k| k.contains(&"F2".to_string()))
-            .unwrap_or(false)
+            .is_some_and(|k| k.contains(&"F2".to_string()))
     });
     assert!(has_f1);
     assert!(has_f2);
@@ -850,7 +847,7 @@ async fn test_pending_responses_cleanup() {
     let wait_handle = tokio::spawn(async move {
         // 使用较长超时，确保不会因 timeout 先返回，只能被 cleanup 唤醒
         manager_for_wait
-            .wait_response(42, Duration::from_secs(60))
+            .wait_response(42, Duration::from_mins(1))
             .await
     });
 

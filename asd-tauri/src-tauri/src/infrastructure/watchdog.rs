@@ -449,7 +449,7 @@ impl ProcessWatchdog {
 
     #[must_use]
     pub fn child_pid(&self) -> Option<u32> {
-        self.child.as_ref().map(|c| c.with(|child| child.id()))
+        self.child.as_ref().map(|c| c.with(std::process::Child::id))
     }
 }
 
@@ -1121,7 +1121,7 @@ mod tests {
 
     #[test]
     fn test_send_wm_close_invalid_pid() {
-        let result = send_wm_close(999999);
+        let result = send_wm_close(999_999);
         assert!(result.is_ok());
     }
 
@@ -1256,11 +1256,11 @@ mod tests {
     /// 并在代码评审中单独论证其安全前提。
     #[test]
     fn test_no_handwritten_unsafe_send_sync_for_watchdog_types() {
-        let source = include_str!("watchdog.rs");
-
         /// 允许出现手写 `unsafe impl Send/Sync` 的类型白名单。
         /// 仅限「把 `!Send`/`!Sync` 收敛为单一可审计命题」的泛型封装层。
         const ALLOWED: &[&str] = &["RawHandle", "SendSyncCell"];
+
+        let source = include_str!("watchdog.rs");
 
         for line in source.lines() {
             let trimmed = line.trim();

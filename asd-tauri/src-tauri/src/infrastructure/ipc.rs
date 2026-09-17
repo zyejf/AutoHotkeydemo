@@ -21,7 +21,7 @@ const IPC_CHANNEL_CAPACITY: usize = 512;
 /// T6-05：AHK 子进程挂死且管道写满时，无超时的写入会无限阻塞 Tauri
 /// 工作线程，多命令并发可能耗尽线程池。此超时将该窗口限制在 2s 内，
 /// 超时视同管道不可靠，清理连接并返回 `SendTimeout`。
-const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(2000);
+const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 /// pending_responses 周期性清理的最大存活时间。
 ///
 /// **约束**: `send_and_wait` 的 timeout 不应超过此值，否则 pending response
@@ -570,7 +570,7 @@ impl IpcManager {
                 let result = recv_manager.recv().await;
                 let is_fatal = matches!(
                     result,
-                    Err(IpcError::ConnectionClosed) | Err(IpcError::PipeBroken(_))
+                    Err(IpcError::ConnectionClosed | IpcError::PipeBroken(_))
                 );
                 if msg_tx.send(result).await.is_err() {
                     break;
@@ -589,7 +589,7 @@ impl IpcManager {
                 result = msg_rx.recv() => {
                     let msg = match result {
                         Some(Ok(msg)) => msg,
-                        Some(Err(IpcError::ConnectionClosed) | Err(IpcError::PipeBroken(_))) => {
+                        Some(Err(IpcError::ConnectionClosed | IpcError::PipeBroken(_))) => {
                             tracing::warn!("IPC 管道断裂，等待重连");
                             self.notify_pipe_broken().await;
                             break;
@@ -618,7 +618,6 @@ impl IpcManager {
                             if let Some(cb) = cb {
                                 cb();
                             }
-                            continue;
                         }
                         MessageKind::Hotkey => {
                             let messages = {
@@ -733,9 +732,13 @@ fn generate_auth_token() -> String {
     let mut buf = [0u8; 32];
     match getrandom::getrandom(&mut buf) {
         Ok(()) => {
+            use std::fmt::Write as _;
             let mut hex = String::with_capacity(64);
             for byte in &buf {
-                hex.push_str(&format!("{byte:02x}"));
+                // 写入 String 不会失败，故忽略 Result。用 write! 而不是
+                // push_str(&format!(..))：后者每字节都会临时分配一个 String
+                // （clippy::format_push_string）。
+                let _ = write!(hex, "{byte:02x}");
             }
             hex
         }
@@ -744,8 +747,7 @@ fn generate_auth_token() -> String {
             let counter = AUTH_FALLBACK_COUNTER.fetch_add(1, Ordering::Relaxed);
             let ts = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0);
+                .map_or(0, |d| d.as_nanos());
             tracing::warn!(
                 "系统随机源不可用，使用 PID+计数器+时间戳作为 auth token 兜底: pid={pid}, counter={counter}, err={e}"
             );
@@ -1257,7 +1259,7 @@ mod tests {
     fn test_send_timeout_configured_to_2000ms() {
         assert_eq!(
             SEND_TIMEOUT,
-            std::time::Duration::from_millis(2000),
+            std::time::Duration::from_secs(2),
             "SEND_TIMEOUT 应为 2000ms，避免 AHK 挂死时无限阻塞工作线程"
         );
     }

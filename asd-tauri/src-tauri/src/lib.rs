@@ -163,8 +163,7 @@ fn spawn_heartbeat_ping(ipc_manager: IpcManagerArc) {
                 let guard = ipc_manager.lock().await;
                 if guard
                     .as_ref()
-                    .map(|m| m.is_shutting_down())
-                    .unwrap_or(false)
+                    .is_some_and(infrastructure::ipc::IpcManager::is_shutting_down)
                 {
                     tracing::info!("心跳 ping 循环检测到关机标志，退出");
                     return;
@@ -668,14 +667,13 @@ pub fn run() {
             // I36 补偿机制：注册 panic hook，确保崩溃时清理子进程
             register_panic_hook();
 
-            let config_path = app
-                .path()
-                .app_data_dir()
-                .map(|dir| dir.join("config.json"))
-                .unwrap_or_else(|e| {
+            let config_path = app.path().app_data_dir().map_or_else(
+                |e| {
                     tracing::error!("无法获取 app_data_dir: {e}，使用当前目录");
                     std::path::PathBuf::from("config.json")
-                });
+                },
+                |dir| dir.join("config.json"),
+            );
             let config = match ConfigRepository::load_from_file_checked(&config_path) {
                 Ok(c) => c,
                 Err(e) => {

@@ -47,18 +47,17 @@ impl IpcSender for IpcBridge {
                     let manager = ipc_manager.lock().await;
                     manager.clone()
                 };
-                match mgr {
-                    Some(mgr) => mgr.send_command(cmd).await.map_err(|e| {
+                if let Some(mgr) = mgr {
+                    mgr.send_command(cmd).await.map_err(|e| {
                         tracing::warn!("IPC 发送命令失败: {e}");
                         format!("IPC 通信错误: {e}")
-                    }),
-                    None => {
-                        tracing::warn!(
-                            "IPC 管理器未初始化，无法发送命令: {:?}",
-                            std::mem::discriminant(&cmd)
-                        );
-                        Err("IPC 管理器未初始化，请等待系统就绪".to_string())
-                    }
+                    })
+                } else {
+                    tracing::warn!(
+                        "IPC 管理器未初始化，无法发送命令: {:?}",
+                        std::mem::discriminant(&cmd)
+                    );
+                    Err("IPC 管理器未初始化，请等待系统就绪".to_string())
                 }
             })
         })
@@ -76,18 +75,17 @@ impl IpcSender for IpcBridge {
                     let manager = ipc_manager.lock().await;
                     manager.clone()
                 };
-                let (seq, rx) = match &mgr {
-                    Some(mgr) => mgr.prepare_send_and_wait(cmd).await.map_err(|e| {
+                let (seq, rx) = if let Some(mgr) = &mgr {
+                    mgr.prepare_send_and_wait(cmd).await.map_err(|e| {
                         tracing::warn!("IPC prepare_send_and_wait 失败: {e}");
                         format!("IPC 通信错误: {e}")
-                    })?,
-                    None => {
-                        tracing::warn!(
-                            "IPC 管理器未初始化，无法发送等待命令: {:?}",
-                            std::mem::discriminant(&cmd)
-                        );
-                        return Err("IPC 管理器未初始化，请等待系统就绪".to_string());
-                    }
+                    })?
+                } else {
+                    tracing::warn!(
+                        "IPC 管理器未初始化，无法发送等待命令: {:?}",
+                        std::mem::discriminant(&cmd)
+                    );
+                    return Err("IPC 管理器未初始化，请等待系统就绪".to_string());
                 };
 
                 match tokio::time::timeout(timeout, rx).await {

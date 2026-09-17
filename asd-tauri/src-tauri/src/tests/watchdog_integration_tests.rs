@@ -24,7 +24,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 // CREATE_NO_WINDOW 标志，避免子进程弹出控制台窗口
-const CREATE_NO_WINDOW: u32 = 0x08000000;
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// 启动一个长时间运行的子进程（ping 127.0.0.1 约 10 秒）。
 fn spawn_long_running_child() -> std::process::Child {

@@ -95,7 +95,9 @@ fn test_hybrid_mode_groups() {
                     assert_eq!(*press_keys, vec!["1", "2", "3"]);
                     assert_eq!(*intervals, vec![50, 50, 50]);
                 }
-                other => panic!("groups[0] 应为 Periodic，实际: {other:?}"),
+                other @ GroupItem::Sequence { .. } => {
+                    panic!("groups[0] 应为 Periodic，实际: {other:?}")
+                }
             }
 
             match &data.groups[1] {
@@ -108,7 +110,9 @@ fn test_hybrid_mode_groups() {
                     assert_eq!(*delays, vec![200, 500, 2000]);
                     assert_eq!(*seq_interval, None);
                 }
-                other => panic!("groups[1] 应为 Sequence，实际: {other:?}"),
+                other @ GroupItem::Periodic { .. } => {
+                    panic!("groups[1] 应为 Sequence，实际: {other:?}")
+                }
             }
         }
         other => panic!("组 1 应为 Hybrid 模式，实际: {other:?}"),
@@ -201,7 +205,9 @@ fn test_enhanced_hybrid_mode() {
                     assert_eq!(*press_keys, vec!["Space"]);
                     assert_eq!(*intervals, vec![100]);
                 }
-                other => panic!("groups[0] 应为 Periodic，实际: {other:?}"),
+                other @ GroupItem::Sequence { .. } => {
+                    panic!("groups[0] 应为 Periodic，实际: {other:?}")
+                }
             }
 
             match &data.groups[1] {
@@ -214,7 +220,9 @@ fn test_enhanced_hybrid_mode() {
                     assert_eq!(*delays, vec![100, 100, 100, 100, 100]);
                     assert_eq!(*seq_interval, Some(100));
                 }
-                other => panic!("groups[1] 应为 Sequence，实际: {other:?}"),
+                other @ GroupItem::Periodic { .. } => {
+                    panic!("groups[1] 应为 Sequence，实际: {other:?}")
+                }
             }
         }
         other => panic!("组 4 应为 EnhancedHybrid，实际: {other:?}"),
