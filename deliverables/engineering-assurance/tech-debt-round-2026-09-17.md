@@ -219,14 +219,27 @@ fn env_filter_from(log_spec: Option<&str>) -> EnvFilter {
 
 未执行的 **2124 个函数**里，绝大多数是 `generate_handler!` 为每个 Tauri 命令生成的**闭包**，以及 `run()` / `setup_ipc_callbacks()` 的**内部闭包**。**它们不是独立函数**，普通单元测试根本触达不到（`lib.rs` 23.65% 同属此类）。
 
-### 已实测一条路，证实不通
+### 已实测一条路，证实不通 —— 而且用对照组修正了归因
 
 仅 dev 开启 `tauri` 的 `test` feature，拿到 `tauri::test::mock_app()`：
 
 - ✅ **编译通过**
-- ❌ **测试二进制运行时报 `STATUS_ENTRYPOINT_NOT_FOUND`（0xc0000139）** —— DLL 入口点缺失
+- ❌ **运行时报 `STATUS_ENTRYPOINT_NOT_FOUND`（0xc0000139）**
 
-已**完整回滚**（`git status` 空，未留下跑不起来的测试）。这条路若将来重试，需先排查 DLL 依赖（怀疑与 WebView2 loader 或 Windows 运行时有关）。
+**第一次我差点把锅扣在 `tauri::test` 上。** 于是加了对照组重跑：
+
+| 组 | 内容 | 结果 |
+|---|---|---|
+| **控制组** | `assert_eq!(1 + 1, 2)` —— **完全不碰 `tauri::test`** | ❌ 同样 0xc0000139 |
+| **实验组** | `tauri::test::mock_app()` | ❌ 同样 0xc0000139 |
+
+**结论修正**：问题**不在** `tauri::test`，而是**开启该 feature 后整个测试二进制无法加载**。控制组一行 `tauri::test` 都没调用也崩，说明是链接 / DLL 层面的问题。
+
+**排除的假设**：怀疑 `target/debug/deps/asd_tauri_lib.dll`（cdylib 产物）被按名加载且版本不匹配——实测**挪走该 DLL 后仍然崩溃**，假设不成立。
+
+**下一步若要做**：用 Dependencies / `dumpbin /imports` 定位缺失的具体符号——**不要再重复试 `tauri::test` 本身**。本次实验已完整回滚。
+
+> 💡 **方法论**：环境类失败**先加对照组**。「A 功能跑不起来」和「加了 A 之后什么都跑不起来」是完全不同的两回事，不加对照很容易误判（这次就是靠对照组把排查方向整个扭转的）。
 
 ### 剩余选项（需决策）
 
