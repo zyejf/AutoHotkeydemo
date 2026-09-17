@@ -175,17 +175,26 @@ async fn test_roundtrip_latency() {
         let elapsed = start.elapsed();
 
         if i >= warmup {
-            latencies.push(elapsed.as_nanos() as f64 / 1000.0);
+            // 用 as_secs_f64() 而不是 `as_nanos() as f64`：后者会触发
+            // cast_precision_loss（u128→f64）。两者都算微秒，精度上 f64 的
+            // 有效位数对这个量级绰绰有余。
+            latencies.push(elapsed.as_secs_f64() * 1_000_000.0);
         }
     }
 
+    // clippy::cast_precision_loss：样本数是几百，usize→f64 的精度损失（>2^53
+    // 个样本）不可能发生。avg 只用于打印诊断信息，判定用下面的 p50。
+    #[allow(clippy::cast_precision_loss)]
     let avg = latencies.iter().sum::<f64>() / latencies.len() as f64;
     let min = latencies.iter().copied().fold(f64::INFINITY, f64::min);
     let max = latencies.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let mut sorted = latencies.clone();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let p50 = sorted[sorted.len() / 2];
-    let p95 = sorted[(sorted.len() as f64 * 0.95).ceil() as usize - 1];
+    // 整数运算代替 `(len as f64 * 0.95).ceil() as usize`：原式要过两趟浮点转换
+    // （usize→f64→usize，同时触发 truncation / sign_loss / precision_loss 三条）。
+    // `(len * 95).div_ceil(100)` 就是 ceil(len * 0.95)，全程整数、无精度问题。
+    let p95 = sorted[(sorted.len() * 95).div_ceil(100) - 1];
 
     eprintln!("\n=== IPC 往返延迟测量 ===");
     eprintln!("样本数: {rounds} (预热: {warmup})");

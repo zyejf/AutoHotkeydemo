@@ -98,10 +98,9 @@ missing_panics_doc = "allow"
 #     与 `tests/command_contract_tests.rs::tauri_command_args_stay_owned`（该测试
 #     静态扫描，命令参数除 state 外不得出现借用类型 —— allow 之后编译期没保护了，
 #     这条测试补上）。
-# 批次 6 ⬜：cast_* 12 项（逐个判断「改写法」还是「登记豁免 + 理由」）
+# 批次 6 ✅（2026-09-17）：cast_* 12 项 —— 9 项改写法、3 项**就地 allow + 理由**
+#     （改写法优先：能改的都不留告警。登记豁免的 3 处都在代码里写了「为什么不改」：
+#      benches 打印 KB、Windows API 参数就是 u32、样本数转 f64 求均值）
 # 批次 7 ⬜：too_many_lines 3 项（真重构，先补测试再动刀）
 # 批次 8 ⬜：文档类 290 项（doc_markdown 210 / missing_errors_doc 79 / missing_panics_doc 1）
 too_many_lines = "allow"
-cast_sign_loss = "allow"
-cast_precision_loss = "allow"
-cast_possible_truncation = "allow"

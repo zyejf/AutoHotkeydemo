@@ -37,11 +37,11 @@ fn generate_large_config(group_count: usize) -> Config {
         let mode_data = match i % 7 {
             0 => ModeData::Periodic(PeriodicData {
                 keys: (0..5).map(|j| format!("key_{i}_{j}")).collect(),
-                intervals: (0..5).map(|j| 50 + j as u64 * 10).collect(),
+                intervals: (0..5u64).map(|j| 50 + j * 10).collect(),
             }),
             1 => ModeData::Sequence(SequenceData {
                 keys: (0..5).map(|j| format!("key_{i}_{j}")).collect(),
-                delays: (0..5).map(|j| 100 + j as u64 * 20).collect(),
+                delays: (0..5u64).map(|j| 100 + j * 20).collect(),
             }),
             2 => ModeData::Hybrid(HybridData {
                 groups: vec![
@@ -64,11 +64,11 @@ fn generate_large_config(group_count: usize) -> Config {
             }),
             4 => ModeData::EnhancedPeriodic(EnhancedPeriodicData {
                 press_keys: (0..5).map(|j| format!("key_{i}_{j}")).collect(),
-                intervals: (0..5).map(|j| 50 + j as u64 * 10).collect(),
+                intervals: (0..5u64).map(|j| 50 + j * 10).collect(),
             }),
             5 => ModeData::EnhancedSequence(EnhancedSequenceData {
                 press_keys: (0..5).map(|j| format!("key_{i}_{j}")).collect(),
-                press_delays: (0..5).map(|j| 100 + j as u64 * 20).collect(),
+                press_delays: (0..5u64).map(|j| 100 + j * 20).collect(),
             }),
             _ => ModeData::EnhancedHybrid(EnhancedHybridData {
                 groups: vec![
@@ -150,7 +150,7 @@ fn generate_100_keys_config() -> IndexMap<String, GroupConfig> {
                 hold_triggers: None,
                 mode_data: ModeData::Periodic(PeriodicData {
                     keys: (0..10).map(|j| format!("key_{i}_{j}")).collect(),
-                    intervals: (0..10).map(|j| 50 + j as u64 * 5).collect(),
+                    intervals: (0..10u64).map(|j| 50 + j * 5).collect(),
                 }),
             },
         );
@@ -192,6 +192,9 @@ fn generate_10_groups_for_toggle() -> IndexMap<String, GroupConfig> {
 fn bench_config_loading(c: &mut Criterion) {
     let config = generate_large_config(20);
     let json = serde_json::to_string(&config).unwrap();
+    // clippy::cast_precision_loss：usize→f64 在 >2^53 字节（8 PB）时才失真，
+    // 这里只是把配置 JSON 的长度换算成 KB 打印出来，不可能达到那个量级。
+    #[allow(clippy::cast_precision_loss)]
     let json_size_kb = json.len() as f64 / 1024.0;
 
     let mut group = c.benchmark_group("config_loading");

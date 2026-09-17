@@ -687,11 +687,18 @@ impl JobObjectGuard {
                     },
                 ..Default::default()
             };
+            // clippy::cast_possible_truncation：Windows 的
+            // SetInformationJobObject 这个参数就是 u32，而该结构体的大小是
+            // 编译期常量（实测数百字节），不可能超过 u32::MAX。用 `as u32`
+            // 而不用 `u32::try_from(..).unwrap()`：后者为不可能的情况增加一条
+            // panic 路径，反而更差。
+            #[allow(clippy::cast_possible_truncation)]
+            let info_size = std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32;
             SetInformationJobObject(
                 handle,
                 JOBOBJECTINFOCLASS(JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS),
                 std::ptr::from_ref(&info).cast(),
-                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                info_size,
             )?;
             Ok(Self(SendSyncCell::new(RawHandle::new(handle))))
         }
