@@ -1539,7 +1539,7 @@ cd asd-tauri      && cargo audit        # 需要能访问 RustSec advisory-db
 | 范围 | 档位 | 理由 |
 |---|---|---|
 | `asd-domain` / `asd-ipc-protocol` / `asd-application` / `asd-test-harness` | **pedantic**（`[lints] workspace = true`） | 业务逻辑与调度在这里，最需要护栏 |
-| `src-tauri` | 默认档 | 2026-09-17 用 `--message-format=json` 精确实测：承接 workspace lints 会出 **618** 项，其中 **425** 项是文档类（`doc_markdown` 265 / `missing_errors_doc` 158 / `missing_panics_doc` 2），其余以 `uninlined_format_args` 60 / `must_use_candidate` 40 / `needless_pass_by_value` 22 为主。大量是 Tauri 样板代码的文档噪声，开了等于把真信号淹掉 —— 先守住业务逻辑，入口层另行排期（TD-045） |
+| `src-tauri` | **pedantic（显式清单 + 分批开启）** | 2026-09-17 起不再「完全不放 lint」，改为在 `src-tauri/Cargo.toml` 自己写 `[lints.clippy]`：`pedantic = { level = "warn", priority = -1 }`，未处理的 lint 逐条 `allow`，**每批只翻一个**。不一次放开的原因：全量约 **430** 项（去重后），其中 **290** 项是文档类（`doc_markdown` 210 / `missing_errors_doc` 79 / `missing_panics_doc` 1），一次放开等于把真信号淹掉。⚠️ **计数口径**：`cargo clippy --all-targets` 会把同一条告警在 lib / test 两个 target 各报一遍，必须按 `(lint, 文件, 行, 列)` 去重后再数 —— 台账曾登记过「618 / 425」，那是未去重的旧数字，勿再引用。进度与每批做法见台账 TD-045**已完成的批次**由 G2b（`-D warnings`）守住，新增代码违反即红 |
 
 - **阈值**只放 `asd-tauri/clippy.toml`；**启停**只放根 `Cargo.toml` 的 `[workspace.lints]`。
   两处都能改级别，分散了就没人看得全，最后变成「不知道某条 lint 到底开没开」。

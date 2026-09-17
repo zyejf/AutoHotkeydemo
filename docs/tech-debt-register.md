@@ -27,7 +27,7 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 | 测试 | AHK 664（CI 657 + 跳过 7）；Rust 405；E2E 53（CI 默认关）；criterion bench 7；fuzz 5 | **AHK 719**（CI 712 + 跳过 7）—— +33 来自 TD-002、+10 来自 TD-030、+12 来自 TD-034/035/036 |
 | 覆盖率 | 仅 3 个纯逻辑 crate 采集，**无阈值、非阻断** | 同左 |
 | 仓库体积 | `AutoHotkey-2.0.26/` 221 文件 / 7.9M（vendored 引擎源码） | **181 文件 / 7.7M**（移出 40 个混入文件，TD-010） |
-| C1a 孤儿文件 | **19** 项（AHK 语料 109） | **8** 项（语料 96）—— TD-029 清掉 5 个根目录死文件、TD-025 前的 3 个临时脚本 |
+| C1a 孤儿文件 | **19** 项（AHK 语料 109） | **8** 项（语料 96）—— TD-029 清掉 5 个根目录死文件、TD-025 前的 3 个临时脚本；2026-09-17 再收紧到 **0**（TD-037/040/042 把它们接进 G3g 后入边成立，不再是孤儿） |
 | C1b 同名重复 | **7** 个 basename（14 个文件） | **1** 个 |
 | C1c 代码在非代码目录 | **4** 项（全在 `docs/review/2026-08-20/fix-plan/workspace-snapshot/`） | **0** 项 |
 | C2 测试未接入执行 | **10** 项（tests/ 语料 23，可达 13） | **8** 项（语料 22，可达 14） |
@@ -112,9 +112,9 @@ P0 ≥10   P1 5–10   P2 2–5   P3 <2
 
 | TD-044 | A 死代码 / 功能缺口 | **验证报告面板从未被填充**：`index.html` 里有 `valReport`、`radarCanvas`、`deviationCanvas`、`holdCanvas`、`valHistoryList` 五个 DOM 节点，而唯一会渲染它们的两个函数 `showValReport`（13 行）与 `renderValHistory`（6 行）**从未被任何代码调用** —— 也就是说验证跑完后报告面板永远不会显示。TD-022 收敛 lint 时按死代码删掉了这两个函数（以及只被它们使用的 `_valHistory` / `_valHistoryMax`），此条记录**功能缺口本身**：要么在 `stopValidation` 之后接上渲染，要么把这五个 DOM 一并删掉。**不要**只删 DOM 当作没这回事 | 1 | 2 | 3 | 2 | 2 | 1.5 | **3.8** | P2 | 待排期（2026-09-17 登记。删除的代码在 git 历史里可查。判断「该接上还是该删」需要产品决定，不属技术债清理范围） | 3 |
 
-| TD-045 | F 文档工程 | `src-tauri`（入口层 / Tauri 样板）**不承接 workspace lints**，因此 `pedantic` 与文档类 lint 在那里全部关闭。2026-09-17 用 `--message-format=json` 精确实测：若给它加 `[lints] workspace = true`，会出 **618 项**告警 —— `doc_markdown` 265 / `missing_errors_doc` 158 / `uninlined_format_args` 60 / `must_use_candidate` 40 / `needless_pass_by_value` 22 / `missing_panics_doc` 2，其余零散；其中**文档类共 425 项**。⚠️ 台账与 `Cargo.toml` 里原先写的「587 / 476」是过时数字，本轮已一并更正 | 2 | 3 | 3 | 2 | 2 | 1.5 | **4.7** | P2 | 待排期（2026-09-17 登记。**不建议一次性打开** —— 425 项文档噪声会淹掉真信号，这正是当初不承接的理由。可行路径：先只开非文档类的那 193 项（`uninlined_format_args` / `must_use_candidate` / `needless_pass_by_value` / cast 系列），文档类按模块分批补；每批只开一个 lint、修完再开下一个，避免「一次放开 → 全员无视」） | 3 |
+| TD-045 | F 文档工程 | `src-tauri`（入口层 / Tauri 样板）**不承接 workspace lints**，`pedantic` 与文档类 lint 在那里全部关闭。⚠️ **数字已于 2026-09-17 订正**：原记「618 项 / 文档类 425 / 非文档类 193」是 `--message-format=json` 的**未去重**计数 —— `cargo clippy --all-targets` 会把同一条告警在 lib / test 两个 target 各报一遍。按 `(lint, 文件, 行, 列)` 去重后真实为 **约 430 项**：文档类 **290**（`doc_markdown` 210 / `missing_errors_doc` 79 / `missing_panics_doc` 1）、非文档类 **140**。（台账与 `Cargo.toml` 里更早写的「587 / 476」同样是过时数字，一并作废） | 2 | 3 | 3 | 2 | 2 | 1.5 | **4.7** | P2 | **部分完成**（2026-09-17 批次 1–4 已收干非文档类 **113 / 140** 项。**做法**：不用 `[lints] workspace = true`（一次放开 425 项文档噪声会把真信号淹掉，且该 cargo 版本不支持 per-tool 的 `workspace = true`，见下），改为在 `src-tauri/Cargo.toml` 写**显式清单**：`pedantic` 开到 warn（`priority = -1` 让逐条 allow 能盖住它），未处理的 lint 逐条 `allow`，每批只翻一个。防复发靠既有闸门 **G2b**（`-D warnings`）—— 不是新写的脚本，所以没有「守护与被测代码一起被改坏」的问题。**批次 1** `uninlined_format_args` 59（clippy --fix 自动改，纯语法等价）；**批次 2** `must_use_candidate` 20（`ipc.rs`/`watchdog.rs`/`bridge.rs` 的 `next_seq`、`state()`、`watchdog()` 这类「看着像查询、实则有语义」的函数，返回值被丢弃从此有信号）；**批次 3** 零散 27 项（自动修 17 + 手修 10，其中 `config_compat_tests.rs` 4 处 `other =>` 改成 `other @ GroupItem::X { .. }` 是真改进：`GroupItem` 只有两个变体，通配臂等价于「另一个变体」，写显式后**将来新增变体会变成编译错误**）；**批次 4** 时间戳减法 4 + 指针转换 2 + `unused_async` 1（不能机械改，逐个论证：退避剩余时间改 `checked_sub` 消掉隐式下溢前提、测试里抽 `instant_ago()` helper、`&mut x` → `addr_of_mut!`、`forward_to_outbound` 去掉无 await 的 async）。四批各做一组阳性对照，注入违规后 G2b 均报 error 并指名 lint。**剩余 27 项**：`needless_pass_by_value` 11（动签名，风险最高）、`cast_*` 12（逐个判断改写法 or 登记豁免）、`too_many_lines` 3（真重构，先补测试）、文档类 290 | 3 |
 
-**统计**：P0 **12** 项（**全部完成**）｜P1 **16** 项（**全部完成**）｜P2 **17** 项（**10 项已完成**、3 项部分完成、1 项豁免、3 项待排期）｜合计 **45** 项。
+**统计**：P0 **12** 项（**全部完成**）｜P1 **16** 项（**全部完成**）｜P2 **17** 项（**10 项已完成**、4 项部分完成、1 项豁免、2 项待排期）｜合计 **45** 项。
 
 > P1 仅剩 TD-028（推送后无 CI 结论监控）待排期、TD-032（测试产物入库）部分完成。剩余集中在
 > 「测试补齐」（TD-005/007/016）与「静态分析 / 文档债」（TD-021/022/023），外加被 TD-016 阻塞的 TD-020。均不阻塞交付。
@@ -144,11 +144,13 @@ C1a/C1b/C1c/C2/C3b 都是**棘轮**：存量债登记进 `.review-analysis/tech-
 **C3、C4、C5、C6、C7 是例外：硬失败、必须恒为 0** —— 它们守的是**规则**（文档与代码必须一致 / 占位目录不得放文件 / 成员目录不得有冗余 lock / vendored 引擎树必须与上游一致 / 布尔契约必须同步），
 不是存量债，没有「先登记、以后再说」的余地。
 
-C1a 剩余 **8** 项（原 13，TD-029 已清 5 个根目录死文件）**没有**对应已登记债项，
-且**不能按孤儿直接删** —— 其中 7 项是 `tests/` 下用 `TestReporter` 的独立脚本，
-有真断言（合计 125 条 `TestReporter.Assert`）只是没接入执行，属 TD-031 的范围；
-另 1 项 `tools/ahk-bench/lib/seqgen_test.ahk` 有 20 个 `Test_` 函数、同样是**从未执行**的测试。
-需逐一定性（接入执行 / 迁移到 AutoHotUnit / 确认弃用）后再动。
+C1a 原 13 项（TD-029 清掉 5 个根目录死文件 → 8）**已于 2026-09-17 归零**，且**不是靠删文件**：
+这 8 项里 7 项是 `tests/` 下用 `TestReporter` 的独立脚本、1 项是 `tools/ahk-bench/lib/seqgen_test.ahk`，
+都有真断言，只是当时没接入执行。TD-037 / TD-040 / TD-042 把它们接进
+`run-standalone-ahk-tests.sh`（G3g）后入边成立，C1a 的判定（无入边 / 非入口 / 无跨语言引用）
+自然不再命中 —— 水位已用 `--update-baseline` 收紧到 0。
+**这条是本仓库「接入测试」比「删代码」更划算的又一个证据**：删掉它们同样能让数字归零，
+但会连带丢掉那些第一次跑就抓出 TD-034/035/036 三个生产 BUG 的断言。
 
 ---
 

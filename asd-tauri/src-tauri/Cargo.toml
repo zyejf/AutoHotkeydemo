@@ -57,8 +57,9 @@ harness = false
 # ── lint 配置（TD-045）───────────────────────────────────────────────
 #
 # 本 crate 是入口层 / Tauri 样板，**刻意不**用 `[lints] workspace = true` 继承：
-# pedantic 全开实测 618 项，其中 425 项是文档类（doc_markdown 265 /
-# missing_errors_doc 158 / missing_panics_doc 2），一次放开等于把真信号淹掉。
+# pedantic 全开约 430 项（去重后），其中 290 项是文档类（doc_markdown 210 /
+# missing_errors_doc 79 / missing_panics_doc 1），一次放开等于把真信号淹掉。
+# （618 / 425 是**未去重**的旧数字，`--all-targets` 会把同一条报两遍，勿再引用。）
 # 改为**显式清单 + 逐批开启**：每批只把一个 lint 从 allow 翻成默认（删该行），
 # 修干净再开下一个。已开启的由 G2b（`cargo clippy --workspace --all-targets
 # -- -D warnings`）守住，回归即红 —— 这条闸门本身就是防复发机制。
@@ -71,7 +72,7 @@ harness = false
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 
-# ——— 文档类（425 项）：TD-045 分批补，先关 ———
+# ——— 文档类（290 项）：TD-045 批次 8，先关 ———
 doc_markdown = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
