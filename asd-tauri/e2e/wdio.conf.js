@@ -5,7 +5,7 @@
 // 所有 JS 使用 ESM 语法（package.json type=module）
 // =================================================================
 import { spawn, execSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import net from 'node:net';
@@ -140,6 +140,72 @@ export const config = {
     // ===== 诊断日志：记录 E2E 启动环境状态 =====
     const diagLines = [];
     diagLines.push(`[${new Date().toISOString()}] E2E 诊断启动`);
+
+    // 0. AHK 执行器新鲜度（TD-046）—— 刻意放在**所有耗时检查之前**。
+    //
+    // `resolve_ahk_executor_path`（src-tauri/src/lib.rs:608）**优先**用
+    // `ahk_executor/asd_executor.exe`；只要它存在，便携模式（AutoHotkey64.exe +
+    // 当前 executor.ahk）就永远不会被选中。而它是 Ahk2Exe 的编译产物、被 `*.exe`
+    // 规则排除在版本库外，**不会随 .ahk 源码改动自动重建**。
+    //
+    // 2026-09-17 实测代价：本地那份 exe 编译于 2026-06-29，而 executor.ahk /
+    // ipc_client.ahk / sender.ahk 分别改到 9/11 / 9/12 / 9/15 —— E2E 一直在拿旧了
+    // 2.5 个月的执行器跑，产出 12 条「AHK 子进程未启动 / 未捕获到任何按键事件」的
+    // HIGH 已知问题，**全是假的**，还被当成产品缺陷登记进文档。
+    //
+    // 所以这里**硬失败而不是 warn**：跑旧二进制得到的不是「慢一点」的结果，而是
+    // **结论无效**的结果 —— 而且它会被当成产品缺陷写进文档，污染后续判断。
+    //
+    // 位置也有讲究：Vite 预热实测要 109s（TD-016），若把这条放在预热之后，
+    // 每次命中都要先白等两分钟才报错。故排在 onPrepare 的第一项。
+    {
+      const ahkDir = resolve(projectRoot, 'src-tauri/ahk_executor');
+      const ahkExePath = resolve(ahkDir, 'asd_executor.exe');
+      if (existsSync(ahkExePath)) {
+        const exeMtime = statSync(ahkExePath).mtimeMs;
+        const newerSources = readdirSync(ahkDir)
+          .filter((f) => f.endsWith('.ahk'))
+          .map((f) => ({ f, m: statSync(resolve(ahkDir, f)).mtimeMs }))
+          .filter((x) => x.m > exeMtime);
+        if (newerSources.length > 0) {
+          const detail = newerSources
+            .map((x) => `  - ${x.f} (${new Date(x.m).toISOString()})`)
+            .join('\n');
+          const fatal = [
+            '',
+            '========================================',
+            'FATAL: asd_executor.exe 比 .ahk 源码旧 —— 本次运行结论无效',
+            '========================================',
+            `编译产物: ${ahkExePath}`,
+            `编译时间: ${new Date(exeMtime).toISOString()}`,
+            '比它新的源码:',
+            detail,
+            '',
+            'Rust 侧优先用编译产物（resolve_ahk_executor_path，lib.rs:608），',
+            '只要它存在就不会走便携模式，所以不重建就会一直用旧执行器。',
+            '',
+            '处置（二选一）:',
+            '  1) 重建: 在 src-tauri/ 下执行 .\\build_ahk.ps1',
+            '  2) 改用便携模式（始终跑当前源码）: 把 asd_executor.exe 移出该目录',
+            '',
+          ].join('\n');
+          writeFileSync(resolve(reportsDir, 'FATAL-stale-ahk-executor.txt'), fatal, 'utf-8');
+          writeFileSync(
+            resolve(reportsDir, 'e2e-diagnostic.log'),
+            diagLines.join('\n') + '\n' + fatal + '\n',
+            'utf-8'
+          );
+          throw new Error(fatal);
+        }
+        diagLines.push(
+          `[OK] asd_executor.exe 不比任何 .ahk 源码旧（编译于 ${new Date(exeMtime).toISOString()}）`
+        );
+      } else {
+        diagLines.push(
+          '[OK] 无编译产物，走便携模式 AutoHotkey64.exe + executor.ahk（始终是当前源码）'
+        );
+      }
+    }
 
     // 1. 检查 binary
     if (existsSync(binaryAbsPath)) {
