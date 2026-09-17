@@ -144,9 +144,18 @@ export function appendKnownIssue(
     `- **影响:** ${impact}\n` +
     `- **建议:** ${suggestion}\n\n`;
 
-  if (!existsSync(knownIssuesPath)) {
-    writeFileSync(knownIssuesPath, `# E2E 已知问题\n\n${issueHeader}${issueBody}`, 'utf-8');
-  } else {
+  // ⚠️ 必须按 issueId 去重。本函数在「环境限制」（spec 里显式调用后 return）与
+  //    「用例失败」（afterEach）两条路径上都会走到，而 e2e-known-issues.md 是
+  //    **已入库**的文档 —— 不去重的话每次 E2E 运行都会追加重复条目，
+  //    几十次运行后这份文档就没法看了（2026-09-17 实测：一次运行新增 4 条）。
+  //    同一 issueId 只登记一次；内容变了请手工改，不要靠重复追加来「更新」。
+  if (existsSync(knownIssuesPath)) {
+    const existing = readFileSync(knownIssuesPath, 'utf-8');
+    if (existing.includes(`## ${issueId} [`)) {
+      return;
+    }
     appendFileSync(knownIssuesPath, `${issueHeader}${issueBody}`, 'utf-8');
+  } else {
+    writeFileSync(knownIssuesPath, `# E2E 已知问题\n\n${issueHeader}${issueBody}`, 'utf-8');
   }
 }

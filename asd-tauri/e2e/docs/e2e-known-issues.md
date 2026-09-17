@@ -244,3 +244,115 @@
 - **副作用:** 每次 E2E 多付约 60s（一次性，在 onPrepare 内，不占用例预算）。
   预热失败**不阻塞**，只打 `[WARN]` 并退化成原来的慢首屏。
 
+## ISSUE-E2E-IPC-004-NO-EVENT [MEDIUM] (关联用例: E2E-IPC-004)
+
+- **复现步骤:** 激活分组后等待 3s，前端未收到 hotkey_event 事件
+- **预期:** 按下 F1 后前端应收到 hotkey_event 事件
+- **实际:** E2E 环境无法可靠模拟真实键盘按下，hotkey_event 未触发
+- **影响:** 热键事件转发链路无法完整验证
+- **建议:** 在手动测试环境按下 F1 验证，或使用 key_receiver 辅助验证
+
+## ISSUE-E2E-IPC-006-NO-EVENT [MEDIUM] (关联用例: E2E-IPC-006)
+
+- **复现步骤:** 开始录制后等待 2s，前端未收到 key_record_event 事件
+- **预期:** 录制时按下按键前端应收到 key_record_event 事件
+- **实际:** E2E 环境无法可靠模拟真实键盘按下，key_record_event 未触发
+- **影响:** key_record_event 转发链路无法完整验证
+- **建议:** 在手动测试环境按下按键验证
+
+## ISSUE-E2E-KEY-001-IPC [HIGH] (关联用例: E2E-KEY-001)
+
+- **复现步骤:** 启动分组并等待按键执行（periodic Space）
+- **预期:** key_log.txt 应包含 periodic Space 按键事件
+- **实际:** 未捕获到任何按键事件，可能是 AHK 子进程未启动、IPC 通信失败或 key_receiver 窗口未聚焦
+- **影响:** E2E-KEY-001 测试无法验证
+- **建议:** 检查 ProcessWatchdog、AHK 执行器子进程启动逻辑与 key_receiver 窗口焦点
+
+## ISSUE-E2E-KEY-002-IPC [HIGH] (关联用例: E2E-KEY-002)
+
+- **复现步骤:** 启动分组并等待按键执行（periodic Space 间隔）
+- **预期:** key_log.txt 应包含 periodic Space 间隔 按键事件
+- **实际:** 未捕获到任何按键事件，可能是 AHK 子进程未启动、IPC 通信失败或 key_receiver 窗口未聚焦
+- **影响:** E2E-KEY-002 测试无法验证
+- **建议:** 检查 ProcessWatchdog、AHK 执行器子进程启动逻辑与 key_receiver 窗口焦点
+
+## ISSUE-E2E-KEY-003-IPC [HIGH] (关联用例: E2E-KEY-003)
+
+- **复现步骤:** 启动分组并等待按键执行（sequence 1,2,3）
+- **预期:** key_log.txt 应包含 sequence 1,2,3 按键事件
+- **实际:** 未捕获到任何按键事件，可能是 AHK 子进程未启动、IPC 通信失败或 key_receiver 窗口未聚焦
+- **影响:** E2E-KEY-003 测试无法验证
+- **建议:** 检查 ProcessWatchdog、AHK 执行器子进程启动逻辑与 key_receiver 窗口焦点
+
+## ISSUE-E2E-KEY-004-IPC [HIGH] (关联用例: E2E-KEY-004)
+
+- **复现步骤:** 启动分组并等待按键执行（hold Shift down）
+- **预期:** key_log.txt 应包含 hold Shift down 按键事件
+- **实际:** 未捕获到任何按键事件，可能是 AHK 子进程未启动、IPC 通信失败或 key_receiver 窗口未聚焦
+- **影响:** E2E-KEY-004 测试无法验证
+- **建议:** 检查 ProcessWatchdog、AHK 执行器子进程启动逻辑与 key_receiver 窗口焦点
+
+## ISSUE-E2E-KEY-005-IPC [HIGH] (关联用例: E2E-KEY-005)
+
+- **复现步骤:** 启动分组并等待按键执行（periodic Space 紧急释放前）
+- **预期:** key_log.txt 应包含 periodic Space 紧急释放前 按键事件
+- **实际:** 未捕获到任何按键事件，可能是 AHK 子进程未启动、IPC 通信失败或 key_receiver 窗口未聚焦
+- **影响:** E2E-KEY-005 测试无法验证
+- **建议:** 检查 ProcessWatchdog、AHK 执行器子进程启动逻辑与 key_receiver 窗口焦点
+
+## ISSUE-E2E-MODE-001-IPC [HIGH] (关联用例: E2E-MODE-001)
+
+- **复现步骤:** 启动分组并等待按键执行（periodic Space）
+- **预期:** key_log.txt 应包含 periodic Space 按键事件
+- **实际:** 未捕获到任何按键事件，可能是 AHK 子进程未启动或 IPC 通信失败
+- **影响:** E2E-MODE-001 测试无法验证
+- **建议:** 检查 ProcessWatchdog 与 AHK 执行器子进程启动逻辑
+
+## ISSUE-E2E-MODE-002-IPC [HIGH] (关联用例: E2E-MODE-002)
+
+- **复现步骤:** 启动分组并等待按键执行（sequence 1,2,3）
+- **预期:** key_log.txt 应包含 sequence 1,2,3 按键事件
+- **实际:** 未捕获到任何按键事件，可能是 AHK 子进程未启动或 IPC 通信失败
+- **影响:** E2E-MODE-002 测试无法验证
+- **建议:** 检查 ProcessWatchdog 与 AHK 执行器子进程启动逻辑
+
+## ISSUE-E2E-MODE-003-IPC [HIGH] (关联用例: E2E-MODE-003)
+
+- **复现步骤:** 启动分组并等待按键执行（hybrid Space+1,2）
+- **预期:** key_log.txt 应包含 hybrid Space+1,2 按键事件
+- **实际:** 未捕获到任何按键事件，可能是 AHK 子进程未启动或 IPC 通信失败
+- **影响:** E2E-MODE-003 测试无法验证
+- **建议:** 检查 ProcessWatchdog 与 AHK 执行器子进程启动逻辑
+
+## ISSUE-E2E-MODE-004-IPC [HIGH] (关联用例: E2E-MODE-004)
+
+- **复现步骤:** 启动分组并等待按键执行（hold Shift）
+- **预期:** key_log.txt 应包含 hold Shift 按键事件
+- **实际:** 未捕获到任何按键事件，可能是 AHK 子进程未启动或 IPC 通信失败
+- **影响:** E2E-MODE-004 测试无法验证
+- **建议:** 检查 ProcessWatchdog 与 AHK 执行器子进程启动逻辑
+
+## ISSUE-E2E-MODE-005-IPC [HIGH] (关联用例: E2E-MODE-005)
+
+- **复现步骤:** 启动分组并等待按键执行（enhanced_periodic Space,1）
+- **预期:** key_log.txt 应包含 enhanced_periodic Space,1 按键事件
+- **实际:** 未捕获到任何按键事件，可能是 AHK 子进程未启动或 IPC 通信失败
+- **影响:** E2E-MODE-005 测试无法验证
+- **建议:** 检查 ProcessWatchdog 与 AHK 执行器子进程启动逻辑
+
+## ISSUE-E2E-MODE-006-IPC [HIGH] (关联用例: E2E-MODE-006)
+
+- **复现步骤:** 启动分组并等待按键执行（enhanced_sequence 1,2,3）
+- **预期:** key_log.txt 应包含 enhanced_sequence 1,2,3 按键事件
+- **实际:** 未捕获到任何按键事件，可能是 AHK 子进程未启动或 IPC 通信失败
+- **影响:** E2E-MODE-006 测试无法验证
+- **建议:** 检查 ProcessWatchdog 与 AHK 执行器子进程启动逻辑
+
+## ISSUE-E2E-MODE-007-IPC [HIGH] (关联用例: E2E-MODE-007)
+
+- **复现步骤:** 启动分组并等待按键执行（enhanced_hybrid Space+1,2）
+- **预期:** key_log.txt 应包含 enhanced_hybrid Space+1,2 按键事件
+- **实际:** 未捕获到任何按键事件，可能是 AHK 子进程未启动或 IPC 通信失败
+- **影响:** E2E-MODE-007 测试无法验证
+- **建议:** 检查 ProcessWatchdog 与 AHK 执行器子进程启动逻辑
+
