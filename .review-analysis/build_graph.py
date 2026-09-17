@@ -108,6 +108,35 @@ def git_untracked_files(exts, extra_exclude=()):
     return untracked
 
 
+# ------------------------------------------------- extra_exclude 规则登记（TD-051）
+# 为什么要把规则从调用点抽到这儿集中登记：规则写在调用点里就**没人验证它是否还成立**。
+# 目录改名、路径拼错、尾斜杠写法变化，都会让规则静默匹配 0 个文件，而一切看起来正常。
+# 抽出来后由 check_extra_exclude_rules() 逐条验证（见文件末尾）。
+#
+# ⚠️ 登记项一旦被删空，守护会**硬失败**并提示「规则被整体删除」——
+# 那不是误报，是防止有人把规则删光还以为闸门在守。
+EXTRA_EXCLUDE_RULES = {
+    # Tauri v2 在 asd-tauri/src-tauri/gen 下目前只生成 .json、不生成 .rs，
+    # 所以这条规则在 .rs 集合上命中 0 —— 它是**预防性**的（将来若生成 .rs 要排除）。
+    # 这正是「命中 0 不能判失效」的由来（2026-09-18 实测）。
+    "build_rust": ("asd-tauri/src-tauri/gen",),
+    # build_js 的 e2e 排除规则已于 TD-051 移除：e2e 进图了，不再需要排除。
+}
+
+
+def _tracked_rel_paths():
+    """全部 tracked 文件的仓库相对路径（**不限扩展名**），供规则存在性校验用。"""
+    out = []
+    for p in _git_lines(["ls-files", "--cached"]):
+        p = norm(p)
+        if any(e in p for e in EXCLUDE_SEG):
+            continue
+        if any(seg in EXCLUDE_DIRS for seg in p.split("/")):
+            continue
+        out.append(p)
+    return out
+
+
 def read_text(path):
     for enc in ("utf-8-sig", "utf-8", "latin-1"):
         try:
@@ -315,7 +344,9 @@ def parse_cargo_deps(path):
 
 
 def build_rust():
-    files = git_scope_files((".rs",), extra_exclude=("asd-tauri/src-tauri/gen",))
+    # 用 .get 而不是 [...] ：规则被整体删空时这里不该抛 KeyError 崩掉整个脚本，
+    # 而应该让 check_extra_exclude_rules() 去报「规则被整体删除」（TD-051 阳性对照 3）
+    files = git_scope_files((".rs",), extra_exclude=EXTRA_EXCLUDE_RULES.get("build_rust", ()))
     rel = {f: norm(os.path.relpath(f, ROOT)) for f in files}
     use_re = re.compile(r'^\s*(?:pub\s+)?use\s+(crate|super|self|asd_[a-z_]+)::([A-Za-z0-9_:{]*)', re.M)
 
@@ -392,23 +423,126 @@ def build_rust():
 
 
 # ---------------------------------------------------------------- JS
+# 分桶（TD-051）：与 AHK 的 prod/test/tool 同构 —— 前端源码 vs e2e 测试。
+JS_BUCKET_RULES = (
+    ("e2e", ("asd-tauri/e2e/",)),
+    ("src", ("asd-tauri/src/",)),
+)
+JS_BUCKETS = ("src", "e2e", "unclassified")
+# asd-tauri/ 根目录直挂的配置脚本（eslint.config.js / vite.config.js）算 src
+JS_ROOT_CONFIG_DIR = "asd-tauri"
+
+
+def js_bucket(rel_path):
+    """把 JS 节点归入 src / e2e；无法归类时返回 `unclassified`（应恒为 0）。"""
+    for name, prefixes in JS_BUCKET_RULES:
+        if rel_path.startswith(prefixes):
+            return name
+    head = JS_ROOT_CONFIG_DIR + "/"
+    if rel_path.startswith(head) and "/" not in rel_path[len(head):]:
+        return "src"
+    return "unclassified"
+
+
 def build_js():
-    # ⚠️ 尾斜杠不能去掉：extra_exclude 走的是子串匹配，而 git_scope_files 给的是
-    # **仓库相对路径**，`asd-tauri/e2e/wdio.conf.js` 含 `asd-tauri/e2e/`。
-    # 旧实现走 os.walk、比对的是目录绝对路径（末尾没有斜杠），这条规则从来没生效过，
-    # wdio.conf.js 一直被当成节点、还贡献了 5 条 node: 内建模块边（TD-025 顺带修正）。
-    files = git_scope_files((".js", ".mjs"), extra_exclude=("asd-tauri/e2e/",))
+    # TD-051：e2e **进图**。原 extra_exclude=("asd-tauri/e2e/",) 是 os.walk 时代为了
+    # 挡掉 wdio.conf.js 的 5 条 `node:` 内建边加的，代价是 19 个 e2e 文件连同它们真实
+    # 的 import 结构一起不进图 —— JS 成了 AHK / Rust 之外唯一没有环检测的语言。
+    # 现在内建边单独计 `js_builtin_edges`，不必再靠「排除整个目录」来压数字。
+    #
+    # ⚠️ 订正一句过时注释：旧注释写「尾斜杠不能去掉，否则子串匹配不上」，那是
+    # **os.walk + 目录绝对路径**时代的结论，对新实现已不准确。当前 git_scope_files
+    # 用**仓库相对路径 + 子串匹配**，`asd-tauri/e2e/wdio.conf.js` 无论规则带不带
+    # 尾斜杠都含 `asd-tauri/e2e`（2026-09-18 team-lead 实测确认）。
+    # 所以尾斜杠不是关键；真正该防的是「路径前缀拼错 / 目录被改名」，
+    # 那由 EXTRA_EXCLUDE_RULES + check_extra_exclude_rules() 负责。
+    files = git_scope_files((".js", ".mjs"))
     rel = {f: norm(os.path.relpath(f, ROOT)) for f in files}
+    node_set = set(rel.values())
+    # ⚠️ 若将来本仓引入 TypeScript：`import type { X } from './y.js'` **不产生运行时
+    # 依赖**，但会被下面这条正则当成一条普通边，从而把**无害的类型循环**判成环。
+    # 而 js_cycles 自 TD-051 起是**硬失败项**，那会当场阻断提交。
+    # 届时必须在下面的过滤里把 `import type` / `export type` 形式的边单独排除
+    #（只统计类型引用以外的边）。2026-09-18 与 team-lead 约定，由 team-lead 记忆跟踪。
     imp_re = re.compile(r'^\s*import\s+(?:[^"\']*from\s+)?["\']([^"\']+)["\']', re.M)
     edges = []
     for absf, r in sorted(rel.items()):
         txt = read_text(absf)
         for m in imp_re.finditer(txt):
-            edges.append({"from": r, "to": m.group(1)})
-    return {"files": sorted(rel.values()), "edges": edges}
+            spec = m.group(1)
+            is_builtin = spec.startswith("node:")
+            # ⚠️ 必须把相对说明符解析成**仓库相对路径**再判断是否落在图内。
+            # find_cycles() 的 `if a in adj and b in adj` 用的是节点名（仓库相对路径），
+            # 而原始说明符是 `../helpers/tauri.js` —— 两者不在一个命名空间，
+            # 不解析的话**所有 JS 边都会被静默丢弃，js_cycles 恒为 0**。
+            # 那会造出一个「永远通过」的永真式守护，比没有守护更危险。
+            resolved = None
+            if not is_builtin and spec.startswith("."):
+                cand = norm(os.path.normpath(
+                    os.path.join(norm(os.path.dirname(r)), spec)))
+                if cand in node_set:
+                    resolved = cand
+            edges.append({
+                "from": r, "to": spec, "resolved_to": resolved,
+                "is_builtin": is_builtin,
+                "is_internal": resolved is not None,
+                "from_bucket": js_bucket(r),
+            })
+    return {"files": sorted(rel.values()), "edges": edges,
+            "buckets": {p: js_bucket(p) for p in rel.values()}}
 
 
-# ---------------------------------------------------------------- 图分析
+# ------------------------------------------------- 图分析
+def check_extra_exclude_rules(scan_pool_by_owner):
+    """逐条验证 extra_exclude 规则是否还成立（TD-051）。
+
+    判据分两个数，语义不同、处置也不同 —— 混为一谈会误报：
+
+      - `rule_path_hits`：规则前缀在**全部 tracked 文件（不限扩展名）**里匹配到几个。
+        为 0 → **判失效**（路径写错 / 目录被改名或移走）。这才是要拦的事故。
+      - `rule_excluded_count`：规则在**本次扫描的扩展名集合**里实际排除了几个。
+        **只作审计，不作失败条件**。它完全可以是 0：预防性规则命中 0 是正常的
+        （实测：Tauri v2 目前只在 `asd-tauri/src-tauri/gen` 下生成 .json、不生成 .rs，
+        所以 `build_rust` 那条规则在 .rs 上排除 0 个 —— 但它不是坏规则）。
+
+    两个防永真式锚点：
+      - 规则集合为空 → 判「规则被整体删除」并报出，防有人删光了还以为在守；
+      - tracked 文件池为 0 → 判「上游遍历塌了」，否则「命中 0」会被误读成规则正常。
+    """
+    meta, errors = [], []
+    tracked = _tracked_rel_paths()
+    if not tracked:
+        errors.append("tracked 文件池为 0 —— 上游 git 遍历塌了；"
+                      "此时「规则命中 0」不能当作规则正常的证据")
+        return meta, errors
+    if not EXTRA_EXCLUDE_RULES:
+        errors.append("EXTRA_EXCLUDE_RULES 为空 —— extra_exclude 规则被整体删空了？"
+                      "若确实不再需要任何排除规则，请删除本守护并在 commit 说明理由；"
+                      "否则规则会静默消失而闸门继续假装在工作")
+        return meta, errors
+
+    for owner, rules in sorted(EXTRA_EXCLUDE_RULES.items()):
+        if not rules:
+            errors.append(f"{owner} 的 extra_exclude 规则为空 —— 规则被删了？"
+                          f"（若有意移除请同步 EXTRA_EXCLUDE_RULES 与本守护）")
+            continue
+        pool = scan_pool_by_owner.get(owner, [])
+        for rule in rules:
+            hits = sum(1 for p in tracked if rule in p)
+            excluded = sum(1 for p in pool if rule in p)
+            ok = hits > 0
+            meta.append({"owner": owner, "rule": rule,
+                         "rule_path_hits": hits,
+                         "rule_excluded_count": excluded,
+                         "ok": ok})
+            if not ok:
+                errors.append(
+                    f"{owner} 的 extra_exclude 规则 `{rule}` 在全部 tracked 文件里匹配到 0 个"
+                    f" —— 路径前缀拼错，或该目录已被改名/移走（本守护防的就是这个，"
+                    f"不是防尾斜杠写法）")
+    return meta, errors
+
+
 def find_cycles(nodes, edges, key_from="from", key_to="to"):
     """Tarjan 强连通分量 → 找出所有 SCC（size>1 即环）。"""
     adj = {n: [] for n in nodes}
@@ -488,9 +622,10 @@ if __name__ == "__main__":
     bucket_counts = {b: sum(1 for p in ahk_nodes if ahk_buckets[p] == b)
                      for b in AHK_BUCKETS}
 
-    # 跨语言引用 → 修掉「被 JS/Shell 拉起、却在纯 AHK 图上是孤点」的误报
-    # 注意这里**不加** build_js() 那个 extra_exclude=("asd-tauri/e2e/",)：
-    # e2e 目录虽被排除在 JS 节点之外，却恰恰是 AHK 跨语言引用的主要来源。
+    # 跨语言引用 → 修掉「被 JS/Shell 拉起、却在纯 AHK 图上是孤点」的误报。
+    # ⚠️ 这里刻意**不带**任何 extra_exclude：e2e 目录是 AHK 跨语言引用的主要来源
+    #（key_receiver.ahk 由 e2e/helpers/key_receiver.js spawn）。
+    # TD-051 起 e2e 自身也已是 JS 节点，两者口径天然一致。
     ref_scan_files = git_scope_files(AHK_REF_SCAN_EXT)
     ahk_ext_refs = find_ahk_external_refs(ahk_nodes, ref_scan_files)
     externally_used = {r["ahk"] for r in ahk_ext_refs}
@@ -502,6 +637,25 @@ if __name__ == "__main__":
         if n not in externally_used]
     ahk_orphans_prod = [n for n in ahk_orphans_all
                         if ahk_buckets[n] == "prod"]
+
+    # JS 分桶 + 环检测（TD-051）
+    js_nodes = js["files"]
+    # 直接用 build_js() 产出的分桶表，别在 main 里再算一遍 ——
+    # 闸门① 校验的就是这张表，计数必须和它同源，否则又是一对可对不上的数
+    js_buckets = js["buckets"]
+    js_bucket_counts = {b: sum(1 for p in js_nodes if js_buckets[p] == b)
+                        for b in JS_BUCKETS}
+    js_builtin_edges = [e for e in js["edges"] if e["is_builtin"]]
+    # 只有解析到图内节点的边才进环检测 —— 见 build_js() 里关于 find_cycles 命名空间的说明
+    js_internal_edges = [{"from": e["from"], "to": e["resolved_to"]}
+                         for e in js["edges"] if e["is_internal"]]
+    js_cycles = find_cycles(js_nodes, js_internal_edges)
+
+    # extra_exclude 规则有效性守护（TD-051）
+    # pool = 该扩展名下**未排除前**的候选集，用于统计 rule_excluded_count（审计用）
+    excl_pool = {"build_rust": [norm(os.path.relpath(p, ROOT))
+                                for p in git_scope_files((".rs",))]}
+    excl_rules_meta, excl_rules_errors = check_extra_exclude_rules(excl_pool)
 
     crate_nodes = [c for c in RUST_CRATES if any(rust_crate(f) == c for f in rust["files"])]
     # 环检测只用生产依赖边
@@ -548,9 +702,20 @@ if __name__ == "__main__":
                 "rust_crate_edges": len(rust["crate_edges"]),
                 "rust_crate_cycles": len(crate_cycles),
                 "rust_crate_violations": sum(1 for e in rust["crate_edges"] if e["is_violation"]),
+                # TD-051：JS 分桶，src/e2e/unclassified 互不相交，之和 == js_files
                 "js_files": len(js["files"]),
-                "js_edges": len(js["edges"]),
+                "js_src_files": js_bucket_counts["src"],
+                "js_e2e_files": js_bucket_counts["e2e"],
+                "js_unclassified_files": js_bucket_counts["unclassified"],
+                # js_edges 只计非内建模块边；内建边单独计 js_builtin_edges
+                #（总数 = js_edges + js_builtin_edges）
+                "js_edges": len(js["edges"]) - len(js_builtin_edges),
+                "js_builtin_edges": len(js_builtin_edges),
+                "js_edges_internal": len(js_internal_edges),
+                "js_cycles": len(js_cycles),
             },
+            "extra_exclude_rules": excl_rules_meta,
+            "extra_exclude_rules_ok": not excl_rules_errors,
         },
         "findings": {
             "ahk_cycles": ahk_cycles,
@@ -562,8 +727,10 @@ if __name__ == "__main__":
             "ahk_layer_cross": layer_matrix,
             "rust_crate_cycles": crate_cycles,
             "rust_crate_violations": [e for e in rust["crate_edges"] if e["is_violation"]],
+            "js_cycles": js_cycles,
         },
         "untracked_files": untracked,
+        "extra_exclude_rule_errors": excl_rules_errors,
         "ahk": {"files": ahk["files"], "edges": ahk_scope_edges, "buckets": ahk_buckets},
         "rust": {
             "files": rust["files"],
@@ -588,7 +755,20 @@ if __name__ == "__main__":
     print("AHK  环: %(ahk_cycles)d | 孤点: %(ahk_orphans)d (其中生产孤点 %(ahk_orphans_prod)d)" % m)
     print("Rust 文件: %(rust_files)d | use 边: %(rust_edges)d | crate 边: %(rust_crate_edges)d" % m)
     print("Rust 生产 crate 环: %(rust_crate_cycles)d | 生产依赖违规: %(rust_crate_violations)d" % m)
-    print("JS   文件: %(js_files)d | import 边: %(js_edges)d" % m)
+    print("JS   文件: %(js_files)d  (src %(js_src_files)d / e2e %(js_e2e_files)d"
+          " / 未归类 %(js_unclassified_files)d)" % m)
+    print("JS   import 边: %(js_edges)d（非内建） | 内建边: %(js_builtin_edges)d"
+          " | 图内边: %(js_edges_internal)d | 环: %(js_cycles)d" % m)
+    print()
+    print("-- extra_exclude 规则有效性（TD-051）--")
+    for r in excl_rules_meta:
+        print("    [%-4s] %-32s 路径命中 %-4d 本次排除 %-4d"
+              % ("OK" if r["ok"] else "FAIL", r["rule"],
+                 r["rule_path_hits"], r["rule_excluded_count"]))
+    if not excl_rules_meta:
+        print("    (无登记规则)")
+    for e in excl_rules_errors:
+        print("    !! " + e)
     print()
     print("-- crate 生产依赖方向 --")
     for c, deps in sorted(rust["prod_deps"].items()):
@@ -604,6 +784,10 @@ if __name__ == "__main__":
     if crate_cycles:
         print("-- Rust crate 循环依赖 --")
         for c in crate_cycles:
+            print("   ", "  <->  ".join(c))
+    if js_cycles:
+        print("-- JS 循环依赖 --")
+        for c in js_cycles:
             print("   ", "  <->  ".join(c))
     if graph["findings"]["rust_crate_violations"]:
         print("-- Rust crate 依赖方向违规 --")

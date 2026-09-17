@@ -1,9 +1,10 @@
 {
-  "generated_at": "2026-09-17",
-  "generated_by": "python .review-analysis/build_graph.py -> .review-analysis/graph-raw.json（重取于 HEAD 35b81f69bc1c03d51c3a2665cf37474752f03c5d，TD-049① 修完口径后）",
+  "generated_at": "2026-09-18",
+  "generated_by": "python .review-analysis/build_graph.py -> .review-analysis/graph-raw.json（TD-051 修完 JS 侧盲区后重取；AHK 各项沿用 2026-09-17 TD-049① 基线值，已由本次零 WARN 验证复核）",
   "purpose": "闸门①的输入基线：图谱结构快照。改动后与此对比，环数/违规数增加必须处理或登记白名单。",
-  "scope": "节点发现用 git **已跟踪**（`git ls-files --cached`）口径，与 scripts/check-tech-debt.py 的 C6 同口径。⚠️ TD-049① 修正：2026-09-16 那版是 `--cached --others --exclude-standard` 一把梭，`--others` 出来的未跟踪文件**只存在于开发机**、CI 全新 checkout 上为零，于是「本基线在开发机与 CI 上一致」这句承诺是假的（实测开发机 `rust_files` 曾比 CI 多 4 个 `.tmp_dm/` 临时文件）。现在未跟踪文件被隔离到 `*_files_untracked`（不进任何基线对比项）并由闸门①硬失败拦下。2026-09-13 那版基线是在脏工作区上取的（多算 32 个本地临时文件），不可复现，已于 TD-025 作废。",
-  "cohorts": "AHK 节点按语义切成三个互不相交的桶（`build_graph.py: AHK_BUCKET_RULES`），分桶计数与 `ahk_files` 并列进基线：`ahk_prod_files`（仓库根入口 + domain/infrastructure/application/presentation + asd-tauri/src-tauri/ahk_executor）、`ahk_test_files`（tests/ + asd-tauri/e2e/）、`ahk_tool_files`（tools/ + scripts/）。TD-049① 的原因：原来的 `ahk_files` 是混桶，删 5 个测试脚本与删 5 个生产文件在 `97 -> 92` 里长得一模一样，WARNING 不可判定。`ahk_unclassified_files` 必须恒为 0（新增顶层目录要补规则，不许掉进洞里）。",
+  "scope": "节点发现用 git **已跟踪**（`git ls-files --cached`）口径，与 scripts/check-tech-debt.py 的 C6 同口径。⚠️ TD-049① 修正：早期版本是 `--cached --others --exclude-standard` 一把梭，`--others` 出来的未跟踪文件**只存在于开发机**、CI 全新 checkout 上为零，于是「本基线在开发机与 CI 上一致」这句承诺是假的（实测开发机 `rust_files` 曾比 CI 多 4 个 `.tmp_dm/` 临时文件）。现在未跟踪文件被隔离到 `*_files_untracked`（不进任何基线对比项）并由闸门①硬失败拦下；**基线里的 `*_files_untracked` 一律记 0（CI 可比态）**。2026-09-13 那版基线是在脏工作区上取的（多算 32 个本地临时文件），不可复现，已于 TD-025 作废。",
+  "cohorts": "AHK 节点按语义切成三个互不相交的桶（`build_graph.py: AHK_BUCKET_RULES`）：`ahk_prod_files`（仓库根入口 + domain/infrastructure/application/presentation + asd-tauri/src-tauri/ahk_executor）、`ahk_test_files`（tests/ + asd-tauri/e2e/）、`ahk_tool_files`（tools/ + scripts/），`ahk_unclassified_files` 必须恒为 0。原因（TD-049①）：原 `ahk_files` 是混桶，删 5 个测试与删 5 个生产在 `97->92` 里长得一样，WARNING 不可判定。JS 节点同样切桶（`JS_BUCKET_RULES`，TD-051 起）：`js_src_files`（asd-tauri/src/ 下的 3 个 + asd-tauri/ 根下直挂的 eslint.config.js / vite.config.js）、`js_e2e_files`（asd-tauri/e2e/ 下 19 个），`js_unclassified_files` 恒为 0。原因：e2e 此前被整目录排除（原 build_js 的 extra_exclude 里写了 'asd-tauri/e2e/'），19 个文件连同真实 import 结构不进图，JS 成了三种语言里唯一没有环检测、依赖面完全不可见的一种。",
+  "js_edge_metrics": "⚠️ 三个数别混用：`js_edges` = **非内建** import 边（排除 `node:` 前缀）；`js_builtin_edges` = `node:` 前缀的内建模块边，单独计数（e2e 进来后内建边占近一半，混在一起会把真实依赖面淹没 —— 这正是当年把 e2e 排除掉的原因）；`js_edges_internal` = 把 `./x.js`、`../helpers/x.js` 这类相对说明符**解析成仓库相对路径后**、确实落在图内节点上的边，它是 `js_cycles` 环检测的唯一输入，也是「环数为 0」这个结论唯一可审计的依据。⚠️ 口径变更：TD-051 之前 `js_edges` 含内建边（旧值 11），**新旧值不可直接比较**。⚠️ import 正则可跨行匹配，多行写法（import { 换行写多个名字 换行 } from './x.js'）会被正确计入 —— 手工点算会漏（实测漏过 7 条），一切以机器输出为准。",
   "orphan_policy": "孤点 = 无 #Include 入边、无 #Include 出边，且**未被 JS/TS/Shell 按路径引用**。跨语言引用（AHK 常被 JS spawn 拉起，不走 #Include）会连同证据行号写进 findings.ahk_external_refs 供审计；基名歧义的引用不作为免罪证据。仓库根入口脚本（main.ahk / asd.ahk）天生无入边，不计孤点。",
   "counts": {
     "ahk_files": 92,
@@ -24,13 +25,19 @@
     "ahk_files_untracked": 0,
     "rust_files_untracked": 0,
     "js_files_untracked": 0,
-    "rust_files": 64,
+    "rust_files": 66,
     "rust_edges": 165,
     "rust_crate_edges": 11,
     "rust_crate_cycles": 0,
     "rust_crate_violations": 0,
-    "js_files": 5,
-    "js_edges": 11
+    "js_files": 24,
+    "js_src_files": 5,
+    "js_e2e_files": 19,
+    "js_unclassified_files": 0,
+    "js_edges": 50,
+    "js_builtin_edges": 45,
+    "js_edges_internal": 36,
+    "js_cycles": 0
   },
   "allowed_violations": [],
   "policy": {
@@ -40,11 +47,15 @@
       "ahk_missing 增加（出现未解析的 #Include）",
       "ahk_prod_to_nonprod_edges 增加（生产代码 #Include 测试/工具代码 = 架构倒灌，TD-049① 起）",
       "ahk_orphans_prod 增加（生产 AHK 既不被 include 也不 include 任何东西 = 漏接线或死代码，TD-049① 起）",
+      "js_cycles 增加（TD-051 起。阳性对照 PC-2 已证明能检出真环：注入 error_utils.js -> tauri.js 反向边后 js_cycles 0->1 且 js_edges_internal 同步 36->37，非永真式；若将来引入 TypeScript，需先在 build_js() 里排除 import type，否则会把无害的类型循环判成环）",
       "出现不在 allowed_violations 白名单内的 rust_crate_violations",
       "allowed_violations 的每条必须有非空 reason 与未过期的 expires（TD-009 起强制）",
       "分桶口径完整性：ahk.buckets 缺失/与 ahk.files 不同步/桶名非法/各桶计数对不上/存在 unclassified（TD-049① 起）",
+      "JS 分桶完整性：js.buckets 缺失/与 js.files 不同步/各桶计数对不上/存在 unclassified（TD-051 起）",
       "遍历锚点：ahk_files、ahk_prod_files、ahk_test_files、ahk_tool_files、rust_files、js_files 低于 SCAN_ANCHOR_MIN 下限即判定节点发现失效（防「扫到 0 条还绿灯」的永真式，TD-049① 起）",
-      "存在未跟踪且未被 .gitignore 忽略的 .ahk/.rs/.toml/.js/.mjs 源文件（isolated 后本地图缺分析，TD-049① 起）"
+      "存在未跟踪且未被 .gitignore 忽略的 .ahk/.rs/.toml/.js/.mjs 源文件（isolated 后本地图缺分析，TD-049① 起）",
+      "extra_exclude 规则失效：规则前缀在全部 tracked 文件里匹配到 0 个（路径拼错 / 目录被改名，TD-051 起）。注意：规则「本次排除 0 个文件」**不算失效** —— 预防性规则（asd-tauri/src-tauri/gen 目前只生成 .json、不生成 .rs）命中 0 是正常的，2026-09-18 实测确认",
+      "extra_exclude 规则被整体删空（EXTRA_EXCLUDE_RULES 为空，TD-051 起）"
     ],
     "warn_only": [
       "文件数 / 边数变化（正常开发必然发生）",

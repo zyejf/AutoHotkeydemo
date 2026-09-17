@@ -44,6 +44,11 @@ HARD_FAIL_GREATER = [
     "ahk_prod_to_nonprod_edges",
     # 生产孤点 = 生产 AHK 既不被 include 也不 include 任何东西：漏接线或死代码
     "ahk_orphans_prod",
+    # JS 环（TD-051 起）。转入硬失败的**前提已经满足**：阳性对照 PC-2 在
+    # helpers/error_utils.js 注入 `import { invoke } from './tauri.js'` 后，
+    # js_cycles 0 -> 1 且 js_edges_internal 同步 36 -> 37（说明这条反向边真的进了
+    # 邻接表，不是计数凑巧）—— 它不是永真式。
+    "js_cycles",
 ]
 
 # 分桶口径：AHK 节点必须被切成这三个互不相交的桶（TD-049①）
@@ -220,6 +225,63 @@ def check_bucket_classification(raw: dict) -> list[str]:
             + "; ".join(mismatch[:5])]
 
 
+def check_extra_exclude_guard(raw: dict) -> list[str]:
+    """TD-051：extra_exclude 规则有效性。判定在 build_graph.py，闸门只负责拦。
+
+    为什么不在闸门里重算：判定要拿 tracked 全量文件列表（git 口径），闸门再跑一遍
+    git 很容易和 build_graph.py 跑出两个口径。所以这里**只认图里的结论** ——
+    字段缺失即说明跑的是旧实现，直接判失效，绝不默认通过。
+
+    判据（与 build_graph.py 一致）：
+      - rule_path_hits == 0 → 失效（路径拼错 / 目录被改名）
+      - rule_excluded_count == 0 → **不算失效**，只是审计数字（预防性规则）
+    """
+    meta = raw.get("meta", {})
+    rules = meta.get("extra_exclude_rules")
+    if rules is None:
+        return ["graph-raw.json 缺 `meta.extra_exclude_rules` —— 跑的是 TD-051 之前的"
+                "旧 build_graph.py？extra_exclude 规则无人验证，闸门拒绝给出结论"
+                "（请先重跑 `python .review-analysis/build_graph.py`）"]
+    errs = list(raw.get("extra_exclude_rule_errors") or [])
+    ok = meta.get("extra_exclude_rules_ok")
+    if ok is False and not errs:
+        errs.append("meta.extra_exclude_rules_ok=False 但没有具体错误项 —— "
+                    "build_graph.py 的状态字段自相矛盾，请检查")
+    if ok is None:
+        errs.append("meta.extra_exclude_rules_ok 字段缺失 —— 图由旧实现生成")
+    return ["extra_exclude 规则失效：" + e for e in errs]
+
+
+def check_js_bucket_integrity(raw: dict, counts: dict) -> list[str]:
+    """TD-051：JS 分桶必须与节点集一致（防漏归类 / 防计数与分桶表不同步）。"""
+    js = raw.get("js", {})
+    buckets = js.get("buckets")
+    files = js.get("files", [])
+    if not isinstance(buckets, dict) or not buckets:
+        return ["graph-raw.json 缺 `js.buckets`（或为空）—— 跑的是 TD-051 之前的"
+                "旧 build_graph.py？无法校验 JS 分桶口径"]
+    errs = []
+    if len(buckets) != len(files):
+        errs.append(f"js.buckets 有 {len(buckets)} 项，但 js.files 有 {len(files)} 项")
+    known = ("src", "e2e", "unclassified")
+    recount = {k: 0 for k in known}
+    for v in buckets.values():
+        if v in recount:
+            recount[v] += 1
+    for key, name in (("js_src_files", "src"), ("js_e2e_files", "e2e"),
+                      ("js_unclassified_files", "unclassified")):
+        if counts.get(key) != recount[name]:
+            errs.append(f"{key} = {counts.get(key)}，但按 js.buckets 重算是 "
+                        f"{recount[name]} —— 计数与分桶表不一致")
+    if sum(recount.values()) != len(files):
+        errs.append(f"JS 分桶总数 {sum(recount.values())} != js_files {len(files)}")
+    if recount["unclassified"]:
+        sample = sorted(p for p, v in buckets.items() if v == "unclassified")[:5]
+        errs.append(f"有 {recount['unclassified']} 个 JS 节点无法归入 src/e2e：{sample}"
+                    f" —— 新增顶层目录请补 JS_BUCKET_RULES")
+    return errs
+
+
 def check_scan_anchors(counts: dict) -> list[str]:
     """遍历失效探针：低于下限 = 节点发现塌了，不是「代码变干净了」。"""
     errs = []
@@ -316,6 +378,8 @@ def main() -> int:
     # 2a) 硬失败：分桶口径完整性 / 遍历锚点 / 未跟踪文件（TD-049①）
     errors.extend(check_bucket_integrity(raw))
     errors.extend(check_bucket_classification(raw))
+    errors.extend(check_js_bucket_integrity(raw, cur_counts))
+    errors.extend(check_extra_exclude_guard(raw))
     errors.extend(check_scan_anchors(cur_counts))
     errors.extend(check_untracked(raw))
 
@@ -340,7 +404,8 @@ def main() -> int:
             warnings.append(f"{key}: {base} -> {cur}")
 
     # 4) 环的具体路径（有则输出，帮助定位）
-    for name in ("ahk_cycles", "rust_crate_cycles"):
+    # js_cycles 也要打印明细：只报「0 -> 1」而不知道是哪两个文件绕成环，等于让人瞎猜
+    for name in ("ahk_cycles", "rust_crate_cycles", "js_cycles"):
         cycles = findings.get(name, [])
         if cycles:
             errors.append(f"{name} 明细: {json.dumps(cycles, ensure_ascii=False)}")
@@ -369,9 +434,18 @@ def main() -> int:
         f"{len(cur_violations)} 违规"
     )
     print(
-        f"  JS    {cur_counts.get('js_files')} 文件 / "
+        f"  JS    {cur_counts.get('js_files')} 文件 "
+        f"(src {cur_counts.get('js_src_files')} / "
+        f"e2e {cur_counts.get('js_e2e_files')} / "
+        f"未归类 {cur_counts.get('js_unclassified_files')}) / "
         f"{cur_counts.get('js_edges')} import 边"
+        f"(非内建) + {cur_counts.get('js_builtin_edges')} 内建边 / "
+        f"图内边 {cur_counts.get('js_edges_internal')} / "
+        f"环 {cur_counts.get('js_cycles')}"
     )
+    for r in (raw.get("meta", {}).get("extra_exclude_rules") or []):
+        print(f"  [excl {'OK  ' if r.get('ok') else 'FAIL'}] {r.get('rule')}"
+              f"  路径命中 {r.get('rule_path_hits')} / 本次排除 {r.get('rule_excluded_count')}")
 
     if warnings:
         print("\n[WARN] 结构变化（不阻塞，供人工确认）:")
