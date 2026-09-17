@@ -91,6 +91,7 @@ testManager.RegisterSuite(
     JSONSerializerIndentTests,
     ConfigStoreTests,
     ConfigValidatorJoystickFieldTests,
+    ConfigValidatorFallbackConfigTests,
     ConfigValidatorTests,
     ErrorSystemTests,
     DebugLoggerTests,

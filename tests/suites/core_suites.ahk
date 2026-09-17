@@ -642,6 +642,58 @@ class ConfigValidatorJoystickFieldTests extends AutoHotUnitSuite {
     }
 }
 
+; =================================================================
+; ConfigValidator 降级配置契约（TD-047）
+;
+; `ConfigIO.LoadFromFile` 读文件失败（首次启动 / 配置损坏）时走 `ErrorHandler.SafeExecute`
+; 的降级分支返回一份「默认配置」。这份配置**必须能通过自家校验器** —— 否则
+; `ConfigService.SaveConfig()` 见 ERROR 就拒绝保存**整份**配置，后果是用户建任何分组
+; 都存不下，而界面上只看到「保存失败」，看不出真因。
+;
+; 原实现返回的是 `CONTROL_HOTKEYS` 为空 Map 的空壳，直接产生 5 条 ERROR；而它走的是
+; SafeExecute（**不抛异常**），所以 `ConfigService.LoadConfig()` 的 catch 分支里那份
+; 完整的 `_GetDefaultConfig()` 永远不会被触发 —— 这也是缺陷长期没人发现的原因。
+; =================================================================
+class ConfigValidatorFallbackConfigTests extends AutoHotUnitSuite {
+    ; 一个**确定不存在**的路径，用来逼出降级分支
+    static _MissingPath() {
+        return A_Temp "\asd_td047_missing_" A_NowUTC ".json"
+    }
+
+    ; 最强的一条：降级配置必须 0 个 ERROR。直接钉住 TD-047。
+    Test_FallbackConfig_PassesValidation() {
+        cfg := ConfigIO.LoadFromFile(ConfigValidatorFallbackConfigTests._MissingPath())
+        if !(cfg is Map)
+            this.assert.fail("降级分支应返回一个配置 Map")
+        hardErrors := []
+        for e in ConfigValidator.Validate(cfg) {
+            if e is Map && e.Has("type") && e["type"] = "ERROR"
+                hardErrors.Push(e["message"])
+        }
+        this.assert.equal(hardErrors.Length, 0)
+    }
+
+    ; 五个控制热键必须齐全 —— 上面那条的具体成因，分开写便于定位
+    Test_FallbackConfig_HasAllControlHotkeys() {
+        cfg := ConfigIO.LoadFromFile(ConfigValidatorFallbackConfigTests._MissingPath())
+        hk := cfg is Map && cfg.Has("CONTROL_HOTKEYS") ? cfg["CONTROL_HOTKEYS"] : Map()
+        for action in ["emergency", "toggleAll", "showStatus", "toggleHoldMode", "releaseAllHolds"] {
+            if !(hk is Map && hk.Has(action) && hk[action] != "")
+                this.assert.fail("降级配置缺少控制热键: " action)
+        }
+    }
+
+    ; 降级值必须取自 ConfigStore 的出厂默认构造器，而不是在 config_io 里抄一份字面量 ——
+    ; 抄一份就一定会漂移，那正是这次事故的形状。
+    Test_FallbackConfig_MatchesStoreDefaults() {
+        cfg := ConfigIO.LoadFromFile(ConfigValidatorFallbackConfigTests._MissingPath())
+        expected := ConfigStore._BuildDefaultControlHotkeys()
+        actual := cfg is Map && cfg.Has("CONTROL_HOTKEYS") ? cfg["CONTROL_HOTKEYS"] : Map()
+        for k, v in expected
+            this.assert.equal(actual is Map && actual.Has(k) ? actual[k] : "", v)
+    }
+}
+
 class ConfigValidatorTests extends AutoHotUnitSuite {
     Test_PeriodicMissingKeys_HasErrors() {
         c1 := Map("GroupSettings", Map("1", Map("hotkey", "F1", "mode", "periodic")))

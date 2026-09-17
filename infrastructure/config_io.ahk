@@ -17,6 +17,8 @@
 #Include "json_serializer.ahk"
 #Include "json_parser.ahk"
 #Include "error_handler.ahk"
+; TD-047：降级默认值必须是**合法的出厂默认**，不能是空壳 —— 详见 LoadFromFile 的注释。
+#Include "config_store.ahk"
 
 class ConfigIO {
     ; 安全写入配置到文件（带重试 + 原子写入）
@@ -26,11 +28,33 @@ class ConfigIO {
     }
 
     ; 安全读取配置文件（带降级默认值）
+    ;
+    ; ⚠️ TD-047：降级值**必须是能通过 ConfigValidator 的合法配置**，不能是空壳。
+    ;
+    ; 原实现的降级值是 `Map("version","3.0","GroupSettings",Map(),"CONTROL_HOTKEYS",Map(),
+    ; "HoldSettings",Map())` —— CONTROL_HOTKEYS 是**空 Map**，而 `ConfigValidator._ValidateHotkeys`
+    ; 要求 emergency / toggleAll / showStatus / toggleHoldMode / releaseAllHolds 五个键齐全，
+    ; 于是产生 **5 条 ERROR**；`ConfigService.SaveConfig()` 见 ERROR 就**拒绝保存整份配置**。
+    ; 后果：配置文件不存在（首次启动）或被损坏时，用户**建任何分组都存不下**，且界面上
+    ; 只看到「保存失败」，看不出真因。与 TD-035 同类（校验错误放大成「整份配置存不下」），
+    ; 但根因不同 —— 那次是校验器查错字段名，这次是降级默认值本身就不合法。
+    ;
+    ; 另外：这里走的是 `ErrorHandler.SafeExecute`，失败时**不抛异常**，所以
+    ; `ConfigService.LoadConfig()` 的 catch 分支（那份会调用 `_GetDefaultConfig()`，内容是完整的）
+    ; **永远不会被触发** —— 完整的默认值写在那里等于没写，这也是这个缺陷长期没被发现的原因。
+    ;
+    ; 默认值一律取自 `ConfigStore` 的构造器（出厂默认的单一真值源），
+    ; **不在本文件里抄一份字面量** —— 抄一份就一定会漂移。
     static LoadFromFile(filePath) {
         return ErrorHandler.SafeExecute(
             () => JSONParser.LoadFile(filePath),
-            () => Map("version", "3.0", "GroupSettings", Map(),
-                      "CONTROL_HOTKEYS", Map(), "HoldSettings", Map()),
+            () => Map(
+                "version", "3.0",
+                "lastModified", A_Now,
+                "GroupSettings", Map(),
+                "CONTROL_HOTKEYS", ConfigStore._BuildDefaultControlHotkeys(),
+                "HoldSettings", ConfigStore._BuildDefaultHoldSettings()
+            ),
             ErrorHandler.CATEGORY_IO
         )
     }
