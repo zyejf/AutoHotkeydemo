@@ -72,6 +72,9 @@ harness = false
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 
+# 批次 7 的 2 项豁免（理由/前置条件/到期日见上方批次 7 注释）
+too_many_lines = "allow"
+
 # ——— 文档类（290 项）：TD-045 批次 8，先关 ———
 doc_markdown = "allow"
 missing_errors_doc = "allow"
@@ -101,6 +104,13 @@ missing_panics_doc = "allow"
 # 批次 6 ✅（2026-09-17）：cast_* 12 项 —— 9 项改写法、3 项**就地 allow + 理由**
 #     （改写法优先：能改的都不留告警。登记豁免的 3 处都在代码里写了「为什么不改」：
 #      benches 打印 KB、Windows API 参数就是 u32、样本数转 f64 求均值）
-# 批次 7 ⬜：too_many_lines 3 项（真重构，先补测试再动刀）
+# 批次 7 ✅（2026-09-17）：too_many_lines 3 项 —— 修 1（benches 夹具，两段 match
+#     逐字搬移到 bench_mode_name / bench_mode_data），**2 项登记豁免**：
+#       · `lib.rs::setup_ipc_callbacks`（120 行）
+#       · `lib.rs::run`（128 行，Tauri 装配链）
+#     这两处是**应用装配代码，没有任何自动化覆盖**：拆错了不会让编译或单测失败，
+#     只会让回调/插件在运行时少注册一个 —— 而 E2E 目前不全绿（TD-016），改了验证不了。
+#     按 C4「先有网再动刀」，前置条件是 **E2E 能跑通**；到期 2026-10-17 复审。
+#     ⚠️ 复审时不要直接改阈值：clippy.toml 里写明过，上调阈值等于宣布「这么长是
+#     合理的」，而它们只是还没拆。
 # 批次 8 ⬜：文档类 290 项（doc_markdown 210 / missing_errors_doc 79 / missing_panics_doc 1）
-too_many_lines = "allow"

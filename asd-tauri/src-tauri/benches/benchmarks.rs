@@ -19,72 +19,81 @@ use asd_ipc_protocol::{IpcCommand, IpcMessage};
 // 辅助函数：生成模拟数据
 // =================================================================
 
+/// 按分组序号轮换模式名：7 个模式各占一份（基准要覆盖全部模式分支）。
+fn bench_mode_name(i: usize) -> &'static str {
+    match i % 7 {
+        0 => "periodic",
+        1 => "sequence",
+        2 => "hybrid",
+        3 => "hold",
+        4 => "enhanced_periodic",
+        5 => "enhanced_sequence",
+        _ => "enhanced_hybrid",
+    }
+}
+
+/// 按分组序号轮换 `ModeData`：7 个模式各占一份（基准要覆盖全部模式分支）。
+fn bench_mode_data(i: usize) -> ModeData {
+    match i % 7 {
+        0 => ModeData::Periodic(PeriodicData {
+            keys: (0..5).map(|j| format!("key_{i}_{j}")).collect(),
+            intervals: (0..5u64).map(|j| 50 + j * 10).collect(),
+        }),
+        1 => ModeData::Sequence(SequenceData {
+            keys: (0..5).map(|j| format!("key_{i}_{j}")).collect(),
+            delays: (0..5u64).map(|j| 100 + j * 20).collect(),
+        }),
+        2 => ModeData::Hybrid(HybridData {
+            groups: vec![
+                GroupItem::Periodic {
+                    press_keys: vec!["1".to_string(), "2".to_string()],
+                    intervals: vec![50, 60],
+                },
+                GroupItem::Sequence {
+                    press_keys: vec!["3".to_string(), "4".to_string()],
+                    delays: vec![100, 200],
+                    seq_interval: Some(50),
+                },
+            ],
+            seq_interval: Some(100),
+        }),
+        3 => ModeData::Hold(HoldData {
+            hold_duration: 500,
+            auto_repeat: Some(true),
+            repeat_interval: Some(100),
+        }),
+        4 => ModeData::EnhancedPeriodic(EnhancedPeriodicData {
+            press_keys: (0..5).map(|j| format!("key_{i}_{j}")).collect(),
+            intervals: (0..5u64).map(|j| 50 + j * 10).collect(),
+        }),
+        5 => ModeData::EnhancedSequence(EnhancedSequenceData {
+            press_keys: (0..5).map(|j| format!("key_{i}_{j}")).collect(),
+            press_delays: (0..5u64).map(|j| 100 + j * 20).collect(),
+        }),
+        _ => ModeData::EnhancedHybrid(EnhancedHybridData {
+            groups: vec![
+                GroupItem::Periodic {
+                    press_keys: vec!["1".to_string(), "2".to_string()],
+                    intervals: vec![50, 60],
+                },
+                GroupItem::Sequence {
+                    press_keys: vec!["3".to_string(), "4".to_string()],
+                    delays: vec![100, 200],
+                    seq_interval: None,
+                },
+            ],
+            seq_interval: Some(100),
+        }),
+    }
+}
+
 /// 生成一个包含指定数量分组的配置（模拟 ~13KB JSON）
 fn generate_large_config(group_count: usize) -> Config {
     let mut group_settings = IndexMap::new();
 
     for i in 0..group_count {
-        let mode = match i % 7 {
-            0 => "periodic",
-            1 => "sequence",
-            2 => "hybrid",
-            3 => "hold",
-            4 => "enhanced_periodic",
-            5 => "enhanced_sequence",
-            _ => "enhanced_hybrid",
-        };
-
-        let mode_data = match i % 7 {
-            0 => ModeData::Periodic(PeriodicData {
-                keys: (0..5).map(|j| format!("key_{i}_{j}")).collect(),
-                intervals: (0..5u64).map(|j| 50 + j * 10).collect(),
-            }),
-            1 => ModeData::Sequence(SequenceData {
-                keys: (0..5).map(|j| format!("key_{i}_{j}")).collect(),
-                delays: (0..5u64).map(|j| 100 + j * 20).collect(),
-            }),
-            2 => ModeData::Hybrid(HybridData {
-                groups: vec![
-                    GroupItem::Periodic {
-                        press_keys: vec!["1".to_string(), "2".to_string()],
-                        intervals: vec![50, 60],
-                    },
-                    GroupItem::Sequence {
-                        press_keys: vec!["3".to_string(), "4".to_string()],
-                        delays: vec![100, 200],
-                        seq_interval: Some(50),
-                    },
-                ],
-                seq_interval: Some(100),
-            }),
-            3 => ModeData::Hold(HoldData {
-                hold_duration: 500,
-                auto_repeat: Some(true),
-                repeat_interval: Some(100),
-            }),
-            4 => ModeData::EnhancedPeriodic(EnhancedPeriodicData {
-                press_keys: (0..5).map(|j| format!("key_{i}_{j}")).collect(),
-                intervals: (0..5u64).map(|j| 50 + j * 10).collect(),
-            }),
-            5 => ModeData::EnhancedSequence(EnhancedSequenceData {
-                press_keys: (0..5).map(|j| format!("key_{i}_{j}")).collect(),
-                press_delays: (0..5u64).map(|j| 100 + j * 20).collect(),
-            }),
-            _ => ModeData::EnhancedHybrid(EnhancedHybridData {
-                groups: vec![
-                    GroupItem::Periodic {
-                        press_keys: vec!["1".to_string(), "2".to_string()],
-                        intervals: vec![50, 60],
-                    },
-                    GroupItem::Sequence {
-                        press_keys: vec!["3".to_string(), "4".to_string()],
-                        delays: vec![100, 200],
-                        seq_interval: None,
-                    },
-                ],
-                seq_interval: Some(100),
-            }),
-        };
+        let mode = bench_mode_name(i);
+        let mode_data = bench_mode_data(i);
 
         group_settings.insert(
             format!("{i}"),
