@@ -169,7 +169,7 @@ impl ProcessWatchdog {
         self.last_restart = instant;
     }
 
-    /// 终止并等待子进程退出，但保留 child 字段以便后续 is_child_exited 检测。
+    /// 终止并等待子进程退出，但保留 child 字段以便后续 `is_child_exited` 检测。
     /// 用于测试场景下模拟子进程崩溃。
     ///
     /// # Errors
@@ -212,7 +212,7 @@ impl ProcessWatchdog {
     /// # Errors
     ///
     /// 当前实现**不会失败**，恒定返回 `Ok(())`。⚠️ **这不代表子进程已被妥善托管**：
-    /// JobObject 的创建与分配失败都只记 `warn` 后继续 —— 那种情况下子进程仍被跟踪，
+    /// `JobObject` 的创建与分配失败都只记 `warn` 后继续 —— 那种情况下子进程仍被跟踪，
     /// 但**不会随主进程自动退出**（主进程崩溃会留下孤儿进程）。
     /// 想确认托管是否成功，去看日志里有没有「已创建并分配 PID=…」。
     pub fn attach_child(&mut self, child: Child) -> Result<(), String> {
@@ -249,11 +249,11 @@ impl ProcessWatchdog {
     /// 启动 AHK 子进程并附加到 Watchdog
     ///
     /// 使用 `CREATE_NO_WINDOW` 标志避免弹出控制台窗口，
-    /// 并将子进程分配到 JobObject 以确保主进程退出时子进程也被终止。
+    /// 并将子进程分配到 `JobObject` 以确保主进程退出时子进程也被终止。
     ///
     /// 支持两种模式：
-    /// - 编译模式：exe_path 指向 asd_executor.exe
-    /// - 便携模式：exe_path 指向 asd_executor.bat 或 AutoHotkey64.exe
+    /// - 编译模式：`exe_path` 指向 `asd_executor.exe`
+    /// - 便携模式：`exe_path` 指向 `asd_executor.bat` 或 `AutoHotkey64.exe`
     ///
     /// `auth_token` 通过环境变量 `ASD_AUTH_TOKEN` 传递给 AHK 子进程，
     /// 用于 IPC 认证。子进程必须在首条消息中发送此 token 才能通过认证。
@@ -489,7 +489,7 @@ impl ProcessWatchdog {
 /// 消除 `graceful_shutdown` 持锁横跨多个 await 点的隐患。
 ///
 /// 三阶段流程与原 `graceful_shutdown(&mut self)` 等价：
-/// ① 发送 IPC shutdown → ② 发送 WM_CLOSE → ③ 强制 kill_and_reap。
+/// ① 发送 IPC shutdown → ② 发送 `WM_CLOSE` → ③ 强制 `kill_and_reap`。
 /// 每个阶段的进程退出轮询（原 `wait_for_exit`）通过 [`poll_watchdog_exit`]
 /// 以「短暂加锁检查 → 释放锁 sleep」的方式执行，不再长时间持锁。
 ///
@@ -691,7 +691,7 @@ impl<T: Send> SendSyncCell<T> {
     }
 }
 
-/// JobObject 句柄的 RAII 守卫：`Drop` 时调用 `CloseHandle`。
+/// `JobObject` 句柄的 RAII 守卫：`Drop` 时调用 `CloseHandle`。
 ///
 /// 内部通过 [`SendSyncCell<RawHandle>`](SendSyncCell) 持有句柄。`RawHandle`
 /// 本身是 `Send + !Sync`（见其文档），`SendSyncCell` 将其提升为
@@ -762,8 +762,8 @@ impl Drop for JobObjectGuard {
     }
 }
 
-/// RAII 守卫，确保 Box::from_raw 在任何退出路径下都会执行，
-/// 防止 EnumWindows 回调异常导致的内存泄漏。
+/// RAII 守卫，确保 `Box::from_raw` 在任何退出路径下都会执行，
+/// 防止 `EnumWindows` 回调异常导致的内存泄漏。
 struct RawBoxGuard<T>(*mut T);
 impl<T> RawBoxGuard<T> {
     /// 从 Box 创建守卫，转移所有权到堆上。
@@ -789,20 +789,20 @@ impl<T> Drop for RawBoxGuard<T> {
 /// 仅清理项目专用子进程的映像名列表。
 ///
 /// R1 安全约束：不得包含 `AutoHotkey64.exe` 等通用进程名，否则 `taskkill /F /IM`
-/// 会误杀用户系统中所有 AutoHotkey 进程（包括用户自行运行的脚本），属于严重副作用。
-/// 如需清理 AHK 子进程，应通过 JobObject 或子进程句柄精确管理。
+/// 会误杀用户系统中所有 `AutoHotkey` 进程（包括用户自行运行的脚本），属于严重副作用。
+/// 如需清理 AHK 子进程，应通过 `JobObject` 或子进程句柄精确管理。
 const STALE_PROCESS_NAMES: &[&str] = &["asd_executor.exe"];
 
-/// 清理遗留的 asd_executor.exe 进程。
+/// 清理遗留的 `asd_executor.exe` 进程。
 ///
-/// 在启动新子进程前调用，防止 JobObject 失败导致的僵尸进程堆积。
+/// 在启动新子进程前调用，防止 `JobObject` 失败导致的僵尸进程堆积。
 /// 使用 `taskkill /F /IM` 按映像名终止，主进程（asd-tauri.exe）不受影响。
 /// 如果没有遗留进程，taskkill 返回非零退出码，此时静默忽略。
 ///
 /// # I36 补偿机制
 ///
-/// 当 JobObject 创建或分配失败时，子进程不会随主进程退出而自动终止。
-/// 此函数作为补偿，在每次 spawn_child 前清理可能遗留的项目专用执行器进程。
+/// 当 `JobObject` 创建或分配失败时，子进程不会随主进程退出而自动终止。
+/// 此函数作为补偿，在每次 `spawn_child` 前清理可能遗留的项目专用执行器进程。
 ///
 /// # R1 安全约束
 ///
@@ -841,7 +841,7 @@ pub fn cleanup_stale_executor_processes() {
 /// 构建 panic hook 闭包（可测试，不修改全局状态）。
 ///
 /// 接受清理回调和原始 hook，返回组合后的 panic hook 闭包：
-/// 先执行 cleanup（清理子进程），再委托给 original_hook（输出默认 panic 信息）。
+/// 先执行 cleanup（清理子进程），再委托给 `original_hook`（输出默认 panic 信息）。
 ///
 /// 此函数不调用 `std::panic::set_hook`，可在测试中安全调用验证构建逻辑（R3）。
 /// `register_panic_hook` 使用此函数构建闭包后注册到全局。
@@ -867,16 +867,16 @@ where
 /// # R3 可测试性
 ///
 /// 闭包构建逻辑已提取到 `build_panic_hook_closure`（纯函数，不修改全局状态），
-/// 测试通过该函数验证"先 cleanup 后 original_hook"的行为，
+/// 测试通过该函数验证"先 `cleanup` 后 `original_hook`"的行为，
 /// 无需直接调用 `register_panic_hook`（后者会修改全局 Once 状态）。
 ///
 /// # I36 补偿机制
 ///
-/// JobObject 在以下场景可能失败：
-/// - 系统资源不足无法创建 JobObject
-/// - 进程权限不足无法分配到 JobObject
+/// `JobObject` 在以下场景可能失败：
+/// - 系统资源不足无法创建 `JobObject`
+/// - 进程权限不足无法分配到 `JobObject`
 ///
-/// 此时子进程不受 JobObject 保护，主进程 panic 后可能成为僵尸进程。
+/// 此时子进程不受 `JobObject` 保护，主进程 panic 后可能成为僵尸进程。
 /// panic hook 确保即使主进程异常退出，子进程也会被清理。
 pub fn register_panic_hook() {
     use std::sync::Once;
@@ -969,20 +969,20 @@ impl WatchdogRunner {
         }
     }
 
-    /// 设置 shutting_down 标志，通知 WatchdogRunner 尽快退出等待循环。
+    /// 设置 `shutting_down` 标志，通知 `WatchdogRunner` 尽快退出等待循环。
     pub fn mark_shutting_down(&self) {
         self.shutting_down
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
-    /// 返回 shutting_down Arc 的克隆，允许外部保存引用以便在关机时设置标志。
+    /// 返回 `shutting_down` Arc 的克隆，允许外部保存引用以便在关机时设置标志。
     #[must_use]
     pub fn shutting_down_arc(&self) -> Arc<std::sync::atomic::AtomicBool> {
         self.shutting_down.clone()
     }
 
-    /// 替换内部的 shutting_down Arc 为外部共享的实例。
-    /// 用于在 spawn_watchdog 中提前创建 Arc，使 perform_graceful_shutdown 可访问。
+    /// 替换内部的 `shutting_down` Arc 为外部共享的实例。
+    /// 用于在 `spawn_watchdog` 中提前创建 Arc，使 `perform_graceful_shutdown` 可访问。
     pub fn set_shutting_down(&mut self, arc: Arc<std::sync::atomic::AtomicBool>) {
         self.shutting_down = arc;
     }
@@ -1091,7 +1091,7 @@ mod tests {
     ///
     /// 用 `checked_sub` 而不是直接写 `Instant::now() - Duration::from_secs(secs)`：
     /// 后者是 unchecked 减法，在 `Instant` 早于该时长时会 panic
-    /// （clippy::unchecked_time_subtraction）。测试里构造「过去的时间戳」是常见
+    /// （`clippy::unchecked_time_subtraction`）。测试里构造「过去的时间戳」是常见
     /// 需求，集中在这里处理，免得每处都重新论证一遍。
     fn instant_ago(secs: u64) -> std::time::Instant {
         std::time::Instant::now()
@@ -1457,7 +1457,7 @@ mod tests {
     // I36: JobObject 失败无僵尸进程补偿 — 测试
     // =================================================================
 
-    /// 验证 cleanup_stale_executor_processes 函数存在且可安全调用。
+    /// 验证 `cleanup_stale_executor_processes` 函数存在且可安全调用。
     /// 在没有遗留进程的环境下不应 panic。
     #[test]
     fn test_cleanup_stale_executor_processes_exists_and_is_safe() {
@@ -1465,8 +1465,8 @@ mod tests {
         cleanup_stale_executor_processes();
     }
 
-    /// 验证 cleanup_stale_executor_processes 不会终止当前测试进程自身。
-    /// 当前进程是 cargo test 进程，不是 asd_executor.exe 或 AutoHotkey64.exe，
+    /// 验证 `cleanup_stale_executor_processes` 不会终止当前测试进程自身。
+    /// 当前进程是 cargo test 进程，不是 `asd_executor.exe` 或 AutoHotkey64.exe，
     #[test]
     fn test_cleanup_does_not_terminate_current_process() {
         let my_pid = std::process::id();
@@ -1475,7 +1475,7 @@ mod tests {
         assert!(my_pid > 0, "当前进程仍在运行，未被误终止");
     }
 
-    /// 验证 register_panic_hook 函数存在且可安全调用。
+    /// 验证 `register_panic_hook` 函数存在且可安全调用。
     /// 多次调用不应 panic（使用 Once 保证幂等）。
     #[test]
     fn test_register_panic_hook_is_idempotent() {
@@ -1486,9 +1486,9 @@ mod tests {
         register_panic_hook(); // 第二次调用应无副作用
     }
 
-    /// 验证 spawn_child 在调用前会执行遗留进程清理。
-    /// 通过验证 spawn_child 对空 auth_token 返回错误来确认函数入口可达，
-    /// 清理逻辑在 auth_token 检查之前执行。
+    /// 验证 `spawn_child` 在调用前会执行遗留进程清理。
+    /// 通过验证 `spawn_child` 对空 `auth_token` 返回错误来确认函数入口可达，
+    /// 清理逻辑在 `auth_token` 检查之前执行。
     #[test]
     fn test_spawn_child_validates_auth_token_after_cleanup() {
         let mut wd = ProcessWatchdog::new();
@@ -1501,10 +1501,10 @@ mod tests {
     // R1: 防止误杀用户其他 AHK 进程 — 测试
     // =================================================================
 
-    /// 验证 STALE_PROCESS_NAMES 不包含通用进程名 AutoHotkey64.exe。
-    /// taskkill /F /IM AutoHotkey64.exe 会杀死用户系统中所有 AutoHotkey 进程，
+    /// 验证 `STALE_PROCESS_NAMES` 不包含通用进程名 AutoHotkey64.exe。
+    /// taskkill /F /IM AutoHotkey64.exe 会杀死用户系统中所有 `AutoHotkey` 进程，
     /// 包括用户自己运行的脚本，属于严重副作用。
-    /// 只应清理项目专用的 asd_executor.exe。
+    /// 只应清理项目专用的 `asd_executor.exe`。
     #[test]
     fn test_stale_process_names_excludes_generic_autohotkey() {
         assert!(
@@ -1513,7 +1513,7 @@ mod tests {
         );
     }
 
-    /// 验证 STALE_PROCESS_NAMES 包含项目专用执行器 asd_executor.exe。
+    /// 验证 `STALE_PROCESS_NAMES` 包含项目专用执行器 `asd_executor.exe`。
     #[test]
     fn test_stale_process_names_includes_project_executor() {
         assert!(
@@ -1526,10 +1526,10 @@ mod tests {
     // R3: register_panic_hook 可测试不污染全局 hook — 测试
     // =================================================================
 
-    /// 验证 build_panic_hook_closure 构建的闭包在 panic 时调用 cleanup 回调。
+    /// 验证 `build_panic_hook_closure` 构建的闭包在 panic 时调用 cleanup 回调。
     ///
-    /// 此测试不直接调用 register_panic_hook()（避免污染全局 Once 状态），
-    /// 而是通过 build_panic_hook_closure 构建 hook 闭包后临时注册验证行为，
+    /// 此测试不直接调用 `register_panic_hook()`（避免污染全局 Once 状态），
+    /// 而是通过 `build_panic_hook_closure` 构建 hook 闭包后临时注册验证行为，
     /// 结束后恢复原始 hook（R3）。
     #[test]
     fn test_build_panic_hook_closure_calls_cleanup_on_panic() {

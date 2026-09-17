@@ -24,7 +24,7 @@
 /// 期望的 Tauri command 总数。
 ///
 /// 与 `AGENTS.md` 中「34 Tauri commands」的描述保持一致。
-/// 分项：config_cmd 11 + group_cmd 8 + hotkey_cmd 2 + recording_cmd 8 + system_cmd 5
+/// 分项：`config_cmd` 11 + `group_cmd` 8 + `hotkey_cmd` 2 + `recording_cmd` 8 + `system_cmd` 5
 const EXPECTED_COMMAND_COUNT: usize = 34;
 
 /// 各命令模块的期望注册数量，用于精确定位漂移来源。

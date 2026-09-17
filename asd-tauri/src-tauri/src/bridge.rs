@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 
 /// IPC 桥接器，实现 `IpcSender` trait。
 ///
-/// # block_in_place 使用说明（已知妥协 #2）
+/// # `block_in_place` 使用说明（已知妥协 #2）
 ///
 /// `IpcSender` trait 的方法签名为同步（`fn send_command(&self, ...) -> Result<...>`），
 /// 但底层 `IpcManager` 使用 `tokio::sync::Mutex` 和 async 方法。
@@ -172,14 +172,14 @@ pub fn build_hotkey_event_payload(hotkey: &str, keys: &[String]) -> serde_json::
 
 /// 进程监控桥接器，实现 `ProcessWatcher` trait，通过 `ProcessWatchdog` 查询 AHK 子进程状态。
 ///
-/// # block_in_place 使用说明（已知妥协 #2）
+/// # `block_in_place` 使用说明（已知妥协 #2）
 ///
 /// 与 `IpcBridge` 相同的模式：`ProcessWatcher` trait 方法为同步，
 /// 底层 `ProcessWatchdog` 使用 `tokio::sync::Mutex` 保护。
 /// 使用 `block_in_place` + `tauri::async_runtime::block_on` 在同步方法中获取 async 锁。
 ///
 /// **锁顺序**：仅获取 `watchdog` 锁，不嵌套获取 `ipc_manager` 锁。
-/// 与 `setup_ipc_and_watchdog` 中的锁顺序（ipc_manager → watchdog）一致，
+/// 与 `setup_ipc_and_watchdog` 中的锁顺序（`ipc_manager` → `watchdog`）一致，
 /// 不会出现锁反转死锁。
 pub struct WatchdogBridge {
     watchdog: Arc<Mutex<ProcessWatchdog>>,

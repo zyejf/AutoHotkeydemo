@@ -1,9 +1,9 @@
-//! Bridge 层测试 — IpcBridge / TauriEventBridge / WatchdogBridge
+//! Bridge 层测试 — `IpcBridge` / `TauriEventBridge` / `WatchdogBridge`
 //!
 //! 覆盖 `bridge.rs` 中 trait 实现的关键路径：
-//! - IpcBridge: send_command / send_and_wait 超时与管道断裂
-//! - TauriEventBridge: 事件发射（依赖 Tauri AppHandle，标记 #[ignore]）
-//! - WatchdogBridge: 状态查询与重启计数
+//! - `IpcBridge`: `send_command` / `send_and_wait` 超时与管道断裂
+//! - `TauriEventBridge`: 事件发射（依赖 Tauri AppHandle，标记 #[ignore]）
+//! - `WatchdogBridge`: 状态查询与重启计数
 
 use crate::bridge::{IpcBridge, WatchdogBridge};
 use crate::infrastructure::ipc::{create_listener, IpcManager};
@@ -23,8 +23,8 @@ use tokio::sync::Mutex;
 
 /// 验证 `IpcBridge::send_and_wait` 在服务端不响应时返回超时错误。
 ///
-/// IpcBridge 使用 `block_in_place + block_on`，必须运行在多线程 tokio 运行时。
-/// 服务端 accept 连接但不发送任何响应，客户端 send_and_wait 应在超时后返回错误。
+/// `IpcBridge` 使用 `block_in_place + block_on`，必须运行在多线程 tokio 运行时。
+/// 服务端 accept 连接但不发送任何响应，客户端 `send_and_wait` 应在超时后返回错误。
 #[tokio::test(flavor = "multi_thread")]
 #[serial]
 async fn test_ipc_bridge_send_and_wait_timeout() {
@@ -72,12 +72,12 @@ async fn test_ipc_bridge_send_and_wait_timeout() {
 
 /// 验证 `IpcBridge::send_and_wait` 在管道断裂时返回 IPC 错误。
 ///
-/// 服务端 accept 后立即关闭连接，客户端的 listen_ahk 检测到 EOF 后触发
+/// 服务端 accept 后立即关闭连接，客户端的 `listen_ahk` 检测到 EOF 后触发
 /// `notify_pipe_broken` -> `cleanup_connection`，向所有 pending response
-/// 发送 `error_response("pipe_broken")`。send_and_wait 收到后转换为
+/// 发送 `error_response("pipe_broken")`。`send_and_wait` 收到后转换为
 /// "IPC 管道断裂" 错误。
 ///
-/// 注意：此测试存在竞态——send_and_wait 可能在 pipe_broken 触发前超时，
+/// 注意：此测试存在竞态——`send_and_wait` 可能在 `pipe_broken` 触发前超时，
 /// 或在 send 阶段就失败。我们接受任何 IPC 相关错误作为通过条件。
 #[tokio::test(flavor = "multi_thread")]
 #[serial]
@@ -132,7 +132,7 @@ async fn test_ipc_bridge_send_and_wait_pipe_broken() {
 
 /// 验证 `IpcBridge::send_command` 在 IPC 管理器未初始化时返回错误。
 ///
-/// 当 `ipc_manager` 为 None 时，send_command 应返回
+/// 当 `ipc_manager` 为 None 时，`send_command` 应返回
 /// "IPC 管理器未初始化，请等待系统就绪" 错误。
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ipc_bridge_send_command_manager_not_initialized() {
@@ -205,8 +205,8 @@ async fn test_ipc_bridge_send_and_wait_manager_not_initialized() {
 
 /// 验证 `WatchdogBridge` 包装 `ProcessWatchdog` 后能正确查询状态。
 ///
-/// 新创建的 ProcessWatchdog 状态为 Idle，重启计数为 0。
-/// WatchdogBridge 应透传这些值。
+/// 新创建的 `ProcessWatchdog` 状态为 Idle，重启计数为 0。
+/// `WatchdogBridge` 应透传这些值。
 #[tokio::test(flavor = "multi_thread")]
 async fn test_watchdog_bridge_get_state() {
     use crate::infrastructure::watchdog::ProcessWatchdog;
@@ -297,10 +297,10 @@ async fn test_watchdog_bridge_running_state() {
 // EventEmitter trait 通过 MockEventEmitter 间接覆盖
 // =================================================================
 
-/// 验证 MockEventEmitter 实现 EventEmitter trait 的行为正确。
+/// 验证 `MockEventEmitter` 实现 `EventEmitter` trait 的行为正确。
 ///
-/// 这间接验证了 EventEmitter trait 的契约，确保 TauriEventBridge
-/// 在有 AppHandle 的环境中也能正确实现 emit 逻辑。
+/// 这间接验证了 `EventEmitter` trait 的契约，确保 `TauriEventBridge`
+/// 在有 `AppHandle` 的环境中也能正确实现 emit 逻辑。
 #[tokio::test]
 async fn test_event_emitter_trait_contract() {
     let bridge = MockEventEmitter::new();
@@ -322,7 +322,7 @@ async fn test_event_emitter_trait_contract() {
 /// 验证 `build_hotkey_event_payload` 能正确构造热键事件 payload。
 ///
 /// 从 hotkey 和 keys 构造 `{ "hotkey": ..., "keys": [...] }` JSON 结构，
-/// 用于 `spawn_ipc_listener` 中向前端 emit hotkey_event 事件。
+/// 用于 `spawn_ipc_listener` 中向前端 emit `hotkey_event` 事件。
 #[test]
 fn test_build_hotkey_event_payload_basic() {
     let hotkey = "F1";

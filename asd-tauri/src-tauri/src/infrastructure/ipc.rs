@@ -22,7 +22,7 @@ const IPC_CHANNEL_CAPACITY: usize = 512;
 /// 工作线程，多命令并发可能耗尽线程池。此超时将该窗口限制在 2s 内，
 /// 超时视同管道不可靠，清理连接并返回 `SendTimeout`。
 const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
-/// pending_responses 周期性清理的最大存活时间。
+/// `pending_responses` 周期性清理的最大存活时间。
 ///
 /// **约束**: `send_and_wait` 的 timeout 不应超过此值，否则 pending response
 /// 会在超时前被清理，导致收到 `ChannelClosed` 而非 `Timeout` 错误。
@@ -132,7 +132,7 @@ impl IpcManager {
         *self.on_post_connect.lock() = Some(cb);
     }
 
-    /// 标记正在关机，抑制后续 pipe_broken 回调
+    /// 标记正在关机，抑制后续 `pipe_broken` 回调
     pub fn mark_shutting_down(&self) {
         self.shutting_down.store(true, Ordering::SeqCst);
         tracing::info!("IPC: shutting_down 标志已设置");
@@ -631,9 +631,9 @@ impl IpcManager {
 
     /// 将非关键消息转发到 outbound 通道。
     ///
-    /// T6-06：非关键消息（heartbeat / key_send_event / key_record_event 等）
-    /// 用 try_send，通道满时丢弃而非 await 阻塞监听循环，避免经 recv →
-    /// OS 管道 → AHK 同步 WriteFile 反向压死。
+    /// T6-06：非关键消息（heartbeat / `key_send_event` / `key_record_event` 等）
+    /// 用 `try_send`，通道满时丢弃而非 await 阻塞监听循环，避免经 recv →
+    /// OS 管道 → AHK 同步 `WriteFile` 反向压死。
     fn forward_to_outbound(&self, msg: IpcMessage) {
         match self.outbound_tx.try_send(msg) {
             Ok(()) => {}
@@ -787,7 +787,7 @@ impl IpcManager {
     }
 
     /// 按 seq 清理指定的 pending response 条目。
-    /// 用于 IpcBridge 超时/通道关闭后主动清理，避免等待周期性 cleanup_stale_pending。
+    /// 用于 `IpcBridge` 超时/通道关闭后主动清理，避免等待周期性 `cleanup_stale_pending`。
     pub async fn cleanup_pending_by_seq(&self, seq: u64) {
         let mut pending = self.pending_responses.lock().await;
         pending.remove(&seq);
@@ -868,7 +868,7 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
 /// T8-01：从 `listen_ahk` 的内联分发逻辑抽出，便于单元测试。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MessageKind {
-    /// 携带 ack_seq 的响应消息，需尝试匹配 pending response
+    /// 携带 `ack_seq` 的响应消息，需尝试匹配 pending response
     Response,
     /// 心跳 pong 响应
     Pong,
@@ -889,12 +889,12 @@ fn parse_message(line: &str) -> Result<IpcMessage, IpcError> {
 /// 按消息内容分类，供 `listen_ahk` 分发分支复用。
 ///
 /// 分类优先级与原内联实现等价：
-/// 1. `pong` 心跳消息 —— `pong` 也携带 ack_seq，但 Rust 侧 ping 永不注册
+/// 1. `pong` 心跳消息 —— `pong` 也携带 `ack_seq`，但 Rust 侧 ping 永不注册
 ///    pending（走 `send` 而非 `send_and_wait`），因此 `dispatch_response` 对
 ///    `pong` 始终返回 false，将其直接归为 `Pong` 不改变运行行为；
 /// 2. 其它携带 `ack_seq` 的消息 → `Response`；
 /// 3. `hotkey` → `Hotkey`；
-/// 4. 其余 → `Forward`（含 heartbeat / key_send_event 等非关键消息）。
+/// 4. 其余 → `Forward`（含 heartbeat / `key_send_event` 等非关键消息）。
 fn classify_message(msg: &IpcMessage) -> MessageKind {
     if msg.r#type == "pong" {
         MessageKind::Pong
@@ -1364,7 +1364,7 @@ mod tests {
         );
     }
 
-    /// 验证未连接时 send() 不阻塞、立即返回 ConnectionClosed 错误，
+    /// 验证未连接时 `send()` 不阻塞、立即返回 `ConnectionClosed` 错误，
     /// 而非挂起工作线程（T6-05 错误路径确定性回归）。
     #[tokio::test]
     async fn test_send_returns_connection_closed_when_disconnected() {
@@ -1487,7 +1487,7 @@ mod tests {
 
     // ---- T5-12: 管道名单一权威 + 跨语言一致守护 测试 ----
 
-    /// 验证 `IPC_PIPE_NAME` 单一权威常量存在且值为 "asd_ipc"。
+    /// 验证 `IPC_PIPE_NAME` 单一权威常量存在且值为 "`asd_ipc`"。
     ///
     /// 该测试原位于 `lib.rs` 的 `pipe_name_tests` 模块，随常量收敛到 `ipc.rs`
     /// 后一并迁移至此，保证权威定义与测试同处一文件。

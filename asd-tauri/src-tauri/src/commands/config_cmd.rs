@@ -461,7 +461,7 @@ mod tests {
 
     // --- get_config_impl ---
 
-    /// 验证 get_config_impl 返回包含正确分组数量的配置。
+    /// 验证 `get_config_impl` 返回包含正确分组数量的配置。
     #[test]
     fn test_get_config_impl_success() {
         let state = make_test_state();
@@ -471,7 +471,7 @@ mod tests {
         assert_eq!(config.group_settings.len(), 2, "测试配置应包含 2 个分组");
     }
 
-    /// 验证 get_config_impl 反映 save_config_impl 后的配置变更。
+    /// 验证 `get_config_impl` 反映 `save_config_impl` 后的配置变更。
     #[test]
     fn test_get_config_impl_reflects_saved_config() {
         let (state, _dir) = make_test_state_with_path();
@@ -490,7 +490,7 @@ mod tests {
 
     // --- save_config_impl ---
 
-    /// 验证 save_config_impl 成功保存有效配置。
+    /// 验证 `save_config_impl` 成功保存有效配置。
     #[test]
     fn test_save_config_impl_success() {
         let (state, _dir) = make_test_state_with_path();
@@ -499,7 +499,7 @@ mod tests {
         assert!(result.is_ok(), "保存有效配置应成功: {:?}", result.err());
     }
 
-    /// 验证 save_config_impl 拒绝无效配置（空热键）。
+    /// 验证 `save_config_impl` 拒绝无效配置（空热键）。
     #[test]
     fn test_save_config_impl_invalid_config() {
         let state = make_test_state();
@@ -515,7 +515,7 @@ mod tests {
 
     // --- validate_config_impl ---
 
-    /// 验证 validate_config_impl 对有效配置返回 is_valid() == true。
+    /// 验证 `validate_config_impl` 对有效配置返回 `is_valid()` == true。
     #[test]
     fn test_validate_config_impl_valid() {
         let config = make_test_config();
@@ -524,7 +524,7 @@ mod tests {
         assert!(result.unwrap().is_valid(), "有效配置应通过验证");
     }
 
-    /// 验证 validate_config_impl 对无效配置返回 is_valid() == false。
+    /// 验证 `validate_config_impl` 对无效配置返回 `is_valid()` == false。
     #[test]
     fn test_validate_config_impl_invalid() {
         let mut config = make_test_config();
@@ -536,7 +536,7 @@ mod tests {
 
     // --- list_backups_impl ---
 
-    /// 验证 list_backups_impl 在无备份时返回空列表。
+    /// 验证 `list_backups_impl` 在无备份时返回空列表。
     #[test]
     fn test_list_backups_impl_empty() {
         let (state, _dir) = make_test_state_with_path();
@@ -545,7 +545,7 @@ mod tests {
         assert!(result.unwrap().is_empty(), "无备份时应返回空列表");
     }
 
-    /// 验证 list_backups_impl 在未设置 config_path 时返回错误。
+    /// 验证 `list_backups_impl` 在未设置 `config_path` 时返回错误。
     #[test]
     fn test_list_backups_impl_no_config_path() {
         let state = make_test_state();
@@ -559,7 +559,7 @@ mod tests {
 
     // --- create_backup_impl ---
 
-    /// 验证 create_backup_impl 成功创建备份并返回文件名。
+    /// 验证 `create_backup_impl` 成功创建备份并返回文件名。
     #[test]
     fn test_create_backup_impl_success() {
         let (state, _dir) = make_test_state_with_path();
@@ -572,7 +572,7 @@ mod tests {
         );
     }
 
-    /// 验证 create_backup_impl 在未设置 config_path 时返回错误。
+    /// 验证 `create_backup_impl` 在未设置 `config_path` 时返回错误。
     #[test]
     fn test_create_backup_impl_no_config_path() {
         let state = make_test_state();
@@ -582,7 +582,7 @@ mod tests {
 
     // --- restore_backup_impl ---
 
-    /// 验证 restore_backup_impl 成功恢复已有备份。
+    /// 验证 `restore_backup_impl` 成功恢复已有备份。
     #[test]
     fn test_restore_backup_impl_success() {
         let (state, _dir) = make_test_state_with_path();
@@ -593,7 +593,7 @@ mod tests {
         assert!(result.is_ok(), "恢复备份应成功: {:?}", result.err());
     }
 
-    /// 验证 restore_backup_impl 拒绝空文件名。
+    /// 验证 `restore_backup_impl` 拒绝空文件名。
     #[test]
     fn test_restore_backup_impl_empty_filename() {
         let state = make_test_state();
@@ -607,7 +607,7 @@ mod tests {
 
     // --- hot_reload_impl ---
 
-    /// 验证 hot_reload_impl 成功从磁盘重新加载配置。
+    /// 验证 `hot_reload_impl` 成功从磁盘重新加载配置。
     #[test]
     fn test_hot_reload_impl_success() {
         let (state, _dir) = make_test_state_with_path();
@@ -619,7 +619,7 @@ mod tests {
         assert!(result.is_ok(), "热重载应成功: {:?}", result.err());
     }
 
-    /// 验证 hot_reload_impl 在未设置 config_path 时返回错误。
+    /// 验证 `hot_reload_impl` 在未设置 `config_path` 时返回错误。
     #[test]
     fn test_hot_reload_impl_no_config_path() {
         let state = make_test_state();
@@ -629,7 +629,7 @@ mod tests {
 
     // --- delete_backup_impl ---
 
-    /// 验证 delete_backup_impl 成功删除已有备份。
+    /// 验证 `delete_backup_impl` 成功删除已有备份。
     #[test]
     fn test_delete_backup_impl_success() {
         let (state, _dir) = make_test_state_with_path();
@@ -638,7 +638,7 @@ mod tests {
         assert!(result.is_ok(), "删除备份应成功: {:?}", result.err());
     }
 
-    /// 验证 delete_backup_impl 拒绝空文件名。
+    /// 验证 `delete_backup_impl` 拒绝空文件名。
     #[test]
     fn test_delete_backup_impl_empty_filename() {
         let state = make_test_state();
@@ -652,7 +652,7 @@ mod tests {
 
     // --- export_config_impl ---
 
-    /// 验证 export_config_impl 成功导出配置到文件。
+    /// 验证 `export_config_impl` 成功导出配置到文件。
     #[test]
     fn test_export_config_impl_success() {
         let (state, dir) = make_test_state_with_path();
@@ -662,7 +662,7 @@ mod tests {
         assert!(export_path.exists(), "导出文件应存在");
     }
 
-    /// 验证 export_config_impl 拒绝空路径。
+    /// 验证 `export_config_impl` 拒绝空路径。
     #[test]
     fn test_export_config_impl_empty_path() {
         let state = make_test_state();
@@ -676,7 +676,7 @@ mod tests {
 
     // --- import_config_impl ---
 
-    /// 验证 import_config_impl 成功从文件导入配置。
+    /// 验证 `import_config_impl` 成功从文件导入配置。
     #[test]
     fn test_import_config_impl_success() {
         let (state, dir) = make_test_state_with_path();
@@ -688,7 +688,7 @@ mod tests {
         assert!(result.is_ok(), "导入配置应成功: {:?}", result.err());
     }
 
-    /// 验证 import_config_impl 拒绝空路径。
+    /// 验证 `import_config_impl` 拒绝空路径。
     #[test]
     fn test_import_config_impl_empty_path() {
         let state = make_test_state();
@@ -702,7 +702,7 @@ mod tests {
 
     // --- compare_configs_impl ---
 
-    /// 验证 compare_configs_impl 成功比较当前配置与备份。
+    /// 验证 `compare_configs_impl` 成功比较当前配置与备份。
     #[test]
     fn test_compare_configs_impl_success() {
         let (state, _dir) = make_test_state_with_path();
@@ -717,7 +717,7 @@ mod tests {
         assert!(diff.modified_groups.is_empty(), "无修改分组");
     }
 
-    /// 验证 compare_configs_impl 拒绝空文件名。
+    /// 验证 `compare_configs_impl` 拒绝空文件名。
     #[test]
     fn test_compare_configs_impl_empty_filename() {
         let state = make_test_state();

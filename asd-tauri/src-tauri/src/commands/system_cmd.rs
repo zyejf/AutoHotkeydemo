@@ -41,7 +41,7 @@ pub fn get_executor_status_impl(state: &AppState) -> Result<WatchdogState, AppEr
 /// `emergency_release` 的核心逻辑。
 ///
 /// 紧急释放是安全关键操作，始终发送 IPC 命令，即使已处于紧急模式。
-/// 原因：AHK 子进程可能已重启（post_connect_callback 清除了 Rust 侧标志），
+/// 原因：AHK 子进程可能已重启（`post_connect_callback` 清除了 Rust 侧标志），
 /// 但 AHK 侧可能仍持有按键。重发 IPC 确保按键释放。
 ///
 /// # Errors
@@ -252,7 +252,7 @@ mod tests {
     // 正常路径测试 × 3
     // ----------------------------------------------------------------
 
-    /// 验证 get_executor_status 返回正确的初始状态。
+    /// 验证 `get_executor_status` 返回正确的初始状态。
     /// 任务清单中的 `get_system_status` 实际函数名为 `get_executor_status`。
     #[test]
     fn test_get_executor_status_returns_correct_state() {
@@ -264,8 +264,8 @@ mod tests {
         assert_eq!(ws.restart_count, 0, "初始重启次数应为 0");
     }
 
-    /// 验证 emergency_release 成功设置紧急模式。
-    /// 成功路径：CAS(false→true) 成功 + IPC 发送成功 → emergency_mode = true。
+    /// 验证 `emergency_release` 成功设置紧急模式。
+    /// 成功路径：CAS(false→true) 成功 + IPC 发送成功 → `emergency_mode` = true。
     #[test]
     fn test_emergency_release_success() {
         let state = make_test_state();
@@ -281,7 +281,7 @@ mod tests {
         );
     }
 
-    /// 验证 toggle_hold_mode 成功翻转长按模式。
+    /// 验证 `toggle_hold_mode` 成功翻转长按模式。
     /// 初始 false → 翻转为 true → 返回新值 true。
     #[test]
     fn test_toggle_hold_mode_toggles() {
@@ -316,9 +316,9 @@ mod tests {
     // 错误路径测试 × 3
     // ----------------------------------------------------------------
 
-    /// 验证 emergency_release 在 IPC 失败时回滚 emergency_mode。
+    /// 验证 `emergency_release` 在 IPC 失败时回滚 `emergency_mode`。
     /// 任务清单中的 `emergency_release 在无效状态下失败` 适配为 IPC 失败回滚场景。
-    /// 场景：首次调用（already_active=false）+ IPC 失败 → 回滚 emergency_mode 为 false。
+    /// 场景：首次调用（`already_active=false`）+ IPC 失败 → 回滚 `emergency_mode` 为 false。
     #[test]
     fn test_emergency_release_ipc_failure_rolls_back() {
         let state = make_failing_state();
@@ -335,10 +335,10 @@ mod tests {
         );
     }
 
-    /// 验证 toggle_hold_mode 在 IPC 失败时回滚 hold_mode_enabled。
+    /// 验证 `toggle_hold_mode` 在 IPC 失败时回滚 `hold_mode_enabled`。
     /// 任务清单中的 `toggle_hold_mode 无效参数失败` 适配为 IPC 失败回滚场景
-    /// （toggle_hold_mode 无参数，不存在"无效参数"场景）。
-    /// 场景：CAS 成功翻转 false→true + IPC 失败 → 回滚 hold_mode_enabled 为 false。
+    /// （`toggle_hold_mode` 无参数，不存在"无效参数"场景）。
+    /// 场景：CAS 成功翻转 false→true + IPC 失败 → 回滚 `hold_mode_enabled` 为 false。
     #[test]
     fn test_toggle_hold_mode_ipc_failure_rolls_back() {
         let state = make_failing_state();
@@ -355,8 +355,8 @@ mod tests {
         );
     }
 
-    /// 验证 get_executor_status 反映状态更新。
-    /// 任务清单中的 `get_system_status 状态查询` — 更新 watchdog_state 后应反映新状态。
+    /// 验证 `get_executor_status` 反映状态更新。
+    /// 任务清单中的 `get_system_status 状态查询` — 更新 `watchdog_state` 后应反映新状态。
     #[test]
     fn test_get_executor_status_reflects_updates() {
         let state = make_test_state();

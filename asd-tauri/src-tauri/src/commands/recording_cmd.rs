@@ -343,7 +343,7 @@ mod tests {
 
     // --- start_recording_impl ---
 
-    /// 验证 start_recording_impl 成功启动录制。
+    /// 验证 `start_recording_impl` 成功启动录制。
     #[test]
     fn test_start_recording_impl_success() {
         let state = make_test_state();
@@ -351,7 +351,7 @@ mod tests {
         assert!(result.is_ok(), "启动录制应成功: {:?}", result.err());
     }
 
-    /// 验证 start_recording_impl 拒绝空分组 ID。
+    /// 验证 `start_recording_impl` 拒绝空分组 ID。
     #[test]
     fn test_start_recording_impl_empty_group_id() {
         let state = make_test_state();
@@ -365,7 +365,7 @@ mod tests {
 
     // --- stop_recording_impl ---
 
-    /// 验证 stop_recording_impl 成功停止录制并返回结果。
+    /// 验证 `stop_recording_impl` 成功停止录制并返回结果。
     #[test]
     fn test_stop_recording_impl_success() {
         let state = make_test_state();
@@ -379,7 +379,7 @@ mod tests {
         assert_eq!(recording.mode, "periodic", "录制模式应为 periodic");
     }
 
-    /// 验证 stop_recording_impl 在未录制时返回错误。
+    /// 验证 `stop_recording_impl` 在未录制时返回错误。
     #[test]
     fn test_stop_recording_impl_not_recording() {
         let state = make_test_state();
@@ -393,7 +393,7 @@ mod tests {
 
     // --- pause_recording_impl ---
 
-    /// 验证 pause_recording_impl 成功暂停录制。
+    /// 验证 `pause_recording_impl` 成功暂停录制。
     #[test]
     fn test_pause_recording_impl_success() {
         let state = make_test_state();
@@ -404,7 +404,7 @@ mod tests {
         assert!(result.is_ok(), "暂停录制应成功: {:?}", result.err());
     }
 
-    /// 验证 pause_recording_impl 在未录制时返回错误。
+    /// 验证 `pause_recording_impl` 在未录制时返回错误。
     #[test]
     fn test_pause_recording_impl_not_recording() {
         let state = make_test_state();
@@ -418,7 +418,7 @@ mod tests {
 
     // --- resume_recording_impl ---
 
-    /// 验证 resume_recording_impl 成功恢复录制。
+    /// 验证 `resume_recording_impl` 成功恢复录制。
     #[test]
     fn test_resume_recording_impl_success() {
         let state = make_test_state();
@@ -431,7 +431,7 @@ mod tests {
         assert!(result.is_ok(), "恢复录制应成功: {:?}", result.err());
     }
 
-    /// 验证 resume_recording_impl 在未录制时返回错误。
+    /// 验证 `resume_recording_impl` 在未录制时返回错误。
     #[test]
     fn test_resume_recording_impl_not_recording() {
         let state = make_test_state();
@@ -445,7 +445,7 @@ mod tests {
 
     // --- export_recording_impl ---
 
-    /// 验证 export_recording_impl 成功导出录制数据到文件。
+    /// 验证 `export_recording_impl` 成功导出录制数据到文件。
     #[test]
     fn test_export_recording_impl_success() {
         let (_state, dir) = make_test_state_with_path();
@@ -461,7 +461,7 @@ mod tests {
         assert!(export_path.exists(), "导出文件应存在");
     }
 
-    /// 验证 export_recording_impl 拒绝空路径。
+    /// 验证 `export_recording_impl` 拒绝空路径。
     ///
     /// 空路径应在 _impl 层被 `AppError::Validation` 拦截，
     /// 不应进入 `validate_file_path` 返回 `AppError::Config`。
@@ -475,7 +475,7 @@ mod tests {
         }
     }
 
-    /// 验证 export_recording_impl 拒绝纯空白路径。
+    /// 验证 `export_recording_impl` 拒绝纯空白路径。
     #[test]
     fn test_export_recording_impl_whitespace_path() {
         let result = export_recording_impl("   ", &["1".to_string()], &[50], &[], "periodic");
@@ -488,7 +488,7 @@ mod tests {
 
     // --- import_recording_impl ---
 
-    /// 验证 import_recording_impl 成功从文件导入录制数据。
+    /// 验证 `import_recording_impl` 成功从文件导入录制数据。
     #[test]
     fn test_import_recording_impl_success() {
         let (_state, dir) = make_test_state_with_path();
@@ -510,7 +510,7 @@ mod tests {
         assert_eq!(imported.mode, "periodic", "导入的模式应为 periodic");
     }
 
-    /// 验证 import_recording_impl 拒绝空路径。
+    /// 验证 `import_recording_impl` 拒绝空路径。
     ///
     /// 空路径应在 _impl 层被 `AppError::Validation` 拦截，
     /// 不应进入 `validate_file_path` 返回 `AppError::Config`。
@@ -524,7 +524,7 @@ mod tests {
         }
     }
 
-    /// 验证 import_recording_impl 拒绝纯空白路径。
+    /// 验证 `import_recording_impl` 拒绝纯空白路径。
     #[test]
     fn test_import_recording_impl_whitespace_path() {
         let result = import_recording_impl("   ");
@@ -537,7 +537,7 @@ mod tests {
 
     // --- start_validation_impl ---
 
-    /// 验证 start_validation_impl 成功启动验证。
+    /// 验证 `start_validation_impl` 成功启动验证。
     #[test]
     fn test_start_validation_impl_success() {
         let state = make_test_state();
@@ -545,7 +545,7 @@ mod tests {
         assert!(result.is_ok(), "启动验证应成功: {:?}", result.err());
     }
 
-    /// 验证 start_validation_impl 拒绝空分组 ID。
+    /// 验证 `start_validation_impl` 拒绝空分组 ID。
     #[test]
     fn test_start_validation_impl_empty_group_id() {
         let state = make_test_state();
@@ -559,7 +559,7 @@ mod tests {
 
     // --- stop_validation_impl ---
 
-    /// 验证 stop_validation_impl 成功停止验证。
+    /// 验证 `stop_validation_impl` 成功停止验证。
     #[test]
     fn test_stop_validation_impl_success() {
         let state = make_test_state();
@@ -570,7 +570,7 @@ mod tests {
         assert!(result.is_ok(), "停止验证应成功: {:?}", result.err());
     }
 
-    /// 验证 stop_validation_impl 在未验证时返回错误。
+    /// 验证 `stop_validation_impl` 在未验证时返回错误。
     #[test]
     fn test_stop_validation_impl_not_validating() {
         let state = make_test_state();

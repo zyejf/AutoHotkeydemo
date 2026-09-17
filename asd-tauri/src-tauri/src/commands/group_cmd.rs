@@ -356,7 +356,7 @@ mod tests {
 
     // --- get_groups_impl ---
 
-    /// 验证 get_groups_impl 返回正确的分组列表。
+    /// 验证 `get_groups_impl` 返回正确的分组列表。
     #[test]
     fn test_get_groups_impl_success() {
         let state = make_test_state();
@@ -368,7 +368,7 @@ mod tests {
         assert_eq!(groups[1].id, "2");
     }
 
-    /// 验证 get_groups_impl 反映删除分组后的状态。
+    /// 验证 `get_groups_impl` 反映删除分组后的状态。
     #[test]
     fn test_get_groups_impl_after_delete() {
         let (state, _dir) = make_test_state_with_path();
@@ -384,7 +384,7 @@ mod tests {
 
     // --- toggle_group_impl ---
 
-    /// 验证 toggle_group_impl 成功切换分组激活状态。
+    /// 验证 `toggle_group_impl` 成功切换分组激活状态。
     #[test]
     fn test_toggle_group_impl_success() {
         let state = make_test_state();
@@ -395,7 +395,7 @@ mod tests {
         assert!(status.active, "首次切换应激活分组");
     }
 
-    /// 验证 toggle_group_impl 拒绝空分组 ID。
+    /// 验证 `toggle_group_impl` 拒绝空分组 ID。
     #[test]
     fn test_toggle_group_impl_empty_id() {
         let state = make_test_state();
@@ -409,7 +409,7 @@ mod tests {
 
     // --- get_group_detail_impl ---
 
-    /// 验证 get_group_detail_impl 返回正确的分组详情。
+    /// 验证 `get_group_detail_impl` 返回正确的分组详情。
     #[test]
     fn test_get_group_detail_impl_success() {
         let state = make_test_state();
@@ -421,7 +421,7 @@ mod tests {
         assert_eq!(group.mode, "periodic");
     }
 
-    /// 验证 get_group_detail_impl 拒绝空分组 ID。
+    /// 验证 `get_group_detail_impl` 拒绝空分组 ID。
     #[test]
     fn test_get_group_detail_impl_empty_id() {
         let state = make_test_state();
@@ -435,7 +435,7 @@ mod tests {
 
     // --- delete_group_impl ---
 
-    /// 验证 delete_group_impl 成功删除存在的分组。
+    /// 验证 `delete_group_impl` 成功删除存在的分组。
     #[test]
     fn test_delete_group_impl_success() {
         let (state, _dir) = make_test_state_with_path();
@@ -445,7 +445,7 @@ mod tests {
         assert!(state.get_group("1").is_none(), "分组应已被删除");
     }
 
-    /// 验证 delete_group_impl 拒绝空分组 ID。
+    /// 验证 `delete_group_impl` 拒绝空分组 ID。
     #[test]
     fn test_delete_group_impl_empty_id() {
         let state = make_test_state();
@@ -459,7 +459,7 @@ mod tests {
 
     // --- toggle_all_impl ---
 
-    /// 验证 toggle_all_impl 成功切换所有分组。
+    /// 验证 `toggle_all_impl` 成功切换所有分组。
     #[test]
     fn test_toggle_all_impl_success() {
         let state = make_test_state();
@@ -470,7 +470,7 @@ mod tests {
         assert!(batch_result.state_errors.is_empty(), "不应有状态错误");
     }
 
-    /// 验证 toggle_all_impl 对已激活分组正确计算 skipped。
+    /// 验证 `toggle_all_impl` 对已激活分组正确计算 skipped。
     #[test]
     fn test_toggle_all_impl_skips_active() {
         let state = make_test_state();
@@ -486,7 +486,7 @@ mod tests {
 
     // --- batch_toggle_groups_impl ---
 
-    /// 验证 batch_toggle_groups_impl 成功批量切换指定分组。
+    /// 验证 `batch_toggle_groups_impl` 成功批量切换指定分组。
     #[test]
     fn test_batch_toggle_groups_impl_success() {
         let state = make_test_state();
@@ -498,7 +498,7 @@ mod tests {
         assert!(batch_result.not_found.is_empty(), "不应有未找到的分组");
     }
 
-    /// 验证 batch_toggle_groups_impl 拒绝空分组列表。
+    /// 验证 `batch_toggle_groups_impl` 拒绝空分组列表。
     #[test]
     fn test_batch_toggle_groups_impl_empty_ids() {
         let state = make_test_state();
@@ -512,7 +512,7 @@ mod tests {
 
     // --- batch_delete_groups_impl ---
 
-    /// 验证 batch_delete_groups_impl 成功批量删除分组。
+    /// 验证 `batch_delete_groups_impl` 成功批量删除分组。
     #[test]
     fn test_batch_delete_groups_impl_success() {
         let (state, _dir) = make_test_state_with_path();
@@ -524,7 +524,7 @@ mod tests {
         assert!(batch_result.failed.is_empty(), "不应有失败");
     }
 
-    /// 验证 batch_delete_groups_impl 拒绝空分组列表。
+    /// 验证 `batch_delete_groups_impl` 拒绝空分组列表。
     #[test]
     fn test_batch_delete_groups_impl_empty_ids() {
         let state = make_test_state();
@@ -538,7 +538,7 @@ mod tests {
 
     // --- reorder_groups_impl ---
 
-    /// 验证 reorder_groups_impl 成功重排序分组。
+    /// 验证 `reorder_groups_impl` 成功重排序分组。
     #[test]
     fn test_reorder_groups_impl_success() {
         let (state, _dir) = make_test_state_with_path();
@@ -551,7 +551,7 @@ mod tests {
         assert!(reorder_result.appended_groups.is_empty(), "不应有追加分组");
     }
 
-    /// 验证 reorder_groups_impl 拒绝空分组列表。
+    /// 验证 `reorder_groups_impl` 拒绝空分组列表。
     #[test]
     fn test_reorder_groups_impl_empty_ids() {
         let state = make_test_state();

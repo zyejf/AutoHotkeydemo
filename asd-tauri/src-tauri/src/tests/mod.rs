@@ -8,6 +8,9 @@ mod command_contract_tests;
 mod config_compat_tests;
 
 #[cfg(test)]
+mod doc_markdown_contract_tests;
+
+#[cfg(test)]
 mod ipc_tests;
 
 #[cfg(test)]

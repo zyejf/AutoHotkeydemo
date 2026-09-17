@@ -69,8 +69,8 @@ mod tests {
     // 正常路径测试 × 3
     // ----------------------------------------------------------------
 
-    /// 验证 register_hotkey 对非活跃分组成功更新配置热键。
-    /// 非活跃分组仅更新配置（不发送 IPC），符合 group_service::register_hotkey 设计。
+    /// 验证 `register_hotkey` 对非活跃分组成功更新配置热键。
+    /// 非活跃分组仅更新配置（不发送 IPC），符合 `group_service::register_hotkey` 设计。
     #[test]
     fn test_register_hotkey_success() {
         let state = make_test_state();
@@ -82,8 +82,8 @@ mod tests {
         assert_eq!(group.hotkey, "F3", "分组热键应已更新为 F3");
     }
 
-    /// 验证 unregister_hotkey 成功注销已注册的活跃热键。
-    /// 流程：先激活分组（注册热键到 active_hotkeys），再注销。
+    /// 验证 `unregister_hotkey` 成功注销已注册的活跃热键。
+    /// 流程：先激活分组（注册热键到 `active_hotkeys`），再注销。
     #[test]
     fn test_unregister_hotkey_success() {
         let state = make_test_state();
@@ -98,7 +98,7 @@ mod tests {
     }
 
     /// 验证注册后查询热键列表返回正确结果。
-    /// 任务清单中的 list_hotkeys command 不存在，使用 state.get_all_registered_hotkeys()
+    /// 任务清单中的 `list_hotkeys` command 不存在，使用 `state.get_all_registered_hotkeys()`
     /// 验证 command 层注册后的热键列表状态（command 层未暴露 list 接口）。
     #[test]
     fn test_list_registered_hotkeys() {
@@ -122,9 +122,9 @@ mod tests {
     // 错误路径测试 × 3
     // ----------------------------------------------------------------
 
-    /// 验证 register_hotkey 重复注册（热键冲突）失败。
+    /// 验证 `register_hotkey` 重复注册（热键冲突）失败。
     /// 场景：两个活跃分组，尝试将分组 2 的热键改为分组 1 已注册的 F1。
-    /// group_service::register_hotkey 调用 swap_hotkey 检测到冲突，返回 Validation 错误。
+    /// `group_service::register_hotkey` 调用 `swap_hotkey` 检测到冲突，返回 Validation 错误。
     #[test]
     fn test_register_hotkey_duplicate_fails() {
         let state = make_test_state();
@@ -142,8 +142,8 @@ mod tests {
         );
     }
 
-    /// 验证 unregister_hotkey 注销未注册的热键失败。
-    /// group_service::unregister_hotkey 返回 Validation("热键 'xxx' 未注册")。
+    /// 验证 `unregister_hotkey` 注销未注册的热键失败。
+    /// `group_service::unregister_hotkey` 返回 Validation("热键 'xxx' 未注册")。
     #[test]
     fn test_unregister_hotkey_not_registered_fails() {
         let state = make_test_state();
@@ -156,8 +156,8 @@ mod tests {
         );
     }
 
-    /// 验证 register_hotkey 空热键格式失败。
-    /// group_service::register_hotkey 检查 hotkey.trim().is_empty() 返回 Validation。
+    /// 验证 `register_hotkey` 空热键格式失败。
+    /// `group_service::register_hotkey` 检查 `hotkey.trim().is_empty()` 返回 Validation。
     #[test]
     fn test_register_hotkey_empty_fails() {
         let state = make_test_state();

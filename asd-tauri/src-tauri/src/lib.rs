@@ -128,8 +128,8 @@ fn spawn_ipc_listener(
 
 /// 启动 IPC 接受循环。
 ///
-/// 前置条件：IpcManager 必须在调用前初始化（包装在 Some() 中），
-/// 否则 accept_loop 不会启动且不会重试。
+/// 前置条件：IpcManager 必须在调用前初始化（包装在 `Some()` 中），
+/// 否则 `accept_loop` 不会启动且不会重试。
 fn spawn_ipc_accept_loop(ipc_manager: IpcManagerArc) {
     tauri::async_runtime::spawn(async move {
         let listener = match infrastructure::ipc::create_listener(IPC_PIPE_NAME) {
@@ -235,7 +235,7 @@ fn spawn_watchdog(
     shutting_down
 }
 
-/// 设置 IPC 回调（heartbeat / pipe_broken / post_connect / send_shutdown）。
+/// 设置 IPC 回调（heartbeat / `pipe_broken` / `post_connect` / `send_shutdown`）。
 ///
 /// # 设计决策：直接操作具体类型 `IpcManager`（M31）
 ///
@@ -452,16 +452,16 @@ fn init_app_state(
 /// **锁顺序**：`ipc_manager_arc` → `watchdog`
 ///
 /// 此顺序在以下位置一致使用：
-/// - `setup_ipc_and_watchdog`（本函数）：ipc_manager → watchdog
-/// - `perform_graceful_shutdown`：ipc_manager → watchdog（先释放 ipc_manager 再锁 watchdog）
-/// - `setup_ipc_callbacks`：在 ipc_manager 锁内获取 watchdog 锁
+/// - `setup_ipc_and_watchdog`（本函数）：`ipc_manager` → `watchdog`
+/// - `perform_graceful_shutdown`：`ipc_manager` → `watchdog`（先释放 `ipc_manager` 再锁 `watchdog`）
+/// - `setup_ipc_callbacks`：在 `ipc_manager` 锁内获取 `watchdog` 锁
 ///
 /// **安全性分析**：
 /// - 临界区极短（仅设置回调或查询状态），不会在锁内执行阻塞 I/O
 /// - `block_in_place` 确保同步阻塞不会导致 tokio 运行时死锁
 /// - 所有锁获取点均使用 `blocking_lock()` 而非 `lock().await`，避免跨 await 持锁
 ///
-/// 若未来修改锁获取顺序，必须确保不反转此顺序（watchdog → ipc_manager），
+/// 若未来修改锁获取顺序，必须确保不反转此顺序（`watchdog` → `ipc_manager`），
 /// 否则会导致死锁。
 fn setup_ipc_and_watchdog(
     app_state: &Arc<AppState>,
@@ -636,14 +636,14 @@ fn resolve_ahk_executor_path(app: &tauri::App) -> std::path::PathBuf {
 /// 不在本地 cargo 依赖缓存中，且当前环境可能无法联网拉取，直接加入会导致
 /// `cargo build` 失败。待可用后再在 `tauri::Builder::default()` 前以
 /// `.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| { ... }))` 注册，
-/// 回调内通过 `app.get_webview_window("main")` show + set_focus 聚焦首实例。
+/// 回调内通过 `app.get_webview_window("main")` show + `set_focus` 聚焦首实例。
 ///
 /// # Panics
 ///
 /// 仅一处：`tauri::Builder::run()` 返回 `Err` 时 `.expect("Tauri 应用启动失败")`
 /// 会 panic（错误已先经 `inspect_err` 记进日志）。
 /// 这是**启动期致命错误**（典型是 `generate_context!()` 读不到
-/// `tauri.conf.json`、图标等资源，或 WebView2 运行时缺失）—— 此时没有任何
+/// `tauri.conf.json`、图标等资源，或 `WebView2` 运行时缺失）—— 此时没有任何
 /// 可降级的状态可以返回，也没有 UI 可以提示用户，让它带着日志崩掉是刻意的选择，
 /// 不要把它改成「记日志后静默退出」：那会让启动失败表现为「双击没反应」。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -804,7 +804,7 @@ mod shutdown_tests {
 
     /// 验证 `try_acquire_shutdown_guard` 首次调用成功获取关机锁。
     ///
-    /// 当 guard 为 false 时，compare_exchange 应成功将其设为 true，
+    /// 当 guard 为 false 时，`compare_exchange` 应成功将其设为 true，
     /// 返回 true 表示调用方获得关机权。
     #[test]
     fn test_try_acquire_shutdown_guard_first_call() {
@@ -819,7 +819,7 @@ mod shutdown_tests {
 
     /// 验证 `try_acquire_shutdown_guard` 第二次调用失败（关机已在进行中）。
     ///
-    /// 第一次调用将 guard 设为 true，第二次调用的 compare_exchange 应失败，
+    /// 第一次调用将 guard 设为 true，第二次调用的 `compare_exchange` 应失败，
     /// 返回 false 表示关机已在进行中，调用方应跳过。
     #[test]
     fn test_try_acquire_shutdown_guard_second_call_fails() {

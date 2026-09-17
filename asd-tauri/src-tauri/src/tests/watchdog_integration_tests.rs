@@ -1,4 +1,4 @@
-//! Watchdog 集成测试 — ProcessWatchdog 进程管理与状态机
+//! Watchdog 集成测试 — `ProcessWatchdog` 进程管理与状态机
 //!
 //! 这些测试涉及真实进程管理（spawn、kill、重启）和时序依赖，
 //! 全部标记为 `#[ignore]` 以避免在 CI 中运行慢测试。
@@ -53,9 +53,9 @@ fn spawn_quick_exit_child() -> std::process::Child {
 /// 步骤：
 /// 1. 创建 ProcessWatchdog（初始 Idle）
 /// 2. 启动 ping 子进程
-/// 3. attach_child 附加子进程
-/// 4. 验证状态变为 Running，child_pid 不为 None
-/// 5. 清理：graceful_shutdown 终止子进程
+/// 3. `attach_child` 附加子进程
+/// 4. 验证状态变为 `Running`，`child_pid` 不为 `None`
+/// 5. 清理：`graceful_shutdown` 终止子进程
 #[test]
 #[ignore = "涉及真实进程管理，需手动运行：cargo test -- --ignored test_watchdog_start_child_process"]
 fn test_watchdog_start_child_process() {
@@ -107,7 +107,7 @@ fn test_watchdog_start_child_process() {
 /// 验证子进程退出后 watchdog 检测到并转为 Restarting 状态。
 ///
 /// 步骤：
-/// 1. attach_child 附加子进程
+/// 1. `attach_child` 附加子进程
 /// 2. kill 子进程模拟崩溃
 /// 3. tick 应返回 RestartNeeded，状态转为 Restarting
 #[test]
@@ -143,13 +143,13 @@ fn test_watchdog_child_crash_restart() {
 
 /// 验证 `WatchdogRunner` 能自动重启崩溃的子进程。
 ///
-/// 此测试使用 `spawn_child` 以存储 exe_path/auth_token 供重启使用。
+/// 此测试使用 `spawn_child` 以存储 `exe_path/auth_token` 供重启使用。
 /// 步骤：
-/// 1. spawn_child 启动 cmd.exe（保持运行）
-/// 2. 启动 WatchdogRunner
+/// 1. `spawn_child` 启动 cmd.exe（保持运行）
+/// 2. 启动 `WatchdogRunner`
 /// 3. kill 子进程模拟崩溃
-/// 4. 等待 WatchdogRunner 检测并重启
-/// 5. 验证 restart_count 递增，状态回到 Running
+/// 4. 等待 `WatchdogRunner` 检测并重启
+/// 5. 验证 `restart_count` 递增，状态回到 Running
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "涉及真实进程管理且需要时序协调，需手动运行"]
 async fn test_watchdog_runner_auto_restart() {
@@ -214,10 +214,10 @@ async fn test_watchdog_runner_auto_restart() {
 /// 验证当 `restart_count` 达到 `MAX_RESTART_ATTEMPTS` 时，状态转为 Failed。
 ///
 /// `MAX_RESTART_ATTEMPTS` 是硬编码常量（10），无法通过配置修改。
-/// 此测试通过手动设置 restart_count 到上限来验证状态机逻辑。
+/// 此测试通过手动设置 `restart_count` 到上限来验证状态机逻辑。
 ///
 /// 步骤：
-/// 1. 创建 watchdog，手动设置状态为 Restarting，restart_count 为上限
+/// 1. 创建 watchdog，手动设置状态为 `Restarting`，`restart_count` 为上限
 /// 2. tick 应返回 MaxRetriesExceeded，状态转为 Failed
 #[test]
 #[ignore = "验证状态机极限，需手动运行：cargo test -- --ignored test_watchdog_restart_limit"]
@@ -241,7 +241,7 @@ fn test_watchdog_restart_limit() {
     );
 }
 
-/// 验证 Failed 状态下 tick 持续返回 MaxRetriesExceeded。
+/// 验证 Failed 状态下 tick 持续返回 `MaxRetriesExceeded`。
 #[test]
 #[ignore = "验证 Failed 状态稳定性"]
 fn test_watchdog_failed_state_persistent() {
@@ -303,7 +303,7 @@ fn test_watchdog_exponential_backoff() {
     assert_eq!(wd.backoff_duration(), Duration::from_secs(30));
 }
 
-/// 验证 Restarting 状态下未到退避时间时返回 WaitForBackoff。
+/// 验证 Restarting 状态下未到退避时间时返回 `WaitForBackoff`。
 #[test]
 #[ignore = "验证退避等待逻辑"]
 fn test_watchdog_backoff_wait() {
@@ -328,7 +328,7 @@ fn test_watchdog_backoff_wait() {
     }
 }
 
-/// 验证退避时间到期后返回 RestartNeeded。
+/// 验证退避时间到期后返回 `RestartNeeded`。
 #[test]
 #[ignore = "验证退避到期逻辑"]
 fn test_watchdog_backoff_expired() {
@@ -517,7 +517,7 @@ fn test_max_restart_attempts_constant() {
 
 /// 验证完整的状态机转换流程（模拟）。
 ///
-/// Idle → Running（attach_child）→ Restarting（崩溃）→ Failed（达上限）→ Restarting（reset）→ Running（重启）
+/// `Idle` → `Running`（`attach_child`）→ `Restarting`（崩溃）→ `Failed`（达上限）→ `Restarting`（`reset`）→ `Running`（重启）
 #[test]
 #[ignore = "综合状态机验证，需手动运行"]
 fn test_watchdog_full_state_machine_flow() {

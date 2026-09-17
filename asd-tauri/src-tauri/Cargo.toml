@@ -57,8 +57,10 @@ harness = false
 # ── lint 配置（TD-045）───────────────────────────────────────────────
 #
 # 本 crate 是入口层 / Tauri 样板，**刻意不**用 `[lints] workspace = true` 继承：
-# pedantic 全开约 430 项（去重后），其中 290 项是文档类（doc_markdown 210 /
+# pedantic 全开约 433 项（去重后），其中 293 项是文档类（doc_markdown 213 /
 # missing_errors_doc 79 / missing_panics_doc 1），一次放开等于把真信号淹掉。
+# （doc_markdown 的 213 是 2026-09-17 批次 9 实测的去重数；台账早先记的 211 是
+#  批次 8 补 `# Errors` 之前的旧口径，勿再引用。）
 # （618 / 425 是**未去重**的旧数字，`--all-targets` 会把同一条报两遍，勿再引用。）
 # 改为**显式清单 + 逐批开启**：每批只把一个 lint 从 allow 翻成默认（删该行），
 # 修干净再开下一个。已开启的由 G2b（`cargo clippy --workspace --all-targets
@@ -75,11 +77,22 @@ pedantic = { level = "warn", priority = -1 }
 # 批次 7 的 2 项豁免（理由/前置条件/到期日见上方批次 7 注释）
 too_many_lines = "allow"
 
-# ——— 文档类：TD-045 批次 8，按模块分批 ———
+# ——— 文档类：TD-045 批次 8 / 9，按模块分批 ———
 #   missing_errors_doc 79 项 ✅（2026-09-17 批次 8a 全部补完，lint 已开）
 #   missing_panics_doc  1 项 ✅（2026-09-17：`lib.rs::run` 补 `# Panics`，lint 已开）
-#   doc_markdown      211 项 ⬜（生产 167 + 测试 44，批次 9）
-doc_markdown = "allow"
+#   doc_markdown      213 项 ✅（2026-09-17 批次 9 全部补完，lint 已开。
+#       去重后实测 213 = 生产 169 + 测试 44。
+#       ⚠️ 绝不要用 `cargo clippy --fix` 改这一条：clippy 不认 CJK 词边界，
+#       反引号会包到中文上（实测样本见台账 TD-045 批次 9）—— 含中文的必须人工看，
+#       只把其中的 ASCII 标识符包起来，例如
+#       「用 try_send，通道满时丢弃而非 await 阻塞」
+#         正解：用 `try_send`，通道满时丢弃而非 await 阻塞
+#         --fix：用 `try_send，通道满时丢弃而非` await 阻塞   ← 比不加更糟）
+#   ⚠️ 本行删掉后，回归由两层守住：① 既有闸门 G2b（`-D warnings`）；
+#       ② `src/tests/doc_markdown_contract_tests.rs` 的静态扫描 —— `allow` 是源码级
+#       / 配置级的，编译期完全合法，谁顺手加回一行 G2b 依然全绿（与批次 5 补
+#       `tauri_command_args_stay_owned`、批次 8 补 `no_blanket_missing_errors_doc_allow`
+#       是同一个洞）。
 
 # ——— 非文档类：按批开启，进度见台账 TD-045 ———
 # ⚠️ 数字口径：以下均为**去重后**的告警数。`cargo clippy --all-targets` 会把同一条
@@ -123,4 +136,19 @@ doc_markdown = "allow"
 #        `toggle_all_impl` / `clear_emergency` 类）—— 文档里明确写了「不会失败」并
 #        点出「别把返回 Result 当成可能出错」，而不是编一条假的失败原因。
 #     8b `missing_panics_doc` 1 项：`lib.rs::run` 的 `.expect("Tauri 应用启动失败")`。
-# 批次 9 ⬜：`doc_markdown` 211 项（纯排版，无语义风险，另开一轮）
+# 批次 9 ✅（2026-09-17）：`doc_markdown` 213 项全部补完，本 crate 的全局 allow 已删。
+#     ⚠️ **不能用 `cargo clippy --fix`**：clippy 不认 CJK 词边界，会把反引号包到
+#       中文上。实测事故样本（`infrastructure/ipc.rs`）：
+#         原   「用 try_send，通道满时丢弃而非 await 阻塞」
+#         --fix「用 `try_send，通道满时丢弃而非` await 阻塞」  ← 渲染成代码的中文本身是误导
+#       上一轮自动修了 156 处 / 11 个文件，已全部回退。**结论：必须人工按模块做。**
+#     分类处置：192 项是纯 ASCII 标识符（函数名 / 类型名 / 字段名 / 路径 / 文件名），
+#       按 clippy 报出的精确 span 加反引号并逐条校验 span 文本；21 项是 clippy 的
+#       「词」被中文污染（`中的锁顺序（ipc_manager`、`Running，child_pid` 这类），
+#       **逐条人工判断，只包其中的 ASCII 标识符**，不接受 clippy 的建议
+#       （它建议把整段中文一起包起来）。补完重跑 clippy 实测：21 条全部消失，
+#       剩余 179 条纯 ASCII → 全部补完 → `--force-warn clippy::doc_markdown` 实测 **0 条**。
+#     含中文处的自查：扫全部文档注释里「反引号内含 CJK」的模式，命中 7 处，
+#       逐条比对 HEAD 确认**全部是改之前就有的**（`backup_<时间戳>.json`、
+#       `(seq, 响应接收端)`、`.expect("Tauri 应用启动失败")` 这类整体引用），
+#       **本批新增的反引号 0 处跨过中文**。
