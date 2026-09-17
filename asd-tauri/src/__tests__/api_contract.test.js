@@ -98,7 +98,11 @@ function rustCommands() {
   const cmds = [];
   for (const file of collectRs(RUST_SRC)) {
     const src = readFileSync(file, 'utf8');
-    const attr = /#\[tauri::command\]/g;
+    // ⚠️ 必须**整行锚定**：属性独占一行，而文档注释里的 `/// ... #[tauri::command] ...`
+    // 是散文。用裸的 /#\[tauri::command\]/g 会把注释里提到它的地方也当成属性，
+    // 然后取「后面第一个 fn」—— 于是 `*_impl`、测试函数都被当成命令
+    // （2026-09-17 实测：一次新增注释就抽出 6 个幻影命令，G3c 变红）。
+    const attr = /^[ \t]*#\[tauri::command\][ \t]*$/gm;
     let m;
     while ((m = attr.exec(src))) {
       const rest = src.slice(m.index);
@@ -163,6 +167,33 @@ describe('api.js 与 Rust 命令的契约', () => {
       unused,
       [],
       `以下 Rust 命令没有任何前端调用方；若确实暂不接入，请加进 allowUnused 并写明原因：${unused.join(', ')}`
+    );
+  });
+
+  test('抽出的命令都在 lib.rs 的 generate_handler 里注册过（防幻影命令）', () => {
+    // 2026-09-17 实测踩到：解析器用裸的 /#\[tauri::command\]/g 搜索，把文档注释里
+    // 提到这个字面量的散文也当成属性，再取「后面第一个 fn」，于是抽出
+    // `get_config_impl`、`extract_command_params` 这类幻影命令 —— 它们不在注册块里，
+    // 却被当成命令去和前端比对，直接红掉 G3c。
+    // 光把正则改对不够：这条断言把「抽出的必须是真注册过的」钉死，
+    // 以后谁再让解析器产生幻影，这里会立刻报名字。
+    const lib = readFileSync(join(ASD_TAURI, 'src-tauri', 'src', 'lib.rs'), 'utf8');
+    const start = lib.indexOf('generate_handler![');
+    assert.ok(start >= 0, 'src/lib.rs 里没找到 generate_handler![ —— 解析器前提失效');
+    const block = lib.slice(start, lib.indexOf(']', start));
+    const registered = new Set(
+      block
+        .split(',')
+        .map((s) => s.trim().split('::').pop().trim())
+        .filter(Boolean)
+    );
+    assert.ok(registered.size >= 30, `注册块应解析出 >=30 个命令，实际 ${registered.size}`);
+
+    const phantom = rust.filter((c) => !registered.has(c.name)).map((c) => c.name);
+    assert.deepEqual(
+      phantom,
+      [],
+      `抽出了未注册的命令（解析器把注释/非命令函数当成了命令）：${phantom.join(', ')}`
     );
   });
 
