@@ -85,6 +85,7 @@ impl Clone for IpcManager {
 }
 
 impl IpcManager {
+    #[must_use]
     pub fn new(pipe_name: &str) -> (Self, IpcOutboundReceiver) {
         let auth_token = generate_auth_token();
         Self::new_with_token(pipe_name, auth_token)
@@ -109,10 +110,12 @@ impl IpcManager {
         (manager, outbound_rx)
     }
 
+    #[must_use]
     pub fn auth_token(&self) -> &str {
         &self.auth_token
     }
 
+    #[must_use]
     pub fn with_outbound_channel(pipe_name: &str) -> (Self, IpcOutboundReceiver) {
         Self::new(pipe_name)
     }
@@ -136,6 +139,7 @@ impl IpcManager {
     }
 
     /// 查询是否正在关机
+    #[must_use]
     pub fn is_shutting_down(&self) -> bool {
         self.shutting_down.load(Ordering::SeqCst)
     }
@@ -280,10 +284,12 @@ impl IpcManager {
         }
     }
 
+    #[must_use]
     pub fn next_seq(&self) -> u64 {
         self.seq_counter.fetch_add(1, Ordering::Relaxed)
     }
 
+    #[must_use]
     pub fn seq_counter(&self) -> Arc<AtomicU64> {
         self.seq_counter.clone()
     }
@@ -686,6 +692,7 @@ impl IpcManager {
         self.send_half.lock().await.is_some()
     }
 
+    #[must_use]
     pub fn outbound_sender(&self) -> IpcOutboundSender {
         self.outbound_tx.clone()
     }

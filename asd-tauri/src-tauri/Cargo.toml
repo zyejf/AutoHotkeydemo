@@ -78,12 +78,11 @@ missing_panics_doc = "allow"
 
 # ——— 非文档类 193 项：按批开启，进度见台账 TD-045 ———
 # ✅ 批次 1（2026-09-17）：uninlined_format_args 60 项 —— 已收干
-# ⬜ 批次 2：must_use_candidate 40 项
+# ✅ 批次 2（2026-09-17）：must_use_candidate 40 项 —— 已收干
 # ⬜ 批次 3：needless_pass_by_value 22 项（动签名，风险最高）
 # ⬜ 批次 4：cast_* 13 项（需逐个判断是改写法还是登记豁免）
 # ⬜ 批次 5：too_many_lines 5 项（真重构）
 # ⬜ 批次 6：其余零散 ~53 项
-must_use_candidate = "allow"
 needless_pass_by_value = "allow"
 map_unwrap_or = "allow"
 unnested_or_patterns = "allow"

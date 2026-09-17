@@ -144,6 +144,7 @@ pub struct TauriEventBridge {
 }
 
 impl TauriEventBridge {
+    #[must_use]
     pub fn new(app_handle: tauri::AppHandle) -> Self {
         Self { app_handle }
     }
@@ -163,6 +164,7 @@ impl EventEmitter for TauriEventBridge {
 ///
 /// 此函数被 `spawn_ipc_listener` 调用，将 AHK 子进程上报的热键事件
 /// 转换为前端可消费的 JSON payload。
+#[must_use]
 pub fn build_hotkey_event_payload(hotkey: &str, keys: &[String]) -> serde_json::Value {
     serde_json::json!({
         "hotkey": hotkey,

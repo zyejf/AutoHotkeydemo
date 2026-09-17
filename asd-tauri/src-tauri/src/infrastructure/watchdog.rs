@@ -86,6 +86,7 @@ impl Default for ProcessWatchdog {
 }
 
 impl ProcessWatchdog {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             state: WatchdogStateEnum::Idle,
@@ -120,26 +121,32 @@ impl ProcessWatchdog {
     /// 「可能跨锁存活的引用」。若返回 `&WatchdogStateEnum`，调用方一旦把该
     /// 引用保存到外层 `Mutex` 守卫作用域之外，就会形成跨锁共享引用，触发
     /// 数据竞争（UB）。返回值快照从根上消除这一入口。
+    #[must_use]
     pub fn state(&self) -> WatchdogStateEnum {
         self.state.clone()
     }
 
+    #[must_use]
     pub fn restart_count(&self) -> u32 {
         self.restart_count
     }
 
+    #[must_use]
     pub fn backoff_duration(&self) -> std::time::Duration {
         self.backoff_duration
     }
 
+    #[must_use]
     pub fn last_restart(&self) -> Option<std::time::Instant> {
         self.last_restart
     }
 
+    #[must_use]
     pub fn missed_heartbeats(&self) -> u32 {
         self.missed_heartbeats
     }
 
+    #[must_use]
     pub fn has_child(&self) -> bool {
         self.child.is_some()
     }
@@ -440,6 +447,7 @@ impl ProcessWatchdog {
         self.set_state(WatchdogStateEnum::Idle);
     }
 
+    #[must_use]
     pub fn child_pid(&self) -> Option<u32> {
         self.child.as_ref().map(|c| c.with(|child| child.id()))
     }
@@ -888,6 +896,7 @@ pub struct WatchdogRunner {
 }
 
 impl WatchdogRunner {
+    #[must_use]
     pub fn new(watchdog: ProcessWatchdog) -> Self {
         Self {
             watchdog: Arc::new(Mutex::new(watchdog)),
@@ -909,6 +918,7 @@ impl WatchdogRunner {
     }
 
     /// 返回 shutting_down Arc 的克隆，允许外部保存引用以便在关机时设置标志。
+    #[must_use]
     pub fn shutting_down_arc(&self) -> Arc<std::sync::atomic::AtomicBool> {
         self.shutting_down.clone()
     }
@@ -1004,6 +1014,7 @@ impl WatchdogRunner {
         .map_err(|e| format!("spawn_blocking 重启任务执行失败: {e}"))?
     }
 
+    #[must_use]
     pub fn watchdog(&self) -> Arc<Mutex<ProcessWatchdog>> {
         self.watchdog.clone()
     }
