@@ -72,8 +72,9 @@
 | asd-application | 集成 | crates/asd-application/tests/recording_service_tests.rs | 11 | RecordingService 按键录制 |
 | asd-application | 端到端 | crates/asd-application/tests/e2e_dataflow_tests.rs | 4 | 端到端数据流（Command → Bridge → AppState） |
 | asd-application | 集成 | crates/asd-application/tests/concurrency_tests.rs | 4 | AppState 并发安全（Arc<Mutex> 验证） |
-| **集成小计** | — | — | **96** | — |
-| **总计** | — | — | **170** | — |
+| asd-application | 集成 | crates/asd-application/tests/backtick_cjk_contract_tests.rs | 3 | **TD-050 新增**：反引号跨中文守护 —— 判据回归测试锁死 A 类（真损坏）与 B 类（刻意保留）形态，B 类不得靠加豁免过关 |
+| **集成小计** | — | — | **99** | — |
+| **总计** | — | — | **173** | — |
 
 ## asd-test-harness
 
@@ -98,25 +99,27 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | asd-tauri | 集成 | src-tauri/src/tests/bridge_tests.rs | 12 | IpcBridge / WatchdogBridge trait 实现 + build_hotkey_event_payload 纯函数（原 13 个，2026-09-13 删除必然 panic 的死测试 `test_tauri_event_bridge_emit`，见 BUG-4） |
 | asd-tauri | 集成 | src-tauri/src/tests/watchdog_integration_tests.rs | 17 | ProcessWatchdog 跨平台集成（`#![cfg(windows)]` gating，15 个 `#[ignore]` 需 `--ignored` 手动运行；本行为运行时注册数，与 `TESTING.md` 的 `fn` 口径 17 一致；旧口径按 `#[test]` 属性数记为 14，见文首口径差异提示） |
 | asd-tauri | 集成 | src-tauri/src/tests/config_compat_tests.rs | 11 | Rust Config 与 AHK config.json 格式兼容性 |
-| asd-tauri | 集成 | src-tauri/src/tests/command_contract_tests.rs | 4 | Tauri 命令契约守护（命令名/签名与前端 api.js 调用一致性）+ **TD-045 新增 `tauri_command_args_stay_owned`**：静态扫描，命令参数除 `state` 外不得是借用类型 |
+| asd-tauri | 集成 | src-tauri/src/tests/command_contract_tests.rs | 5 | Tauri 命令契约守护（命令名/签名与前端 api.js 调用一致性）+ **TD-045 新增 `tauri_command_args_stay_owned`**：静态扫描，命令参数除 `state` 外不得是借用类型 + **TD-045 批次 8 新增 `no_blanket_missing_errors_doc_allow`**：禁止用文件头 blanket allow 关掉文档契约 lint |
 | asd-tauri | 单元 | src-tauri/src/commands/config_cmd.rs | 29 | config_cmd Tauri 命令 |
 | asd-tauri | 单元 | src-tauri/src/commands/system_cmd.rs | 6 | get_system_status / emergency_release / toggle_hold_mode 命令 |
 | asd-tauri | 单元 | src-tauri/src/commands/hotkey_cmd.rs | 6 | register_hotkey / unregister_hotkey / list_hotkeys 命令 |
 | asd-tauri | 单元 | src-tauri/src/commands/group_cmd.rs | 20 | group_cmd Tauri 命令 |
 | asd-tauri | 单元 | src-tauri/src/commands/recording_cmd.rs | 21 | recording_cmd Tauri 命令 |
 | asd-tauri | 单元 | src-tauri/src/lib.rs | 6 | IPC_PIPE_NAME 常量验证 + try_acquire_shutdown_guard 关机锁纯函数 |
-| **小计** | — | — | **242** | — |
+| asd-tauri | 单元 | src-tauri/src/infrastructure/logging.rs | 3 | **TD-054 新增**：`env_filter_from` 契约 —— 默认 `info`、显式 spec 生效、非法 spec 回落到 `info`（`init()` 依赖真实 `tauri::App` 不可测，故抽纯函数） |
+| asd-tauri | 集成 | src-tauri/src/tests/doc_markdown_contract_tests.rs | 2 | **TD-045 批次 9 新增**：禁止 blanket allow 关掉 `doc_markdown`（源码层 `#![allow(` + `Cargo.toml` 的 `[lints.clippy]` 层，各带防永真式锚点） |
+| **小计** | — | — | **248** | — |
 
 ### 集成测试（`tests/` 目录）
 
 | Crate | 类型 | 文件路径 | 测试数 | 覆盖范围 |
 |-------|------|---------|-------|---------|
 | asd-tauri | 集成 | src-tauri/tests/test_manifest_feature_removed.rs | 1 | 验证已废弃的 feature 已从 Cargo.toml 移除 |
-| **asd-tauri 总计** | — | — | **243** | — |
+| **asd-tauri 总计** | — | — | **249** | — |
 
-> 注：`--lib` 明细之和 242 与 `cargo test -p asd-tauri --lib -- --list` 运行时注册数一致；
+> 注：`--lib` 明细之和 248 与 `cargo test -p asd-tauri --lib -- --list` 运行时注册数一致；
 > benches 使用 criterion（`harness = false`），在 `--all-targets -- --list` 下**不注册**为测试，
-> 故 `--all-targets` = 242（lib）+ 1（tests/test_manifest_feature_removed.rs）= **243**，
+> 故 `--all-targets` = 248（lib）+ 1（tests/test_manifest_feature_removed.rs）= **249**，
 > 与基准测试的 7 个 criterion 微基准**互不计入**（口径隔离，避免重复计数）。
 
 ## 基准测试
@@ -225,7 +228,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 | 类别 | 统计 |
 |------|------|
-| Rust 测试（运行时注册数，`--all-targets -- --list`） | 643（asd-domain 154 + asd-ipc-protocol 72 + asd-application 170 + asd-test-harness 3 + asd-tauri 244；其中 `#[ignore]` 15 个）。2026-09-17 +1：`command_contract_tests::no_blanket_missing_errors_doc_allow`（TD-045 批次 8 的防复发 —— 禁止用文件头 blanket allow 关掉文档契约 lint） |
+| Rust 测试（运行时注册数，`--all-targets -- --list`） | 651（asd-domain 154 + asd-ipc-protocol 72 + asd-application 173 + asd-test-harness 3 + asd-tauri 249；其中 `#[ignore]` 15 个）。2026-09-18 +8：本轮新增 `backtick_cjk_contract_tests` 3 条（TD-050）、`doc_markdown_contract_tests` 2 条（TD-045 批次 9）、`infrastructure::logging` 3 条（TD-054）；另含 TD-045 批次 8 的 `no_blanket_missing_errors_doc_allow` 1 条此前未登记 |
 | AHK 执行器测试（`Test_` 方法数） | 61 套件 / 279 个 `Test_` 方法（`tests/test_ahk_executor/` 5 文件；不含 `test_joy_hotkey_manager_ahu.ahk` 的 7 套件） |
 | AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 722 个用例 / 182 个套件。**本机**（`scripts/check-gates.sh`，默认）：通过 722 / 失败 0 / 跳过 0。**CI**（G3b，`ASD_HOST_TIMING=0`）：通过 715 / 失败 0 / **跳过 7** —— 跳过的是 `SenderPreciseTimingTests` 里 7 条绝对墙钟时延断言，原因见下。2026-09-16 三次增长：① +33 用例 / +13 套件，原 `tests/test_joystick.ahk`（独立脚本，断言从未执行）改名并转为 `tests/test_joystick_input.ahk` 接入套件（TD-002）；② +10 用例 / +1 套件，`JSONSerializerScalarTypeTests` 钉住 JSON 标量的布尔/数字分派（TD-030，AHK v2 无布尔类型导致的 1/0 串味）；③ +12 用例 / +2 套件，`JSONSerializerIndentTests`（+6，TD-034：`Stringify(x, 0)` 必须是单行紧凑）与 `ConfigValidatorJoystickFieldTests`（+5，TD-035：手柄模式的间隔/延迟字段是 `joyIntervals`/`joyDelays`），另在 `base_suites.ahk` 的 `ConfigStoreGroupTests` 补 1 条 `_GenerateGroupId` 配置侧碰撞用例（TD-036）。接入 `tests/` 下从未执行的独立脚本时一并修好了一批陈旧断言。2026-09-17 再 +3 用例 / +1 套件：`ConfigValidatorFallbackConfigTests` 钉住「配置读取失败时的降级默认值必须能通过自家校验器」（TD-047，详见下） |
 | 基准测试 | 7 个 criterion bench |
@@ -233,7 +236,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | 模糊测试 | 5 个 fuzz target |
 | E2E 测试 | 9 suite / 53 用例 |
 
-自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 154 + 72 + 170 + 3 + 244 = 643。
+自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 154 + 72 + 173 + 3 + 249 = 651。
 
 > **备注（T8-07† 处置）**：`docs/review/2026-08-20/task-8-tests.md` 分报告《总结》自报「发现总数 7（Important 3 + Minor 4）」，但正文仅列 T8-01~T8-06 共 6 条（其中 Minor 3 条：T8-04/T8-05/T8-06）。已核实第 4 条 Minor 无正文，属该报告自报计数笔误（正文实际为 Important 3 + Minor 3 = 6 条），无遗漏问题，占位 `T8-07†` 予以关闭。
 

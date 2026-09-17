@@ -238,6 +238,40 @@ fn env_filter_from(log_spec: Option<&str>) -> EnvFilter {
 
 ---
 
+## 六之六、TD-055：**实测抓出 8 项测试数漂移** —— G3d 的快速档从不核对登记数
+
+### 发现
+
+`check-gates.sh` 里 **G3d 固定传 `--no-cargo`**（输出明写「（--no-cargo 快速档）」），于是 `check-test-map.py` 的 **[B] 运行时对账 与 [C] 汇总行核对被整体跳过**，只查 [A] 文档内部自洽。
+
+**后果：文档里登记的测试数，从不与真实运行时核对。**
+
+本轮手工跑完整模式，实测出漂移：
+
+| 项 | 登记 | 实际 | 差 |
+|---|---|---|---|
+| `asd-application` | 170 | **173** | +3 |
+| `asd-tauri` | 244 | **249** | +5 |
+| 汇总 | 643 | **651** | **+8** |
+
+差额正是本轮新增的 `backtick_cjk_contract_tests`（3）、`doc_markdown_contract_tests`（2）、`infrastructure::logging`（3），以及 TD-045 批次 8 一条此前漏登记的。**这 8 项是真实存在的测试，却一直没进任何登记——因为门禁从不核对。**
+
+**已同步 `test-map.md` 到 651**，完整模式已 `[PASS]`（[A] 通过、[B] 五个 crate 全 OK、[C] 651/651）。
+
+### 根因未除
+
+门禁仍在用快速档，**下次新增测试还会漂移**。建议（待确认）：
+
+1. G3a 已构建过测试二进制，G3d 切完整模式的增量成本**可能很低**——但 `--all-targets` 会连带构建 criterion benches，**必须先实测耗时**
+2. 若增量太大，改为在 CI 加一个**独立 job 跑完整对账**（并行、不阻塞合并但能报警）
+3. 最次也要写进 G4 人工核对清单
+
+⚠️ **在这条落地前，增删测试后必须手工跑**：`CARGO_INCREMENTAL=0 python scripts/check-test-map.py`（不带 `--no-cargo`）。
+
+⚠️ **必须带 `CARGO_INCREMENTAL=0`** —— 实测不带会触发 **rustc ICE（退出码 101）**，我第一次就被它误导，差点当成「数字漂移」误报。
+
+---
+
 ## 七、两个必须记住的教训
 
 **1. 门禁自己就是负载源 —— 已处理（`11da447`）。** G3b 紧接在 G3a（`cargo test`，72~104s）之后运行，正是这段残留负载触发过 `Test_Sequence_PreservesPhaseAndCountsDropped`（报 `24 != 12`，2 倍说明中间多过去约 184ms；单独连跑两次均 722 全绿）。**只修用例而不解决门禁自负载，flaky 会换个地方继续爆。**
