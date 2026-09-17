@@ -111,7 +111,9 @@ impl ProcessWatchdog {
     pub fn set_state(&mut self, new_state: WatchdogStateEnum) {
         if self.state != new_state {
             tracing::info!("Watchdog 状态变更: {:?} → {:?}", self.state, new_state);
-            self.state = new_state.clone();
+            // new_state 是按值传进来的，直接移动即可 —— 原来的 `.clone()` 是多余的
+            // （clippy::needless_pass_by_value 正是靠「按值传入却没被消费」报出来的）
+            self.state = new_state;
         }
     }
 

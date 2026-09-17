@@ -1,3 +1,15 @@
+//! TD-045 豁免：`#[tauri::command]` 的参数保持 owned，不按 clippy 的建议改引用。
+//!
+//! `state: tauri::State<'_, Arc<AppState>>` 是 Tauri 按类型从 DI 容器提取的特殊
+//! 参数，写成 `&State` 就提取不到，必须按值。
+//! ⚠️ 别写成「改 &str 会运行时炸」—— 实测 Tauri 走 `&'de serde_json::Value`
+//! 的 Deserializer，**能**借出 `&str`；不改的真正理由是「改对外 IPC 契约，
+//! 而 E2E 覆盖不全（TD-016）」。详见
+//! `tests/command_contract_tests.rs::tauri_command_args_stay_owned`。
+//!
+//! 复审触发条件：E2E 全绿、能验证契约变更之后。
+#![allow(clippy::needless_pass_by_value)]
+
 use asd_application::error::AppError;
 use asd_application::state::{AppState, WatchdogState};
 use asd_ipc_protocol::IpcCommand;

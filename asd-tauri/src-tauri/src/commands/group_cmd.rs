@@ -1,3 +1,19 @@
+//! TD-045 豁免：`#[tauri::command]` 的参数保持 owned，不按 clippy 的建议改引用。
+//!
+//! 2026-09-17 **实测**核实（不是推测），详见
+//! `tests/command_contract_tests.rs::tauri_command_args_stay_owned`：
+//! 1. `state: tauri::State<'_, Arc<AppState>>` —— Tauri 按类型从 DI 容器提取，
+//!    写成 `&State` 就提取不到，必须按值。
+//! 2. `group_ids: Vec<String>` —— serde 没有 `&[String]` 的 `Deserialize` 实现
+//!    （clippy 那句 "consider `&[String]`" 它自己也给不出），改了编译不过。
+//! 3. `group_id: String` —— 技术上**可以**改成 `&str`：Tauri 走
+//!    `&'de serde_json::Value` 的 Deserializer，实测能借出 `&str`。
+//!    不改是因为那是**改对外 IPC 契约**，而 E2E 覆盖不全（TD-016），
+//!    一条 pedantic 告警不值得冒这个险。
+//!
+//! 复审触发条件：E2E 全绿、能验证契约变更之后。
+#![allow(clippy::needless_pass_by_value)]
+
 use asd_application::error::AppError;
 use asd_application::group_service::{
     BatchDeleteResult, BatchToggleResult, GroupStatus, GroupSummary, ReorderResult,

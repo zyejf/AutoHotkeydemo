@@ -91,11 +91,16 @@ missing_panics_doc = "allow"
 #     semicolon_if_nothing_returned / items_after_statements /
 #     match_wildcard_for_single_variants / duration_suboptimal_units）
 # 批次 4 ✅（2026-09-17）：时间戳减法 4 + 指针转换 2 + unused_async 1
-# 批次 5 ⬜：needless_pass_by_value 11 项（动签名，风险最高，需逐个确认语义）
+# 批次 5 ✅（2026-09-17）：needless_pass_by_value 11 项 —— 只修了 1 项，另 10 项
+#     **登记豁免**（不是关 lint：本行已删，lint 对非 command 代码仍然生效）。
+#     豁免落在 `src/commands/{config,group,system}_cmd.rs` 的**模块头**，不是这里，
+#     为的是让「命令参数」之外的代码继续被 lint 盯着。理由与实测结论见各模块头注释
+#     与 `tests/command_contract_tests.rs::tauri_command_args_stay_owned`（该测试
+#     静态扫描，命令参数除 state 外不得出现借用类型 —— allow 之后编译期没保护了，
+#     这条测试补上）。
 # 批次 6 ⬜：cast_* 12 项（逐个判断「改写法」还是「登记豁免 + 理由」）
 # 批次 7 ⬜：too_many_lines 3 项（真重构，先补测试再动刀）
 # 批次 8 ⬜：文档类 290 项（doc_markdown 210 / missing_errors_doc 79 / missing_panics_doc 1）
-needless_pass_by_value = "allow"
 too_many_lines = "allow"
 cast_sign_loss = "allow"
 cast_precision_loss = "allow"

@@ -139,6 +139,142 @@ fn tauri_command_count_per_module_matches_expected() {
     );
 }
 
+/// 扫描一个命令模块源码，返回 `(函数名, 参数列表)`。
+///
+/// 只认 `#[tauri::command]` 之后紧跟的 `pub [async] fn`，与
+/// `extract_command_paths`（扫 lib.rs 的注册块）互补。
+fn extract_command_params(src: &str) -> Vec<(String, Vec<String>)> {
+    let mut out = Vec::new();
+    let lines: Vec<&str> = src.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        if lines[i].trim() != "#[tauri::command]" {
+            i += 1;
+            continue;
+        }
+        // 跳过属性与注释，找到 fn 行
+        let mut j = i + 1;
+        while j < lines.len() {
+            let t = lines[j].trim();
+            if t.starts_with("pub fn ") || t.starts_with("pub async fn ") {
+                break;
+            }
+            if t.starts_with("#[") || t.starts_with("//") {
+                j += 1;
+                continue;
+            }
+            break;
+        }
+        if j >= lines.len() {
+            break;
+        }
+        let fn_line = lines[j].trim();
+        let name = fn_line
+            .trim_start_matches("pub async fn ")
+            .trim_start_matches("pub fn ")
+            .split('(')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        // 收集到参数列表右括号为止
+        let mut depth = 0i32;
+        let mut buf = String::new();
+        let mut k = j;
+        let mut done = false;
+        while k < lines.len() {
+            for ch in lines[k].chars() {
+                match ch {
+                    '(' => {
+                        depth += 1;
+                        continue;
+                    }
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            done = true;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                if depth >= 1 {
+                    buf.push(ch);
+                }
+            }
+            if done {
+                break;
+            }
+            buf.push('\n');
+            k += 1;
+        }
+        let params = buf
+            .split(',')
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty())
+            .collect::<Vec<_>>();
+        out.push((name, params));
+        i = j + 1;
+    }
+    out
+}
+
+/// `#[tauri::command]` 的参数必须保持 owned（TD-045 批次 5 的豁免守卫）。
+///
+/// `clippy::needless_pass_by_value` 会建议把 `group_id: String` 改成 `&str`、
+/// `group_ids: Vec<String>` 改成 `&[String]`。2026-09-17 **实测**核实：
+///   · `state: tauri::State<...>` 必须按值 —— Tauri 按类型从 DI 容器提取；
+///   · `&Config` / `&[String]` 在 serde 里**没有** `Deserialize` 实现，改了编译不过
+///     （clippy 那句 "consider `&[String]`" 它自己也给不出，事实正是如此）；
+///   · `&str` **技术上可行** —— Tauri 走 `&'de serde_json::Value` 的 Deserializer，
+///     实测能借出 `&str`。所以这不是「运行时必炸」那类坑，而是**改对外 IPC 契约**，
+///     而 E2E 覆盖不全（TD-016），一条 pedantic 告警不值得冒这个险。
+///
+/// 三个 command 模块因此整模块 `allow` 了该 lint —— allow 之后就没有编译期保护了，
+/// 这条测试补上：静态扫描，命令参数除 `state` 外不得出现借用类型。
+#[test]
+fn tauri_command_args_stay_owned() {
+    let files = [
+        "config_cmd.rs",
+        "group_cmd.rs",
+        "hotkey_cmd.rs",
+        "recording_cmd.rs",
+        "system_cmd.rs",
+    ];
+    let mut checked = 0usize;
+    let mut offenders = Vec::new();
+    for file in files {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/commands")
+            .join(file);
+        let src = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("无法读取 {}: {e}", path.display()));
+        for (fn_name, params) in extract_command_params(&src) {
+            for p in params {
+                let (name, ty) = p.split_once(':').unwrap_or((&p, ""));
+                let name = name.trim();
+                let ty = ty.trim();
+                if name == "state" {
+                    continue;
+                }
+                if ty.starts_with('&') {
+                    offenders.push(format!("{file}::{fn_name} 的参数 `{p}`"));
+                }
+                checked += 1;
+            }
+        }
+    }
+    assert!(
+        checked > 0,
+        "一个命令参数都没扫到 —— 解析器失效了，本条测试会退化成「空集通过」的永真式"
+    );
+    assert!(
+        offenders.is_empty(),
+        "Tauri 命令参数出现借用类型 —— 这是改对外 IPC 契约，须先确认 E2E 能验证它（TD-016）：\n  {}",
+        offenders.join("\n  ")
+    );
+}
+
 #[test]
 fn tauri_commands_have_no_duplicate_registration() {
     let src = read_lib_rs();
