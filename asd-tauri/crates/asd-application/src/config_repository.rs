@@ -35,12 +35,24 @@ pub enum ConfigLoadError {
 /// 跨 crate 调用方（backup_service、recording_service、src-tauri 命令层），
 /// 全量统一到 `ConfigLoadError` 需同步改动大量调用点。为避免高回归风险，
 /// 本次暂不展开，作为后续错误类型统一的技术债记录。
+/// `rename` 遇到瞬时冲突时的退避重试次数与步长（TD-043）。
+///
+/// Windows 上多个线程 `rename` 到**同一个目标路径**时，目标可能被短暂占用而返回
+/// `Access is denied. (os error 5)` —— 这是**瞬时冲突，不是永久失败**。
+/// CI 上 4 线程并发 `save_config_atomic` 实测偶发（`gh run rerun --failed` 重跑即绿，
+/// 本机连跑 25 次未复现）。先退避重试，重试耗尽才走 copy 回退。
+/// 最坏多等 10+20+30 = 60ms，对配置写盘可忽略。
+const RENAME_ATTEMPTS: u32 = 4;
+const RENAME_RETRY_BACKOFF_MS: u64 = 10;
+
 pub struct ConfigRepository;
 
 impl ConfigRepository {
     /// 原子写入文件：先写临时文件，再重命名到目标路径。
     ///
-    /// rename 失败时回退到 copy + remove，避免跨文件系统 rename 限制导致的写入失败。
+    /// rename 失败时**先退避重试**（Windows 上目标被短暂占用会返回 Access Denied，
+    /// 属瞬时冲突，见 `RENAME_ATTEMPTS`），重试耗尽才回退到 copy + remove
+    /// —— 回退同时覆盖跨文件系统 rename 的限制。
     ///
     /// # Errors
     ///
@@ -75,18 +87,46 @@ impl ConfigRepository {
 
         fs::write(&tmp_path, content).map_err(|e| format!("写入临时文件失败: {e}"))?;
 
-        if let Err(e) = fs::rename(&tmp_path, path) {
-            tracing::debug!("rename 失败，尝试 copy+remove fallback: {e}");
-            fs::copy(&tmp_path, path).map_err(|e2| {
-                let _ = fs::remove_file(&tmp_path);
-                format!("重命名和复制均失败: rename={e}, copy={e2}")
-            })?;
-            if let Err(e) = fs::remove_file(&tmp_path) {
-                tracing::warn!(
-                    "atomic_write: 临时文件删除失败（可能被锁定）: {} : {e}",
-                    tmp_path.display()
-                );
+        // 先退避重试 rename（理由见 RENAME_ATTEMPTS 的注释），重试耗尽才退到 copy 回退。
+        let mut rename_err = None;
+        for attempt in 0..RENAME_ATTEMPTS {
+            match fs::rename(&tmp_path, path) {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    rename_err = Some(e);
+                    if attempt + 1 < RENAME_ATTEMPTS {
+                        std::thread::sleep(std::time::Duration::from_millis(
+                            RENAME_RETRY_BACKOFF_MS * u64::from(attempt + 1),
+                        ));
+                    }
+                }
             }
+        }
+        // 循环里成功即 return，所以走到这里说明重试耗尽。用 let-else 而不是 expect：
+        // 本函数对调用方承诺的是 Result，不该多出一条 panic 路径（clippy 的
+        // missing_panics_doc 也会因此报错）。None 分支理论上不可达（RENAME_ATTEMPTS >= 1），
+        // 但**宁可报错也不假装写成功** —— 那会变成静默丢配置。
+        let Some(rename_err) = rename_err else {
+            let _ = fs::remove_file(&tmp_path);
+            return Err(format!(
+                "atomic_write: 未执行任何 rename 尝试（RENAME_ATTEMPTS={RENAME_ATTEMPTS}）"
+            ));
+        };
+
+        // 记 WARN 而不是 DEBUG：否则没人知道这条回退路径到底多久被触发一次
+        // —— TD-043 的诉求之一就是把它变成可观测信号。
+        tracing::warn!(
+            "atomic_write: rename 重试 {RENAME_ATTEMPTS} 次仍失败，改用 copy 回退: {rename_err}"
+        );
+        fs::copy(&tmp_path, path).map_err(|e2| {
+            let _ = fs::remove_file(&tmp_path);
+            format!("重命名和复制均失败: rename={rename_err}, copy={e2}")
+        })?;
+        if let Err(e) = fs::remove_file(&tmp_path) {
+            tracing::warn!(
+                "atomic_write: 临时文件删除失败（可能被锁定）: {} : {e}",
+                tmp_path.display()
+            );
         }
 
         Ok(())
@@ -450,6 +490,52 @@ mod tests {
         let loaded: Config = serde_json::from_str(&content).unwrap();
         assert_eq!(loaded.control_hotkeys.emergency, "F12");
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// TD-043：`rename` 遇到**瞬时冲突**（目标被占用）时必须退避重试，而不是直接掉进
+    /// copy 回退 —— 回退同样写不进被占用的目标，于是整个写盘就失败了。
+    ///
+    /// 用 `share_mode(0)`（**不共享任何访问**）持住目标文件，稳定造出「瞬时冲突」，
+    /// 不需要真的跑并发；用 channel 确保「已持住」之后再开始写，避免测试自身变成竞态。
+    ///
+    /// ⚠️ 必须用 `share_mode(0)` 而不是 `File::open`：Rust 的默认 share mode **含
+    /// `FILE_SHARE_DELETE`**，用 `File::open` 持住的文件照样能被 rename 替换 ——
+    /// 我第一版就是这么写的，结果「把重试次数改成 1」也照样通过，阳性对照根本不成立。
+    ///
+    /// 拿掉重试这条会红：首次 rename 立即失败 → copy 回退也写不进被独占的目标 → 返回 Err。
+    #[test]
+    #[cfg(windows)]
+    fn test_atomic_write_retries_when_target_briefly_locked() {
+        use std::os::windows::fs::OpenOptionsExt;
+        use std::sync::mpsc;
+
+        let dir = std::env::temp_dir().join("asd_app_test_atomic_write_retry");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("locked_config.json");
+        std::fs::write(&path, "{}").unwrap();
+
+        let holder_path = path.clone();
+        let (tx, rx) = mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            let f = std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(0)
+                .open(&holder_path)
+                .expect("应能独占打开目标文件");
+            tx.send(()).expect("应能通知主线程");
+            // 持住 30ms：短于重试窗口（10+20+30=60ms），长于首次尝试
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            drop(f);
+        });
+
+        rx.recv().expect("应等到持有者确认已持住文件");
+        ConfigRepository::atomic_write(&path, r#"{"ok":true}"#)
+            .expect("目标短暂被占用时应靠重试成功，而不是直接失败");
+
+        holder.join().expect("持有线程不应 panic");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), r#"{"ok":true}"#);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
