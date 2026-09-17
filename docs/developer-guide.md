@@ -926,10 +926,16 @@ scripts\check-gates.ps1 -Quick
 | G3 | `cargo test --workspace`(a) / AHK 完整套件(b) / JS 单测(c) + `test-map.md` 数字对账(d) + **技术债度量(e)** + **覆盖率棘轮(f)** + **AHK 独立脚本(g)** |
 | G4 | 文档同步（无法自动化，脚本输出人工核对清单） |
 
-> **G3g（`scripts/run-standalone-ahk-tests.sh`，2026-09-16 起）** 逐个跑 8 个独立 AHK
-> 脚本（`tests/` 下 7 个 + `tools/ahk-bench/lib/seqgen_test.ahk`，合计 200 条断言）
-> 并按退出码汇总。它们**不在** `run_all_tests.ahk` 的套件注册里，历史上从未被任何
-> runner 执行过 —— 2026-09-16 首次接入执行就连挖五个生产 BUG（TD-034/035/036/037）。
+> **G3g（`scripts/run-standalone-ahk-tests.sh`，2026-09-16 起）** 逐个跑 11 个独立
+> AHK 脚本（`tests/` 下 7 个 + `tools/ahk-bench/lib/seqgen_test.ahk` +
+> `tests/archive/` 下 3 个，合计 210 条断言）并按退出码汇总。它们**不在**
+> `run_all_tests.ahk` 的套件注册里，历史上从未被任何 runner 执行过 —— 2026-09-16
+> 首次接入执行就连挖五个生产 BUG（TD-034/035/036/037）。
+>
+> ⚠️ **接入前先验证退出码真的反映失败数**。这几个脚本里有三种「假通过」：
+> 没有 `ExitApp`（走到文件底部恒 0）、裸 `ExitApp()`、以及 OnError 写成
+> `(…, true)` 把运行期错误吞掉后脚本中途终止（退出码也是 0）。判据很简单 ——
+> 手动注入一个失败，看退出码是不是变成非 0。详见 TD-040 / TD-042。
 > 清单按「相对仓库根的路径」书写，新增脚本直接往 `SCRIPTS` 数组里加一行即可
 > （不要写成裸文件名，否则 `tests/` 之外的脚本会漏）。
 >
