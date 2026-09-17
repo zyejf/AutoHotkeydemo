@@ -390,6 +390,34 @@ def check_c1(repo_root: Path) -> dict:
 # ---------------------------------------------------------------- C2 测试未接入
 
 
+def _standalone_roots(repo_root: Path, allset: set[Path]) -> list[Path]:
+    """从 `scripts/run-standalone-ahk-tests.sh` 的 SCRIPTS 列表里取独立 runner 脚本。
+
+    C2 的判据原本只认 `run_all_tests.ahk` / `run_tests.ahk` 两个 runner 的 `#Include`
+    链。但另有一批脚本是**各自独立进程**跑的（全局状态互相污染，合进一个 runner 会
+    互相干扰），由 `run-standalone-ahk-tests.sh` 串起来并接入四闸门 **G3g** —— 它们
+    确实在执行，只是不走 `#Include` 链。不认这条来源会把「已接入」误报成「未接入」
+    （2026-09-17 实测：C2 的 8 项里 **7 项是误报**）。
+
+    只取 `tests/` 语料内的（`allset`），`tools/` 下的那条不在 C2 的统计范围里。
+    """
+    sh = repo_root / "scripts" / "run-standalone-ahk-tests.sh"
+    if not sh.exists():
+        return []
+    try:
+        text = sh.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    out: list[Path] = []
+    for line in text.splitlines():
+        s = line.strip().strip('"')
+        if s.endswith(".ahk") and "/" in s:
+            p = (repo_root / s).resolve()
+            if p in allset and p not in out:
+                out.append(p)
+    return out
+
+
 def check_c2(repo_root: Path) -> dict:
     tests_dir = repo_root / "tests"
     files = [p for p in collect_ahk(repo_root) if str(p.resolve()).startswith(str(tests_dir.resolve()))]
@@ -399,6 +427,7 @@ def check_c2(repo_root: Path) -> dict:
     roots = [(tests_dir / "run_all_tests.ahk").resolve(),
              (tests_dir / "run_tests.ahk").resolve()]
     roots = [r for r in roots if r in allset]
+    roots += _standalone_roots(repo_root, allset)
     reach = reachable_from(roots, edges)
 
     findings = []

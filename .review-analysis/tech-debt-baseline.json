@@ -6,16 +6,7 @@
     "_harness.ahk（2 处）: tools/ahk-bench/_harness.ahk, tools/ahk-probes/_harness.ahk"
   ],
   "c1c_misplaced_files": [],
-  "c2_unwired_tests": [
-    "tests/test_error_system.ahk",
-    "tests/test_integration_error_system.ahk",
-    "tests/test_joy_hotkey_manager.ahk",
-    "tests/test_key_recorder.ahk",
-    "tests/test_key_test_integration.ahk",
-    "tests/test_key_validator.ahk",
-    "tests/test_result_reporter.ahk",
-    "tests/test_webview2_bridge.ahk"
-  ],
+  "c2_unwired_tests": [],
   "c3_doc_drift": [],
   "c3b_stale_counts": [
     "docs/review/2026-09-13/bug-fix-plan.md:398: 硬写「616 / 616」 —— 改为指向 test-map.md 的指针，不要复写数字",
