@@ -56,10 +56,10 @@
 | Crate | 类型 | 文件路径 | 测试数 | 覆盖范围 |
 |-------|------|---------|-------|---------|
 | asd-application | 单元 | crates/asd-application/src/state.rs | 36 | AppState 状态管理与 trait object 装配 |
-| asd-application | 单元 | crates/asd-application/src/config_repository.rs | 27 | ConfigRepository 文件 I/O 与序列化 + **TD-027 新增 2 条**：文件存在但读不出来（非 UTF-8 / 路径是目录）必须报 `IoError` 且消息里**不得**出现「不存在」+ **TD-043 新增 1 条**：目标文件被短暂独占（Windows `share_mode(0)`）时 `atomic_write` 必须靠退避重试成功，而不是直接掉进 copy 回退（后者同样写不进被占用的目标） |
+| asd-application | 单元 | crates/asd-application/src/config_repository.rs | 28 | ConfigRepository 文件 I/O 与序列化 + **TD-027 新增 2 条**：文件存在但读不出来（非 UTF-8 / 路径是目录）必须报 `IoError` 且消息里**不得**出现「不存在」+ **TD-043 新增 1 条**：目标文件被短暂独占（Windows `share_mode(0)`）时 `atomic_write` 必须靠退避重试成功，而不是直接掉进 copy 回退（后者同样写不进被占用的目标）+ **再 1 条**直接测 `fallback_copy` 本身（这条分支真实环境很难触发，抽成独立函数才能测到，否则整段是未覆盖行拖低覆盖率） |
 | asd-application | 单元 | crates/asd-application/src/time_format.rs | 4 | 时间格式化工具 |
 | asd-application | 单元 | crates/asd-application/src/error.rs | 6 | AppError 错误类型 |
-| **单元小计** | — | — | **73** | — |
+| **单元小计** | — | — | **74** | — |
 
 ### 集成测试
 
@@ -73,7 +73,7 @@
 | asd-application | 端到端 | crates/asd-application/tests/e2e_dataflow_tests.rs | 4 | 端到端数据流（Command → Bridge → AppState） |
 | asd-application | 集成 | crates/asd-application/tests/concurrency_tests.rs | 4 | AppState 并发安全（Arc<Mutex> 验证） |
 | **集成小计** | — | — | **96** | — |
-| **总计** | — | — | **169** | — |
+| **总计** | — | — | **170** | — |
 
 ## asd-test-harness
 
@@ -225,7 +225,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 | 类别 | 统计 |
 |------|------|
-| Rust 测试（运行时注册数，`--all-targets -- --list`） | 640（asd-domain 154 + asd-ipc-protocol 72 + asd-application 169 + asd-test-harness 3 + asd-tauri 242；其中 `#[ignore]` 15 个） |
+| Rust 测试（运行时注册数，`--all-targets -- --list`） | 641（asd-domain 154 + asd-ipc-protocol 72 + asd-application 170 + asd-test-harness 3 + asd-tauri 242；其中 `#[ignore]` 15 个） |
 | AHK 执行器测试（`Test_` 方法数） | 61 套件 / 279 个 `Test_` 方法（`tests/test_ahk_executor/` 5 文件；不含 `test_joy_hotkey_manager_ahu.ahk` 的 7 套件） |
 | AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 719 个用例 / 181 个套件。**本机**（`scripts/check-gates.sh`，默认）：通过 719 / 失败 0 / 跳过 0。**CI**（G3b，`ASD_HOST_TIMING=0`）：通过 712 / 失败 0 / **跳过 7** —— 跳过的是 `SenderPreciseTimingTests` 里 7 条绝对墙钟时延断言，原因见下。2026-09-16 三次增长：① +33 用例 / +13 套件，原 `tests/test_joystick.ahk`（独立脚本，断言从未执行）改名并转为 `tests/test_joystick_input.ahk` 接入套件（TD-002）；② +10 用例 / +1 套件，`JSONSerializerScalarTypeTests` 钉住 JSON 标量的布尔/数字分派（TD-030，AHK v2 无布尔类型导致的 1/0 串味）；③ +12 用例 / +2 套件，`JSONSerializerIndentTests`（+6，TD-034：`Stringify(x, 0)` 必须是单行紧凑）与 `ConfigValidatorJoystickFieldTests`（+5，TD-035：手柄模式的间隔/延迟字段是 `joyIntervals`/`joyDelays`），另在 `base_suites.ahk` 的 `ConfigStoreGroupTests` 补 1 条 `_GenerateGroupId` 配置侧碰撞用例（TD-036）。接入 `tests/` 下从未执行的独立脚本时一并修好了一批陈旧断言 |
 | 基准测试 | 7 个 criterion bench |
@@ -233,7 +233,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | 模糊测试 | 5 个 fuzz target |
 | E2E 测试 | 9 suite / 53 用例 |
 
-自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 154 + 72 + 169 + 3 + 242 = 640。
+自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 154 + 72 + 170 + 3 + 242 = 641。
 
 > **备注（T8-07† 处置）**：`docs/review/2026-08-20/task-8-tests.md` 分报告《总结》自报「发现总数 7（Important 3 + Minor 4）」，但正文仅列 T8-01~T8-06 共 6 条（其中 Minor 3 条：T8-04/T8-05/T8-06）。已核实第 4 条 Minor 无正文，属该报告自报计数笔误（正文实际为 Important 3 + Minor 3 = 6 条），无遗漏问题，占位 `T8-07†` 予以关闭。
 

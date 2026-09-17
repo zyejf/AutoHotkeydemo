@@ -88,47 +88,51 @@ impl ConfigRepository {
         fs::write(&tmp_path, content).map_err(|e| format!("写入临时文件失败: {e}"))?;
 
         // 先退避重试 rename（理由见 RENAME_ATTEMPTS 的注释），重试耗尽才退到 copy 回退。
-        let mut rename_err = None;
-        for attempt in 0..RENAME_ATTEMPTS {
+        // 用 loop + 显式计数而不是 `for` + 循环后兜底：后者会留下一个「不可达」分支，
+        // 既多出未覆盖行，也让人怀疑它到底会不会走到。
+        let mut attempt = 0;
+        loop {
             match fs::rename(&tmp_path, path) {
                 Ok(()) => return Ok(()),
                 Err(e) => {
-                    rename_err = Some(e);
-                    if attempt + 1 < RENAME_ATTEMPTS {
-                        std::thread::sleep(std::time::Duration::from_millis(
-                            RENAME_RETRY_BACKOFF_MS * u64::from(attempt + 1),
-                        ));
+                    attempt += 1;
+                    if attempt >= RENAME_ATTEMPTS {
+                        // 重试耗尽 —— 退到 copy 回退（同时覆盖跨文件系统 rename 的限制）。
+                        return Self::fallback_copy(&tmp_path, path, &e);
                     }
+                    std::thread::sleep(std::time::Duration::from_millis(
+                        RENAME_RETRY_BACKOFF_MS * u64::from(attempt),
+                    ));
                 }
             }
         }
-        // 循环里成功即 return，所以走到这里说明重试耗尽。用 let-else 而不是 expect：
-        // 本函数对调用方承诺的是 Result，不该多出一条 panic 路径（clippy 的
-        // missing_panics_doc 也会因此报错）。None 分支理论上不可达（RENAME_ATTEMPTS >= 1），
-        // 但**宁可报错也不假装写成功** —— 那会变成静默丢配置。
-        let Some(rename_err) = rename_err else {
-            let _ = fs::remove_file(&tmp_path);
-            return Err(format!(
-                "atomic_write: 未执行任何 rename 尝试（RENAME_ATTEMPTS={RENAME_ATTEMPTS}）"
-            ));
-        };
+    }
 
+    /// `rename` 重试耗尽后的回退：copy + remove。
+    ///
+    /// 抽成独立函数是为了能**直接测到**这条分支 —— 它在真实环境里很难触发
+    /// （目标被占用时 copy 同样会失败），不抽出来的话整段都是未覆盖行，
+    /// 会拖低本文件的行覆盖率（TD-043 在 CI 上就吃过这个）。
+    fn fallback_copy(
+        tmp_path: &Path,
+        path: &Path,
+        rename_err: &std::io::Error,
+    ) -> Result<(), String> {
         // 记 WARN 而不是 DEBUG：否则没人知道这条回退路径到底多久被触发一次
         // —— TD-043 的诉求之一就是把它变成可观测信号。
         tracing::warn!(
             "atomic_write: rename 重试 {RENAME_ATTEMPTS} 次仍失败，改用 copy 回退: {rename_err}"
         );
-        fs::copy(&tmp_path, path).map_err(|e2| {
-            let _ = fs::remove_file(&tmp_path);
+        fs::copy(tmp_path, path).map_err(|e2| {
+            let _ = fs::remove_file(tmp_path);
             format!("重命名和复制均失败: rename={rename_err}, copy={e2}")
         })?;
-        if let Err(e) = fs::remove_file(&tmp_path) {
+        if let Err(e) = fs::remove_file(tmp_path) {
             tracing::warn!(
                 "atomic_write: 临时文件删除失败（可能被锁定）: {} : {e}",
                 tmp_path.display()
             );
         }
-
         Ok(())
     }
 }
@@ -536,6 +540,31 @@ mod tests {
 
         holder.join().expect("持有线程不应 panic");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), r#"{"ok":true}"#);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// TD-043：`rename` 重试耗尽后的 copy 回退。这条分支在真实环境里**很难触发**
+    /// （目标被占用时 copy 同样会失败），所以直接测函数本身：给定有效的临时文件与
+    /// 目标路径，它必须把内容搬过去并删掉临时文件。
+    /// 抽成独立函数就是为了让这段代码可测 —— 否则它全是未覆盖行，拖低本文件覆盖率。
+    #[test]
+    fn test_fallback_copy_moves_content_and_removes_tmp() {
+        let dir = std::env::temp_dir().join("asd_app_test_fallback_copy");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dst = dir.join("dst.json");
+        let tmp = dir.join(".tmp_dst.json_1_1");
+        std::fs::write(&tmp, r#"{"fallback":true}"#).unwrap();
+
+        let rename_err =
+            std::io::Error::new(std::io::ErrorKind::PermissionDenied, "模拟 rename 失败");
+        ConfigRepository::fallback_copy(&tmp, &dst, &rename_err).expect("copy 回退应成功");
+
+        assert_eq!(
+            std::fs::read_to_string(&dst).unwrap(),
+            r#"{"fallback":true}"#
+        );
+        assert!(!tmp.exists(), "回退成功后临时文件应被删除");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
