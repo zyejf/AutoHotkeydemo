@@ -332,6 +332,39 @@ G3d  test-map.md 登记自洽（含运行时对账）
 
 ---
 
+## 六之八、TD-057：IPC 命令契约此前无门禁，已补 C8（契约断点靶点）
+
+跨 AHK / Rust 边界的命令名靠两边**手写字符串**对齐：
+
+```
+Rust:  #[serde(rename = "toggle_group")]  ToggleGroup { ... }
+AHK:   case "toggle_group":  CommandDispatcher._HandleToggleGroup(data, seq)
+```
+
+**此前没有任何东西校验二者一致。** 后果是：Rust 加一个变体而 AHK 忘了接——**编译期不报错**，只有运行时才吐「未知命令」；反过来 AHK 留个死分支也没人知道。当前 13 条刚好对齐（11 条走 `executor.ahk` 的 `Dispatch`，`ping`/`shutdown` 走 `ipc_client.ahk` 的 msgType 路径并另有防御性路由）——**纯属运气，没有守护**。
+
+**已修**：`check-tech-debt.py` 新增 **C8：IPC 命令契约对齐**（硬失败、不做棘轮，与 C3/C4/C5/C6/C7 同类——守的是规则不是存量债）。
+
+实现要点：
+
+1. 取 Rust 侧 **`#[serde(rename)]` 的序列化名**，**不是变体名** —— 变体名是 PascalCase、线上字符串是 snake_case，拿变体名比对会全是假阳性
+2. AHK 侧合并两处来源：`executor.ahk` 的 `Dispatch` 分支 + `ipc_client.ahk` 的 `ping` / `shutdown`
+3. **双向校验**：Rust 有 AHK 没有、AHK 有 Rust 没有，都算失败
+4. 任一侧解析不出内容即按失败处理，**不静默放过**
+
+**阳性对照两组，正反两个方向都成立**：
+
+| 注入 | C8 反应 |
+|---|---|
+| Rust 新增 `IpcCommand::ZzProbeAction`（rename=`zz_probe_action`） | 报「在 AHK 分发表里**没有对应分支**」→ FAIL |
+| AHK 新增死分支 `zz_orphan_branch` | 报「在 Rust `IpcCommand` 里**没有对应变体**」→ FAIL |
+
+还原后回绿（Rust 13 / AHK 13）。
+
+⚠️ **踩到的坑**：新检查漏注册进 `main()` 的 `want` 集合，导致它**静默不执行**——第一次跑 C8 完全没有输出，我却差点以为它通过了。**不可见的检查等于没检查**；新增检查必须同步三处：函数本体、`cur` 字典、`want` 集合。
+
+---
+
 ## 七、两个必须记住的教训
 
 **1. 门禁自己就是负载源 —— 已处理（`11da447`）。** G3b 紧接在 G3a（`cargo test`，72~104s）之后运行，正是这段残留负载触发过 `Test_Sequence_PreservesPhaseAndCountsDropped`（报 `24 != 12`，2 倍说明中间多过去约 184ms；单独连跑两次均 722 全绿）。**只修用例而不解决门禁自负载，flaky 会换个地方继续爆。**

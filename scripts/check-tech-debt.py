@@ -918,6 +918,108 @@ def check_c7(repo_root: Path) -> dict:
             "rust_keys": sorted(rust_keys), "checked": len(rust_keys)}
 
 
+# ---------------------------------------------------------------- C8 IPC 命令契约
+
+
+def _snake(name: str) -> str:
+    return re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()
+
+
+def _rust_ipc_actions(repo_root: Path) -> dict[str, str]:
+    """解析 Rust `IpcCommand` 各变体的**序列化名**（`#[serde(rename = "...")]`）。
+
+    变体名（PascalCase）不等于线上字符串，必须取 serde 的 rename —— 拿变体名去
+    比对会得到一堆假阳性。
+    """
+    p = repo_root / "asd-tauri" / "crates" / "asd-ipc-protocol" / "src" / "command.rs"
+    if not p.is_file():
+        return {}
+    m = re.search(r'pub enum IpcCommand\s*\{(.*?)\n\}', read_text(p), re.S)
+    if not m:
+        return {}
+    out: dict[str, str] = {}
+    pending: str | None = None
+    for ln in m.group(1).splitlines():
+        s = ln.strip()
+        if not s or s.startswith('//'):
+            continue
+        r = re.match(r'#\[serde\(\s*rename\s*=\s*"([^"]+)"\s*\)\]', s)
+        if r:
+            pending = r.group(1)
+            continue
+        if s.startswith('#'):
+            continue
+        v = re.match(r'([A-Z][A-Za-z0-9]*)', s)
+        if v:
+            out[v.group(1)] = pending or _snake(v.group(1))
+            pending = None
+    return out
+
+
+def _ahk_ipc_actions(repo_root: Path) -> set[str]:
+    """解析 AHK 侧能处理的 action 集合。
+
+    两处来源：
+      - `executor.ahk` 的 `CommandDispatcher.Dispatch` —— 业务命令（11 条）
+      - `ipc_client.ahk` 的 `case "ping"` / `case "shutdown"` —— 协议消息，
+        走 msgType 路径而非 command 路径（另有防御性路由兜底）
+    两者合起来才是 AHK 侧真正能响应的全部 action。
+    """
+    actions: set[str] = set()
+    exe = repo_root / "asd-tauri" / "src-tauri" / "ahk_executor" / "executor.ahk"
+    if exe.is_file():
+        txt = read_text(exe)
+        m = re.search(r'static Dispatch\s*\(.*?\n(.*?)\n\s{4}\}', txt, re.S)
+        seg = m.group(1) if m else txt
+        actions |= set(re.findall(r'case\s+"([a-z0-9_]+)"\s*:', seg))
+    cli = repo_root / "asd-tauri" / "src-tauri" / "ahk_executor" / "ipc_client.ahk"
+    if cli.is_file():
+        for a in re.findall(r'case\s+"([a-z0-9_]+)"\s*:', read_text(cli)):
+            if a in ("ping", "shutdown"):
+                actions.add(a)
+    return actions
+
+
+def check_c8(repo_root: Path) -> dict:
+    """C8 IPC 命令契约对齐（TD-057）：Rust 变体 ↔ AHK 分发表，双向都不能缺。
+
+    这是图谱审查方法里的**契约断点**靶点：跨 AHK / Rust 边界的命令名靠两边手写
+    字符串对齐，此前**没有任何门禁**。Rust 加一个变体而 AHK 忘了接，编译期不会
+    报错，只有运行时才吐「未知命令」—— 典型的结构性静默失效。
+
+    硬失败（失败即视为无效，不静默放过）：
+      - 两侧任一解析不出内容
+      - Rust 有而 AHK 分发表没有（命令到了会被回成「未知命令」）
+      - AHK 分发表有而 Rust 没有（死分支）
+    """
+    rust = _rust_ipc_actions(repo_root)
+    ahk = _ahk_ipc_actions(repo_root)
+
+    findings: list[str] = []
+    if not rust:
+        findings.append("未能解析出 Rust `IpcCommand` 变体（C8 无法校验，按失败处理）")
+    if not ahk:
+        findings.append("未能解析出 AHK 侧 action 分发表（C8 无法校验，按失败处理）")
+
+    if rust and ahk:
+        want = set(rust.values())
+        for a in sorted(want - ahk):
+            variant = next(v for v, n in rust.items() if n == a)
+            findings.append(
+                f"Rust `IpcCommand::{variant}`（序列化为 `{a}`）在 AHK 分发表里**没有对应分支** "
+                f"—— 命令到达时只会回「未知命令」。请在 executor.ahk 的 Dispatch 里补上，"
+                f"或若属 ping/shutdown 类协议消息则在 ipc_client.ahk 处理"
+            )
+        for a in sorted(ahk - want):
+            findings.append(
+                f"AHK 分发表里的 `{a}` 在 Rust `IpcCommand` 里**没有对应变体** —— 是死分支，"
+                f"请删除或补上 Rust 侧定义"
+            )
+
+    return {"findings": findings, "rust_actions": sorted(rust.values()),
+            "ahk_actions": sorted(ahk), "checked": len(rust)}
+
+
 # ---------------------------------------------------------------- 基线 / 棘轮
 
 
@@ -993,13 +1095,14 @@ def main() -> int:
         "c5": check_c5(REPO_ROOT),
         "c6": check_c6(REPO_ROOT),
         "c7": check_c7(REPO_ROOT),
+        "c8": check_c8(REPO_ROOT),
     }
 
     if args.update_baseline:
         save_baseline(cur)
         return 0
 
-    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5", "c6", "c7"}
+    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8"}
 
     # ---------- C3：硬失败，不做棘轮 ----------
     c3_errors = list(cur["c3"]["findings"])
@@ -1060,6 +1163,17 @@ def main() -> int:
                 print(f"       - {f}")
         else:
             print("       通过：Rust 侧的布尔字段全部在 AHK 白名单内")
+
+    # ---------- C8：硬失败，IPC 命令契约双向对齐（TD-057）----------
+    c8_findings = list(cur["c8"]["findings"])
+    if "c8" in want:
+        print(f"\n[C8] IPC 命令契约对齐（Rust `IpcCommand` 序列化名 ↔ AHK 分发表）："
+              f"Rust {cur['c8']['checked']} 条 / AHK {len(cur['c8']['ahk_actions'])} 条")
+        if c8_findings:
+            for f in c8_findings[:20]:
+                print(f"       - {f}")
+        else:
+            print("       通过：两侧命令集合完全一致")
 
     # ---------- C1 / C2：棘轮 ----------
     base = None if args.show else load_baseline()
@@ -1125,6 +1239,9 @@ def main() -> int:
         )
     if "c7" in want and c7_findings:
         errors.append(f"Rust 布尔字段未登记进 AHK BoolKeys {len(c7_findings)} 处（C7）")
+
+    if "c8" in want and c8_findings:
+        errors.append(f"IPC 命令契约不对齐 {len(c8_findings)} 处（C8）")
 
     if errors:
         print("[FAIL] 技术债检查未通过:")
