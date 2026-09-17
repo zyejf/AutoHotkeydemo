@@ -264,7 +264,7 @@ async fn test_watchdog_bridge_reset_from_failed() {
 
     // Failed 状态下 reset 应成功
     let result = bridge.reset();
-    assert!(result.is_ok(), "Failed 状态下 reset 应成功: {:?}", result);
+    assert!(result.is_ok(), "Failed 状态下 reset 应成功: {result:?}");
 
     // reset 后状态应变为 Restarting
     let guard = watchdog.lock().await;

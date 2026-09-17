@@ -973,7 +973,7 @@ mod tests {
         ];
         for (i, cmd) in no_data_cmds.into_iter().enumerate() {
             let msg = IpcMessage::command(i as u64, &cmd);
-            assert!(msg.data.is_none(), "命令 {:?} 不应有 data", cmd);
+            assert!(msg.data.is_none(), "命令 {cmd:?} 不应有 data");
         }
     }
 
@@ -1264,8 +1264,7 @@ mod tests {
         let result = manager.send(&msg).await;
         assert!(
             matches!(result, Err(IpcError::ConnectionClosed)),
-            "未连接时 send() 应返回 ConnectionClosed，实际: {:?}",
-            result
+            "未连接时 send() 应返回 ConnectionClosed，实际: {result:?}"
         );
     }
 
@@ -1285,8 +1284,7 @@ mod tests {
         let result = parse_message("{invalid json");
         assert!(
             matches!(result, Err(IpcError::JsonError(_))),
-            "畸形 JSON 应返回 JsonError，实际: {:?}",
-            result
+            "畸形 JSON 应返回 JsonError，实际: {result:?}"
         );
     }
 

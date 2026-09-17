@@ -198,7 +198,7 @@ fn bench_config_loading(c: &mut Criterion) {
     group.sample_size(50);
 
     group.bench_function(
-        BenchmarkId::new("deserialize_13kb_json", format!("{:.1}KB", json_size_kb)),
+        BenchmarkId::new("deserialize_13kb_json", format!("{json_size_kb:.1}KB")),
         |b| {
             b.iter(|| {
                 let _: Config = serde_json::from_str(&json).unwrap();

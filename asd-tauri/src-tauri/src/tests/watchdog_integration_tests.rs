@@ -67,7 +67,7 @@ fn test_watchdog_start_child_process() {
     let pid = child.id();
 
     let result = wd.attach_child(child);
-    assert!(result.is_ok(), "attach_child 应成功: {:?}", result);
+    assert!(result.is_ok(), "attach_child 应成功: {result:?}");
 
     assert_eq!(
         wd.state(),
@@ -89,7 +89,7 @@ fn test_watchdog_start_child_process() {
     rt.block_on(async {
         let wd = Arc::new(Mutex::new(wd));
         let result = graceful_shutdown_watchdog(&wd).await;
-        assert!(result.is_ok(), "graceful_shutdown 应成功: {:?}", result);
+        assert!(result.is_ok(), "graceful_shutdown 应成功: {result:?}");
         let guard = wd.lock().await;
         assert_eq!(
             guard.state(),
@@ -160,7 +160,7 @@ async fn test_watchdog_runner_auto_restart() {
     {
         let mut guard = wd.lock().await;
         let result = guard.spawn_child("C:\\Windows\\System32\\cmd.exe", "test_auth_token");
-        assert!(result.is_ok(), "spawn_child 应成功: {:?}", result);
+        assert!(result.is_ok(), "spawn_child 应成功: {result:?}");
         assert_eq!(guard.state(), WatchdogStateEnum::Running);
     }
 
@@ -199,7 +199,7 @@ async fn test_watchdog_runner_auto_restart() {
     {
         let guard = wd.lock().await;
         let count = guard.restart_count();
-        assert!(count >= 1, "重启次数应 >= 1，实际: {}", count);
+        assert!(count >= 1, "重启次数应 >= 1，实际: {count}");
     }
 
     // 清理
@@ -317,16 +317,14 @@ fn test_watchdog_backoff_wait() {
         WatchdogAction::WaitForBackoff(remaining) => {
             assert!(
                 remaining <= Duration::from_secs(2),
-                "剩余等待时间应 <= 2s，实际: {:?}",
-                remaining
+                "剩余等待时间应 <= 2s，实际: {remaining:?}"
             );
             assert!(
                 remaining > Duration::from_millis(0),
-                "剩余等待时间应 > 0，实际: {:?}",
-                remaining
+                "剩余等待时间应 > 0，实际: {remaining:?}"
             );
         }
-        other => panic!("应返回 WaitForBackoff，实际: {:?}", other),
+        other => panic!("应返回 WaitForBackoff，实际: {other:?}"),
     }
 }
 
@@ -410,7 +408,7 @@ async fn test_watchdog_graceful_shutdown() {
     // 优雅关机
     let wd = Arc::new(Mutex::new(wd));
     let result = graceful_shutdown_watchdog(&wd).await;
-    assert!(result.is_ok(), "graceful_shutdown 应成功: {:?}", result);
+    assert!(result.is_ok(), "graceful_shutdown 应成功: {result:?}");
 
     let guard = wd.lock().await;
     assert_eq!(guard.state(), WatchdogStateEnum::Idle);
@@ -497,8 +495,7 @@ fn test_backoff_durations_constant() {
         assert_eq!(
             *duration,
             Duration::from_secs(30),
-            "BACKOFF_DURATIONS[{}] 应为 30s",
-            i
+            "BACKOFF_DURATIONS[{i}] 应为 30s"
         );
     }
 }
@@ -548,8 +545,7 @@ fn test_watchdog_full_state_machine_flow() {
         }
         assert!(
             std::time::Instant::now() < deadline,
-            "子进程应在 10s 内退出，实际 tick 持续返回 {:?}（固定 sleep 无法保证子进程已退出）",
-            action
+            "子进程应在 10s 内退出，实际 tick 持续返回 {action:?}（固定 sleep 无法保证子进程已退出）"
         );
         std::thread::sleep(Duration::from_millis(20));
     };

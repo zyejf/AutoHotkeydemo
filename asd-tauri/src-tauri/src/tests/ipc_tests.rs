@@ -189,12 +189,12 @@ async fn test_roundtrip_latency() {
     let p95 = sorted[(sorted.len() as f64 * 0.95).ceil() as usize - 1];
 
     eprintln!("\n=== IPC 往返延迟测量 ===");
-    eprintln!("样本数: {} (预热: {})", rounds, warmup);
-    eprintln!("平均: {:.2} μs", avg);
-    eprintln!("最小: {:.2} μs", min);
-    eprintln!("最大: {:.2} μs", max);
-    eprintln!("P50:  {:.2} μs", p50);
-    eprintln!("P95:  {:.2} μs", p95);
+    eprintln!("样本数: {rounds} (预热: {warmup})");
+    eprintln!("平均: {avg:.2} μs");
+    eprintln!("最小: {min:.2} μs");
+    eprintln!("最大: {max:.2} μs");
+    eprintln!("P50:  {p50:.2} μs");
+    eprintln!("P95:  {p95:.2} μs");
     eprintln!("目标: P50 < 1200 μs (1.2ms)");
     eprintln!("========================\n");
 
@@ -205,7 +205,7 @@ async fn test_roundtrip_latency() {
     // 实现本身的系统性开销 —— 若实现真的退化（例如每次往返多一次固定等待），
     // 偏移是系统性的，P50 会整体抬升。
     // 参考量级：本机 P50 ≈ 66 μs、CI P50 ≈ 154 μs，距 1200 μs 目标有 7.8× 余量。
-    assert!(p50 < 1200.0, "P50 往返延迟 {:.2} μs 超过 1200 μs 目标", p50);
+    assert!(p50 < 1200.0, "P50 往返延迟 {p50:.2} μs 超过 1200 μs 目标");
 
     drop(client);
     let _ = tokio::time::timeout(Duration::from_secs(2), server_task).await;
@@ -234,8 +234,8 @@ fn test_seq_counter_monotonic() {
     let s2 = counter.fetch_add(1, Ordering::Relaxed);
     let s3 = counter.fetch_add(1, Ordering::Relaxed);
 
-    assert!(s2 > s1, "seq 应单调递增: {} > {}", s2, s1);
-    assert!(s3 > s2, "seq 应单调递增: {} > {}", s3, s2);
+    assert!(s2 > s1, "seq 应单调递增: {s2} > {s1}");
+    assert!(s3 > s2, "seq 应单调递增: {s3} > {s2}");
 }
 
 #[test]
@@ -488,7 +488,7 @@ async fn test_accept_from_ahk_valid_auth() {
         .await
         .expect("超时")
         .expect("任务 panic");
-    assert!(result.is_ok(), "有效认证应成功: {:?}", result);
+    assert!(result.is_ok(), "有效认证应成功: {result:?}");
 
     drop(client);
 }
@@ -518,8 +518,7 @@ async fn test_accept_from_ahk_invalid_auth_token() {
     assert!(result.is_err(), "无效认证应失败");
     assert!(
         matches!(result, Err(IpcError::AuthFailed(_))),
-        "应返回 AuthFailed: {:?}",
-        result
+        "应返回 AuthFailed: {result:?}"
     );
 }
 
@@ -548,8 +547,7 @@ async fn test_accept_from_ahk_no_auth_message() {
     assert!(result.is_err(), "无认证应失败");
     assert!(
         matches!(result, Err(IpcError::AuthFailed(_))),
-        "应返回 AuthFailed: {:?}",
-        result
+        "应返回 AuthFailed: {result:?}"
     );
 }
 
@@ -569,10 +567,7 @@ async fn test_message_size_limit_exceeded() {
         // 70KB 负载 + JSON 包裹 + 换行，总大小约 70KB+，远超 64KB 限制。
         // 换行符放在末尾，前 64KB 内无换行，触发 recv() 的超大消息检测路径。
         let big_payload = "A".repeat(70 * 1024);
-        let line = format!(
-            "{{\"type\":\"ping\",\"seq\":1,\"data\":\"{}\"}}\n",
-            big_payload
-        );
+        let line = format!("{{\"type\":\"ping\",\"seq\":1,\"data\":\"{big_payload}\"}}\n");
         let bytes = line.as_bytes();
         assert!(
             bytes.len() > 64 * 1024,
@@ -622,7 +617,7 @@ async fn test_message_size_boundary() {
     // 后缀 "}\n = 3 字节
     // 总计 31 + N + 3 = 34 + N，目标 65535 → N = 65501
     let padding = "A".repeat(65501);
-    let line = format!("{{\"type\":\"ping\",\"seq\":1,\"data\":\"{}\"}}\n", padding);
+    let line = format!("{{\"type\":\"ping\",\"seq\":1,\"data\":\"{padding}\"}}\n");
     assert_eq!(line.len(), 65535, "消息总长应为 65535 字节");
     let line_bytes = line.into_bytes();
 

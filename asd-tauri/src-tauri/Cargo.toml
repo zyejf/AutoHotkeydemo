@@ -53,3 +53,56 @@ regex = "1"
 [[bench]]
 name = "benchmarks"
 harness = false
+
+# ── lint 配置（TD-045）───────────────────────────────────────────────
+#
+# 本 crate 是入口层 / Tauri 样板，**刻意不**用 `[lints] workspace = true` 继承：
+# pedantic 全开实测 618 项，其中 425 项是文档类（doc_markdown 265 /
+# missing_errors_doc 158 / missing_panics_doc 2），一次放开等于把真信号淹掉。
+# 改为**显式清单 + 逐批开启**：每批只把一个 lint 从 allow 翻成默认（删该行），
+# 修干净再开下一个。已开启的由 G2b（`cargo clippy --workspace --all-targets
+# -- -D warnings`）守住，回归即红 —— 这条闸门本身就是防复发机制。
+#
+# 终态：全部收干后换成 `[lints] workspace = true`，与纯逻辑 crate 统一策略。
+# ⚠️ 在那之前，根 `Cargo.toml` 的 `[workspace.lints]` 调整**不会**自动传导到本 crate。
+#
+# `priority = -1` 是必需的：否则逐条 allow 与 pedantic 组同优先级，
+# 谁生效由定义顺序决定，容易写错。
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+
+# ——— 文档类（425 项）：TD-045 分批补，先关 ———
+doc_markdown = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+# ——— 非文档类 193 项：按批开启，进度见台账 TD-045 ———
+# ✅ 批次 1（2026-09-17）：uninlined_format_args 60 项 —— 已收干
+# ⬜ 批次 2：must_use_candidate 40 项
+# ⬜ 批次 3：needless_pass_by_value 22 项（动签名，风险最高）
+# ⬜ 批次 4：cast_* 13 项（需逐个判断是改写法还是登记豁免）
+# ⬜ 批次 5：too_many_lines 5 项（真重构）
+# ⬜ 批次 6：其余零散 ~53 项
+must_use_candidate = "allow"
+needless_pass_by_value = "allow"
+map_unwrap_or = "allow"
+unnested_or_patterns = "allow"
+single_match_else = "allow"
+duration_suboptimal_units = "allow"
+redundant_closure_for_method_calls = "allow"
+borrow_as_ptr = "allow"
+match_wildcard_for_single_variants = "allow"
+unchecked_time_subtraction = "allow"
+too_many_lines = "allow"
+cast_sign_loss = "allow"
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+unreadable_literal = "allow"
+needless_continue = "allow"
+format_push_string = "allow"
+ptr_as_ptr = "allow"
+unused_async = "allow"
+semicolon_if_nothing_returned = "allow"
+cloned_instead_of_copied = "allow"
+items_after_statements = "allow"
+match_same_arms = "allow"

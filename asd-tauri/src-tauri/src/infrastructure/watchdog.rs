@@ -677,7 +677,7 @@ impl JobObjectGuard {
             SetInformationJobObject(
                 handle,
                 JOBOBJECTINFOCLASS(JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS),
-                &info as *const _ as *const _,
+                std::ptr::from_ref(&info) as *const _,
                 std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
             )?;
             Ok(Self(SendSyncCell::new(RawHandle::new(handle))))

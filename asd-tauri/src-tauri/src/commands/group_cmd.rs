@@ -280,7 +280,7 @@ mod tests {
         assert!(result.is_err(), "空分组 ID 应返回错误");
         match result.unwrap_err() {
             AppError::Validation(_) => {}
-            other => panic!("期望 Validation 错误，实际: {:?}", other),
+            other => panic!("期望 Validation 错误，实际: {other:?}"),
         }
     }
 
@@ -306,7 +306,7 @@ mod tests {
         assert!(result.is_err(), "空分组 ID 应返回错误");
         match result.unwrap_err() {
             AppError::Validation(_) => {}
-            other => panic!("期望 Validation 错误，实际: {:?}", other),
+            other => panic!("期望 Validation 错误，实际: {other:?}"),
         }
     }
 
@@ -330,7 +330,7 @@ mod tests {
         assert!(result.is_err(), "空分组 ID 应返回错误");
         match result.unwrap_err() {
             AppError::Validation(_) => {}
-            other => panic!("期望 Validation 错误，实际: {:?}", other),
+            other => panic!("期望 Validation 错误，实际: {other:?}"),
         }
     }
 
@@ -383,7 +383,7 @@ mod tests {
         assert!(result.is_err(), "空分组列表应返回错误");
         match result.unwrap_err() {
             AppError::Validation(_) => {}
-            other => panic!("期望 Validation 错误，实际: {:?}", other),
+            other => panic!("期望 Validation 错误，实际: {other:?}"),
         }
     }
 
@@ -409,7 +409,7 @@ mod tests {
         assert!(result.is_err(), "空分组列表应返回错误");
         match result.unwrap_err() {
             AppError::Validation(_) => {}
-            other => panic!("期望 Validation 错误，实际: {:?}", other),
+            other => panic!("期望 Validation 错误，实际: {other:?}"),
         }
     }
 
@@ -436,7 +436,7 @@ mod tests {
         assert!(result.is_err(), "空分组列表应返回错误");
         match result.unwrap_err() {
             AppError::Validation(_) => {}
-            other => panic!("期望 Validation 错误，实际: {:?}", other),
+            other => panic!("期望 Validation 错误，实际: {other:?}"),
         }
     }
 }

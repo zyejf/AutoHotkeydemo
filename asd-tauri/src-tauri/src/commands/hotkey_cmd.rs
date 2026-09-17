@@ -109,8 +109,7 @@ mod tests {
         let err = result.unwrap_err();
         assert!(
             matches!(err, AppError::Validation(_)),
-            "重复注册应返回 Validation 错误，实际: {:?}",
-            err
+            "重复注册应返回 Validation 错误，实际: {err:?}"
         );
     }
 
@@ -124,8 +123,7 @@ mod tests {
         let err = result.unwrap_err();
         assert!(
             matches!(err, AppError::Validation(ref msg) if msg.contains("未注册")),
-            "应返回包含'未注册'的 Validation 错误，实际: {:?}",
-            err
+            "应返回包含'未注册'的 Validation 错误，实际: {err:?}"
         );
     }
 
@@ -139,8 +137,7 @@ mod tests {
         let err = result.unwrap_err();
         assert!(
             matches!(err, AppError::Validation(ref msg) if msg.contains("热键不能为空")),
-            "应返回'热键不能为空'错误，实际: {:?}",
-            err
+            "应返回'热键不能为空'错误，实际: {err:?}"
         );
     }
 }

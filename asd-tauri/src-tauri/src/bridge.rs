@@ -226,8 +226,7 @@ impl ProcessWatcher for WatchdogBridge {
                         Ok(())
                     }
                     _ => Err(format!(
-                        "仅在 Failed/Hung/Recovering 状态下可重置，当前状态: {:?}",
-                        current
+                        "仅在 Failed/Hung/Recovering 状态下可重置，当前状态: {current:?}"
                     )),
                 }
             })

@@ -343,7 +343,7 @@ mod tests {
         assert!(result.is_err(), "无效配置应返回错误");
         match result.unwrap_err() {
             AppError::Validation(_) => {}
-            other => panic!("期望 Validation 错误，实际: {:?}", other),
+            other => panic!("期望 Validation 错误，实际: {other:?}"),
         }
     }
 
@@ -387,7 +387,7 @@ mod tests {
         assert!(result.is_err(), "无 config_path 应返回错误");
         match result.unwrap_err() {
             AppError::Config(_) => {}
-            other => panic!("期望 Config 错误，实际: {:?}", other),
+            other => panic!("期望 Config 错误，实际: {other:?}"),
         }
     }
 
@@ -435,7 +435,7 @@ mod tests {
         assert!(result.is_err(), "空文件名应返回错误");
         match result.unwrap_err() {
             AppError::Validation(_) => {}
-            other => panic!("期望 Validation 错误，实际: {:?}", other),
+            other => panic!("期望 Validation 错误，实际: {other:?}"),
         }
     }
 
@@ -480,7 +480,7 @@ mod tests {
         assert!(result.is_err(), "空文件名应返回错误");
         match result.unwrap_err() {
             AppError::Validation(_) => {}
-            other => panic!("期望 Validation 错误，实际: {:?}", other),
+            other => panic!("期望 Validation 错误，实际: {other:?}"),
         }
     }
 
@@ -504,7 +504,7 @@ mod tests {
         assert!(result.is_err(), "空路径应返回错误");
         match result.unwrap_err() {
             AppError::Validation(_) => {}
-            other => panic!("期望 Validation 错误，实际: {:?}", other),
+            other => panic!("期望 Validation 错误，实际: {other:?}"),
         }
     }
 
@@ -530,7 +530,7 @@ mod tests {
         assert!(result.is_err(), "空路径应返回错误");
         match result.unwrap_err() {
             AppError::Validation(_) => {}
-            other => panic!("期望 Validation 错误，实际: {:?}", other),
+            other => panic!("期望 Validation 错误，实际: {other:?}"),
         }
     }
 
@@ -559,7 +559,7 @@ mod tests {
         assert!(result.is_err(), "空文件名应返回错误");
         match result.unwrap_err() {
             AppError::Validation(_) => {}
-            other => panic!("期望 Validation 错误，实际: {:?}", other),
+            other => panic!("期望 Validation 错误，实际: {other:?}"),
         }
     }
 }
