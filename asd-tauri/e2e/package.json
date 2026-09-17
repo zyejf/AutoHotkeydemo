@@ -21,7 +21,11 @@
     "fs-extra": "^11.3.5",
     "webdriverio": "^9.31.9"
   },
+  "overrides": {
+    "serialize-javascript": "^7.1.1"
+  },
   "comments": {
-    "tauri-driver": "tauri-driver 是 Rust 二进制工具，需通过 `cargo install tauri-driver --locked` 安装，非 npm 包"
+    "tauri-driver": "tauri-driver 是 Rust 二进制工具，需通过 `cargo install tauri-driver --locked` 安装，非 npm 包",
+    "overrides.serialize-javascript": "强制 mocha 依赖的 serialize-javascript 升到已修补的 7.x —— 6.x 有 RCE(RegExp.flags/Date.toISOString) 与 CPU 耗尽 DoS 两个 high。为什么用 overrides 而不是别的办法：① 不能靠升 mocha —— @wdio/mocha-framework@9.31.9 把 mocha 钉在 ^10.8.2，而 mocha 要到 12.x 才改用 ^7.1.1；② 绝不能用 `npm audit fix --force` —— 它会把 @wdio/mocha-framework 降回 7.7.3，等于撤销 WDIO 8→9 的升级。风险面：serialize-javascript 7 要求 Node >=20（本机 22.x 满足）；且 mocha 只在并行模式（buffered-worker-pool / worker）用到它，本项目 E2E 走串行，实际几乎不会被调用。"
   }
 }
