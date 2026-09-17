@@ -255,11 +255,10 @@ jobs:
       - name: 'npm ci'
         working-directory: asd-tauri
         run: npm ci
-      # 70 = 存量水位（TD-022）。规则里 no-redeclare / no-empty /
-      # no-prototype-builtins / no-unused-vars 是 warn，靠 --max-warnings 卡住：
-      # 新增一处就 71 > 70 立刻红；修好一处就把 package.json 里的数字减一。
-      # main.js 目前零测试覆盖，不当场批量改名，只保证「不再变坏」。
-      - name: 'eslint（棘轮：存量 70，新增即 FAIL）'
+      # 水位 0（TD-022 已清零，2026-09-17）：存量 69 项全清，eslint.config.js 里那三条
+      # 降级覆盖也撤了 —— no-redeclare / no-empty / no-prototype-builtins 回到
+      # recommended 的 error 级。现在**新增任何一处都立刻红**，不需要再靠数字棘轮兜。
+      - name: 'eslint（--max-warnings 0，新增即 FAIL）'
         working-directory: asd-tauri
         run: npm run lint
 

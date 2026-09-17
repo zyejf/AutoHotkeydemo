@@ -24,7 +24,7 @@ function errMsg(e, defaultMsg) {
 
 var _safeStorage = {
   get: function(key, def) { try { var v = localStorage.getItem(key); return v !== null ? v : def; } catch(ex) { return def; } },
-  set: function(key, val) { try { localStorage.setItem(key, val); } catch(ex) {} }
+  set: function(key, val) { try { localStorage.setItem(key, val); } catch(ex) { /* 忽略：localStorage 不可用（隐私模式/配额）时不应影响主流程 */ } }
 };
 
 var MiniChart = {
@@ -85,11 +85,11 @@ var MiniChart = {
     }
     var maxTs = 100;
     for (var i = 0; i < events.length; i++) { if (events[i].timestamp > maxTs) maxTs = events[i].timestamp; }
-    for (var i = 0; i < expected.length; i++) { if (expected[i].timestamp > maxTs) maxTs = expected[i].timestamp; }
+    for (i = 0; i < expected.length; i++) { if (expected[i].timestamp > maxTs) maxTs = expected[i].timestamp; }
     maxTs = Math.ceil(maxTs / 50) * 50; if (maxTs < 50) maxTs = 50;
     var keySet = {}; var keyOrder = [];
-    for (var i = 0; i < events.length; i++) { if (!keySet[events[i].key]) { keySet[events[i].key] = true; keyOrder.push(events[i].key); } }
-    for (var i = 0; i < expected.length; i++) { if (!keySet[expected[i].key]) { keySet[expected[i].key] = true; keyOrder.push(expected[i].key); } }
+    for (i = 0; i < events.length; i++) { if (!keySet[events[i].key]) { keySet[events[i].key] = true; keyOrder.push(events[i].key); } }
+    for (i = 0; i < expected.length; i++) { if (!keySet[expected[i].key]) { keySet[expected[i].key] = true; keyOrder.push(expected[i].key); } }
     var laneH = Math.min(24, plotH / Math.max(keyOrder.length, 1));
     ctx.strokeStyle = "#444"; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(pad.left, h - pad.bottom); ctx.lineTo(w - pad.right, h - pad.bottom); ctx.stroke();
@@ -103,10 +103,10 @@ var MiniChart = {
     }
     if (expected.length > 0) {
       var expDownMap = {};
-      for (var i = 0; i < expected.length; i++) {
+      for (i = 0; i < expected.length; i++) {
         var e = expected[i]; var x = pad.left + (e.timestamp / maxTs) * plotW;
-        var ki = keyOrder.indexOf(e.key); if (ki < 0) continue;
-        var y = pad.top + ki * laneH + laneH / 2;
+        ki = keyOrder.indexOf(e.key); if (ki < 0) continue;
+        y = pad.top + ki * laneH + laneH / 2;
         if (e.event === "down") { if (!expDownMap[e.key]) expDownMap[e.key] = []; expDownMap[e.key].push({ x: x, y: y }); }
         else if (e.event === "up" && expDownMap[e.key] && expDownMap[e.key].length > 0) {
           var down = expDownMap[e.key].shift(); var barW = x - down.x; if (barW < 3) barW = 3;
@@ -120,14 +120,14 @@ var MiniChart = {
       for (var ek in expDownMap) { var pending = expDownMap[ek]; for (var pi = 0; pi < pending.length; pi++) { ctx.fillStyle = "rgba(255,255,255,0.15)"; ctx.beginPath(); ctx.arc(pending[pi].x, pending[pi].y, 3, 0, Math.PI * 2); ctx.fill(); } }
     }
     var downMap = {};
-    for (var i = 0; i < events.length; i++) {
-      var e = events[i]; var x = pad.left + (e.timestamp / maxTs) * plotW;
-      var ki = keyOrder.indexOf(e.key); if (ki < 0) continue;
-      var y = pad.top + ki * laneH + laneH / 2;
+    for (i = 0; i < events.length; i++) {
+      e = events[i]; x = pad.left + (e.timestamp / maxTs) * plotW;
+      ki = keyOrder.indexOf(e.key); if (ki < 0) continue;
+      y = pad.top + ki * laneH + laneH / 2;
       var color = e.device === "mouse" ? "#2196F3" : "#4CAF50";
       if (e.event === "down") { if (!downMap[e.key]) downMap[e.key] = []; downMap[e.key].push({ x: x, ts: e.timestamp, y: y, color: color }); }
       else if (e.event === "up" && downMap[e.key] && downMap[e.key].length > 0) {
-        var down = downMap[e.key].shift(); var barW = x - down.x; if (barW < 3) barW = 3;
+        down = downMap[e.key].shift(); barW = x - down.x; if (barW < 3) barW = 3;
         ctx.fillStyle = down.color; ctx.globalAlpha = 0.35; ctx.fillRect(down.x, down.y - laneH / 2 + 3, barW, laneH - 6); ctx.globalAlpha = 1;
         ctx.strokeStyle = down.color; ctx.lineWidth = 1.5; ctx.strokeRect(down.x, down.y - laneH / 2 + 3, barW, laneH - 6);
         var dur = e.timestamp - down.ts;
@@ -157,9 +157,9 @@ var MiniChart = {
     var cx = w / 2; var cy = h / 2 + 10; var r = Math.min(w, h) / 2 - 40; var n = labels.length; if (n < 3) return;
     ctx.strokeStyle = "#444"; ctx.lineWidth = 1;
     for (var ring = 1; ring <= 4; ring++) { var rr = r * ring / 4; ctx.beginPath(); for (var i = 0; i <= n; i++) { var angle = (Math.PI * 2 * (i % n)) / n - Math.PI / 2; var px = cx + rr * Math.cos(angle); var py = cy + rr * Math.sin(angle); if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); } ctx.stroke(); }
-    for (var i = 0; i < n; i++) { var angle = (Math.PI * 2 * i) / n - Math.PI / 2; ctx.strokeStyle = "#555"; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + r * Math.cos(angle), cy + r * Math.sin(angle)); ctx.stroke(); ctx.fillStyle = "#aaa"; ctx.font = "10px sans-serif"; ctx.textAlign = "center"; var lx = cx + (r + 18) * Math.cos(angle); var ly = cy + (r + 18) * Math.sin(angle); ctx.fillText(labels[i], lx, ly + 3); }
-    ctx.beginPath(); for (var i = 0; i <= n; i++) { var idx = i % n; var angle = (Math.PI * 2 * idx) / n - Math.PI / 2; var v = (values[idx] || 0) / 100; var px = cx + r * v * Math.cos(angle); var py = cy + r * v * Math.sin(angle); if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); } ctx.closePath(); ctx.fillStyle = "rgba(76,175,80,0.25)"; ctx.fill(); ctx.strokeStyle = "#4CAF50"; ctx.lineWidth = 2; ctx.stroke();
-    for (var i = 0; i < n; i++) { var angle = (Math.PI * 2 * i) / n - Math.PI / 2; var v = (values[i] || 0) / 100; var px = cx + r * v * Math.cos(angle); var py = cy + r * v * Math.sin(angle); ctx.fillStyle = "#4CAF50"; ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill(); }
+    for (i = 0; i < n; i++) { angle = (Math.PI * 2 * i) / n - Math.PI / 2; ctx.strokeStyle = "#555"; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + r * Math.cos(angle), cy + r * Math.sin(angle)); ctx.stroke(); ctx.fillStyle = "#aaa"; ctx.font = "10px sans-serif"; ctx.textAlign = "center"; var lx = cx + (r + 18) * Math.cos(angle); var ly = cy + (r + 18) * Math.sin(angle); ctx.fillText(labels[i], lx, ly + 3); }
+    ctx.beginPath(); for (i = 0; i <= n; i++) { var idx = i % n; angle = (Math.PI * 2 * idx) / n - Math.PI / 2; var v = (values[idx] || 0) / 100; px = cx + r * v * Math.cos(angle); py = cy + r * v * Math.sin(angle); if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); } ctx.closePath(); ctx.fillStyle = "rgba(76,175,80,0.25)"; ctx.fill(); ctx.strokeStyle = "#4CAF50"; ctx.lineWidth = 2; ctx.stroke();
+    for (i = 0; i < n; i++) { angle = (Math.PI * 2 * i) / n - Math.PI / 2; v = (values[i] || 0) / 100; px = cx + r * v * Math.cos(angle); py = cy + r * v * Math.sin(angle); ctx.fillStyle = "#4CAF50"; ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill(); }
     if (data.score != null) { ctx.fillStyle = "#fff"; ctx.font = "bold 24px sans-serif"; ctx.textAlign = "center"; ctx.fillText(data.score, cx, cy + 4); ctx.font = "10px sans-serif"; ctx.fillStyle = "#aaa"; ctx.fillText("综合评分", cx, cy + 18); }
   },
   _renderBar: function(chart, w, h) {
@@ -169,15 +169,15 @@ var MiniChart = {
     ctx.strokeStyle = "#444"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(pad.left, h - pad.bottom); ctx.lineTo(w - pad.right, h - pad.bottom); ctx.stroke();
     for (var g = 0; g <= 4; g++) { var gy = h - pad.bottom - (plotH * g / 4); ctx.strokeStyle = "#333"; ctx.beginPath(); ctx.moveTo(pad.left, gy); ctx.lineTo(w - pad.right, gy); ctx.stroke(); ctx.fillStyle = "#888"; ctx.font = "9px sans-serif"; ctx.textAlign = "right"; ctx.fillText(Math.round(maxVal * g / 4) + "%", pad.left - 4, gy + 3); }
     var barW = Math.min(30, (plotW / n) * 0.7); var gap = (plotW - barW * n) / (n + 1);
-    for (var i = 0; i < n; i++) { var x = pad.left + gap + i * (barW + gap); var barH = (values[i] / maxVal) * plotH; var y = h - pad.bottom - barH; ctx.fillStyle = colors[i] || "#4CAF50"; ctx.fillRect(x, y, barW, barH); ctx.fillStyle = "#aaa"; ctx.font = "9px sans-serif"; ctx.textAlign = "center"; ctx.fillText(labels[i], x + barW / 2, h - pad.bottom + 12); ctx.fillStyle = "#fff"; ctx.font = "9px sans-serif"; ctx.fillText(values[i] + "%", x + barW / 2, y - 4); }
+    for (i = 0; i < n; i++) { var x = pad.left + gap + i * (barW + gap); var barH = (values[i] / maxVal) * plotH; var y = h - pad.bottom - barH; ctx.fillStyle = colors[i] || "#4CAF50"; ctx.fillRect(x, y, barW, barH); ctx.fillStyle = "#aaa"; ctx.font = "9px sans-serif"; ctx.textAlign = "center"; ctx.fillText(labels[i], x + barW / 2, h - pad.bottom + 12); ctx.fillStyle = "#fff"; ctx.font = "9px sans-serif"; ctx.fillText(values[i] + "%", x + barW / 2, y - 4); }
     if (avgLine != null) { var avgY = h - pad.bottom - (avgLine / maxVal) * plotH; ctx.strokeStyle = "#FF9800"; ctx.lineWidth = 1; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(pad.left, avgY); ctx.lineTo(w - pad.right, avgY); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = "#FF9800"; ctx.font = "9px sans-serif"; ctx.textAlign = "left"; ctx.fillText("avg " + avgLine + "%", w - pad.right + 2, avgY + 3); }
   },
   _renderHBar: function(chart, w, h) {
     var ctx = chart.ctx; var data = chart.data; var labels = data.labels || []; var values = data.values || []; var expectedValues = data.expectedValues || []; var colors = data.colors || [];
     var pad = { top: 10, right: 50, bottom: 10, left: 60 }; var plotW = w - pad.left - pad.right; var plotH = h - pad.top - pad.bottom; var n = labels.length; if (n === 0) return;
-    var maxVal = 0; for (var i = 0; i < values.length; i++) { if (values[i] > maxVal) maxVal = values[i]; } for (var i = 0; i < expectedValues.length; i++) { if (expectedValues[i] > maxVal) maxVal = expectedValues[i]; } maxVal = Math.max(maxVal, 50); maxVal = Math.ceil(maxVal / 50) * 50;
+    var maxVal = 0; for (var i = 0; i < values.length; i++) { if (values[i] > maxVal) maxVal = values[i]; } for (i = 0; i < expectedValues.length; i++) { if (expectedValues[i] > maxVal) maxVal = expectedValues[i]; } maxVal = Math.max(maxVal, 50); maxVal = Math.ceil(maxVal / 50) * 50;
     var barH = Math.min(16, (plotH / n) * 0.6); var gap = (plotH - barH * n) / (n + 1); var hasExpected = expectedValues.length > 0; var groupW = hasExpected ? plotW * 0.45 : plotW;
-    for (var i = 0; i < n; i++) { var y = pad.top + gap + i * (barH + gap); ctx.fillStyle = "#aaa"; ctx.font = "10px monospace"; ctx.textAlign = "right"; ctx.fillText(labels[i], pad.left - 6, y + barH / 2 + 3); if (hasExpected) { var expW = (expectedValues[i] / maxVal) * groupW; ctx.fillStyle = "rgba(255,255,255,0.15)"; ctx.fillRect(pad.left, y, expW, barH); ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.lineWidth = 1; ctx.strokeRect(pad.left, y, expW, barH); ctx.fillStyle = "#888"; ctx.font = "8px sans-serif"; ctx.textAlign = "left"; ctx.fillText(expectedValues[i] + "ms", pad.left + expW + 3, y + barH / 2 + 3); } var offset = hasExpected ? groupW + 10 : 0; var valW = (values[i] / maxVal) * groupW; ctx.fillStyle = colors[i] || "#4CAF50"; ctx.fillRect(pad.left + offset, y, valW, barH); ctx.fillStyle = "#fff"; ctx.font = "9px sans-serif"; ctx.textAlign = "left"; ctx.fillText(values[i] + "ms", pad.left + offset + valW + 4, y + barH / 2 + 3); }
+    for (i = 0; i < n; i++) { var y = pad.top + gap + i * (barH + gap); ctx.fillStyle = "#aaa"; ctx.font = "10px monospace"; ctx.textAlign = "right"; ctx.fillText(labels[i], pad.left - 6, y + barH / 2 + 3); if (hasExpected) { var expW = (expectedValues[i] / maxVal) * groupW; ctx.fillStyle = "rgba(255,255,255,0.15)"; ctx.fillRect(pad.left, y, expW, barH); ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.lineWidth = 1; ctx.strokeRect(pad.left, y, expW, barH); ctx.fillStyle = "#888"; ctx.font = "8px sans-serif"; ctx.textAlign = "left"; ctx.fillText(expectedValues[i] + "ms", pad.left + expW + 3, y + barH / 2 + 3); } var offset = hasExpected ? groupW + 10 : 0; var valW = (values[i] / maxVal) * groupW; ctx.fillStyle = colors[i] || "#4CAF50"; ctx.fillRect(pad.left + offset, y, valW, barH); ctx.fillStyle = "#fff"; ctx.font = "9px sans-serif"; ctx.textAlign = "left"; ctx.fillText(values[i] + "ms", pad.left + offset + valW + 4, y + barH / 2 + 3); }
   },
   _renderHold: function(chart, w, h) {
     var ctx = chart.ctx; var details = chart.data.details || [];
@@ -187,7 +187,7 @@ var MiniChart = {
     var barW = Math.min(40, (plotW / details.length) * 0.7); var gap = (plotW - barW * details.length) / (details.length + 1);
     ctx.fillStyle = "rgba(74,222,128,0.1)"; ctx.fillRect(pad.left, pad.top + plotH * (1 - 200 / maxDur), plotW, plotH * (200 - 5) / maxDur);
     ctx.strokeStyle = "rgba(74,222,128,0.3)"; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(pad.left, pad.top + plotH * (1 - 200 / maxDur)); ctx.lineTo(pad.left + plotW, pad.top + plotH * (1 - 200 / maxDur)); ctx.moveTo(pad.left, pad.top + plotH * (1 - 5 / maxDur)); ctx.lineTo(pad.left + plotW, pad.top + plotH * (1 - 5 / maxDur)); ctx.stroke(); ctx.setLineDash([]);
-    for (var i = 0; i < details.length; i++) { var d = details[i]; var x = pad.left + gap + i * (barW + gap); var barH = (d.holdDuration / maxDur) * plotH; var y = pad.top + plotH - barH; ctx.fillStyle = d.valid ? "#4CAF50" : "#FF5722"; ctx.fillRect(x, y, barW, barH); ctx.fillStyle = "#ccc"; ctx.font = "9px sans-serif"; ctx.textAlign = "center"; ctx.fillText(d.key, x + barW / 2, pad.top + plotH + 14); ctx.fillText(d.holdDuration + "ms", x + barW / 2, y - 4); }
+    for (i = 0; i < details.length; i++) { var d = details[i]; var x = pad.left + gap + i * (barW + gap); var barH = (d.holdDuration / maxDur) * plotH; var y = pad.top + plotH - barH; ctx.fillStyle = d.valid ? "#4CAF50" : "#FF5722"; ctx.fillRect(x, y, barW, barH); ctx.fillStyle = "#ccc"; ctx.font = "9px sans-serif"; ctx.textAlign = "center"; ctx.fillText(d.key, x + barW / 2, pad.top + plotH + 14); ctx.fillText(d.holdDuration + "ms", x + barW / 2, y - 4); }
     ctx.fillStyle = "#888"; ctx.font = "10px sans-serif"; ctx.textAlign = "right"; for (var v = 0; v <= maxDur; v += maxDur / 4) { var yy = pad.top + plotH * (1 - v / maxDur); ctx.fillText(Math.round(v), pad.left - 6, yy + 3); }
   }
 };
@@ -225,7 +225,6 @@ function escAttr(s) { return escHtml(s); }
 var currentMode = "enhanced_periodic";
 var keyPickerTarget = null;
 var joyKeyPickerTarget = null;
-var editingGroupId = "";
 var _fullConfig = null;
 
 function _ensureFullConfig() {
@@ -234,19 +233,6 @@ function _ensureFullConfig() {
     _fullConfig = cfg;
     return cfg;
   });
-}
-
-function _buildFullConfigForGroup(groupId, groupCfg) {
-  var base = _fullConfig || {
-    CONTROL_HOTKEYS: { emergency: "F10", releaseAllHolds: "^r", showStatus: "^0", toggleAll: "^1", toggleHoldMode: "^h" },
-    GroupSettings: {},
-    HoldSettings: { allowOverlap: false, checkInterval: 50, debounceDelay: 25, pressSpeed: 80, releaseOnEmergency: true },
-    version: "3.0"
-  };
-  var fullConfig = JSON.parse(JSON.stringify(base));
-  if (!fullConfig.GroupSettings) fullConfig.GroupSettings = {};
-  fullConfig.GroupSettings[groupId] = groupCfg;
-  return fullConfig;
 }
 
 var sampleGroups = [];
@@ -284,7 +270,7 @@ function updateBatchUI() {
 
 function batchToggleSelected(activate) {
   var ids = Object.keys(_selectedGroups); if (ids.length === 0) return;
-  api.batchToggleGroups(ids, activate).then(function(r) {
+  api.batchToggleGroups(ids, activate).then(function() {
     showToast("批量操作完成", "success"); _selectedGroups = {}; updateBatchUI(); loadGroupsFromTauri();
   }).catch(function(e) { showToast(errMsg(e, "批量操作失败"), "error"); });
 }
@@ -292,7 +278,7 @@ function batchToggleSelected(activate) {
 function batchDeleteSelected() {
   var ids = Object.keys(_selectedGroups); if (ids.length === 0) return;
   confirmDialog("确认删除", "确定要删除选中的 " + ids.length + " 个分组吗？", function() {
-    api.batchDeleteGroups(ids).then(function(r) {
+    api.batchDeleteGroups(ids).then(function() {
       _fullConfig = null;
       showToast("批量删除完成", "success"); _selectedGroups = {}; updateBatchUI(); loadGroupsFromTauri(); refreshGroupList();
     }).catch(function(e) { showToast(errMsg(e, "批量删除失败"), "error"); });
@@ -310,11 +296,11 @@ function updatePerfChart(debug) {
   var canvas = document.getElementById("perfChart"); if (!canvas) return;
   var ctx = canvas.getContext("2d"); var w = canvas.width = canvas.offsetWidth; var h = canvas.height = canvas.offsetHeight; ctx.clearRect(0, 0, w, h);
   var maxTimers = 1; for (var i = 0; i < perfData.timers.length; i++) { if (perfData.timers[i] > maxTimers) maxTimers = perfData.timers[i]; }
-  var maxActive = 1; for (var i = 0; i < perfData.active.length; i++) { if (perfData.active[i] > maxActive) maxActive = perfData.active[i]; }
+  var maxActive = 1; for (i = 0; i < perfData.active.length; i++) { if (perfData.active[i] > maxActive) maxActive = perfData.active[i]; }
   ctx.strokeStyle = "#7c5cfc"; ctx.lineWidth = 2; ctx.beginPath();
-  for (var i = 0; i < perfData.timers.length; i++) { var x = (i / (PERF_MAX_POINTS - 1)) * w; var y = h - (perfData.timers[i] / maxTimers) * (h - 10) - 5; if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); } ctx.stroke();
+  for (i = 0; i < perfData.timers.length; i++) { var x = (i / (PERF_MAX_POINTS - 1)) * w; var y = h - (perfData.timers[i] / maxTimers) * (h - 10) - 5; if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); } ctx.stroke();
   ctx.strokeStyle = "#4ade80"; ctx.lineWidth = 1.5; ctx.beginPath();
-  for (var i = 0; i < perfData.active.length; i++) { var x = (i / (PERF_MAX_POINTS - 1)) * w; var y = h - (perfData.active[i] / maxActive) * (h - 10) - 5; if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); } ctx.stroke();
+  for (i = 0; i < perfData.active.length; i++) { x = (i / (PERF_MAX_POINTS - 1)) * w; y = h - (perfData.active[i] / maxActive) * (h - 10) - 5; if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); } ctx.stroke();
   if (debug.uptimeSeconds !== undefined) { var s = debug.uptimeSeconds; var m = Math.floor(s / 60); var hr = Math.floor(m / 60); document.getElementById("perfUptime").textContent = hr > 0 ? hr + "h" + (m % 60) + "m" : m > 0 ? m + "m" + (s % 60) + "s" : s + "s"; }
   if (debug.timers !== undefined) document.getElementById("perfTimers").textContent = debug.timers;
   if (debug.activeGroups !== undefined) document.getElementById("perfActive").textContent = debug.activeGroups;
@@ -332,7 +318,7 @@ function loadBackupList() {
       if (!baseSel || !targetSel) return;
       baseSel.innerHTML = '<option value="">选择基准配置</option>'; targetSel.innerHTML = '<option value="">选择目标配置</option>';
       for (var i = 0; i < _backupList.length; i++) { var b = _backupList[i]; var label = b.filename || b.timestamp || ("备份 " + (i+1)); baseSel.innerHTML += '<option value="'+escAttr(b.filename)+'">'+escHtml(label)+'</option>'; targetSel.innerHTML += '<option value="'+escAttr(b.filename)+'">'+escHtml(label)+'</option>'; }
-    } catch(ex) {}
+    } catch(ex) { /* 忽略：localStorage 不可用（隐私模式/配额）时不应影响主流程 */ }
   }).catch(function() {});
 }
 
@@ -353,7 +339,7 @@ function applyTheme() {
   if (_currentTheme === "light") document.documentElement.setAttribute("data-theme", "light");
   else document.documentElement.removeAttribute("data-theme");
   var btn = document.getElementById("themeBtn"); if (btn) btn.textContent = _currentTheme === "dark" ? "🌙 暗色" : "☀️ 亮色";
-  try { _safeStorage.set("ahk_theme", _currentTheme); } catch(ex) {}
+  try { _safeStorage.set("ahk_theme", _currentTheme); } catch(ex) { /* 忽略：localStorage 不可用（隐私模式/配额）时不应影响主流程 */ }
 }
 
 var I18N = {
@@ -364,7 +350,7 @@ var I18N = {
 var _currentLang = _safeStorage.get("ahk_lang", "zh");
 
 function t(key) { return (I18N[_currentLang] && I18N[_currentLang][key]) || (I18N.zh[key]) || key; }
-function switchLang(lang) { _currentLang = lang; try { _safeStorage.set("ahk_lang", lang); } catch(ex) {} var sel = document.getElementById("langSelect"); if (sel) sel.value = lang; applyTranslations(); }
+function switchLang(lang) { _currentLang = lang; try { _safeStorage.set("ahk_lang", lang); } catch(ex) { /* 忽略：localStorage 不可用（隐私模式/配额）时不应影响主流程 */ } var sel = document.getElementById("langSelect"); if (sel) sel.value = lang; applyTranslations(); }
 function applyTranslations() {
   var searchEl = document.getElementById("groupSearch"); if (searchEl) searchEl.placeholder = t("searchPlaceholder");
   var themeBtn = document.getElementById("themeBtn"); if (themeBtn) themeBtn.textContent = _currentTheme === "dark" ? t("dark") : t("light");
@@ -422,8 +408,8 @@ var editorConfig = {
 var _undoStack = []; var _redoStack = []; var _undoMaxSize = 50; var _captureTimer = null;
 
 function pushUndoState() { _undoStack.push(JSON.stringify({config: editorConfig, mode: currentMode})); if (_undoStack.length > _undoMaxSize) _undoStack.shift(); _redoStack = []; }
-function undoEditor() { if (_undoStack.length === 0) return; _redoStack.push(JSON.stringify({config: editorConfig, mode: currentMode})); var prev = _undoStack.pop(); try { var restored = JSON.parse(prev); if (restored.config) { for (var k in restored.config) { if (restored.config.hasOwnProperty(k)) editorConfig[k] = restored.config[k]; } } else { for (var k in restored) { if (restored.hasOwnProperty(k)) editorConfig[k] = restored[k]; } } if (restored.mode) pickModeByValue(restored.mode); renderConfigSection(); renderHoldSection(); updatePreview(); showToast("已撤销", "success"); } catch(ex) {} }
-function redoEditor() { if (_redoStack.length === 0) return; _undoStack.push(JSON.stringify({config: editorConfig, mode: currentMode})); var next = _redoStack.pop(); try { var restored = JSON.parse(next); if (restored.config) { for (var k in restored.config) { if (restored.config.hasOwnProperty(k)) editorConfig[k] = restored.config[k]; } } else { for (var k in restored) { if (restored.hasOwnProperty(k)) editorConfig[k] = restored[k]; } } if (restored.mode) pickModeByValue(restored.mode); renderConfigSection(); renderHoldSection(); updatePreview(); showToast("已重做", "success"); } catch(ex) {} }
+function undoEditor() { if (_undoStack.length === 0) return; _redoStack.push(JSON.stringify({config: editorConfig, mode: currentMode})); var prev = _undoStack.pop(); try { var restored = JSON.parse(prev); if (restored.config) { for (var k in restored.config) { if (Object.prototype.hasOwnProperty.call(restored.config, k)) editorConfig[k] = restored.config[k]; } } else { for (k in restored) { if (Object.prototype.hasOwnProperty.call(restored, k)) editorConfig[k] = restored[k]; } } if (restored.mode) pickModeByValue(restored.mode); renderConfigSection(); renderHoldSection(); updatePreview(); showToast("已撤销", "success"); } catch(ex) { /* 忽略：localStorage 不可用（隐私模式/配额）时不应影响主流程 */ } }
+function redoEditor() { if (_redoStack.length === 0) return; _undoStack.push(JSON.stringify({config: editorConfig, mode: currentMode})); var next = _redoStack.pop(); try { var restored = JSON.parse(next); if (restored.config) { for (var k in restored.config) { if (Object.prototype.hasOwnProperty.call(restored.config, k)) editorConfig[k] = restored.config[k]; } } else { for (k in restored) { if (Object.prototype.hasOwnProperty.call(restored, k)) editorConfig[k] = restored[k]; } } if (restored.mode) pickModeByValue(restored.mode); renderConfigSection(); renderHoldSection(); updatePreview(); showToast("已重做", "success"); } catch(ex) { /* 忽略：localStorage 不可用（隐私模式/配额）时不应影响主流程 */ } }
 
 function loadGroupsFromTauri() {
   api.getGroups().then(function(groups) {
@@ -511,7 +497,7 @@ function renderDashboard() {
   var container = document.getElementById('groupCards'); container.innerHTML = html;
   container.onclick = function(e) {
     var chk = e.target.closest('.batch-check'); if (chk) { var gid = chk.getAttribute('data-group-id'); if (chk.checked) _selectedGroups[gid] = true; else delete _selectedGroups[gid]; updateBatchUI(); return; }
-    var btn = e.target.closest('[data-action]'); if (btn) { var action = btn.getAttribute('data-action'); var gid = btn.getAttribute('data-group-id'); if (action === 'toggle') toggleGroup(gid); else if (action === 'edit') editGroup(gid); else if (action === 'clone') cloneGroup(gid); else if (action === 'delete') deleteGroup(gid); return; }
+    var btn = e.target.closest('[data-action]'); if (btn) { var action = btn.getAttribute('data-action'); gid = btn.getAttribute('data-group-id'); if (action === 'toggle') toggleGroup(gid); else if (action === 'edit') editGroup(gid); else if (action === 'clone') cloneGroup(gid); else if (action === 'delete') deleteGroup(gid); return; }
     var card = e.target.closest('.group-card[data-group-id]'); if (card) editGroup(card.getAttribute('data-group-id'));
   };
   container.ondragstart = function(e) { var card = e.target.closest('.group-card'); if (card) { e.dataTransfer.setData('text/plain', card.getAttribute('data-group-id')); card.style.opacity = '0.5'; } };
@@ -523,14 +509,14 @@ function renderDashboard() {
     var fromIdx = sampleGroups.findIndex(function(g) { return g.id === draggedId; }); var toIdx = sampleGroups.findIndex(function(g) { return g.id === targetId; });
     if (fromIdx < 0 || toIdx < 0) return; var savedGroups = sampleGroups.slice(); var item = sampleGroups.splice(fromIdx, 1)[0]; sampleGroups.splice(toIdx, 0, item); renderDashboard();
     var orderIds = sampleGroups.map(function(g) { return g.id; });
-    api.reorderGroups(orderIds).then(function(r) { showToast("分组顺序已更新", "success"); }).catch(function(e) { showToast("排序保存失败", "warning"); sampleGroups = savedGroups; renderDashboard(); });
+    api.reorderGroups(orderIds).then(function() { showToast("分组顺序已更新", "success"); }).catch(function() { showToast("排序保存失败", "warning"); sampleGroups = savedGroups; renderDashboard(); });
   };
   document.getElementById('statTotal').textContent = sampleGroups.length;
   document.getElementById('statRunning').textContent = running;
 }
 
 function editGroup(id) {
-  editingGroupId = id; _undoStack = []; _redoStack = [];
+  _undoStack = []; _redoStack = [];
   api.getGroupDetail(id).then(function(cfg) {
     if (cfg && cfg.mode) {
       document.getElementById('idInput').value = cfg.id || id;
@@ -558,7 +544,7 @@ function editGroup(id) {
 }
 
 function resetEditor() {
-  editingGroupId = ""; _undoStack = []; _redoStack = [];
+  _undoStack = []; _redoStack = [];
   if (_captureTimer) { clearTimeout(_captureTimer); _captureTimer = null; }
   document.getElementById('idInput').value = ""; document.getElementById('groupName').value = "";
   var d = document.getElementById('hotkeyDisp'); d.textContent = "点击设置"; d.classList.remove("capturing");
@@ -573,7 +559,7 @@ function toggleGroup(id) {
 
 function deleteGroup(id) {
   confirmDialog("删除分组", "确定删除分组 " + id + "？此操作不可撤销。", function() {
-    api.deleteGroup(id).then(function(result) { _fullConfig = null; loadGroupsFromTauri(); refreshGroupList(); showToast('分组 '+id+' 已删除','success'); }).catch(function(e) { showToast('删除失败: '+errMsg(e),'error'); });
+    api.deleteGroup(id).then(function() { _fullConfig = null; loadGroupsFromTauri(); refreshGroupList(); showToast('分组 '+id+' 已删除','success'); }).catch(function(e) { showToast('删除失败: '+errMsg(e),'error'); });
   });
 }
 
@@ -639,7 +625,7 @@ function importGroupsFromFile(file) {
             if (!fullConfig.GroupSettings) fullConfig.GroupSettings = {};
             fullConfig.GroupSettings[groupId] = cfg;
             return api.saveConfig(fullConfig);
-          }).then(function(r) { count++; }).catch(function(e) { showToast("导入 " + (groupId || "?") + " 失败", "error"); });
+          }).then(function() { count++; }).catch(function() { showToast("导入 " + (groupId || "?") + " 失败", "error"); });
         }); });
         chain.then(function() { _fullConfig = null; loadGroupsFromTauri(); showToast("已导入 " + count + " 个分组","success"); });
       };
@@ -737,21 +723,21 @@ function renderBackupList() {
   container.onclick = function(e) { var btn = e.target.closest('[data-action]'); if (!btn) return; var action = btn.getAttribute('data-action'); var backupName = btn.getAttribute('data-backup'); if (action === 'restore') restoreBackup(backupName); else if (action === 'delete') deleteBackup(backupName); };
 }
 
-function createBackup() { api.createBackup().then(function(result) { showToast("备份已创建","success"); loadBackupsFromTauri(); }).catch(function(e) { showToast(errMsg(e, "备份失败"),"error"); }); }
+function createBackup() { api.createBackup().then(function() { showToast("备份已创建","success"); loadBackupsFromTauri(); }).catch(function(e) { showToast(errMsg(e, "备份失败"),"error"); }); }
 function restoreBackup(name) { confirmDialog("恢复备份", "恢复将覆盖当前所有配置，确定继续？", function() { api.restoreBackup(name).then(function() { _fullConfig = null; showToast("已恢复备份: "+name,"success"); loadGroupsFromTauri(); }).catch(function(e) { showToast(errMsg(e, "恢复失败"),"error"); }); }); }
 function deleteBackup(name) { api.deleteBackup(name).then(function() { showToast("已删除备份: "+name,"success"); loadBackupsFromTauri(); }).catch(function(e) { showToast(errMsg(e, "删除失败"),"error"); }); }
 
-var logCount = 0; var MAX_LOG_LINES = 200; var _autoScroll = true;
+var MAX_LOG_LINES = 200; var _autoScroll = true;
 function addLog(msg, level) {
   var c = document.getElementById("logContainer"); var now = new Date(); var ts = now.toTimeString().split(' ')[0];
   var div = document.createElement('div'); div.className = 'log-line ' + (level||'debug');
   var span = document.createElement('span'); span.className = 'log-time'; span.textContent = ts;
-  div.appendChild(span); div.appendChild(document.createTextNode(msg)); c.appendChild(div); logCount++;
+  div.appendChild(span); div.appendChild(document.createTextNode(msg)); c.appendChild(div);
   while (c.childNodes.length > MAX_LOG_LINES) c.removeChild(c.firstChild);
   if (level === 'error' || level === 'critical') { var errEl = document.getElementById('dbgErrors'); if (errEl) errEl.textContent = parseInt(errEl.textContent || '0') + 1; }
   if (_autoScroll) c.scrollTop = c.scrollHeight;
 }
-function clearLogs() { document.getElementById("logContainer").innerHTML = ''; logCount = 0; }
+function clearLogs() { document.getElementById("logContainer").innerHTML = ''; }
 function toggleAutoScroll() { _autoScroll = !_autoScroll; var btn = document.querySelector('[data-action="toggleAutoScroll"]'); if (btn) btn.textContent = "自动滚动: " + (_autoScroll ? "开" : "关"); showToast("自动滚动已" + (_autoScroll ? "开启" : "关闭"), "success"); }
 
 function showToast(msg, type) {
@@ -775,7 +761,7 @@ function confirmDialog(title, message, onConfirm) {
   overlay.addEventListener("click", function(e) { if (e.target === overlay) document.body.removeChild(overlay); });
 }
 
-function exportConfig() { api.exportConfig().then(function(result) { showToast("配置已导出","success"); }).catch(function(e) { showToast(errMsg(e, "导出失败"),"error"); }); }
+function exportConfig() { api.exportConfig().then(function() { showToast("配置已导出","success"); }).catch(function(e) { showToast(errMsg(e, "导出失败"),"error"); }); }
 function importConfig() { document.getElementById("importFileInput").click(); }
 
 function emergencyStop() { api.emergencyRelease().then(function() { showToast("紧急停止已执行","success"); loadGroupsFromTauri(); }).catch(function(e) { showToast("紧急停止失败: "+errMsg(e),"error"); }); }
@@ -862,7 +848,7 @@ function renderConfigSection() {
     html += '<button class="btn-add" data-action="addKey" data-keys-field="keys" data-intervals-field="intervals">+ 添加按键</button>';
   } else if (currentMode === "enhanced_periodic" || currentMode === "enhanced_sequence") {
     html += '<div class="section-label">按键配置</div>';
-    for (var i = 0; i < editorConfig.pressKeys.length; i++) {
+    for (i = 0; i < editorConfig.pressKeys.length; i++) {
       html += '<div class="key-row"><span class="key-cell" data-action="pickKey" data-keys-field="pressKeys" data-intervals-field="intervals" data-idx="'+i+'">'+escHtml(editorConfig.pressKeys[i])+'</span>';
       if (currentMode === "enhanced_periodic") html += '<input class="input interval-cell" type="number" value="'+editorConfig.intervals[i]+'" data-action="setInterval" data-field="intervals" data-idx="'+i+'" min="10"><span class="unit-label">ms</span>';
       else html += '<input class="input interval-cell" type="number" value="'+editorConfig.pressDelays[i]+'" data-action="setDelay" data-field="pressDelays" data-idx="'+i+'" min="10"><span class="unit-label">ms</span>';
@@ -892,7 +878,7 @@ function renderConfigSection() {
     if (editorConfig.autoRepeat) html += '<div class="form-row"><span class="form-label">重复间隔</span><div class="form-field"><input class="input" type="number" value="'+editorConfig.repeatInterval+'" data-action="setRepeatInterval" min="100" style="width:80px;text-align:center;"><span class="unit-label">ms</span></div></div>';
   } else if (currentMode.startsWith("joystick_")) {
     html += '<div class="section-label">手柄按键配置</div>';
-    for (var i = 0; i < editorConfig.joyKeys.length; i++) {
+    for (i = 0; i < editorConfig.joyKeys.length; i++) {
       html += '<div class="key-row"><span class="key-cell" data-action="pickJoyKey" data-idx="'+i+'">'+escHtml(editorConfig.joyKeys[i])+'</span>';
       if (currentMode === "joystick_periodic") html += '<input class="input interval-cell" type="number" value="'+editorConfig.joyIntervals[i]+'" data-action="setJoyInterval" data-idx="'+i+'" min="10"><span class="unit-label">ms</span>';
       else if (currentMode === "joystick_sequence") html += '<input class="input interval-cell" type="number" value="'+editorConfig.joyDelays[i]+'" data-action="setJoyDelay" data-idx="'+i+'" min="10"><span class="unit-label">ms</span>';
@@ -972,9 +958,9 @@ function changeSubGroupType(gi, type) { pushUndoState(); editorConfig.groups[gi]
 function deleteJoyKeyField(idx) { pushUndoState(); editorConfig.joyKeys.splice(idx, 1); editorConfig.joyIntervals.splice(idx, 1); editorConfig.joyDelays.splice(idx, 1); renderConfigSection(); updatePreview(); }
 function addJoyKeyField() { pushUndoState(); editorConfig.joyKeys.push("?"); editorConfig.joyIntervals.push(50); editorConfig.joyDelays.push(100); renderConfigSection(); updatePreview(); }
 
-var _recEvents = []; var _valEvents = []; var _valHistory = []; var _valHistoryMax = 20;
-var _eventListMaxNodes = 200; var _isRecording = false; var _isValidating = false;
-var _valExpectedSeq = []; var _valExpectedCount = 0; var _valExpectedIntervals = [];
+var _recEvents = []; var _valEvents = [];
+var _eventListMaxNodes = 200; 
+var _valExpectedSeq = []; var _valExpectedIntervals = [];
 
 function onBridgeEvent(evt) {
   if (typeof evt === "string") { try { evt = JSON.parse(evt); } catch(ex) { return; } }
@@ -1019,7 +1005,7 @@ function updateRecStats() {
   if (count > 1) { var sum = 0; var kb = 0, ms = 0;
     for (var i = 0; i < count; i++) { if (_recEvents[i].device === "mouse") ms++; else kb++; if (i > 0) sum += _recEvents[i].timestamp - _recEvents[i - 1].timestamp; }
     document.getElementById("statAvgInterval").textContent = Math.round(sum / (count - 1)); document.getElementById("statDuration").textContent = _recEvents[count - 1].timestamp; document.getElementById("statDeviceRatio").textContent = kb + "/" + ms;
-  } else { document.getElementById("statAvgInterval").textContent = "-"; document.getElementById("statDuration").textContent = count > 0 ? _recEvents[0].timestamp : "0"; var kb2 = 0, ms2 = 0; for (var i = 0; i < count; i++) { if (_recEvents[i].device === "mouse") ms2++; else kb2++; } document.getElementById("statDeviceRatio").textContent = kb2 + "/" + ms2; }
+  } else { document.getElementById("statAvgInterval").textContent = "-"; document.getElementById("statDuration").textContent = count > 0 ? _recEvents[0].timestamp : "0"; var kb2 = 0, ms2 = 0; for (i = 0; i < count; i++) { if (_recEvents[i].device === "mouse") ms2++; else kb2++; } document.getElementById("statDeviceRatio").textContent = kb2 + "/" + ms2; }
 }
 
 function appendRecEvent(evt) {
@@ -1040,7 +1026,7 @@ function drawTimeline(canvasId, events) {
 function startRecording() {
   var gid = document.getElementById("recGroupId").value;
   if (!gid) { showToast("请选择录制分组","error"); return; }
-  _recEvents = []; _isRecording = true;
+  _recEvents = [];
   document.getElementById("recEventList").textContent = ""; document.getElementById("recEventCount").textContent = "0";
   document.getElementById("recStatus").textContent = "录制中..."; document.getElementById("recStatus").style.color = "#4CAF50";
   document.querySelector('[data-action="startRecording"]').disabled = true; document.querySelector('[data-action="pauseRecording"]').disabled = false;
@@ -1054,7 +1040,7 @@ function pauseRecording() {
 
 function stopRecording() {
   api.stopRecording().then(function() {
-    _isRecording = false; document.getElementById("recStatus").textContent = "已停止"; document.getElementById("recStatus").style.color = "";
+    document.getElementById("recStatus").textContent = "已停止"; document.getElementById("recStatus").style.color = "";
     document.querySelector('[data-action="startRecording"]').disabled = false; document.querySelector('[data-action="pauseRecording"]').disabled = true;
     document.querySelector('[data-action="stopRecording"]').disabled = true; document.querySelector('[data-action="exportRecording"]').disabled = false;
     document.querySelector('[data-action="clearRecording"]').disabled = false; showToast("录制完成，共 " + _recEvents.length + " 个事件");
@@ -1080,7 +1066,7 @@ function clearRecording() {
 }
 
 function resetRecUI() {
-  _isRecording = false; document.getElementById("recStatus").textContent = "就绪"; document.getElementById("recStatus").style.color = "";
+  document.getElementById("recStatus").textContent = "就绪"; document.getElementById("recStatus").style.color = "";
   document.querySelector('[data-action="startRecording"]').disabled = false; document.querySelector('[data-action="pauseRecording"]').disabled = true;
   document.querySelector('[data-action="stopRecording"]').disabled = true; document.querySelector('[data-action="exportRecording"]').disabled = true;
   document.querySelector('[data-action="clearRecording"]').disabled = true;
@@ -1098,15 +1084,15 @@ function refreshGroupList() {
       var recSel = document.getElementById("recGroupId");
       if (recSel) {
         recSel.innerHTML = '<option value="">-- 选择分组 --</option>';
-        for (var i = 0; i < groups.length; i++) { var opt2 = document.createElement("option"); opt2.value = groups[i].id; opt2.textContent = groups[i].id + " (" + groups[i].mode + ")" + (groups[i].active ? " ●" : ""); recSel.appendChild(opt2); }
+        for (i = 0; i < groups.length; i++) { var opt2 = document.createElement("option"); opt2.value = groups[i].id; opt2.textContent = groups[i].id + " (" + groups[i].mode + ")" + (groups[i].active ? " ●" : ""); recSel.appendChild(opt2); }
       }
     }
-  }).catch(function(e) { if (_refreshGroupListRetries < 3) { _refreshGroupListRetries++; setTimeout(refreshGroupList, 1000 * _refreshGroupListRetries); } });
+  }).catch(function() { if (_refreshGroupListRetries < 3) { _refreshGroupListRetries++; setTimeout(refreshGroupList, 1000 * _refreshGroupListRetries); } });
 }
 
 function startValidation() {
   var gid = document.getElementById("validateGroupId").value; if (!gid) { showToast("请选择分组","error"); return; }
-  _valEvents = []; _isValidating = true; _valExpectedCount = 0; _valExpectedSeq = []; _valExpectedIntervals = [];
+  _valEvents = []; _valExpectedSeq = []; _valExpectedIntervals = [];
   document.getElementById("valEventCount").textContent = "0"; document.getElementById("valStatus").textContent = "验证中...";
   document.getElementById("valStatus").style.color = "#4CAF50"; document.getElementById("valReport").style.display = "none";
   document.getElementById("valEventList").innerHTML = ""; document.getElementById("valLiveStats").style.display = "none";
@@ -1117,40 +1103,21 @@ function startValidation() {
 function stopValidation() {
   var gid = document.getElementById("validateGroupId").value;
   api.stopValidation(gid).then(function() {
-    _isValidating = false; document.getElementById("valStatus").textContent = "已完成"; document.getElementById("valStatus").style.color = "#4CAF50";
+    document.getElementById("valStatus").textContent = "已完成"; document.getElementById("valStatus").style.color = "#4CAF50";
     document.querySelector('[data-action="startValidation"]').disabled = false; document.querySelector('[data-action="stopValidation"]').disabled = true;
     showToast("验证完成，共 " + _valEvents.length + " 个事件");
   }).catch(function(e) { resetValUI(); showToast(errMsg(e, "停止验证失败"),"error"); });
 }
 
 function resetValUI() {
-  _isValidating = false; document.getElementById("valStatus").textContent = "就绪"; document.getElementById("valStatus").style.color = "";
+  document.getElementById("valStatus").textContent = "就绪"; document.getElementById("valStatus").style.color = "";
   document.querySelector('[data-action="startValidation"]').disabled = false; var stopBtn = document.querySelector('[data-action="stopValidation"]'); stopBtn.disabled = true;
   var liveStats = document.getElementById("valLiveStats"); if (liveStats) liveStats.style.display = "none";
   var eventList = document.getElementById("valEventList"); if (eventList) eventList.innerHTML = "";
   document.getElementById("valEventCount").textContent = "0";
 }
 
-function showValReport(report, skipHistory) {
-  if (!report) return; if (!skipHistory) { _valHistory.unshift({time: new Date().toLocaleString(), groupId: report.groupId || "", score: 0, report: report}); if (_valHistory.length > _valHistoryMax) _valHistory.pop(); renderValHistory(); }
-  document.getElementById("valReport").style.display = "block";
-  var orderScore = report.orderCorrect ? 100 : 0; var rateScore = Math.min(100, Math.round((report.sendSuccessRate != null ? report.sendSuccessRate : 0) * 100));
-  var avgDevScore = Math.min(100, Math.max(0, 100 - (report.avgIntervalDeviation || 0))); var maxDevScore = Math.min(100, Math.max(0, 100 - (report.maxIntervalDeviation || 0)));
-  var holdScore = report.holdTimingCorrect ? 100 : 0; var totalScore = Math.round((orderScore + rateScore + avgDevScore + maxDevScore + holdScore) / 5);
-  MiniChart.destroy("radarCanvas"); MiniChart.create("radarCanvas", "radar", { labels: ["顺序", "发送率", "平均偏差", "最大偏差", "长按时序"], values: [orderScore, rateScore, avgDevScore, maxDevScore, holdScore], score: totalScore });
-  var details = report.details || []; var devLabels = []; var devValues = []; var devColors = []; var devSum = 0;
-  for (var i = 0; i < details.length; i++) { devLabels.push("#" + (i + 1)); devValues.push(details[i].deviation || 0); devSum += details[i].deviation || 0; devColors.push(details[i].status === "good" ? "#4CAF50" : (details[i].status === "acceptable" ? "#FF9800" : "#FF5722")); }
-  var devAvg = details.length > 0 ? Math.round(devSum / details.length) : 0;
-  MiniChart.destroy("deviationCanvas"); MiniChart.create("deviationCanvas", "bar", { labels: devLabels, values: devValues, colors: devColors, avgLine: devAvg });
-  MiniChart.destroy("holdCanvas"); MiniChart.create("holdCanvas", "hold", { details: report.holdDetails || [], correct: report.holdTimingCorrect });
-}
 
-function renderValHistory() {
-  var list = document.getElementById("valHistoryList"); if (!list) return;
-  if (_valHistory.length === 0) { list.innerHTML = '<div style="color:var(--text-muted);padding:8px;">暂无验证历史</div>'; return; }
-  var html = ''; for (var i = 0; i < _valHistory.length; i++) { var h = _valHistory[i]; html += '<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid var(--border);cursor:pointer;" data-action="showHistoryReport" data-idx="'+i+'"><span>'+escHtml(h.time)+' '+escHtml(h.groupId)+'</span></div>'; }
-  list.innerHTML = html;
-}
 
 function initKeyTestPage() {
   var tabs = document.querySelectorAll(".keytest-tab");
@@ -1215,8 +1182,8 @@ function init() {
     else if (action === 'setHoldDuration') { pushUndoState(); editorConfig.holdDuration=parseInt(el.value)||0; updatePreview(); }
     else if (action === 'toggleAutoRepeat') { pushUndoState(); editorConfig.autoRepeat=el.checked; updatePreview(); }
     else if (action === 'setRepeatInterval') { pushUndoState(); var rv=parseInt(el.value); editorConfig.repeatInterval=(rv>0?rv:1000); updatePreview(); }
-    else if (action === 'setJoyInterval') { pushUndoState(); var v=parseInt(el.value); editorConfig.joyIntervals[parseInt(el.getAttribute('data-idx'))]=(v>=10?v:50); updatePreview(); }
-    else if (action === 'setJoyDelay') { pushUndoState(); var v=parseInt(el.value); editorConfig.joyDelays[parseInt(el.getAttribute('data-idx'))]=(v>=10?v:100); updatePreview(); }
+    else if (action === 'setJoyInterval') { pushUndoState(); v=parseInt(el.value); editorConfig.joyIntervals[parseInt(el.getAttribute('data-idx'))]=(v>=10?v:50); updatePreview(); }
+    else if (action === 'setJoyDelay') { pushUndoState(); v=parseInt(el.value); editorConfig.joyDelays[parseInt(el.getAttribute('data-idx'))]=(v>=10?v:100); updatePreview(); }
   });
 
   document.getElementById('holdKeysContainer').onclick = function(e) {

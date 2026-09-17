@@ -1561,22 +1561,26 @@ cd asd-tauri      && cargo audit        # 需要能访问 RustSec advisory-db
 #### 前端：ESLint 9（flat config）
 
 ```bash
-cd asd-tauri && npm run lint     # = eslint src --max-warnings 70
+cd asd-tauri && npm run lint     # = eslint src --max-warnings 0
 ```
 
 - **只 lint `src/`**：前端就 `api.js` / `main.js` 两个文件（约 1500 行），
   而 JS 单测只覆盖 `e2e/helpers` —— **main.js 是零测试覆盖的**。
   对没有测试兜底的代码，静态分析是唯一一道自动检查。
-- **棘轮，不是清零**：存量 70 项（`no-redeclare` 42 / `no-unused-vars` 18 /
-  `no-empty` 6 / `no-prototype-builtins` 4）**全是风格债，无一为真缺陷**。
-  main.js 没有测试，在这种代码上批量改名/删变量的收益远小于风险，
-  所以这 4 条降为 `warn`，用 `--max-warnings 70` 把水位钉在 `package.json`：
-  **新增一处立刻红**（71 > 70），修好一处就把数字减一（见 §4.6.1 同款棘轮语义）。
+- **已清零（TD-022，2026-09-17）**：存量 69 项（`no-redeclare` 42 / `no-unused-vars` 17 /
+  `no-empty` 6 / `no-prototype-builtins` 4）全部清掉，`--max-warnings` 收到 **0**，
+  并且**撤掉了 eslint.config.js 里那三条降级覆盖** —— `no-redeclare` / `no-empty` /
+  `no-prototype-builtins` 回到 recommended 的 **error** 级（比原来的 `warn` 更严）。
+  清法按风险从低到高：空块加注释 → `Object.prototype.hasOwnProperty.call` →
+  删未使用的回调参数 → 删「赋值但从未读取」的死状态与死函数 →
+  重复 `var` 降级为普通赋值（`var` 本就函数级提升，语义不变）。
+  仍保持棘轮语义：**新增一处立刻红**。
 - 其余 recommended 规则保持 `error`：`no-undef` 这类「写了就一定错」的不留余地。
 - 走独立 job（`js-lint`），与主 job 并行，不占用 Rust 构建的关键路径。
 
-**阳性对照（4 组）**：探针文件注入 1 处 `no-redeclare` + 1 处 `no-undef`
-→ 72 problems（1 error / 71 warnings）、退出码 1；删除探针 → 回到 70 / 退出码 0。
+**阳性对照**：注入 `var __pcProbe = 1; var __pcProbe = 2;` → `npm run lint` 退出码 1
+且报 **error** 级（`no-redeclare` 已回到 error，不再只是 warn）；还原 → 退出码 0。
+每批清理后都跑 `npx vite build` 兜住语法/引用错误（main.js 是 Vite 输入且零单测）。
 clippy 侧：pedantic 从 248 项收干到 0（`cargo clippy --workspace --all-targets -- -D warnings`
 退出码 0），Rust 全量测试 602 项通过。
 

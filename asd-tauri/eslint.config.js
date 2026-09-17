@@ -30,17 +30,12 @@ export default [
       // 事件回调里 `(_e) => {}` 之类的占位参数是常见写法，不要报错
       "no-unused-vars": ["warn", { argsIgnorePattern: "^_", caughtErrors: "none" }],
 
-      // ── 以下 4 条在存量代码里共 70 处，全部是**风格债不是缺陷** ──
-      //   · no-redeclare 42：var 时代在同一函数里重复声明 i/k/v
-      //   · no-unused-vars 18：未使用的 promise 回调参数与几个赋值后未读的变量
-      //   · no-empty 6：localStorage 写入的 `catch(ex) {}`
-      //   · no-prototype-builtins 4：`obj.hasOwnProperty(k)`
-      // main.js 目前**零测试覆盖**，在这种代码上批量改名/删变量的收益远小于风险，
-      // 所以走棘轮：存量 70 只登记不报错（登记 TD-022），`npm run lint` 用
-      // --max-warnings 把水位钉住，改好一处就把数字减一，新增一处立刻红。
-      "no-redeclare": "warn",
-      "no-empty": "warn",
-      "no-prototype-builtins": "warn",
+      // ── 曾经的三条降级覆盖已撤销（TD-022，2026-09-17）──
+      // 之前把 no-redeclare / no-empty / no-prototype-builtins 从 recommended 的
+      // error 降成 warn，是为了让存量 52 处（42 重复声明 + 6 空块 + 4 原型方法调用）
+      // 不阻断。那些已全部清掉，因此撤掉覆盖 —— 三条回到 **error** 级，
+      // 比原来的 warn 更严；`npm run lint` 的水位也从 70 收到 **0**。
+      // 如果将来又出现这类问题，请先修代码，不要重新加回降级。
     },
   },
 ];
