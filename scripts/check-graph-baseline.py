@@ -36,7 +36,32 @@ BASELINE = REPO_ROOT / ".review-analysis" / "graph-baseline.json"
 BUILD_GRAPH = REPO_ROOT / ".review-analysis" / "build_graph.py"
 
 # 硬失败项：当前值 > 基线值 即失败
-HARD_FAIL_GREATER = ["ahk_cycles", "rust_crate_cycles", "ahk_missing"]
+HARD_FAIL_GREATER = [
+    "ahk_cycles",
+    "rust_crate_cycles",
+    "ahk_missing",
+    # TD-049① 新增：生产代码 #Include 测试/工具代码 = 架构倒灌，绝不能靠基线抬水位放行
+    "ahk_prod_to_nonprod_edges",
+    # 生产孤点 = 生产 AHK 既不被 include 也不 include 任何东西：漏接线或死代码
+    "ahk_orphans_prod",
+]
+
+# 分桶口径：AHK 节点必须被切成这三个互不相交的桶（TD-049①）
+AHK_BUCKET_KEYS = ("ahk_prod_files", "ahk_test_files", "ahk_tool_files")
+
+# 遍历锚点（TD-049①）：扫描类守护最怕「扫到 0 条还一路绿灯」——
+# 目录口径一变、git 命令一改、扩展名一写错，节点集塌成空集，
+# 于是「没有环 / 没有违规」变成永真。这里给每个桶一个下限：
+# 低于下限直接判定**遍历失效**，硬失败。数值取自 2026-09-18 实测值（92/40/23/29、64、5）
+# 向下取整留出开发余量 —— 它不是水位线，是「图还在不在」的探针。
+SCAN_ANCHOR_MIN = {
+    "ahk_files": 80,
+    "ahk_prod_files": 30,
+    "ahk_test_files": 15,
+    "ahk_tool_files": 20,
+    "rust_files": 50,
+    "js_files": 3,
+}
 
 
 def load_json(path: Path) -> dict:
@@ -96,6 +121,141 @@ def check_exemption_hygiene(baseline: dict) -> list[str]:
     return errs
 
 
+def check_bucket_integrity(raw: dict) -> list[str]:
+    """分桶口径完整性（TD-049①）—— 这是**区分新旧实现的探针**。
+
+    为什么不是永真式：`counts` 里的 `ahk_*_files` 与 `ahk.buckets` 是
+    build_graph.py 里**两条独立的产出路径**（一个来自 len(files)，一个来自逐节点
+    分类表的重算）。这里从 `ahk.buckets` 重新数一遍再跟 counts 对撞 ——
+    任一侧漏改都会当场炸。若 graph-raw.json 根本没有 `ahk.buckets`，
+    说明跑的是旧实现，直接判定闸门失效而不是「默认通过」。
+    """
+    errs: list[str] = []
+    ahk = raw.get("ahk", {})
+    counts = raw.get("meta", {}).get("counts", {})
+    buckets = ahk.get("buckets")
+
+    if not isinstance(buckets, dict) or not buckets:
+        return ["graph-raw.json 缺 `ahk.buckets`（或为空）—— 跑的是 TD-049① 之前的"
+                "旧 build_graph.py？闸门① 无法校验 AHK 分桶口径，拒绝给出结论"
+                "（请先重跑 `python .review-analysis/build_graph.py`）"]
+
+    files = ahk.get("files", [])
+    if len(buckets) != len(files):
+        errs.append(f"ahk.buckets 有 {len(buckets)} 项，但 ahk.files 有 {len(files)} 项"
+                    f" —— 分桶表与节点集不同步")
+
+    # ⚠️ 必须是 tuple 而不是 set：set 的迭代顺序不确定，zip 到 AHK_BUCKET_KEYS
+    # 上会张冠李戴（实测把 prod 的期望值对到了 test 的实算值上）。
+    known = ("prod", "test", "tool", "unclassified")
+    bad = sorted({v for v in buckets.values() if v not in known})
+    if bad:
+        errs.append(f"ahk.buckets 出现未知桶名：{bad}（合法值 {list(known)}）")
+
+    recount = {k: 0 for k in known}
+    for v in buckets.values():
+        if v in recount:
+            recount[v] += 1
+
+    for key, name in zip(AHK_BUCKET_KEYS, known):
+        if counts.get(key) != recount[name]:
+            errs.append(f"{key} = {counts.get(key)}，但按 ahk.buckets 重算是 "
+                        f"{recount[name]} —— 计数与分桶表不一致（build_graph.py 改了一边？）")
+
+    total = sum(recount.values())
+    if total != len(files):
+        errs.append(f"分桶总数 {total} != ahk_files {len(files)} —— 有节点没被归类或被重复归类")
+
+    if recount["unclassified"]:
+        sample = sorted(p for p, v in buckets.items() if v == "unclassified")[:5]
+        errs.append(f"有 {recount['unclassified']} 个 AHK 节点无法归入 prod/test/tool：{sample}"
+                    f" —— 新增顶层目录请补 AHK_BUCKET_RULES，不要让它掉进洞里")
+
+    # 边的分桶也必须穷尽：三个 from 桶之和 == 范围内边数
+    e_prod = counts.get("ahk_edges_from_prod")
+    e_test = counts.get("ahk_edges_from_test")
+    e_tool = counts.get("ahk_edges_from_tool")
+    if None not in (e_prod, e_test, e_tool):
+        if e_prod + e_test + e_tool != counts.get("ahk_edges_in_scope"):
+            errs.append(f"边分桶之和 {e_prod}+{e_test}+{e_tool} != ahk_edges_in_scope "
+                        f"{counts.get('ahk_edges_in_scope')} —— 有边的来源桶没被统计")
+    return errs
+
+
+# 闸门侧**独立实现**一遍分桶规则，用来跟 build_graph.py 的产出对撞。
+# 为什么要重复一份：上面只比对 counts 与 buckets 是否自洽，那防不住「两边一起改」。
+# 这里由闸门自己按路径重判一遍，build_graph.py 的规则被偷偷改窄/改宽时当场暴露。
+# ⚠️ 必须与 build_graph.py 的 AHK_BUCKET_RULES 保持一致 —— 不一致时本检查会
+# 逐条报出分歧路径，那正是它存在的意义（不是噪音，是「两边谁改了」的报警器）。
+GATE_BUCKET_RULES = (
+    ("test", ("tests/", "asd-tauri/e2e/")),
+    ("tool", ("tools/", "scripts/")),
+    ("prod", ("domain/", "infrastructure/", "application/", "presentation/",
+              "asd-tauri/src-tauri/ahk_executor/")),
+)
+
+
+def gate_ahk_bucket(rel_path: str) -> str:
+    for name, prefixes in GATE_BUCKET_RULES:
+        if rel_path.startswith(prefixes):
+            return name
+    return "prod" if "/" not in rel_path else "unclassified"
+
+
+def check_bucket_classification(raw: dict) -> list[str]:
+    """独立重判分桶（防 build_graph.py 偷偷改规则 / 防两边一起改的协同造假）。"""
+    buckets = raw.get("ahk", {}).get("buckets")
+    if not isinstance(buckets, dict) or not buckets:
+        return []  # 缺失由 check_bucket_integrity 负责报错，不重复刷屏
+    mismatch = []
+    for p, claimed in sorted(buckets.items()):
+        expect = gate_ahk_bucket(p)
+        if expect != claimed:
+            mismatch.append(f"{p}: 图里是 {claimed}，闸门重判是 {expect}")
+    if not mismatch:
+        return []
+    return [f"{len(mismatch)} 个 AHK 节点的分桶与闸门独立重判不一致 —— "
+            f"build_graph.py 的 AHK_BUCKET_RULES 与本文件的 GATE_BUCKET_RULES "
+            f"已经漂移，请同步："
+            + "; ".join(mismatch[:5])]
+
+
+def check_scan_anchors(counts: dict) -> list[str]:
+    """遍历失效探针：低于下限 = 节点发现塌了，不是「代码变干净了」。"""
+    errs = []
+    for key, floor in SCAN_ANCHOR_MIN.items():
+        cur = counts.get(key)
+        if cur is None:
+            errs.append(f"counts 缺键 `{key}` —— graph-raw.json 由旧版 build_graph.py 生成？")
+        elif cur < floor:
+            errs.append(f"{key} = {cur}，低于遍历锚点下限 {floor} —— 节点发现疑似失效"
+                        f"（目录口径/extra_exclude/git 命令被改坏？）。"
+                        f"若确系大规模删文件，请下调 SCAN_ANCHOR_MIN 并在 commit message 说明理由")
+    return errs
+
+
+def check_untracked(raw: dict) -> list[str]:
+    """未跟踪源文件会把「开发机的图」和「CI 的图」变成两张图（TD-049①）。
+
+    build_graph.py 已只取 tracked 文件，所以这些文件**污染不到基线数字** ——
+    但代价是它们也没被分析。闸门必须拦：否则开发者以为闸门看过自己的新文件，
+    实际上 CI 才会第一次见到它。
+    """
+    counts = raw.get("meta", {}).get("counts", {})
+    untracked = raw.get("untracked_files", {})
+    total = sum(counts.get(f"{k}_files_untracked", 0) for k in ("ahk", "rust", "js"))
+    if not total:
+        return []
+    listed = []
+    for kind in ("ahk", "rust", "js"):
+        for p in untracked.get(kind, [])[:20]:
+            listed.append(f"{kind}: {p}")
+    return [f"有 {total} 个**未跟踪且未被 .gitignore 忽略**的源文件 —— 它们只存在于开发机，"
+            f"不进基线数字（已隔离），但也因此**没被本闸门分析到**："
+            + "; ".join(listed)
+            + "。请 `git add` 后重跑，或确认是临时文件后删除 / 加入 .gitignore"]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--no-rebuild", action="store_true", help="跳过重建图谱")
@@ -118,8 +278,11 @@ def main() -> int:
     findings: dict = raw.get("findings", {})
 
     if args.update:
+        # 键集取并集（旧实现只遍历 base_counts，导致 build_graph.py 新增的度量
+        # **永远写不进基线** —— 新口径会静默失效。顺序：先旧键后新键，diff 才好看。）
+        ordered = list(base_counts) + [k for k in cur_counts if k not in base_counts]
         baseline["counts"] = {
-            k: cur_counts.get(k, base_counts.get(k)) for k in base_counts
+            k: cur_counts.get(k, base_counts.get(k)) for k in ordered
         }
         allowed = [
             {"from": v["from"], "to": v["to"],
@@ -149,6 +312,12 @@ def main() -> int:
 
     # 2) 硬失败：白名单条目的卫生（必须有理由与未过期的期限，TD-009）
     errors.extend(check_exemption_hygiene(baseline))
+
+    # 2a) 硬失败：分桶口径完整性 / 遍历锚点 / 未跟踪文件（TD-049①）
+    errors.extend(check_bucket_integrity(raw))
+    errors.extend(check_bucket_classification(raw))
+    errors.extend(check_scan_anchors(cur_counts))
+    errors.extend(check_untracked(raw))
 
     # 2b) 硬失败：白名单外的新依赖违规
     allowed = {
@@ -180,10 +349,16 @@ def main() -> int:
     print("闸门① 图谱基线校验")
     print("=" * 60)
     print(
-        f"  AHK   {cur_counts.get('ahk_files')} 文件 / "
+        f"  AHK   {cur_counts.get('ahk_files')} 文件 "
+        f"(生产 {cur_counts.get('ahk_prod_files')} / "
+        f"测试 {cur_counts.get('ahk_test_files')} / "
+        f"工具 {cur_counts.get('ahk_tool_files')} / "
+        f"未归类 {cur_counts.get('ahk_unclassified_files')}) / "
         f"{cur_counts.get('ahk_edges_total')} 边 / "
         f"{cur_counts.get('ahk_cycles')} 环 / "
-        f"{cur_counts.get('ahk_orphans')} 孤点 / "
+        f"{cur_counts.get('ahk_orphans')} 孤点"
+        f"(生产 {cur_counts.get('ahk_orphans_prod')}) / "
+        f"倒灌边 {cur_counts.get('ahk_prod_to_nonprod_edges')} / "
         f"未解析 include {cur_counts.get('ahk_missing')}"
     )
     print(
@@ -202,6 +377,13 @@ def main() -> int:
         print("\n[WARN] 结构变化（不阻塞，供人工确认）:")
         for w in warnings:
             print(f"  - {w}")
+
+    ext_refs = findings.get("ahk_external_refs", [])
+    if ext_refs:
+        print(f"\n[INFO] {len(ext_refs)} 个 AHK 节点被 JS/TS/Shell 按路径引用"
+              f"（因此不算孤点，逐条留痕以防放水）:")
+        for r in ext_refs[:20]:
+            print(f"  - {r.get('ahk')}  <-  {r.get('via')}:{r.get('line')}")
 
     if errors:
         print("\n[FAIL] 闸门① 未通过:")

@@ -49,31 +49,63 @@ def _git_lines(args):
     return [x.strip() for x in r.stdout.splitlines() if x.strip()]
 
 
-def git_scope_files(exts, extra_exclude=()):
-    """节点发现用 **git 自己的口径**：已跟踪 + 未跟踪但未被 ignore。
+def _git_source_files(exts, extra_exclude=()):
+    """返回 (tracked, untracked) 两组绝对路径，两组**永不相加**。
 
     为什么不用 os.walk 裸扫文件系统：裸扫会把被 .gitignore 忽略的本地产物也
     算成节点 —— 实测吃到 `_diag.ahk` / `_mock.ahk` / `_rt.ahk` 三个临时脚本，
     以及 `asd-tauri/coverage/html/control.js`（覆盖率报告产物）。它们只在开发机
-    存在、CI 全新 checkout 没有，于是 counts 在两地永远对不上，棘轮基线失去
-    比较意义（TD-025）。
+    存在、CI 全新 checkout 没有（TD-025）。
 
-    为什么不是「只取已跟踪」：那样新建但还没 `git add` 的文件会隐身，而
-    「新文件引入图环 / 逆向边」恰恰是闸门①最该在提交前就拦住的东西。
+    ⚠️ TD-049①：为什么这里把「已跟踪」与「未跟踪但未 ignore」**拆成两桶**：
+    旧实现是 `git ls-files --cached --others --exclude-standard` 一把梭，然后
+    把两组之和当成节点集。`--others` 出来的文件**只存在于开发机** —— CI 全新
+    checkout 上它们一个都没有。于是基线文件里那句「本基线在开发机与 CI 全新
+    checkout 上应当一致」是**假的**：只要有人留一个没提交的 `foo.ahk`，开发机
+    `ahk_files` 就是 93、CI 仍是 92，棘轮闸门直接失去比较意义。
+    （实测当前工作区就躺着 5 个未跟踪文件，只是恰好不是 .ahk/.rs/.js 才没爆。）
 
-    与 scripts/check-tech-debt.py 的 C6 检查同一个口径，两边保持一致。
+    拆法：
+      - tracked  = 已跟踪（CI 与开发机一致）→ **唯一进基线的可比数字**
+      - untracked= 未跟踪且未被 ignore（仅开发机）→ 单独计数并交由闸门拦下，
+        绝不并入任何基线对比项。
+
+    与 scripts/check-tech-debt.py 的 C6 检查同一个 tracked 口径，两边保持一致。
     """
-    found = []
-    for p in _git_lines(["ls-files", "--cached", "--others", "--exclude-standard"]):
-        p = norm(p)
-        if not p.lower().endswith(exts):
-            continue
-        if any(e in p for e in EXCLUDE_SEG) or any(e in p for e in extra_exclude):
-            continue
-        if any(seg in EXCLUDE_DIRS for seg in p.split("/")):
-            continue
-        found.append(os.path.join(ROOT, p))
-    return sorted(found)
+    def _select(lines):
+        out = []
+        for p in lines:
+            p = norm(p)
+            if not p.lower().endswith(exts):
+                continue
+            if any(e in p for e in EXCLUDE_SEG) or any(e in p for e in extra_exclude):
+                continue
+            if any(seg in EXCLUDE_DIRS for seg in p.split("/")):
+                continue
+            # 已跟踪但工作区里已被删（删了没 git rm）：不能当节点，否则 read_text 抛异常。
+            if not os.path.isfile(os.path.join(ROOT, p)):
+                continue
+            out.append(os.path.join(ROOT, p))
+        return sorted(out)
+
+    return (_select(_git_lines(["ls-files", "--cached"])),
+            _select(_git_lines(["ls-files", "--others", "--exclude-standard"])))
+
+
+def git_scope_files(exts, extra_exclude=()):
+    """**可复现**的节点集：只取 git 已跟踪文件。见 _git_source_files 的说明。"""
+    tracked, _ = _git_source_files(exts, extra_exclude)
+    return tracked
+
+
+def git_untracked_files(exts, extra_exclude=()):
+    """未跟踪且未被 .gitignore 忽略的源文件 —— 只存在于开发机，进不了基线。
+
+    交给闸门①硬失败：这些文件不会被本图分析到（它们不在 tracked 集里），
+    也就是「你本地看到的图」漏了它们。要么 git add 后重跑，要么加进 .gitignore。
+    """
+    _, untracked = _git_source_files(exts, extra_exclude)
+    return untracked
 
 
 def read_text(path):
@@ -110,6 +142,34 @@ def ahk_layer(rel_path):
     return "other"
 
 
+# ---------------------------------------------------------------- AHK 分桶
+# TD-049①：`ahk_files` 曾是一个**混桶** —— 一个标量里同时装着生产代码（root
+# 入口 + 四层 + ahk_executor）、测试代码（tests/、e2e fixtures）和工具/探针
+#（tools/ahk-bench、tools/ahk-probes、scripts/perf）。后果是基线 WARNING 不可判定：
+# 删 5 个测试脚本和删 5 个生产文件在 `ahk_files: 97 -> 92` 里长得一模一样，
+# reviewer 看到 -5 根本分不清这是清债还是事故。
+#
+# 三个桶语义互不相交，且**必须穷尽** —— 新增顶层目录若没被任何规则命中，
+# 会落进 `unclassified`，由闸门①硬失败（而不是悄悄丢进某个桶里稀释掉）。
+AHK_BUCKET_RULES = (
+    ("test", ("tests/", "asd-tauri/e2e/")),
+    ("tool", ("tools/", "scripts/")),
+    ("prod", ("domain/", "infrastructure/", "application/", "presentation/",
+              "asd-tauri/src-tauri/ahk_executor/")),
+)
+AHK_BUCKETS = ("prod", "test", "tool", "unclassified")
+
+
+def ahk_bucket(rel_path):
+    """把 AHK 节点归入 prod / test / tool 之一；无法归类时返回 `unclassified`（应恒为 0）。"""
+    for name, prefixes in AHK_BUCKET_RULES:
+        if rel_path.startswith(prefixes):
+            return name
+    if "/" not in rel_path:
+        return "prod"  # 仓库根入口脚本（main.ahk / asd.ahk）
+    return "unclassified"
+
+
 def build_ahk(include_inactive=False):
     files = git_scope_files((".ahk",))
     if not include_inactive:
@@ -129,14 +189,70 @@ def build_ahk(include_inactive=False):
                     cand, ok = cand2, True
             # 判断目标是否在分析范围内（跨出范围的边单独标记）
             in_scope = ok and not any(s in cand for s in INACTIVE_SEG) and cand in rel.values()
+            fb, tb = ahk_bucket(r), ahk_bucket(cand) if in_scope else "out-of-scope"
             edges.append({
                 "from": r, "to": cand, "resolved": ok, "in_scope": in_scope,
                 "from_layer": ahk_layer(r), "to_layer": ahk_layer(cand) if in_scope else "out-of-scope",
                 "is_layer_cross": in_scope and ahk_layer(r) != ahk_layer(cand),
+                "from_bucket": fb, "to_bucket": tb,
+                # 生产代码 #Include 测试/工具代码 = 架构倒灌，必须单独计数
+                "is_bucket_cross_bad": in_scope and fb == "prod" and tb != "prod",
             })
             if not ok:
                 missing.append({"from": r, "to": cand})
     return {"files": sorted(rel.values()), "edges": edges, "missing": missing}
+
+
+# ------------------------------------------------- AHK 跨语言引用（孤点误报修正）
+# AHK 脚本经常由 JS/TS/Shell 以子进程方式**按路径拉起**，这类引用不经过
+# `#Include`，纯 AHK 图上看不见 —— 于是「在用文件」被判成孤点。典型受害者：
+# `asd-tauri/e2e/fixtures/key_receiver.ahk`（由 `e2e/helpers/key_receiver.js`
+# spawn，进而被 key_send / ipc / modes 等 spec 使用），TD-049 已判为误报。
+#
+# ⚠️ 防「把真孤点放过去」的三条约束：
+#   1. 只认**带引号的字面量**（`join(fixturesDir,'key_receiver.ahk')` 认，
+#      注释里提一句不认 —— 虽然做不到完美，但证据行号会写进 findings 供复核）；
+#   2. 只扫源码扩展名 .js/.mjs/.cjs/.ts/.sh，不扫 md/json（文档提及不算在用）；
+#   3. **基名歧义不赦** —— 若同一个 basename 对应多个 AHK 文件，这条引用不作为
+#      免罪证据（否则一个 `_harness.ahk` 的引用会顺带赦免另一个同名文件）。
+AHK_REF_SCAN_EXT = (".js", ".mjs", ".cjs", ".ts", ".sh")
+
+
+def find_ahk_external_refs(ahk_files, scan_files):
+    """返回 [{"ahk": 相对路径, "via": 引用它的文件, "line": 行号, "text": 原文片段}]。"""
+    base_index = {}
+    for p in ahk_files:
+        base_index.setdefault(os.path.basename(p), []).append(p)
+
+    pats = {b: re.compile(r"""["']([^"']*%s)["']""" % re.escape(b)) for b in base_index}
+    refs, seen = [], set()
+    for absf in scan_files:
+        try:
+            txt = read_text(absf)
+        except OSError:
+            continue
+        rel_via = norm(os.path.relpath(absf, ROOT))
+        for i, line in enumerate(txt.splitlines(), 1):
+            if ".ahk" not in line:
+                continue
+            for b, pat in pats.items():
+                for m in pat.finditer(line):
+                    mstr = norm(m.group(1))
+                    if "/" in mstr:
+                        hits = [p for p in ahk_files
+                                if p == mstr or p.endswith("/" + mstr)]
+                    else:
+                        cand = base_index.get(b, [])
+                        # 基名歧义 → 不赦（见上方约束 3）
+                        hits = cand if len(cand) == 1 else []
+                    for h in hits:
+                        key = (h, rel_via, i)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        refs.append({"ahk": h, "via": rel_via, "line": i,
+                                     "text": line.strip()[:160]})
+    return sorted(refs, key=lambda x: (x["ahk"], x["via"], x["line"]))
 
 
 # ---------------------------------------------------------------- Rust
@@ -353,10 +469,39 @@ if __name__ == "__main__":
     rust = build_rust()
     js = build_js()
 
+    # 未跟踪源文件：只存在于开发机，绝不进基线数字（TD-049①）
+    untracked = {
+        "ahk": [norm(os.path.relpath(p, ROOT))
+                for p in git_untracked_files((".ahk",))],
+        "rust": [norm(os.path.relpath(p, ROOT))
+                 for p in git_untracked_files((".rs", ".toml",))],
+        "js": [norm(os.path.relpath(p, ROOT))
+               for p in git_untracked_files((".js", ".mjs"))],
+    }
+
     ahk_nodes = ahk["files"]
     ahk_scope_edges = [e for e in ahk["edges"] if e["in_scope"]]
     ahk_cycles = find_cycles(ahk_nodes, ahk_scope_edges)
-    ahk_orphans = find_orphans(ahk_nodes, ahk_scope_edges, ignore_no_in=("main.ahk",))
+
+    # 分桶（TD-049①）：生产 / 测试 / 工具 三个互不相交的桶
+    ahk_buckets = {p: ahk_bucket(p) for p in ahk_nodes}
+    bucket_counts = {b: sum(1 for p in ahk_nodes if ahk_buckets[p] == b)
+                     for b in AHK_BUCKETS}
+
+    # 跨语言引用 → 修掉「被 JS/Shell 拉起、却在纯 AHK 图上是孤点」的误报
+    # 注意这里**不加** build_js() 那个 extra_exclude=("asd-tauri/e2e/",)：
+    # e2e 目录虽被排除在 JS 节点之外，却恰恰是 AHK 跨语言引用的主要来源。
+    ref_scan_files = git_scope_files(AHK_REF_SCAN_EXT)
+    ahk_ext_refs = find_ahk_external_refs(ahk_nodes, ref_scan_files)
+    externally_used = {r["ahk"] for r in ahk_ext_refs}
+
+    # 入口脚本没有入边是天经地义的（整个程序的根），不算孤点
+    ahk_entry_nodes = ("main.ahk", "asd.ahk")
+    ahk_orphans_all = [n for n in find_orphans(
+        ahk_nodes, ahk_scope_edges, ignore_no_in=ahk_entry_nodes)
+        if n not in externally_used]
+    ahk_orphans_prod = [n for n in ahk_orphans_all
+                        if ahk_buckets[n] == "prod"]
 
     crate_nodes = [c for c in RUST_CRATES if any(rust_crate(f) == c for f in rust["files"])]
     # 环检测只用生产依赖边
@@ -374,11 +519,30 @@ if __name__ == "__main__":
             "root": ROOT,
             "counts": {
                 "ahk_files": len(ahk["files"]),
+                # TD-049① 分桶：三个桶互不相交，且 prod+test+tool+unclassified == ahk_files
+                "ahk_prod_files": bucket_counts["prod"],
+                "ahk_test_files": bucket_counts["test"],
+                "ahk_tool_files": bucket_counts["tool"],
+                "ahk_unclassified_files": bucket_counts["unclassified"],
                 "ahk_edges_total": len(ahk["edges"]),
                 "ahk_edges_in_scope": len(ahk_scope_edges),
+                "ahk_edges_from_prod": sum(1 for e in ahk_scope_edges
+                                           if e["from_bucket"] == "prod"),
+                "ahk_edges_from_test": sum(1 for e in ahk_scope_edges
+                                           if e["from_bucket"] == "test"),
+                "ahk_edges_from_tool": sum(1 for e in ahk_scope_edges
+                                           if e["from_bucket"] == "tool"),
+                # 生产代码 #Include 测试/工具代码：架构倒灌，硬失败项
+                "ahk_prod_to_nonprod_edges": sum(1 for e in ahk_scope_edges
+                                                 if e["is_bucket_cross_bad"]),
                 "ahk_missing": len(ahk["missing"]),
                 "ahk_cycles": len(ahk_cycles),
-                "ahk_orphans": len(ahk_orphans),
+                "ahk_orphans": len(ahk_orphans_all),
+                "ahk_orphans_prod": len(ahk_orphans_prod),
+                # 未跟踪源文件数：>0 即表示本地图与 CI 图不同，基线不可比
+                "ahk_files_untracked": len(untracked["ahk"]),
+                "rust_files_untracked": len(untracked["rust"]),
+                "js_files_untracked": len(untracked["js"]),
                 "rust_files": len(rust["files"]),
                 "rust_edges": len(rust["edges"]),
                 "rust_crate_edges": len(rust["crate_edges"]),
@@ -390,13 +554,17 @@ if __name__ == "__main__":
         },
         "findings": {
             "ahk_cycles": ahk_cycles,
-            "ahk_orphans": ahk_orphans,
+            "ahk_orphans": ahk_orphans_all,
+            "ahk_orphans_prod": ahk_orphans_prod,
+            # 被 JS/TS/Shell 按路径拉起的 AHK（证据行号），用于审计「孤点豁免」不是放水
+            "ahk_external_refs": ahk_ext_refs,
             "ahk_missing_includes": ahk["missing"],
             "ahk_layer_cross": layer_matrix,
             "rust_crate_cycles": crate_cycles,
             "rust_crate_violations": [e for e in rust["crate_edges"] if e["is_violation"]],
         },
-        "ahk": {"files": ahk["files"], "edges": ahk_scope_edges},
+        "untracked_files": untracked,
+        "ahk": {"files": ahk["files"], "edges": ahk_scope_edges, "buckets": ahk_buckets},
         "rust": {
             "files": rust["files"],
             "crate_edges": rust["crate_edges"],
@@ -411,9 +579,13 @@ if __name__ == "__main__":
 
     m = graph["meta"]["counts"]
     print("== 图谱原始数据 ==")
-    print("AHK  文件: %(ahk_files)d | 边(总): %(ahk_edges_total)d | 边(范围内): %(ahk_edges_in_scope)d"
-          " | 未解析: %(ahk_missing)d" % m)
-    print("AHK  环: %(ahk_cycles)d | 孤点: %(ahk_orphans)d" % m)
+    print("AHK  文件: %(ahk_files)d  (生产 %(ahk_prod_files)d / 测试 %(ahk_test_files)d"
+          " / 工具 %(ahk_tool_files)d / 未归类 %(ahk_unclassified_files)d)" % m)
+    print("AHK  边(总): %(ahk_edges_total)d | 边(范围内): %(ahk_edges_in_scope)d"
+          "  [生产出边 %(ahk_edges_from_prod)d / 测试出边 %(ahk_edges_from_test)d"
+          " / 工具出边 %(ahk_edges_from_tool)d]" % m)
+    print("AHK  生产->非生产 倒灌边: %(ahk_prod_to_nonprod_edges)d | 未解析: %(ahk_missing)d" % m)
+    print("AHK  环: %(ahk_cycles)d | 孤点: %(ahk_orphans)d (其中生产孤点 %(ahk_orphans_prod)d)" % m)
     print("Rust 文件: %(rust_files)d | use 边: %(rust_edges)d | crate 边: %(rust_crate_edges)d" % m)
     print("Rust 生产 crate 环: %(rust_crate_cycles)d | 生产依赖违规: %(rust_crate_violations)d" % m)
     print("JS   文件: %(js_files)d | import 边: %(js_edges)d" % m)
@@ -437,10 +609,19 @@ if __name__ == "__main__":
         print("-- Rust crate 依赖方向违规 --")
         for v in graph["findings"]["rust_crate_violations"]:
             print("    %s -> %s  (%d 处)" % (v["from"], v["to"], len(v["sites"])))
-    if ahk_orphans:
-        print("-- AHK 孤点（无任何依赖关系）--")
-        for o in ahk_orphans:
-            print("   ", o)
+    if ahk_orphans_all:
+        print("-- AHK 孤点（无任何 #Include 关系、也未被 JS/TS/Shell 按路径引用）--")
+        for o in ahk_orphans_all:
+            print("   ", o, "[%s]" % ahk_buckets[o])
+    if ahk_ext_refs:
+        print("-- AHK 跨语言引用（因此不算孤点，供审计）--")
+        for r in ahk_ext_refs:
+            print("    %s  <-  %s:%d" % (r["ahk"], r["via"], r["line"]))
+    for kind in ("ahk", "rust", "js"):
+        if untracked[kind]:
+            print("-- 未跟踪源文件（%s）：不进基线数字，闸门①会拦 --" % kind)
+            for p in untracked[kind]:
+                print("   ", p)
     print()
     print("-- AHK 分层交叉边 TOP --")
     for k, v in sorted(layer_matrix.items(), key=lambda x: -x[1])[:15]:
