@@ -1036,6 +1036,36 @@ python scripts/check-coverage.py --lcov ... --update-baseline   # 补完测试�
 ⚠️ 基线在**本机（Windows）**实测。若 CI（ubuntu）因 cfg 分支系统性偏离，
 下载 CI 的 `coverage-report` artifact 重跑一次 `--update-baseline` 校准即可。
 
+#### 4.6.1.3 完整覆盖率（含 `src-tauri`，**仅 Windows 可跑**，2026-09-18 补）
+
+G3f 的棘轮**只覆盖 3 个纯逻辑 crate**，它报出的百分比**不是全仓覆盖率**。要拿全仓数字，
+在 Windows 本机跑（`src-tauri` 依赖 windows / tauri 系列，Linux 编译不过，
+所以这条进不了 CI 的 ubuntu runner）：
+
+```bash
+cd asd-tauri
+CARGO_INCREMENTAL=0 cargo llvm-cov --workspace --summary-only    # 约 4 分钟（含编译）
+```
+
+⚠️ **两个数字口径不同，不要混用**：
+
+| 口径 | 命令 | 实测（2026-09-18） |
+|------|------|--------------------|
+| 门禁口径（3 个纯逻辑 crate） | `--package asd-domain --package asd-ipc-protocol --package asd-application` | **89.05%** |
+| 全仓口径（含 `src-tauri` + `asd-test-harness`） | `--workspace` | **82.05%**（10206 行 / 1832 未覆盖） |
+
+差 7 个百分点。原因是 `src-tauri` 有 **3732 行、占全仓 36.6%**，却只到 **63.67%** ——
+它是代码量最大的 crate，而 G3f 把它整个排除在外。最低的几处：
+
+| 文件 | 行覆盖率 | 说明 |
+|------|---------|------|
+| `src-tauri/src/lib.rs` | 23.65% | 应用装配（`setup_ipc_callbacks` / `run`），与 TD-045 批次 7 记的「零自动化覆盖」一致 |
+| `src-tauri/src/infrastructure/watchdog.rs` | 57.94% | 进程监控与重启退避 |
+| `src-tauri/src/infrastructure/logging.rs` | 0.00% | 日志初始化 |
+
+**结论**：讨论「覆盖率是多少」时必须说明口径 —— 把 G3f 的 89.05% 当成全仓覆盖率会**严重高估**。
+（登记见 TD-007。）
+
 #### 口径漂移检测（2026-09-16 补）
 
 **背景教训**：2026-09-16 想把水位从 81.64% 收紧时，发现同一份代码、同一条 CI 命令下
