@@ -335,7 +335,12 @@ fn test_watchdog_backoff_expired() {
     let mut wd = ProcessWatchdog::new();
     wd.set_state(WatchdogStateEnum::Restarting);
     // 设置 last_restart 为 3 秒前，backoff 为 2 秒（已到期）
-    wd.set_last_restart(Some(std::time::Instant::now() - Duration::from_secs(3)));
+    // checked_sub 而非 `-`：Instant 减法在下溢时会 panic，显式处理让这个前提可见
+    wd.set_last_restart(Some(
+        std::time::Instant::now()
+            .checked_sub(Duration::from_secs(3))
+            .expect("构造 3 秒前的时间戳失败：Instant 下溢"),
+    ));
     wd.set_backoff_duration(Duration::from_secs(2));
     wd.set_restart_count(1);
 

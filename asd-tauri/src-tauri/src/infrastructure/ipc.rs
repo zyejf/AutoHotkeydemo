@@ -544,7 +544,7 @@ impl IpcManager {
     /// T6-06：非关键消息（heartbeat / key_send_event / key_record_event 等）
     /// 用 try_send，通道满时丢弃而非 await 阻塞监听循环，避免经 recv →
     /// OS 管道 → AHK 同步 WriteFile 反向压死。
-    async fn forward_to_outbound(&self, msg: IpcMessage) {
+    fn forward_to_outbound(&self, msg: IpcMessage) {
         match self.outbound_tx.try_send(msg) {
             Ok(()) => {}
             Err(mpsc::error::TrySendError::Full(dropped)) => {
@@ -611,7 +611,7 @@ impl IpcManager {
                                 continue;
                             }
                             // 响应未匹配到 pending（如超时后被清理），按非关键消息转发兜底。
-                            self.forward_to_outbound(msg).await;
+                            self.forward_to_outbound(msg);
                         }
                         MessageKind::Pong => {
                             let cb = self.on_heartbeat.lock().clone();
@@ -634,7 +634,7 @@ impl IpcManager {
                             }
                         }
                         MessageKind::Forward => {
-                            self.forward_to_outbound(msg).await;
+                            self.forward_to_outbound(msg);
                         }
                     }
                 }

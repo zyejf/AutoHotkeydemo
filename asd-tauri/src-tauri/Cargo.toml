@@ -89,17 +89,13 @@ missing_panics_doc = "allow"
 #     needless_continue / unreadable_literal / format_push_string / match_same_arms /
 #     semicolon_if_nothing_returned / items_after_statements /
 #     match_wildcard_for_single_variants / duration_suboptimal_units）
-# 批次 4 ⬜：needless_pass_by_value 11 项（动签名，风险最高，需逐个确认语义）
-# 批次 5 ⬜：cast_* 12 项（逐个判断「改写法」还是「登记豁免 + 理由」）
-# 批次 6 ⬜：unchecked_time_subtraction 4 + borrow_as_ptr/ptr_as_ptr 3 + unused_async 1
+# 批次 4 ✅（2026-09-17）：时间戳减法 4 + 指针转换 2 + unused_async 1
+# 批次 5 ⬜：needless_pass_by_value 11 项（动签名，风险最高，需逐个确认语义）
+# 批次 6 ⬜：cast_* 12 项（逐个判断「改写法」还是「登记豁免 + 理由」）
 # 批次 7 ⬜：too_many_lines 3 项（真重构，先补测试再动刀）
 # 批次 8 ⬜：文档类 290 项（doc_markdown 210 / missing_errors_doc 79 / missing_panics_doc 1）
 needless_pass_by_value = "allow"
-borrow_as_ptr = "allow"
-unchecked_time_subtraction = "allow"
 too_many_lines = "allow"
 cast_sign_loss = "allow"
 cast_precision_loss = "allow"
 cast_possible_truncation = "allow"
-ptr_as_ptr = "allow"
-unused_async = "allow"

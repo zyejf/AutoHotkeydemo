@@ -354,9 +354,12 @@ impl ProcessWatchdog {
                 }
 
                 if let Some(last) = self.last_restart {
-                    let elapsed = last.elapsed();
-                    if elapsed < self.backoff_duration {
-                        return WatchdogAction::WaitForBackoff(self.backoff_duration - elapsed);
+                    // 用 checked_sub 而不是 `-`：`Duration - Duration` 在下溢时
+                    // 会 panic（clippy::unchecked_time_subtraction）。这里两者的语义
+                    // 恰好一致 —— 退避未走完时 Some(剩余)，走完了是 None，
+                    // 落到下面继续 RestartNeeded。
+                    if let Some(remaining) = self.backoff_duration.checked_sub(last.elapsed()) {
+                        return WatchdogAction::WaitForBackoff(remaining);
                     }
                 }
 
@@ -685,7 +688,7 @@ impl JobObjectGuard {
             SetInformationJobObject(
                 handle,
                 JOBOBJECTINFOCLASS(JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS),
-                std::ptr::from_ref(&info) as *const _,
+                std::ptr::from_ref(&info).cast(),
                 std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
             )?;
             Ok(Self(SendSyncCell::new(RawHandle::new(handle))))
@@ -864,7 +867,9 @@ unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> w
     let target_pid = *pid_ptr;
 
     let mut window_pid: u32 = 0;
-    GetWindowThreadProcessId(hwnd, Some(&mut window_pid));
+    // addr_of_mut! 而不是 `&mut x as *mut _`：后者会先创建一个独占引用再转裸指针，
+    // 此处只做 out 参数传递，用 addr_of_mut! 避免引入多余的引用（clippy::borrow_as_ptr）
+    GetWindowThreadProcessId(hwnd, Some(std::ptr::addr_of_mut!(window_pid)));
 
     if window_pid == target_pid {
         let _ = PostMessageW(
@@ -1028,6 +1033,18 @@ mod tests {
     /// `register_panic_hook` 与 `build_panic_hook_closure` 测试均通过 `take_hook`/`set_hook`
     /// 修改全局 hook，必须串行执行以避免竞态。
     static PANIC_HOOK_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// 构造「`secs` 秒之前」的 `Instant`。
+    ///
+    /// 用 `checked_sub` 而不是直接写 `Instant::now() - Duration::from_secs(secs)`：
+    /// 后者是 unchecked 减法，在 `Instant` 早于该时长时会 panic
+    /// （clippy::unchecked_time_subtraction）。测试里构造「过去的时间戳」是常见
+    /// 需求，集中在这里处理，免得每处都重新论证一遍。
+    fn instant_ago(secs: u64) -> std::time::Instant {
+        std::time::Instant::now()
+            .checked_sub(Duration::from_secs(secs))
+            .expect("构造过去时间戳失败：Instant 下溢")
+    }
 
     #[test]
     fn test_watchdog_state_enum_serialization() {
@@ -1340,7 +1357,7 @@ mod tests {
     fn test_recovering_stale_heartbeat_returns_restart_needed() {
         let mut wd = ProcessWatchdog::new();
         wd.state = WatchdogStateEnum::Recovering;
-        wd.last_heartbeat = Some(std::time::Instant::now() - Duration::from_secs(31));
+        wd.last_heartbeat = Some(instant_ago(31));
         let action = wd.tick();
         assert_eq!(action, WatchdogAction::RestartNeeded);
         assert_eq!(wd.state(), WatchdogStateEnum::Restarting);
@@ -1377,7 +1394,7 @@ mod tests {
         // 但子进程退出检测优先执行，立即返回 RestartNeeded。
         let mut wd = ProcessWatchdog::new();
         wd.state = WatchdogStateEnum::Recovering;
-        wd.last_heartbeat = Some(std::time::Instant::now() - Duration::from_secs(29));
+        wd.last_heartbeat = Some(instant_ago(29));
         let action = wd.tick();
         assert_eq!(action, WatchdogAction::RestartNeeded);
         assert_eq!(wd.state(), WatchdogStateEnum::Restarting);
