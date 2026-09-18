@@ -556,17 +556,80 @@ jobs:
       - name: 安装前端依赖
         working-directory: asd-tauri
         run: npm ci
-      - name: 安装 tauri-driver
-        run: cargo install tauri-driver
+
+      # ⚠️ 与 gates job 同款前置，本 job 此前**缺这一步** —— 缺了它下面的
+      #    `npm run tauri build` 必红：src-tauri 的 build.rs 需要
+      #    ahk_executor/AutoHotkey64.exe（被 .gitignore 的 `*.exe` 排除，全新 clone
+      #    里不存在），报错 `resource path ahk_executor\AutoHotkey64.exe doesn't exist`。
+      #    也就是说：只修下载源而不补这一步，E2E 仍然一次都跑不起来。
+      - name: 安装 AutoHotkey v2
+        id: ahk
+        uses: holy-tao/install-autohotkey@v2.1.0
+        with:
+          version: '2.0.26'
+          destination: ${{ runner.temp }}
+
+      - name: 准备 ahk_executor 的 AHK 运行时资源
+        shell: pwsh
+        env:
+          AHK_EXE: ${{ steps.ahk.outputs.ahk64 }}
+        run: |
+          $dst = Join-Path 'asd-tauri' 'src-tauri' 'ahk_executor' 'AutoHotkey64.exe'
+          if (-not (Test-Path $dst)) {
+            Copy-Item $env:AHK_EXE $dst
+            Write-Host "已放置 AHK 运行时: $dst"
+          } else {
+            Write-Host "AHK 运行时已存在，跳过: $dst"
+          }
+
+      # ⚠️ tauri-driver **没有官方预编译产物**（2026-09-18 实测：crates.io 显示其仓库为
+      #    tauri-apps/tauri，该仓库 Release 资产里 0 处 driver；独立仓库
+      #    tauri-apps/tauri-driver 返回 404；taiki-e/install-action 的支持清单里也没有）。
+      #    所以**不能**写成二进制下载，只能源码编译 —— 用缓存把「每次编译」变成「只编译一次」。
+      - name: 缓存 tauri-driver 二进制
+        id: tauri-driver-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/tauri-driver.exe
+          key: tauri-driver-${{ runner.os }}-2.0.6
+
+      - name: 安装 tauri-driver（源码编译，仅缓存未命中时）
+        if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
+        run: cargo install tauri-driver --version 2.0.6 --locked
+
       - name: 探测 Edge 版本并下载匹配的 msedgedriver
         shell: pwsh
         run: |
           $edge = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe' -ErrorAction SilentlyContinue).'(default)'
-          if (-not $edge) { $edge = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe' }
+          if (-not $edge -or -not (Test-Path $edge)) { $edge = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe' }
+          if (-not (Test-Path $edge)) { throw "未找到 msedge.exe，无法探测 Edge 版本" }
           $version = (Get-Item $edge).VersionInfo.ProductVersion
           $major = $version.Split('.')[0]
-          Write-Host "Edge 版本: $version"
-          Invoke-WebRequest "https://msedgedriver.azureedge.net/$major/edgedriver_win64.zip" -OutFile "$env:RUNNER_TEMP\edgedriver.zip"
+          Write-Host "Edge 版本: $version（major=$major）"
+
+          # ⚠️ 旧下载域 msedgedriver.azureedge.net 已被微软停用（实测连接失败，code=000），
+          #    现行域为 msedgedriver.microsoft.com。
+          # ⚠️ 该域**只接受完整四段版本号** —— 实测只给 major 一律 404
+          #    （https://msedgedriver.microsoft.com/139/edgedriver_win64.zip → 404），
+          #    所以不能直接拿 $major 拼 URL，那是当前代码第二个致命错误。
+          # ⚠️ LATEST_RELEASE_<major> 返回的是 **UTF-16LE + BOM**，且 Content-Type 为
+          #    application/octet-stream（无 charset），直接取 .Content 会被按单字节编码
+          #    解码成乱码 —— 必须按字节读取再用 Unicode 解码。
+          $full = ''
+          try {
+            Invoke-WebRequest -Uri "https://msedgedriver.microsoft.com/LATEST_RELEASE_$major" -OutFile "$env:RUNNER_TEMP\msedge-latest.txt"
+            $bytes = [System.IO.File]::ReadAllBytes("$env:RUNNER_TEMP\msedge-latest.txt")
+            $full = ([System.Text.Encoding]::Unicode.GetString($bytes) -replace '[^\d.]', '').Trim()
+          } catch {
+            Write-Host "LATEST_RELEASE_$major 获取失败：$($_.Exception.Message)"
+          }
+          if ($full -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+            $full = $version
+            Write-Host "回落到 Edge 自身完整版本: $full"
+          }
+          Write-Host "msedgedriver 版本: $full"
+
+          Invoke-WebRequest "https://msedgedriver.microsoft.com/$full/edgedriver_win64.zip" -OutFile "$env:RUNNER_TEMP\edgedriver.zip"
           Expand-Archive "$env:RUNNER_TEMP\edgedriver.zip" -DestinationPath "$env:RUNNER_TEMP\edgedriver" -Force
           "$env:RUNNER_TEMP\edgedriver" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: 构建 Tauri 应用（debug）
