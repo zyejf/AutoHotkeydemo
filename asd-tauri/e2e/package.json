@@ -18,7 +18,7 @@
     "@wdio/mocha-framework": "^9.31.9",
     "@wdio/spec-reporter": "^9.31.2",
     "chai": "^4.5.0",
-    "fs-extra": "^11.3.5",
+    "fs-extra": "^11.4.0",
     "webdriverio": "^9.31.9"
   },
   "overrides": {
