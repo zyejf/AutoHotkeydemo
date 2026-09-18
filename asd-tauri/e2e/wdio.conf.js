@@ -5,10 +5,9 @@
 // 所有 JS 使用 ESM 语法（package.json type=module）
 // =================================================================
 import { spawn, spawnSync, execSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tmpdir } from 'node:os';
 import net from 'node:net';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -43,17 +42,27 @@ const reportsDir = resolve(__dirname, 'reports');
 const driversDir = resolve(__dirname, 'drivers');
 const msedgedriverExePath = resolve(driversDir, 'msedgedriver.exe');
 
-// WebView2 user data 目录：每次运行新建一个全新目录。
-// 依据 MS 文档（webviewOptions.userDataFolder，类型 string）：
-//   "Path to the user data folder that WebView2 will use. If userDataFolder isn't specified,
-//    Microsoft Edge WebDriver will create a temporary user data folder."
-//   https://learn.microsoft.com/en-us/microsoft-edge/webdriver-chromium/capabilities-edge-options
-// 目的：排除「复用带锁文件 / 陈旧 DevToolsActivePort 的 user-data-dir」这个变量 ——
-// 上游 tauri-apps/webdriver-example 的 windows-latest 作业正是报
-// "DevToolsActivePort file doesn't exist"（run 34766587019 / job 103748526013）。
-// ⚠️ 必须在**模块作用域**算一次：若放在 capabilities 求值里，多 spec 之间目录不一致，
-//    诊断无法对齐，还会累积垃圾目录。
-const webviewUserDataFolder = mkdtempSync(join(tmpdir(), 'asd-e2e-'));
+// WebView2 user data 目录（UDF）：**必须**指向 WebView2 真实使用的那个默认目录。
+//
+// 推导链（Cody 核实，有出处）：
+//   ① wry 把 UDF 作为 CreateCoreWebView2EnvironmentWithOptions 的第 2 参传入；
+//      data_directory 为 None 时，wry-0.55.1/src/webview2/mod.rs:345 传的是
+//      `&data_directory.unwrap_or_default()` = **空串**，于是 WebView2 走默认 UDF。
+//   ② MS《UDF 概念》页 "The default UDF location" 逐字：
+//      "the default UDF location is the directory that the app executable (.exe) is running in.
+//       The default UDF is the executable (exe) path of your app + `.WebView2`"
+//      ⇒ 真实 UDF = `<binaryAbsPath>.WebView2`
+//
+// ⚠️ **刻意不用 mkdtempSync 新建临时目录**：那样 WebView2 会把 DevToolsActivePort 写在
+//    它自己的默认目录里，而 EdgeDriver 拿着我们给的 userDataFolder 去**另一个**目录找
+//    —— 写与找不在同一处，正是上游报 `DevToolsActivePort file doesn't exist`
+//      （run 34766587019 / job 103748526013）的成因。目录对齐比目录干净更重要。
+//
+// ⚠️ 端口只能用 `0`，不要改固定端口：固定端口唯一通路是 `ms:edgeOptions.debuggerAddress`，
+//    但 tauri-driver 用 `always_match.extend(native)` **整体替换** `ms:edgeOptions`
+//    （crates/tauri-driver/src/server.rs:150-152，native 里只有 binary/args/webviewOptions）
+//    ⇒ 注入必被覆盖、完全不可达。
+const webviewUserDataFolder = binaryAbsPath + '.WebView2';
 
 // 全局引用：保存 tauri-driver 子进程，供 onComplete 关闭
 let tauriDriverProcess = null;
@@ -726,6 +735,45 @@ export const config = {
     // 日志里也能直接看到「/session 不返回时 tauri-driver 在干什么」。
     // 先停采样器并出汇总（会写进 driverLog，故必须在 dumpDriverLog 之前）
     samplerStop();
+
+    // ===== [UDF 探测] WebView2 是否真的写了 DevToolsActivePort =====
+    // 判据：有 ⇒ 目录已对齐（若仍失败则是别的原因）；
+    //       无 ⇒ WebView2 根本不写该文件，说明「靠 webviewOptions 开调试端口」
+    //            这条路整体不成立，应止损。
+    // ⚠️ 放 onComplete 是为了「无论如何都执行」；位置紧挨 samplerStop() 之后、
+    //    dumpDriverLog() 之前，这样探测结果会被 dumpDriverLog 一起落盘。
+    // ⚠️ 用 Node 的 fs API，不用 `dir /s`（沙箱禁 powershell，且大目录上很慢）。
+    {
+      const udfLines = [];
+      try {
+        if (!existsSync(webviewUserDataFolder)) {
+          udfLines.push(`[UDF 探测] 目录不存在: ${webviewUserDataFolder}`);
+        } else {
+          const entries = readdirSync(webviewUserDataFolder);
+          const hit = entries.find((n) => n === 'DevToolsActivePort');
+          if (!hit) {
+            udfLines.push(
+              `[UDF 探测] 目录存在但无 DevToolsActivePort（共 ${entries.length} 项）: ${webviewUserDataFolder}`
+            );
+            udfLines.push(`[UDF 探测] 目录条目: ${entries.join(', ') || '(空)'}`);
+          } else {
+            // 找到就原样打印文件内容（第一行是端口，第二行是 /devtools/browser 路径）
+            const content = readFileSync(
+              resolve(webviewUserDataFolder, 'DevToolsActivePort'),
+              'utf-8'
+            );
+            udfLines.push(`[UDF 探测] 找到 DevToolsActivePort，端口=${content.trim()}`);
+            udfLines.push(`[UDF 探测] 所在目录: ${webviewUserDataFolder}`);
+          }
+        }
+      } catch (e) {
+        udfLines.push(`[UDF 探测] 探测失败: ${e.message}`);
+      }
+      // 同时进 driverLog（落盘）与 CI 日志（直接可见）
+      driverLog.push(udfLines.join('\n') + '\n');
+      console.log(udfLines.join('\n'));
+    }
+
     dumpDriverLog();
     const tail = driverLog.join('').slice(-4000).trim();
     console.log(`[tauri-driver 输出尾部] ${tail || '(无输出)'}`);
