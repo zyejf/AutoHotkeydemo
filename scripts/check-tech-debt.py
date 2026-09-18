@@ -47,6 +47,13 @@
      `joystick.ahk:18` 都要 include 它，于是**任何干净的打包构建**（CI 全新
      checkout 或用户拿到安装包）执行器都会**启动即崩**；开发机因为有本地编译的
      `asd_executor.exe` 兜底，本机永远测不出来（与 TD-046 同家族）。
+  C12 正式配置不得开调试端口：`asd-tauri/src-tauri/tauri.conf.json` 里**不得出现**
+     `--remote-debugging-port`（E2E 专用配置 `tauri.e2e.conf.json` **不查**，它是
+     刻意开端口的地方）。
+     —— 起因：E2E 要靠 `--remote-debugging-port` 才能让 msedgedriver 挂上 WebView2，
+     但这个开关一旦混进正式配置，**分发给用户的 release 产物就会带着远程调试端口**，
+     那是安全红线而不只是配置噪声。两个配置长得几乎一样、只差一个字段，
+     人眼分不出来，故必须由机器守住。
 
 棘轮（ratchet）语义
 --------------------
@@ -59,10 +66,10 @@ C1/C2 的现状是**存量债**，不可能一次清零。所以脚本不要求�
   - 想主动下调水位：清理掉若干项后跑 `--update-baseline`，把新的（更小的）集合
     冻结为新基线。基线文件 diff 会出现在 CR 里，收紧必须过 review。
 
-C3 / C4 / C5 / C6 / C7 / C8 / C9 / C10 / C11 不做棘轮：它们守的是**规则**（文档与代码
+C3 / C4 / C5 / C6 / C7 / C8 / C9 / C10 / C11 / C12 不做棘轮：它们守的是**规则**（文档与代码
 必须一致 / 占位目录不得放文件 / 成员目录不得有冗余 lock / vendored 引擎树必须与上游
-一致 / 布尔契约必须同步 / 三处门禁档位必须一致 / 打包资源必须覆盖被引用的文件），
-没有「先记账以后再说」的余地。
+一致 / 布尔契约必须同步 / 三处门禁档位必须一致 / 打包资源必须覆盖被引用的文件 /
+正式配置不得开调试端口），没有「先记账以后再说」的余地。
 
 用法：
     python scripts/check-tech-debt.py                  # 三检 + 与基线比对（CI 用这个）
@@ -1263,6 +1270,13 @@ C11_AHK_EXECUTOR = "asd-tauri/src-tauri/ahk_executor"
 # resources 里的条目相对 `src-tauri/`，故同目录 .ahk 期望写成 `ahk_executor/<name>`
 C11_RES_PREFIX = "ahk_executor/"
 
+# ---- C12 正式配置不得开调试端口 ----
+C12_TAURI_CONF = "asd-tauri/src-tauri/tauri.conf.json"
+# E2E 专用配置**刻意**开端口，是 C12 唯一的合法例外，故不查它
+C12_E2E_CONF = "asd-tauri/src-tauri/tauri.e2e.conf.json"
+# 只盯这一个开关：E2E 需要它，正式产物绝不能有它
+C12_FORBIDDEN = "--remote-debugging-port"
+
 
 def _c11_norm_resources(raw) -> set[str]:
     """把 bundle.resources 归一化成可比集合（反斜杠 → 斜杠，去掉 ./ 前缀）。"""
@@ -1379,6 +1393,54 @@ def check_c11(repo_root: Path) -> dict:
             "advisory": advisory, "resources": len(raw_res)}
 
 
+def check_c12(repo_root: Path) -> dict:
+    """C12 正式配置不得开调试端口（2026-09-18 新增，随方案 1 一起上）。
+
+    E2E 要靠 `--remote-debugging-port` 才能让 msedgedriver 挂上 WebView2，所以
+    E2E 专用配置 `tauri.e2e.conf.json` 里**必须**有它；而正式 `tauri.conf.json`
+    里**绝对不能**有 —— 有的话分发给用户的 release 产物就带着远程调试端口。
+
+    两份配置长得几乎一样（只差一个字段 + 一个文件名），**人眼分不出来**，
+    故必须由机器守住：这是典型的「两个手写副本、只靠命名约定区分」的契约断裂，
+    与 C7（布尔契约）/ C8（IPC 命令契约）/ C11（打包资源清单）同族。
+
+    与 C3 / C4 / C5 / C6 / C7 / C8 / C9 / C10 / C11 同类：**硬失败、不做棘轮**。
+
+    判据（打击面刻意收窄）：
+      1. **只查** `asd-tauri/src-tauri/tauri.conf.json`；`tauri.e2e.conf.json`
+         **明确不查**（它是合法开端口的地方，查它就是误报）。
+      2. 扫**原始文本**而不是 JSON 解析后的值 —— 开关可能出现在任何字符串值里
+         （`additionalBrowserArgs` / 注释 / 别名字段），解析后遍历会漏。
+      3. 命中即硬失败，报出**行号**便于定位。
+      4. 文件不存在 / 读不了 → **按失败处理**，不静默放过（与 C8/C11 同口径）：
+         正式配置都不在了，说明路径变了，守卫必须响。
+    """
+    conf = repo_root / C12_TAURI_CONF
+    findings: list[str] = []
+
+    if not conf.exists():
+        return {"findings": [f"`{C12_TAURI_CONF}` 不存在（C12 无法校验，按失败处理）"],
+                "checked": 0}
+
+    try:
+        text = read_text(conf)
+    except Exception as e:
+        return {"findings": [f"`{C12_TAURI_CONF}` 读取失败：{e}（C12 无法校验，按失败处理）"],
+                "checked": 0}
+
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if C12_FORBIDDEN in line:
+            findings.append(
+                f"`{C12_TAURI_CONF}:{lineno}` 出现 `{C12_FORBIDDEN}` —— "
+                f"正式配置**不允许**开远程调试端口：它会进 `tauri build` 的产物，"
+                f"分发给用户的 release 也会带着调试端口（安全红线）。"
+                f"E2E 需要它请写到 `{C12_E2E_CONF}`，并用 "
+                f"`tauri build --config` 走测试专用配置。"
+            )
+
+    return {"findings": findings, "checked": 1}
+
+
 # ---------------------------------------------------------------- 基线 / 棘轮
 
 
@@ -1437,7 +1499,7 @@ def main() -> int:
     )
     ap.add_argument("--update-baseline", action="store_true", help="把当前结果冻结为新基线")
     ap.add_argument("--show", action="store_true", help="只打印当前结果，不与基线比对")
-    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11"], help="只跑某一检")
+    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12"], help="只跑某一检")
     args = ap.parse_args()
 
     print("=" * 60)
@@ -1458,13 +1520,14 @@ def main() -> int:
         "c9": check_c9(REPO_ROOT),
         "c10": check_c10(REPO_ROOT),
         "c11": check_c11(REPO_ROOT),
+        "c12": check_c12(REPO_ROOT),
     }
 
     if args.update_baseline:
         save_baseline(cur)
         return 0
 
-    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11"}
+    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12"}
 
     # ---------- C3：硬失败，不做棘轮 ----------
     c3_errors = list(cur["c3"]["findings"])
@@ -1578,6 +1641,17 @@ def main() -> int:
             print(f"       [提示] 存在但从未被 #Include 引用（需人判：漏 include 还是入口脚本）："
                   f"{'、'.join(cur['c11']['advisory'])}")
 
+    # ---------- C12：硬失败，正式配置不得开调试端口 ----------
+    c12_findings = list(cur["c12"]["findings"])
+    if "c12" in want:
+        print(f"\n[C12] 正式配置不得开调试端口（{C12_TAURI_CONF} 里不得出现 "
+              f"{C12_FORBIDDEN}；{C12_E2E_CONF} 是合法例外、不查）")
+        if c12_findings:
+            for f in c12_findings[:20]:
+                print(f"       - {f}")
+        else:
+            print("       通过：正式配置未开远程调试端口")
+
     # ---------- C1 / C2：棘轮 ----------
     base = None if args.show else load_baseline()
     if base is None and not args.show:
@@ -1655,6 +1729,12 @@ def main() -> int:
     if "c11" in want and c11_findings:
         errors.append(
             f"`bundle.resources` 漏打包被引用的 .ahk {len(c11_findings)} 项（C11）"
+        )
+
+    if "c12" in want and c12_findings:
+        errors.append(
+            f"正式 `tauri.conf.json` 出现 `{C12_FORBIDDEN}` {len(c12_findings)} 处"
+            f"（会进 release 产物，安全红线）（C12）"
         )
 
     if errors:
