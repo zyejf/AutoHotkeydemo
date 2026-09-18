@@ -60,6 +60,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import math
 import re
 import subprocess
 import sys
@@ -1020,6 +1021,101 @@ def check_c8(repo_root: Path) -> dict:
             "ahk_actions": sorted(ahk), "checked": len(rust)}
 
 
+# ---------------------------------------------------------------- C9 台账评分自洽
+_REGISTER = "docs/tech-debt-register.md"
+
+
+def _tier_of(d: float) -> str:
+    """档位落档阈值（台账表头明文：P0 ≥10 / P1 5–10 / P2 2–5 / P3 <2）。"""
+    if d >= 10:
+        return "P0"
+    if d >= 5:
+        return "P1"
+    if d >= 2:
+        return "P2"
+    return "P3"
+
+
+def _cell_num(s: str):
+    """取单元格开头的数字。DPI 列可能带「**（+ 硬性升档：…）」后缀，档位列可能带括号后缀。"""
+    m = re.match(r"^\**\s*([0-9]+(?:\.[0-9]+)?)", s.strip())
+    return float(m.group(1)) if m else None
+
+
+def check_c9(repo_root: Path) -> dict:
+    """C9 技术债台账评分自洽（2026-09-18 新增）。
+
+    台账 `docs/tech-debt-register.md` 是技术债的**唯一登记处**，但在本检加入之前，
+    它的 DPI 与档位**从来没有被任何东西校验过** —— 2026-09-18 用台账自己第 12 行
+    声明的公式反算，58 行里 **12 行对不上**（其中 TD-056 声明 3.0 / 公式 10.0，
+    整整差一个档位）。这是典型的「度量失守」：数字看着在管，实际管的是另一个东西。
+
+    与 C3 / C4 / C5 / C6 / C7 / C8 同类：**硬失败、不做棘轮** —— 守的是规则不是存量债。
+
+    校验三条：
+      1. `DPI == (I + P + V + S) / ( √C × R )`（容差 0.06，容忍台账保留一位小数）
+      2. 档位 == 由 DPI 落档的结果（P0 ≥10 / P1 5–10 / P2 2–5 / P3 <2）
+      3. 行结构完整（15 段；缺「阶段」列即按失败处理，不静默放过）
+    """
+    reg = repo_root / _REGISTER
+    findings: list[str] = []
+    checked = 0
+
+    if not reg.exists():
+        return {"findings": [f"台账 `{_REGISTER}` 不存在（C9 无法校验，按失败处理）"],
+                "checked": 0, "rows": 0}
+
+    for lineno, line in enumerate(
+            reg.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.startswith("| TD-"):
+            continue
+        checked += 1
+        cells = [x.strip() for x in line.split("|")]
+        tid = cells[1] if len(cells) > 1 else f"第 {lineno} 行"
+
+        if len(cells) < 14:
+            findings.append(
+                f"{tid}：行结构不完整（{len(cells)} 段，应为 15 段）—— 缺「阶段」列，"
+                f"请补齐（邻居同批行的阶段值见 TD-008 / TD-010）"
+            )
+            continue
+
+        nums = [_cell_num(cells[i]) for i in range(4, 10)]
+        dpi = _cell_num(cells[10])
+        tier = cells[11].replace("*", "").strip()
+
+        if any(v is None for v in nums) or dpi is None:
+            findings.append(
+                f"{tid}：I/P/V/S/C/R 或 DPI 解析不出数值（C9 无法校验，按失败处理）—— "
+                f"实际为 {cells[4:11]}"
+            )
+            continue
+
+        impact, pace, verify, strat, cost, risk = nums
+        if cost <= 0 or risk <= 0:
+            findings.append(f"{tid}：C(成本) 与 R(风险系数) 必须为正数，实际 C={cost} R={risk}")
+            continue
+
+        expect = (impact + pace + verify + strat) / (math.sqrt(cost) * risk)
+        if abs(expect - dpi) >= 0.06:
+            findings.append(
+                f"{tid}：DPI 与公式不符 —— 台账写 {dpi}，"
+                f"按 `DPI=(I+P+V+S)/(√C×R)` 算应为 **{expect:.2f}**"
+                f"（I={impact:g} P={pace:g} V={verify:g} S={strat:g} C={cost:g} R={risk:g}）"
+            )
+
+        want_tier = _tier_of(dpi)
+        if tier[:2] != want_tier:
+            findings.append(
+                f"{tid}：档位与 DPI 不符 —— DPI {dpi} 按阈值应落 **{want_tier}**，"
+                f"台账写 **{tier[:2]}**"
+                + ("（若为有意覆盖，须按台账第 19 行的规矩写明「硬性升档」理由，如 "
+                   "`**22.6**（+ 硬性升档：数据丢失）`，否则一律视为漏填）")
+            )
+
+    return {"findings": findings, "checked": checked, "rows": checked}
+
+
 # ---------------------------------------------------------------- 基线 / 棘轮
 
 
@@ -1078,7 +1174,7 @@ def main() -> int:
     )
     ap.add_argument("--update-baseline", action="store_true", help="把当前结果冻结为新基线")
     ap.add_argument("--show", action="store_true", help="只打印当前结果，不与基线比对")
-    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4", "c5", "c6", "c7"], help="只跑某一检")
+    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4", "c5", "c6", "c7", "c8", "c9"], help="只跑某一检")
     args = ap.parse_args()
 
     print("=" * 60)
@@ -1096,13 +1192,14 @@ def main() -> int:
         "c6": check_c6(REPO_ROOT),
         "c7": check_c7(REPO_ROOT),
         "c8": check_c8(REPO_ROOT),
+        "c9": check_c9(REPO_ROOT),
     }
 
     if args.update_baseline:
         save_baseline(cur)
         return 0
 
-    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8"}
+    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
 
     # ---------- C3：硬失败，不做棘轮 ----------
     c3_errors = list(cur["c3"]["findings"])
@@ -1175,6 +1272,17 @@ def main() -> int:
         else:
             print("       通过：两侧命令集合完全一致")
 
+    # ---------- C9：硬失败，台账评分自洽（2026-09-18 新增）----------
+    c9_findings = list(cur["c9"]["findings"])
+    if "c9" in want:
+        print(f"\n[C9] 技术债台账评分自洽（DPI 是否等于公式值 / 档位是否等于阈值落档）："
+              f"核对 {cur['c9']['checked']} 行")
+        if c9_findings:
+            for f in c9_findings[:20]:
+                print(f"       - {f}")
+        else:
+            print("       通过：DPI 与档位全部符合公式与阈值")
+
     # ---------- C1 / C2：棘轮 ----------
     base = None if args.show else load_baseline()
     if base is None and not args.show:
@@ -1242,6 +1350,9 @@ def main() -> int:
 
     if "c8" in want and c8_findings:
         errors.append(f"IPC 命令契约不对齐 {len(c8_findings)} 处（C8）")
+
+    if "c9" in want and c9_findings:
+        errors.append(f"技术债台账评分不自洽 {len(c9_findings)} 处（C9）")
 
     if errors:
         print("[FAIL] 技术债检查未通过:")
