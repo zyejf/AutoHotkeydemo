@@ -131,6 +131,20 @@ jobs:
         working-directory: asd-tauri
         run: cargo test --workspace
 
+      # watchdog 进程生命周期用例带 `#[ignore]`（G3a 默认跳过），覆盖
+      # start_child_process / crash_restart / restart_limit / graceful_shutdown 等路径 ——
+      # 这些路径一旦回归，表现是「按键静默失效」而**没有任何红灯**。
+      # 原排除理由写的是「避免在 CI 中运行慢测试」，但 2026-09-18 在当前 HEAD 实测：
+      # 15 passed / 0 failed / finished in 13.39s —— 理由不成立（且不算慢）。
+      # 故以「观测期」接入：continue-on-error 不阻断，连续跑绿 3-5 次后再摘 `#[ignore]` 转硬门禁。
+      # ⚠️ 必须带 CARGO_INCREMENTAL=0：否则 rustc 可能 ICE（退出码 101），会被误读成测试失败。
+      - name: 'G3h watchdog 进程生命周期（--ignored，观测期不阻断）'
+        working-directory: asd-tauri
+        env:
+          CARGO_INCREMENTAL: '0'
+        continue-on-error: true
+        run: cargo test -p asd-tauri --lib -- --ignored --test-threads=1
+
       - name: 'G3b AHK 完整测试套件'
         shell: pwsh
         env:
