@@ -51,6 +51,23 @@ let tauriDriverProcess = null;
 //    没启动」，而 run 35327797606 的实际失败形态是「启动了、已监听 4444，但
 //    POST /session 永不返回」，正好被那个条件排除，driver 输出一行都没留下来。
 const driverLog = [];
+// 采样器输出（与 driverLog 分开存，避免被 onComplete 的 4000 字符尾部截断）
+const samplerLines = [];
+let samplerTimer = null;
+// 采样目标状态：只记录**变化**，并额外每 30s 打心跳，见 samplerTick。
+// ⚠️ 心跳必须存在：本轮已连续三次栽在「静默」上（driverLog 静默、diag 不进 stdout、
+//    tauri-driver 零输出）。没有心跳，「一条变化都没有」既可能是真没变化，也可能是
+//    采样器自己挂了 —— 同样的静默会再骗我们一次。
+const samplerState = {
+  startedAt: 0,
+  beatAt: 0,
+  targets: {
+    app: { label: 'asd-tauri.exe', present: null, everSeen: false, firstSeen: null, lastSeen: null },
+    native: { label: 'msedgedriver.exe', present: null, everSeen: false, firstSeen: null, lastSeen: null },
+    vite: { label: '5173 (Vite)', present: null, everSeen: false, firstSeen: null, lastSeen: null },
+    tauri: { label: 'tauri-driver PID', present: null, everSeen: false, firstSeen: null, lastSeen: null },
+  },
+};
 // 全局引用：保存由本配置启动的 Vite dev server 子进程，供 onComplete 关闭。
 // 复用外部已运行的实例时不持有句柄（不关闭别人的进程）。
 let viteProcess = null;
@@ -111,6 +128,114 @@ function dumpDriverLog() {
     );
   } catch {
     // 落盘失败不能影响测试流程本身
+  }
+}
+
+// 进程名是否存在（tasklist 过滤；无匹配时输出为 "INFO: No tasks..."，不含进程名）
+function processExists(imageName) {
+  try {
+    const r = spawnSync('tasklist', ['/FI', `IMAGENAME eq ${imageName}`], {
+      encoding: 'utf8', timeout: 10000, shell: false,
+    });
+    return `${r.stdout || ''}`.toLowerCase().includes(imageName.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+// PID 是否存活（同样走 tasklist，避免 process.kill(pid, 0) 在 Windows 上的语义差异）
+function pidAlive(pid) {
+  if (!pid) return false;
+  try {
+    const r = spawnSync('tasklist', ['/FI', `PID eq ${pid}`], {
+      encoding: 'utf8', timeout: 10000, shell: false,
+    });
+    return `${r.stdout || ''}`.includes(String(pid));
+  } catch {
+    return false;
+  }
+}
+
+// 记录一次采样：**仅在状态变化时**落一行；每个变化行带相对 spawn 的秒数。
+function samplerRecord(key, present) {
+  const t = samplerState.targets[key];
+  const secs = ((Date.now() - samplerState.startedAt) / 1000).toFixed(1);
+  if (present) {
+    if (!t.everSeen) {
+      t.everSeen = true;
+      t.firstSeen = secs;
+    }
+    t.lastSeen = secs;
+  }
+  if (t.present !== present) {
+    const line = `[sampler +${secs}s] ${t.label}: ${present ? '出现' : '消失'}`;
+    samplerLines.push(line);
+    driverLog.push(`${line}\n`);
+    console.log(line);
+    t.present = present;
+  }
+}
+
+async function samplerTick() {
+  try {
+    const now = Date.now();
+    samplerRecord('app', processExists('asd-tauri.exe'));
+    samplerRecord('native', processExists('msedgedriver.exe'));
+    samplerRecord('vite', await checkPort('127.0.0.1', 5173));
+    samplerRecord('tauri', pidAlive(tauriDriverProcess?.pid));
+    // 心跳：即便毫无变化也每 30s 报一次当前四项的布尔值，证明采样器自身存活
+    if (now - samplerState.beatAt >= 30000) {
+      samplerState.beatAt = now;
+      const secs = ((now - samplerState.startedAt) / 1000).toFixed(1);
+      const alive = Object.values(samplerState.targets)
+        .map((t) => `${t.label}=${t.present}`).join(' ');
+      const line = `[sampler 心跳 +${secs}s] ${alive}`;
+      samplerLines.push(line);
+      driverLog.push(`${line}\n`);
+      console.log(line);
+    }
+  } catch (e) {
+    const line = `[sampler 异常] ${e.message}`;
+    samplerLines.push(line);
+    driverLog.push(`${line}\n`);
+    console.log(line);
+  }
+}
+
+// 收尾：停表 + 输出各目标「是否曾出现 / 首次 / 最后」汇总
+// 自调度：前 15s 用 1s 网格（闪退窗口只有几秒，3s 太粗），之后回到 3s。
+// 用 setTimeout 自调度而非固定 setInterval，是因为间隔需要在运行中切换。
+function samplerSchedule() {
+  const elapsed = Date.now() - samplerState.startedAt;
+  const delay = elapsed < 15000 ? 1000 : 3000;
+  samplerTimer = setTimeout(async () => {
+    await samplerTick();
+    samplerSchedule();
+  }, delay);
+  if (samplerTimer.unref) samplerTimer.unref();
+}
+
+function samplerStop() {
+  if (samplerTimer) {
+    clearTimeout(samplerTimer);
+    samplerTimer = null;
+  }
+  const lines = ['[sampler 汇总] 时刻为相对 tauri-driver spawn 的秒数'];
+  for (const t of Object.values(samplerState.targets)) {
+    lines.push(
+      t.everSeen
+        ? `[sampler 汇总] ${t.label}: 曾出现，首次 +${t.firstSeen}s，最后 +${t.lastSeen}s`
+        : `[sampler 汇总] ${t.label}: 从未出现`
+    );
+  }
+  samplerLines.push(...lines);
+  driverLog.push(lines.join('\n') + '\n');
+  console.log(lines.join('\n'));
+  try {
+    if (!existsSync(reportsDir)) mkdirSync(reportsDir, { recursive: true });
+    writeFileSync(resolve(reportsDir, 'e2e-sampler.log'), samplerLines.join('\n') + '\n', 'utf-8');
+  } catch {
+    // 落盘失败不阻塞
   }
 }
 
@@ -467,6 +592,18 @@ export const config = {
       dumpDriverLog();
     });
 
+    // 启动进程/端口采样器（第七道死因排查）：每 3s 采一次，但只在**状态变化**时落行。
+    // 判别口径：应用进程从未出现 ⇒ tauri-driver 没走到拉起应用；
+    //           应用出现并常驻 ⇒ 应用起来了但 WebView 不就绪（devUrl/Vite 或桌面会话）。
+    samplerState.startedAt = Date.now();
+    samplerState.beatAt = Date.now();
+    // ⚠️ 首轮必须**同步立即**采一次（+0.0s 基线），否则「从未出现」无法区分两种成因：
+    //    ① tauri-driver 根本没拉起应用；② 应用被拉起但在首轮采样之前就闪退。
+    //    ② 恰恰是更可能的故障形态（启动期崩溃），若读成 ① 会把排查引向错误方向。
+    await samplerTick();
+    // 前 15s 用 1s 网格，之后回到 3s
+    samplerSchedule();
+
     // ⚠️ 原来是「固定 sleep 2000ms 就继续」：端口没起来也照样发 9 个 worker，
     //    全部 ECONNREFUSED —— 真正的失败（--native-driver 指向不存在的
     //    msedgedriver.exe）被伪装成「driver 拒绝连接」，run 35310528367 实测
@@ -547,9 +684,13 @@ export const config = {
     // ⚠️ 无条件落盘 tauri-driver 输出 —— 不再只在 waitForPort 失败时写。
     // 同时把尾部摘要打进 CI 日志（截断，避免超长），这样即使 artifact 没人下载，
     // 日志里也能直接看到「/session 不返回时 tauri-driver 在干什么」。
+    // 先停采样器并出汇总（会写进 driverLog，故必须在 dumpDriverLog 之前）
+    samplerStop();
     dumpDriverLog();
     const tail = driverLog.join('').slice(-4000).trim();
     console.log(`[tauri-driver 输出尾部] ${tail || '(无输出)'}`);
+    // sampler 单独全量打印一份，不受上面 4000 字符截断影响
+    console.log(`[sampler 全量 ${samplerLines.length} 行]\n${samplerLines.join('\n')}`);
     if (viteProcess) {
       try {
         // Windows: /T 终止整个子进程树，避免残留 esbuild / node 子进程占用 5173

@@ -35,6 +35,11 @@ on:
         description: '重设 AHK 生产基准基线：在 CI 上跑满轮数并把新的 baselines.json 作为 artifact 上传（下载后人工确认再提交）'
         type: boolean
         default: false
+      e2e_spec:
+        description: 'E2E 只跑指定 spec（相对 asd-tauri/e2e 的路径，如 specs/smoke.spec.js）；留空则跑全量。诊断轮建议填 specs/smoke.spec.js（约 1 分钟出结论）'
+        type: string
+        required: false
+        default: ''
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -668,7 +673,20 @@ jobs:
         #    拉一个同名的废弃包**（实测拉到 wdio@6.0.1），把「依赖没装」伪装成
         #    「E2E 跑不通」，排查成本从 5 分钟变成一次 20 分钟的 CI 往返。
         #    加了 --no-install 后缺依赖会当场硬失败并写清原因。
-        run: npx --no-install wdio run ./wdio.conf.js
+        # ⚠️ --spec 做成可传参而非写死：诊断轮用 e2e_spec=specs/smoke.spec.js
+        #    只跑 1 个 spec（connectionRetryCount 已是 0，约 1 分钟出结论），
+        #    避免为一次探测付 9 分钟。留空即跑全量，行为与改动前完全一致。
+        shell: pwsh
+        env:
+          E2E_SPEC: ${{ inputs.e2e_spec }}
+        run: |
+          if ($env:E2E_SPEC) {
+            Write-Host "E2E 仅运行 spec: $env:E2E_SPEC"
+            npx --no-install wdio run ./wdio.conf.js --spec $env:E2E_SPEC
+          } else {
+            Write-Host "E2E 运行全量 spec"
+            npx --no-install wdio run ./wdio.conf.js
+          }
       - name: 上传 E2E 报告
         if: always()
         uses: actions/upload-artifact@v4
