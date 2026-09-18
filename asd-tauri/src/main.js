@@ -1094,7 +1094,7 @@ function startValidation() {
   var gid = document.getElementById("validateGroupId").value; if (!gid) { showToast("请选择分组","error"); return; }
   _valEvents = []; _valExpectedSeq = []; _valExpectedIntervals = [];
   document.getElementById("valEventCount").textContent = "0"; document.getElementById("valStatus").textContent = "验证中...";
-  document.getElementById("valStatus").style.color = "#4CAF50"; document.getElementById("valReport").style.display = "none";
+  document.getElementById("valStatus").style.color = "#4CAF50";
   document.getElementById("valEventList").innerHTML = ""; document.getElementById("valLiveStats").style.display = "none";
   document.querySelector('[data-action="startValidation"]').disabled = true; document.querySelector('[data-action="stopValidation"]').disabled = false;
   api.startValidation(gid).then(function() {}).catch(function(e) { resetValUI(); showToast(errMsg(e, "启动验证失败"),"error"); });
