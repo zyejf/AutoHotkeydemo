@@ -5,9 +5,10 @@
 // 所有 JS 使用 ESM 语法（package.json type=module）
 // =================================================================
 import { spawn, spawnSync, execSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 import net from 'node:net';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -41,6 +42,18 @@ const reportsDir = resolve(__dirname, 'reports');
 // msedgedriver.exe 所在目录（tauri-driver 通过 --native-driver 参数显式指定）
 const driversDir = resolve(__dirname, 'drivers');
 const msedgedriverExePath = resolve(driversDir, 'msedgedriver.exe');
+
+// WebView2 user data 目录：每次运行新建一个全新目录。
+// 依据 MS 文档（webviewOptions.userDataFolder，类型 string）：
+//   "Path to the user data folder that WebView2 will use. If userDataFolder isn't specified,
+//    Microsoft Edge WebDriver will create a temporary user data folder."
+//   https://learn.microsoft.com/en-us/microsoft-edge/webdriver-chromium/capabilities-edge-options
+// 目的：排除「复用带锁文件 / 陈旧 DevToolsActivePort 的 user-data-dir」这个变量 ——
+// 上游 tauri-apps/webdriver-example 的 windows-latest 作业正是报
+// "DevToolsActivePort file doesn't exist"（run 34766587019 / job 103748526013）。
+// ⚠️ 必须在**模块作用域**算一次：若放在 capabilities 求值里，多 spec 之间目录不一致，
+//    诊断无法对齐，还会累积垃圾目录。
+const webviewUserDataFolder = mkdtempSync(join(tmpdir(), 'asd-e2e-'));
 
 // 全局引用：保存 tauri-driver 子进程，供 onComplete 关闭
 let tauriDriverProcess = null;
@@ -260,9 +273,28 @@ export const config = {
   capabilities: [
     {
       browserName: 'wry',
+      // (a) 强制走经典 WebDriver，不协商 BiDi。
+      // 依据：wdio 9+ 默认用 WebDriver BiDi，会自动往 alwaysMatch 注入 webSocketUrl: true；
+      //      tauri-driver 原样转发给 msedgedriver，但**不代理 BiDi websocket**。
+      //      这是 tauri-apps/tauri#15415 给出的官方绕行（修复 PR #15605 至今 open）。
+      'wdio:enforceWebDriverClassic': true,
       'tauri:options': {
         // 使用绝对路径，避免 tauri-driver 工作目录歧义
         application: binaryAbsPath,
+        // (b) 把远程调试端口送进 WebView2 的**浏览器进程**。
+        //     ⚠️ 不能靠给宿主 exe 传命令行参数 —— MS 文档对 ms:edgeOptions.args 明确写：
+        //     "If you're launching a WebView2 app, then these arguments are passed to your app
+        //      instead of the underlying Microsoft Edge browser process. To pass arguments to the
+        //      browser process when launching a WebView2 app, use webviewOptions.additionalBrowserArguments"
+        //     类型已核实为 **list of strings**（不是字符串），文档示例 ['start-maximized','log-level=0']。
+        //     =0：让 WebView2 自选空闲端口并写出 DevToolsActivePort 文件；
+        //     刻意不用固定端口，避免并行 / 重跑时端口撞车。
+        //     转发链路：tauri-driver crates/tauri-driver/src/server.rs:60-61
+        //     ms_edge_options.insert("webviewOptions", webview_options)
+        webviewOptions: {
+          additionalBrowserArguments: ['--remote-debugging-port=0'],
+          userDataFolder: webviewUserDataFolder,
+        },
       },
     },
   ],
