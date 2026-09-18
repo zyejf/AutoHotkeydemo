@@ -552,9 +552,21 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: asd-tauri/package-lock.json
+          cache-dependency-path: |
+            asd-tauri/package-lock.json
+            asd-tauri/e2e/package-lock.json
       - name: 安装前端依赖
         working-directory: asd-tauri
+        run: npm ci
+
+      # ⚠️ 必须单独在 e2e 目录再装一次：E2E 的依赖（@wdio/cli 等）在
+      #    asd-tauri/e2e/package.json 里，**不在** asd-tauri/package.json 里。
+      #    2026-09-18 run 35309066359 实测：只装 asd-tauri 时 e2e 目录下没有本地
+      #    wdio 二进制，npx 于是从 registry 拉了**已废弃的 wdio@6.0.1**（2019 年的包，
+      #    与 @wdio/cli 无关），它启动的是交互式 config 向导，CI 无 TTY
+      #    → ExitPromptError → exit 1，**一条用例都没执行**。
+      - name: 安装 E2E 依赖
+        working-directory: asd-tauri/e2e
         run: npm ci
 
       # ⚠️ 与 gates job 同款前置，本 job 此前**缺这一步** —— 缺了它下面的
@@ -637,7 +649,11 @@ jobs:
         run: npm run tauri build -- --debug
       - name: 运行 E2E
         working-directory: asd-tauri/e2e
-        run: npx wdio run wdio.conf.js
+        # ⚠️ 必须 --no-install：裸 `npx wdio` 在本地找不到二进制时**会静默去 registry
+        #    拉一个同名的废弃包**（实测拉到 wdio@6.0.1），把「依赖没装」伪装成
+        #    「E2E 跑不通」，排查成本从 5 分钟变成一次 20 分钟的 CI 往返。
+        #    加了 --no-install 后缺依赖会当场硬失败并写清原因。
+        run: npx --no-install wdio run ./wdio.conf.js
       - name: 上传 E2E 报告
         if: always()
         uses: actions/upload-artifact@v4
