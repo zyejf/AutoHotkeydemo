@@ -6,7 +6,7 @@
 // =================================================================
 import { spawn, spawnSync, execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import net from 'node:net';
 
@@ -42,27 +42,36 @@ const reportsDir = resolve(__dirname, 'reports');
 const driversDir = resolve(__dirname, 'drivers');
 const msedgedriverExePath = resolve(driversDir, 'msedgedriver.exe');
 
-// WebView2 user data 目录（UDF）：**必须**指向 WebView2 真实使用的那个默认目录。
+// WebView2 user data 目录（UDF）：必须指向 WebView2 真实使用的那个目录。
 //
-// 推导链（Cody 核实，有出处）：
-//   ① wry 把 UDF 作为 CreateCoreWebView2EnvironmentWithOptions 的第 2 参传入；
-//      data_directory 为 None 时，wry-0.55.1/src/webview2/mod.rs:345 传的是
-//      `&data_directory.unwrap_or_default()` = **空串**，于是 WebView2 走默认 UDF。
-//   ② MS《UDF 概念》页 "The default UDF location" 逐字：
-//      "the default UDF location is the directory that the app executable (.exe) is running in.
-//       The default UDF is the executable (exe) path of your app + `.WebView2`"
-//      ⇒ 真实 UDF = `<binaryAbsPath>.WebView2`
+// ⚠️ **前一版推导是错的，已订正**（2026-09-18）。错误推导是「wry 传空串 ⇒ WebView2 走
+//    默认 UDF ⇒ UDF = `<exe>.WebView2`」。它错在**只读了一层源码**：
+//    wry-0.55.1/src/webview2/mod.rs:345 确实是 `data_directory.unwrap_or_default()`，
+//    但 **Tauri 在它之上那层就把值填上了** —— tauri-2.11.2/src/manager/webview.rs:534-543：
+//      #[cfg(any(target_os = "linux", target_os = "windows"))]
+//      if pending.webview_attributes.data_directory.is_none() {
+//          ... = Some(manager.path().resolve(&identifier, BaseDirectory::LocalData));
+//      }
+//    即 Windows 上 Tauri **强制**填 `Some(<LocalData>/<identifier>)`，wry 永远收不到 None，
+//    `unwrap_or_default()` 那条空串分支根本不会被触发。
+//    ⇒ 真实 UDF = `<LocalData>/<identifier>`；本仓 identifier = `com.asd.tauri`
+//      （asd-tauri/src-tauri/tauri.conf.json:5，且未配置 dataDirectory），
+//      Windows 上 `<LocalData>` = `%LOCALAPPDATA%`。
+//    **教训：跨层行为必须追到「谁最后赋值」，不能只看声明处。** 这也是本轮第二次栽在同一个
+//    形状上（第一次是误以为 additional_browser_args 只能改 Rust、其实它本来就是 conf 字段）。
 //
-// ⚠️ **刻意不用 mkdtempSync 新建临时目录**：那样 WebView2 会把 DevToolsActivePort 写在
-//    它自己的默认目录里，而 EdgeDriver 拿着我们给的 userDataFolder 去**另一个**目录找
-//    —— 写与找不在同一处，正是上游报 `DevToolsActivePort file doesn't exist`
-//      （run 34766587019 / job 103748526013）的成因。目录对齐比目录干净更重要。
+// ⚠️ **仍刻意不用 mkdtempSync 新建临时目录**：那样 WebView2 写在一处、EdgeDriver 拿着
+//    userDataFolder 去另一处找，正是上游报 `DevToolsActivePort file doesn't exist`
+//    （run 34766587019 / job 103748526013）的成因。目录对齐比目录干净更重要。
 //
 // ⚠️ 端口只能用 `0`，不要改固定端口：固定端口唯一通路是 `ms:edgeOptions.debuggerAddress`，
 //    但 tauri-driver 用 `always_match.extend(native)` **整体替换** `ms:edgeOptions`
 //    （crates/tauri-driver/src/server.rs:150-152，native 里只有 binary/args/webviewOptions）
 //    ⇒ 注入必被覆盖、完全不可达。
-const webviewUserDataFolder = binaryAbsPath + '.WebView2';
+const webviewUserDataFolder = join(process.env.LOCALAPPDATA ?? '', 'com.asd.tauri');
+// 对照候选：前一版（错误）推导得出的路径。不做 userDataFolder，仅供 [UDF 探测 B] 扫描对照，
+// 以防本次推导又错一次时还要再跑一轮。
+const webviewUserDataFolderLegacy = binaryAbsPath + '.WebView2';
 
 // 全局引用：保存 tauri-driver 子进程，供 onComplete 关闭
 let tauriDriverProcess = null;
@@ -736,38 +745,47 @@ export const config = {
     // 先停采样器并出汇总（会写进 driverLog，故必须在 dumpDriverLog 之前）
     samplerStop();
 
-    // ===== [UDF 探测] WebView2 是否真的写了 DevToolsActivePort =====
-    // 判据：有 ⇒ 目录已对齐（若仍失败则是别的原因）；
-    //       无 ⇒ WebView2 根本不写该文件，说明「靠 webviewOptions 开调试端口」
-    //            这条路整体不成立，应止损。
+    // ===== [UDF 探测 A/B] WebView2 是否真的写了 DevToolsActivePort =====
+    // 判据：任一候选「找到」⇒ 目录已对齐（若仍失败则是别的原因）；
+    //       两个候选都「存在但无」⇒ WebView2 根本不写该文件，「靠 webviewOptions
+    //       开调试端口」这条路整体不成立，直接指向方案 1，不要再找第三个目录；
+    //       两候选都「不存在」⇒ 推导仍错，先修推导。
+    // ⚠️ 刻意扫**两个**候选而不单点赌：本轮推导已被推翻过一次（见上方 UDF 注释），
+    //    单点赌错就要再付一轮 5 分钟 CI。两个都打印，一次拿全。
     // ⚠️ 放 onComplete 是为了「无论如何都执行」；位置紧挨 samplerStop() 之后、
     //    dumpDriverLog() 之前，这样探测结果会被 dumpDriverLog 一起落盘。
     // ⚠️ 用 Node 的 fs API，不用 `dir /s`（沙箱禁 powershell，且大目录上很慢）。
     {
       const udfLines = [];
-      try {
-        if (!existsSync(webviewUserDataFolder)) {
-          udfLines.push(`[UDF 探测] 目录不存在: ${webviewUserDataFolder}`);
-        } else {
-          const entries = readdirSync(webviewUserDataFolder);
-          const hit = entries.find((n) => n === 'DevToolsActivePort');
-          if (!hit) {
-            udfLines.push(
-              `[UDF 探测] 目录存在但无 DevToolsActivePort（共 ${entries.length} 项）: ${webviewUserDataFolder}`
-            );
-            udfLines.push(`[UDF 探测] 目录条目: ${entries.join(', ') || '(空)'}`);
-          } else {
-            // 找到就原样打印文件内容（第一行是端口，第二行是 /devtools/browser 路径）
-            const content = readFileSync(
-              resolve(webviewUserDataFolder, 'DevToolsActivePort'),
-              'utf-8'
-            );
-            udfLines.push(`[UDF 探测] 找到 DevToolsActivePort，端口=${content.trim()}`);
-            udfLines.push(`[UDF 探测] 所在目录: ${webviewUserDataFolder}`);
+      const candidates = [
+        ['A', webviewUserDataFolder],
+        ['B', webviewUserDataFolderLegacy],
+      ];
+      for (const [tag, dir] of candidates) {
+        try {
+          if (!dir) {
+            udfLines.push(`[UDF 探测 ${tag}] 路径为空（LOCALAPPDATA 未设置？），跳过`);
+            continue;
           }
+          if (!existsSync(dir)) {
+            udfLines.push(`[UDF 探测 ${tag}] 目录不存在: ${dir}`);
+            continue;
+          }
+          const entries = readdirSync(dir);
+          if (!entries.includes('DevToolsActivePort')) {
+            udfLines.push(
+              `[UDF 探测 ${tag}] 目录存在但无 DevToolsActivePort（共 ${entries.length} 项）: ${dir}`
+            );
+            udfLines.push(`[UDF 探测 ${tag}] 目录条目: ${entries.join(', ') || '(空)'}`);
+            continue;
+          }
+          // 找到就原样打印文件内容（第一行是端口，第二行是 /devtools/browser 路径）
+          const content = readFileSync(resolve(dir, 'DevToolsActivePort'), 'utf-8');
+          udfLines.push(`[UDF 探测 ${tag}] 找到 DevToolsActivePort，端口=${content.trim()}`);
+          udfLines.push(`[UDF 探测 ${tag}] 所在目录: ${dir}`);
+        } catch (e) {
+          udfLines.push(`[UDF 探测 ${tag}] 探测失败: ${e.message}`);
         }
-      } catch (e) {
-        udfLines.push(`[UDF 探测] 探测失败: ${e.message}`);
       }
       // 同时进 driverLog（落盘）与 CI 日志（直接可见）
       driverLog.push(udfLines.join('\n') + '\n');
