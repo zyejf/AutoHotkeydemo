@@ -38,6 +38,7 @@
       "ahk_executor/hotkey_hook.ahk",
       "ahk_executor/sender.ahk",
       "ahk_executor/joystick.ahk",
+      "ahk_executor/high_res_clock.ahk",
       "ahk_executor/AutoHotkey64.exe",
       "ahk_executor/asd_executor.bat"
     ],

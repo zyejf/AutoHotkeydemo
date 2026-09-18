@@ -40,6 +40,13 @@
      ⚠️ 判据每次从三份文件里正则提取后**互比**，脚本里**不存**「标准档位清单」：
      否则那份清单就成了第五份权威副本，与本检要消灭的漂移是同一类错误。
      本检只管**是否漂移**、不管取哪个值 —— 要整体切档就三处一起改。
+  C11 打包资源清单同步：以 `asd-tauri/src-tauri/ahk_executor/*.ahk` 里的 `#Include`
+     为事实源，反向校验 `tauri.conf.json` 的 `bundle.resources` 必须覆盖全部被
+     引用的**同目录** `.ahk`。
+     —— 起因：resources 漏了 `high_res_clock.ahk`，而 `sender.ahk:16` /
+     `joystick.ahk:18` 都要 include 它，于是**任何干净的打包构建**（CI 全新
+     checkout 或用户拿到安装包）执行器都会**启动即崩**；开发机因为有本地编译的
+     `asd_executor.exe` 兜底，本机永远测不出来（与 TD-046 同家族）。
 
 棘轮（ratchet）语义
 --------------------
@@ -52,15 +59,16 @@ C1/C2 的现状是**存量债**，不可能一次清零。所以脚本不要求�
   - 想主动下调水位：清理掉若干项后跑 `--update-baseline`，把新的（更小的）集合
     冻结为新基线。基线文件 diff 会出现在 CR 里，收紧必须过 review。
 
-C3 / C4 / C5 / C6 / C7 / C8 / C9 / C10 不做棘轮：它们守的是**规则**（文档与代码必须
-一致 / 占位目录不得放文件 / 成员目录不得有冗余 lock / vendored 引擎树必须与上游一致 /
-布尔契约必须同步 / 三处门禁档位必须一致），没有「先记账以后再说」的余地。
+C3 / C4 / C5 / C6 / C7 / C8 / C9 / C10 / C11 不做棘轮：它们守的是**规则**（文档与代码
+必须一致 / 占位目录不得放文件 / 成员目录不得有冗余 lock / vendored 引擎树必须与上游
+一致 / 布尔契约必须同步 / 三处门禁档位必须一致 / 打包资源必须覆盖被引用的文件），
+没有「先记账以后再说」的余地。
 
 用法：
     python scripts/check-tech-debt.py                  # 三检 + 与基线比对（CI 用这个）
     python scripts/check-tech-debt.py --show           # 只打印当前结果，不与基线比对
     python scripts/check-tech-debt.py --update-baseline
-    python scripts/check-tech-debt.py --only c10       # 只跑某一检（c1…c10）
+    python scripts/check-tech-debt.py --only c11       # 只跑某一检（c1…c11）
 
 退出码：0 = 通过；1 = 有新增债或一致性错误。
 """
@@ -1236,6 +1244,141 @@ def check_c10(repo_root: Path) -> dict:
     return {"findings": findings, "checked": len(table), "table": table}
 
 
+# ---------------------------------------------------------------- C11 打包资源清单同步
+# 以 `ahk_executor/*.ahk` 里的 `#Include` 为**事实源**，反向校验
+# `tauri.conf.json` 的 `bundle.resources` 必须覆盖全部被引用的**同目录** `.ahk`。
+#
+# 起因（2026-09-18，第六道死因真因）：`bundle.resources` 只列了 7 项，漏了
+# `high_res_clock.ahk`；而 `sender.ahk:16` 与 `joystick.ahk:18` 都要 `#Include`
+# 它。于是**任何干净的打包构建**（CI 全新 checkout，或用户拿到 release 安装包 ——
+# 那时没有本地编译的 `asd_executor.exe` 兜底，`resolve_ahk_executor_path` 走便携
+# 模式）都会在 `executor.ahk → sender.ahk → #Include high_res_clock.ahk` 这一步
+# **启动即崩**。⚠️ 不只是 CI 问题：分发给用户的安装包里执行器同样会崩。
+#
+# 为什么一直没人发现：开发机上有本地编译的 `asd_executor.exe`（Ahk2Exe 把
+# `#Include` 全打进 exe），`resolve_ahk_executor_path` **优先**用它，于是便携模式
+# 这条路径在本机从不执行 —— 与 TD-046 同一家族的病：**有一条路径在本机永远走不到**。
+C11_TAURI_CONF = "asd-tauri/src-tauri/tauri.conf.json"
+C11_AHK_EXECUTOR = "asd-tauri/src-tauri/ahk_executor"
+# resources 里的条目相对 `src-tauri/`，故同目录 .ahk 期望写成 `ahk_executor/<name>`
+C11_RES_PREFIX = "ahk_executor/"
+
+
+def _c11_norm_resources(raw) -> set[str]:
+    """把 bundle.resources 归一化成可比集合（反斜杠 → 斜杠，去掉 ./ 前缀）。"""
+    out = set()
+    for r in raw or []:
+        if not isinstance(r, str):
+            continue
+        s = r.replace("\\", "/").strip()
+        while s.startswith("./"):
+            s = s[2:]
+        out.add(s.lower())
+    return out
+
+
+def _c11_same_dir_name(spec: str, base: Path, exe_dir: Path, repo_root: Path) -> str | None:
+    """取 `#Include` 指向的**同目录** `.ahk` 文件名；不同目录 / 不是 .ahk 则返回 None。
+
+    先走 `resolve_include`（与 C1/C2 同一套解析，负责已存在的目标）；解析不到时再按
+    「裸文件名」结构判定一次 —— 这样连「引用了目录里**根本不存在**的 .ahk」也能报出来。
+    那种同样是启动即崩，绝不能因为它当前不存在就静默放过（静默放过 = 假绿）。
+    """
+    tgt = resolve_include(base, spec, repo_root)
+    if tgt is not None:
+        return tgt.name if tgt.parent == exe_dir else None
+    s = spec.strip().replace("/", "\\")
+    if s.upper().startswith("%A_SCRIPTDIR%"):
+        s = s[len("%A_SCRIPTDIR%"):].lstrip("\\")
+    if not s.lower().endswith(".ahk"):
+        return None
+    if "\\" in s:
+        return None          # 带子目录 → 不是同目录，不在本条打击面内
+    return s
+
+
+def check_c11(repo_root: Path) -> dict:
+    """C11 打包资源清单与源码依赖同步（2026-09-18 新增）。
+
+    `tauri.conf.json` 的 `bundle.resources` 是**手写清单**，`ahk_executor/` 下的
+    `#Include` 是**代码事实** —— 两边一旦脱节，打包产物就缺文件，而缺的那一个
+    恰好是启动链上的，症状是「执行器启动即崩」而不是「某个功能不可用」。
+    与 C7（布尔契约）/ C8（IPC 命令契约）同类：**契约两边手写、没有守卫**。
+
+    与 C3 / C4 / C5 / C6 / C7 / C8 / C9 / C10 同类：**硬失败、不做棘轮** —— 守的是规则。
+
+    判据（打击面刻意收窄，不扩大）：
+      1. 事实源 = `ahk_executor/` 下**所有 `.ahk`** 里的 `#Include`
+         （复用 `INCLUDE_RE` 与 `resolve_include`，与 C1/C2 同一套解析，不另造正则）
+      2. **只管同目录**的 `.ahk`：解析后目标文件的父目录必须就是 `ahk_executor/`。
+         跨目录引用（`../domain/x.ahk` 等）**不在本条范围内** —— 那些目录各自有
+         自己的打包口径，混进来只会制造无法归因的噪声。
+      3. 被引用但不在 `bundle.resources` 里 → **硬失败**，点名「被谁在哪一行引用」
+      4. 目录里存在但**从未被任何 `#Include` 引用**的 `.ahk` → **只提示、不判失败**：
+         它可能是漏 include，也可能是入口脚本（如 `executor.ahk` 由
+         `asd_executor.bat` / Rust 直接拉起，本就不该有入边）—— 这需要人判，
+         机器判了就是误报。
+      5. 配置文件不存在 / 解析失败 / 没有 `bundle.resources` → **按失败处理**，
+         不静默放过（与 C8「解析不出即失败」同一口径）。
+    """
+    conf = repo_root / C11_TAURI_CONF
+    exe_dir = (repo_root / C11_AHK_EXECUTOR).resolve()
+    findings: list[str] = []
+
+    if not conf.exists():
+        return {"findings": [f"`{C11_TAURI_CONF}` 不存在（C11 无法校验，按失败处理）"],
+                "checked": 0, "advisory": [], "resources": 0}
+    if not exe_dir.exists():
+        return {"findings": [f"`{C11_AHK_EXECUTOR}/` 不存在（C11 无法校验，按失败处理）"],
+                "checked": 0, "advisory": [], "resources": 0}
+
+    try:
+        data = json.loads(read_text(conf))
+    except Exception as e:
+        return {"findings": [f"`{C11_TAURI_CONF}` 解析失败：{e}（C11 无法校验，按失败处理）"],
+                "checked": 0, "advisory": [], "resources": 0}
+
+    bundle = data.get("bundle") if isinstance(data, dict) else None
+    raw_res = bundle.get("resources") if isinstance(bundle, dict) else None
+    if raw_res is None:
+        return {"findings": [f"`{C11_TAURI_CONF}` 缺少 `bundle.resources`（C11 无法校验，按失败处理）"],
+                "checked": 0, "advisory": [], "resources": 0}
+
+    packed = _c11_norm_resources(raw_res)
+
+    refs: dict[str, list[str]] = {}          # 被引用的文件名 -> [引用出处（文件:行）]
+    present: list[str] = []                  # 目录里实际存在的 .ahk
+    for p in sorted(exe_dir.glob("*.ahk")):
+        present.append(p.name)
+        text = read_text(p)
+        for m in INCLUDE_RE.finditer(text):
+            spec = m.group(1)
+            name = _c11_same_dir_name(spec, p, exe_dir, repo_root)
+            if name is None:
+                continue                     # 跨目录 / 非 .ahk：不在本条打击面内
+            lineno = text[:m.start()].count("\n") + 1
+            refs.setdefault(name, []).append(f"{p.name}:{lineno}")
+    present_set = set(present)
+
+    for name in sorted(refs):
+        want = C11_RES_PREFIX + name
+        if want.lower() not in packed:
+            srcs = "、".join(sorted(set(refs[name])))
+            ghost = "" if name in present_set else \
+                "（⚠️ 该文件在 `ahk_executor/` 里**不存在** —— 引用了根本没有的文件）"
+            findings.append(
+                f"`{name}` 被 {srcs} `#Include` 引用，但不在 `bundle.resources` 里 —— "
+                f"应加 `{want}`{ghost}。⚠️ 漏它不会让某个功能不可用，而是让打包产物在"
+                f"启动链上缺文件 → **执行器启动即崩**（开发机有本地编译的 "
+                f"asd_executor.exe 兜底，故本机永远测不出来）"
+            )
+
+    advisory = [n for n in present if n not in refs]
+
+    return {"findings": findings, "checked": len(refs),
+            "advisory": advisory, "resources": len(raw_res)}
+
+
 # ---------------------------------------------------------------- 基线 / 棘轮
 
 
@@ -1294,7 +1437,7 @@ def main() -> int:
     )
     ap.add_argument("--update-baseline", action="store_true", help="把当前结果冻结为新基线")
     ap.add_argument("--show", action="store_true", help="只打印当前结果，不与基线比对")
-    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4", "c5", "c6", "c7", "c8", "c9", "c10"], help="只跑某一检")
+    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11"], help="只跑某一检")
     args = ap.parse_args()
 
     print("=" * 60)
@@ -1314,13 +1457,14 @@ def main() -> int:
         "c8": check_c8(REPO_ROOT),
         "c9": check_c9(REPO_ROOT),
         "c10": check_c10(REPO_ROOT),
+        "c11": check_c11(REPO_ROOT),
     }
 
     if args.update_baseline:
         save_baseline(cur)
         return 0
 
-    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10"}
+    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11"}
 
     # ---------- C3：硬失败，不做棘轮 ----------
     c3_errors = list(cur["c3"]["findings"])
@@ -1417,6 +1561,23 @@ def main() -> int:
         else:
             print("       通过：三处档位一致（本检只管漂移、不管取值）")
 
+    # ---------- C11：硬失败，打包资源必须覆盖 #Include 的全部同目录 .ahk ----------
+    c11_findings = list(cur["c11"]["findings"])
+    if "c11" in want:
+        print(f"\n[C11] 打包资源清单同步（{C11_AHK_EXECUTOR}/*.ahk 的 "
+              f"#Include ↔ bundle.resources）：核对 {cur['c11']['checked']} 个被引用文件"
+              f"，resources 共 {cur['c11']['resources']} 项")
+        if c11_findings:
+            for f in c11_findings[:20]:
+                print(f"       - {f}")
+        else:
+            print("       通过：被引用的同目录 .ahk 全部已打包")
+        if cur["c11"]["advisory"]:
+            # 只提示不判失败：可能是漏 include，也可能是入口脚本（executor.ahk
+            # 由 asd_executor.bat / Rust 直接拉起，本就不该有入边）—— 要人判。
+            print(f"       [提示] 存在但从未被 #Include 引用（需人判：漏 include 还是入口脚本）："
+                  f"{'、'.join(cur['c11']['advisory'])}")
+
     # ---------- C1 / C2：棘轮 ----------
     base = None if args.show else load_baseline()
     if base is None and not args.show:
@@ -1489,7 +1650,12 @@ def main() -> int:
         errors.append(f"技术债台账评分不自洽 {len(c9_findings)} 处（C9）")
 
     if "c10" in want and c10_findings:
-        errors.append(f"三处门禁 G3d 档位漂移 {len(c10_findings)} 处（C10）")
+        errors.append(f"三处门禁档位漂移 {len(c10_findings)} 处（C10）")
+
+    if "c11" in want and c11_findings:
+        errors.append(
+            f"`bundle.resources` 漏打包被引用的 .ahk {len(c11_findings)} 项（C11）"
+        )
 
     if errors:
         print("[FAIL] 技术债检查未通过:")
