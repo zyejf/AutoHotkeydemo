@@ -340,7 +340,11 @@ export const config = {
   // `session not created: DevToolsActivePort file doesn't exist`。
   // 放宽超时是为了拿到那串错误，从而区分「webviewOptions 没生效」
   // 与「生效了但后面还有别的阻塞」—— 这两种失败形态含义完全不同。
-  connectionRetryTimeout: Number(process.env.E2E_TIMEOUT_MS ?? 60000),
+  // ⚠️ 用 `||` 而不是 `??`：`??` 只拦 null/undefined，而 workflow_dispatch 的
+  //    `e2e_timeout_ms` 默认是**空字符串**，会算出 Number('') === 0，
+  //    即 connectionRetryTimeout=0 —— /session 立即超时，症状与「栈不可用」
+  //    几乎无法区分，极易被误读成 TD-061 复发。`||` 连同 ''、0、NaN 一起兜住。
+  connectionRetryTimeout: Number(process.env.E2E_TIMEOUT_MS) || 60000,
   // ⚠️ 由 3 改为 0。依据：4444 端口就绪已由 onPrepare 的 waitForPort（:474，
   //    **无条件**执行，CI 与本地两条路径都走，无 process.env.CI 分支、无「复用已有
   //    driver」分支）独立把关，workers 是在端口确认监听之后才派发的。
