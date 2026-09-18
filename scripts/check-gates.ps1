@@ -98,6 +98,19 @@ if (-not $SkipGraph) {
     }
 }
 
+# ---------------------------------------------------------------- G3i
+# build_graph.py 的 JS 边归类自检（TD-051 新增，30 用例：9 仅类型 / 8 重导出 /
+# 8 阴性）。放在 G1 旁边，是因为它验的正是 **G1 依赖的那个程序本身**。
+# ⚠️ 刻意**不**放进上面的 SkipGraph 块：它不读仓库当前状态、秒级完成，
+#    -Quick / -SkipGraph 都不该跳过它 —— 自检类闸门被跳过即等于不存在。
+# ⚠️ `--selftest` 不能丢：丢了会去跑 build_ahk/rust/js 全量建图，退出码同样是 0
+#    —— 自检一次都没跑却显示 ✓，正是本轮要消灭的形状。
+#    三处（.sh / .ps1 / ci.yml）的 `--selftest` 存在性由 check-tech-debt.py 的 C10 互比。
+Invoke-Gate -Id 'G3i' -Name 'build_graph.py JS 边归类自检（--selftest）' -Action {
+    & $script:Py (Join-Path $repoRoot '.review-analysis/build_graph.py') --selftest
+    $LASTEXITCODE
+}
+
 # ---------------------------------------------------------------- 闸门②
 if (-not $SkipCargo) {
     Invoke-Gate -Id 'G2a' -Name 'cargo fmt --all --check' -WorkDir $tauriDir -Action {
@@ -106,8 +119,20 @@ if (-not $SkipCargo) {
     }
 
     Invoke-Gate -Id 'G2b' -Name 'cargo clippy --workspace --all-targets -- -D warnings' -WorkDir $tauriDir -Action {
-        cargo clippy --workspace --all-targets -- -D warnings
-        $LASTEXITCODE
+        # ⚠️ CARGO_INCREMENTAL=0 是必需的：增量编译缓存会让 clippy 在本机稳定 ICE
+        #    （rustc 1.95.0，退出码 101，与代码无关）。.sh 侧早已有此前缀，.ps1
+        #    漏了 —— Windows 是唯一能开发的平台，ICE 恰好只在这里咬人。
+        #    用 try/finally 还原，避免把 env 泄漏到后续闸门。
+        $prevInc = $env:CARGO_INCREMENTAL
+        $env:CARGO_INCREMENTAL = '0'
+        try {
+            cargo clippy --workspace --all-targets -- -D warnings
+            $code = $LASTEXITCODE
+        }
+        finally {
+            $env:CARGO_INCREMENTAL = $prevInc
+        }
+        $code
     }
 }
 
@@ -115,8 +140,17 @@ if (-not $Quick) {
     # ------------------------------------------------------------ 闸门③
     if (-not $SkipCargo) {
         Invoke-Gate -Id 'G3a' -Name 'cargo test --workspace' -WorkDir $tauriDir -Action {
-            cargo test --workspace
-            $LASTEXITCODE
+            # 同 G2b：CARGO_INCREMENTAL=0 防 rustc ICE（退出码 101）。用 try/finally 还原。
+            $prevInc = $env:CARGO_INCREMENTAL
+            $env:CARGO_INCREMENTAL = '0'
+            try {
+                cargo test --workspace
+                $code = $LASTEXITCODE
+            }
+            finally {
+                $env:CARGO_INCREMENTAL = $prevInc
+            }
+            $code
         }
     }
 
@@ -152,10 +186,29 @@ if (-not $Quick) {
     }
 
     if (-not $SkipJs) {
-        Invoke-Gate -Id 'G3c' -Name 'JS 单元测试 (node --test)' -WorkDir (Join-Path $repoRoot 'asd-tauri/e2e/helpers/__tests__') -Action {
+        Invoke-Gate -Id 'G3c' -Name 'JS 单元测试 (node --test)' -WorkDir (Join-Path $repoRoot 'asd-tauri') -Action {
             # 不能写 `node --test <目录>`：会被 node 当成 CJS 模块去 require，
-            # 报 Cannot find module。改为传具体文件名。
-            $files = @(Get-ChildItem -Filter *.test.js | Select-Object -ExpandProperty Name)
+            # 报 Cannot find module。改为传具体文件名（绝对路径）。
+            #
+            # ⚠️ **两处**都要收集：e2e 辅助模块 + 前端 src/（TD-005 起有 src/__tests__）。
+            #    本档历史上只扫 e2e 那一处，于是 src/__tests__/api_contract.test.js
+            #    ——TD-005 里唯一抓到过真缺陷的测试（`export_recording` 缺 `delays`
+            #    参数，用户点「导出」看到误导性失败提示）——在 Windows 这个唯一能
+            #    真正开发的平台上**一次都没执行过**。与 .sh / ci.yml 对齐。
+            #
+            # ⚠️ 目录不存在要**硬失败**而不是静默跳过：否则目录一改名/搬迁，闸门就
+            #    悄悄缩小覆盖面还继续显示 ✓ —— 正是本轮要消灭的「看着在跑其实跑空」。
+            $testDirs = @('e2e/helpers/__tests__', 'src/__tests__')
+            $files = @()
+            foreach ($d in $testDirs) {
+                if (-not (Test-Path $d)) {
+                    Write-Output "  测试目录不存在：$d —— 拒绝静默缩小覆盖面"
+                    return 1
+                }
+                $found = @(Get-ChildItem -Path $d -Filter *.test.js -File | ForEach-Object { $_.FullName })
+                Write-Output "  $d -> $($found.Count) 个 *.test.js"
+                $files += $found
+            }
             if ($files.Count -eq 0) {
                 Write-Output '  未找到任何 *.test.js'
                 return 1
@@ -165,9 +218,24 @@ if (-not $Quick) {
         }
     }
 
-    Invoke-Gate -Id 'G3d' -Name 'test-map.md 登记自洽（--no-cargo 快速档）' -Action {
-        & $script:Py (Join-Path $repoRoot 'scripts/check-test-map.py') --no-cargo
-        $LASTEXITCODE
+    # 2026-09-18 起**不再**用 --no-cargo：快速档只查文档内部自洽，从不与真实
+    # 运行时核对，导致登记的测试数长期漂移（TD-055）。本档与 check-gates.sh /
+    # ci.yml 必须一致 —— 由 check-tech-debt.py 的 C10 强制互比，勿单边修改。
+    # ⚠️ 必须 CARGO_INCREMENTAL=0：实测不带会触发 rustc ICE（退出码 101），
+    #    容易被误读成「数字漂移」 —— 与 G2b / G3a 同理。
+    # 2026-09-18 实测耗时约 16s（热缓存），不是不可用开销。
+    Invoke-Gate -Id 'G3d' -Name 'test-map.md 登记自洽（含运行时对账）' -Action {
+        $prevInc = $env:CARGO_INCREMENTAL
+        $env:CARGO_INCREMENTAL = '0'
+        try {
+            & $script:Py (Join-Path $repoRoot 'scripts/check-test-map.py')
+            $code = $LASTEXITCODE
+        }
+        finally {
+            # 还原而不是清空：本闸门不该污染后续 G3e / G4 的环境
+            $env:CARGO_INCREMENTAL = $prevInc
+        }
+        $code
     }
 
     # 静态检查，约 2.5s。C1a/C1b/C1c/C2/C3b 走棘轮（只阻新增），C3 恒 0 硬阻断。

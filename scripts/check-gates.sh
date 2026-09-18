@@ -78,6 +78,19 @@ if [ "$SKIP_GRAPH" -eq 0 ]; then
     "$PY" "$REPO_ROOT_NATIVE/scripts/check-graph-baseline.py"
 fi
 
+# -------------------------------------------------------------- G3i
+# build_graph.py 的 JS 边归类自检（TD-051 新增，30 用例：9 仅类型 / 8 重导出 /
+# 8 阴性）。放在 G1 旁边，是因为它验的正是 **G1 依赖的那个程序本身** —— 归类错了
+# 不会崩，只会安静给出错误的 kind：把类型边当值边 = 假环（阻断提交），把值边当
+# 类型边 = 漏检（守护变永真式）。两者都不抛异常，所以期望表必须写死在程序外。
+# ⚠️ 刻意**不**放进上面的 SKIP_GRAPH 块：它不读仓库当前状态、秒级完成，
+#    --quick / --skip-graph 都不该跳过它 —— 自检类闸门被跳过即等于不存在。
+# ⚠️ `--selftest` 不能丢：丢了 python 会去跑 build_ahk/rust/js 全量建图，
+#    退出码同样是 0 —— 自检一次都没跑却显示 ✓，正是本轮要消灭的形状。
+#    三处（.sh / .ps1 / ci.yml）的 `--selftest` 存在性由 check-tech-debt.py 的 C10 互比。
+run_gate "G3i" "build_graph.py JS 边归类自检（--selftest）" "$REPO_ROOT" \
+  "$PY" "$REPO_ROOT_NATIVE/.review-analysis/build_graph.py" --selftest
+
 # ---------------------------------------------------------------- 闸门②
 if [ "$SKIP_CARGO" -eq 0 ]; then
   run_gate "G2a" "cargo fmt --all --check" "$TAURI_DIR" cargo fmt --all --check

@@ -30,6 +30,16 @@
      —— 起因（TD-030）：AHK v2 没有布尔类型，`Type(true)` 是 "Integer"，
      序列化器只能靠**键名**判断 JSON 布尔；白名单漏一个键，该字段就会被写成
      0/1，Rust 侧 serde 直接 `invalid type`。以 Rust 契约为事实源反向校验白名单。
+  C10 三处门禁档位一致：`scripts/check-gates.sh` / `scripts/check-gates.ps1` /
+     `.github/workflows/ci.yml` 里同一个闸门的档位必须一致。现覆盖两个探针：
+     G3d（`check-test-map.py` 的 `--no-cargo` 有无）与 G3i（`build_graph.py`
+     的 `--selftest` 有无）。
+     —— 起因（TD-055）：`.sh` 与 `ci.yml` 已切完整模式（含运行时对账），`.ps1`
+     却仍是 `--no-cargo` 快速档，于是运行期对账在唯一能开发的平台（Windows）
+     上从未真正执行过 —— 守护看着在跑，防的不是它声称防的东西。
+     ⚠️ 判据每次从三份文件里正则提取后**互比**，脚本里**不存**「标准档位清单」：
+     否则那份清单就成了第五份权威副本，与本检要消灭的漂移是同一类错误。
+     本检只管**是否漂移**、不管取哪个值 —— 要整体切档就三处一起改。
 
 棘轮（ratchet）语义
 --------------------
@@ -42,15 +52,15 @@ C1/C2 的现状是**存量债**，不可能一次清零。所以脚本不要求�
   - 想主动下调水位：清理掉若干项后跑 `--update-baseline`，把新的（更小的）集合
     冻结为新基线。基线文件 diff 会出现在 CR 里，收紧必须过 review。
 
-C3 / C4 / C5 / C6 / C7 不做棘轮：它们守的是**规则**（文档与代码必须一致 / 占位目录
-不得放文件 / 成员目录不得有冗余 lock / vendored 引擎树必须与上游一致 / 布尔契约必须
-同步），没有「先记账以后再说」的余地。
+C3 / C4 / C5 / C6 / C7 / C8 / C9 / C10 不做棘轮：它们守的是**规则**（文档与代码必须
+一致 / 占位目录不得放文件 / 成员目录不得有冗余 lock / vendored 引擎树必须与上游一致 /
+布尔契约必须同步 / 三处门禁档位必须一致），没有「先记账以后再说」的余地。
 
 用法：
     python scripts/check-tech-debt.py                  # 三检 + 与基线比对（CI 用这个）
     python scripts/check-tech-debt.py --show           # 只打印当前结果，不与基线比对
     python scripts/check-tech-debt.py --update-baseline
-    python scripts/check-tech-debt.py --only c7        # 只跑某一检（c1…c7）
+    python scripts/check-tech-debt.py --only c10       # 只跑某一检（c1…c10）
 
 退出码：0 = 通过；1 = 有新增债或一致性错误。
 """
@@ -1116,6 +1126,116 @@ def check_c9(repo_root: Path) -> dict:
     return {"findings": findings, "checked": checked, "rows": checked}
 
 
+# ---------------------------------------------------------------- C10 三处门禁档位一致
+# ⚠️ 这里**故意**不写「标准档位应该是完整模式」。判据必须每次从三份文件里正则提取后
+#    互比 —— 一旦脚本里存一份期望值，那份清单就成了第五份权威副本，与本检要消灭的
+#    漂移是同一类错误（TD-055 的根因恰恰是「多份权威、各说各话」）。
+#    清单里列的只是**要比对的地点**，不是要比对的**期望值**。
+C10_SITES = [
+    "scripts/check-gates.sh",
+    "scripts/check-gates.ps1",
+    ".github/workflows/ci.yml",
+]
+# 探针：(闸门 ID, 被调脚本路径片段, 判定档位的标志, 带标志时档位名, 缺标志时档位名)
+#   · 被调脚本片段就是闸门的身份标识 —— 改名即视为闸门消失（硬失败）。
+#   · 判定用「**标志存在与否**」而不是「调用命令全文」：三处门禁的 shell 语法天然
+#     不同（.sh 用 `env CARGO_INCREMENTAL=0 "$PY" …`、.ps1 用 `& $script:Py (Join-Path …)`、
+#     ci.yml 用 `python …`），比全文必然全是假阳性。标志是与 shell 无关的语义量。
+C10_PROBES = [
+    ("G3d", "check-test-map.py", "--no-cargo",
+     "QUICK(--no-cargo)", "FULL(含运行时对账)"),
+    ("G3i", ".review-analysis/build_graph.py", "--selftest",
+     "SELFTEST(带 --selftest)", "BUILD-ONLY(缺 --selftest)"),
+]
+
+
+def _c10_invocations(path: Path, needle: str, flag: str,
+                     mode_on: str, mode_off: str) -> list[tuple[str, int, str]]:
+    """从单个门禁文件里提取某个闸门（按其被调脚本片段识别）的调用行及档位。
+
+    返回 [(档位, 行号, 原文)]。只认**调用行**：
+      - 以 `#` 开头的整行注释跳过（`.sh` 里就有一句"2026-09-18 起不再用
+        --no-cargo"的历史说明，被当成当前档位就会误判）；
+      - 行尾 ` #...` 注释在匹配前截掉，避免把注释里提到的参数算进来。
+    """
+    hits: list[tuple[str, int, str]] = []
+    for lineno, raw in enumerate(read_text(path).splitlines(), start=1):
+        s = raw.strip()
+        if s.startswith("#") or s.startswith("<#"):
+            continue
+        body = s.split(" #", 1)[0]
+        if needle not in body:
+            continue
+        hits.append((mode_on if flag in body else mode_off, lineno, s))
+    return hits
+
+
+def check_c10(repo_root: Path) -> dict:
+    """C10 三处门禁档位一致（TD-055 起；2026-09-18 扩展到 G3i）。
+
+    同一个闸门在 `.sh` / `.ps1` / `ci.yml` 三处各有一份调用。2026-09-18 实测 G3d
+    这三份已经漂移：`.sh` 与 `ci.yml` 是完整模式（真的跑 `cargo test --list` 对账
+    运行期数字），`.ps1` 是 `--no-cargo` 快速档（只查文档内部自洽）。Windows 是本
+    项目唯一能真正开发的平台（AHK 只能在 Windows 跑），于是收益恰好在唯一能开发的
+    平台上拿不到。G3c 也发生过同一形状的事（漏扫 `src/__tests__`）。
+
+    与 C3 / C4 / C5 / C6 / C7 / C8 / C9 同类：**硬失败、不做棘轮** —— 守的是规则。
+
+    每个探针校验两条：
+      1. 三处都能提取到该闸门的调用，且每处**恰好一处**（0 处 = 闸门被删/改名；
+         多处 = 无法判定哪份生效，都按失败处理，不静默放过）
+      2. 三处档位**互比一致**。本检**不管取哪个值** —— 三处一起切成 `--no-cargo`
+         也会通过，那是人的决定，不是漂移。
+
+    ⚠️ **为什么不做成「任一闸门的调用命令必须一致」**：三处 shell 语法天然不同，
+    比全文必是假阳性（G3c 在 .sh 里是 shell 通配、在 .ps1 里是 Get-ChildItem，
+    语义等价、文本不同）；改成比「闸门 ID 集合是否齐备」也不行 —— G3g 只在
+    .sh/ci.yml、G3f/G3h 只在 ci.yml，属**既有且已接受的差异**，一上就红，要压下去
+    就得维护豁免清单，而豁免清单正是本检要消灭的假权威副本。故只把同一套互比机制
+    用在"能用与 shell 无关的标志判定"的闸门上。
+    """
+    findings: list[str] = []
+    table: list[tuple[str, str, str, int]] = []  # (闸门, 文件, 档位, 行号)
+
+    for gid, needle, flag, mode_on, mode_off in C10_PROBES:
+        per_probe: list[tuple[str, str, int]] = []  # (文件, 档位, 行号)
+        for relpath in C10_SITES:
+            p = repo_root / relpath
+            if not p.exists():
+                findings.append(f"{gid} / {relpath}：文件不存在（C10 无法校验，按失败处理）")
+                continue
+            hits = _c10_invocations(p, needle, flag, mode_on, mode_off)
+            if len(hits) == 0:
+                findings.append(
+                    f"{gid} / {relpath}：未找到对 `{needle}` 的调用行 —— "
+                    f"闸门被删了还是脚本改名了？（C10 无法校验，按失败处理）"
+                )
+                continue
+            if len(hits) > 1:
+                findings.append(
+                    f"{gid} / {relpath}：找到 {len(hits)} 处 `{needle}` 调用（行 "
+                    f"{'、'.join(str(h[1]) for h in hits)}）—— 档位互比要求每处唯一，"
+                    f"请合并，或让多余的那处不参与门禁"
+                )
+                continue
+            mode, lineno, _ = hits[0]
+            per_probe.append((relpath, mode, lineno))
+            table.append((gid, relpath, mode, lineno))
+
+        modes = {m for _, m, _ in per_probe}
+        if len(modes) > 1:
+            detail = "；".join(f"{rp}:{ln} = {m}" for rp, m, ln in per_probe)
+            majority = max(modes, key=lambda m: sum(1 for _, mm, _ in per_probe if mm == m))
+            odd = [f"{rp}:{ln}" for rp, m, ln in per_probe if m != majority]
+            findings.append(
+                f"{gid} 档位在三处门禁间漂移（{detail}）—— "
+                f"少数派：{'、'.join(odd)}（其余为 {majority}）。"
+                f"三处必须一致；⚠️ 本检只管一致、不管取值，确认要整体切档就三处一起改。"
+            )
+
+    return {"findings": findings, "checked": len(table), "table": table}
+
+
 # ---------------------------------------------------------------- 基线 / 棘轮
 
 
@@ -1174,7 +1294,7 @@ def main() -> int:
     )
     ap.add_argument("--update-baseline", action="store_true", help="把当前结果冻结为新基线")
     ap.add_argument("--show", action="store_true", help="只打印当前结果，不与基线比对")
-    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4", "c5", "c6", "c7", "c8", "c9"], help="只跑某一检")
+    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4", "c5", "c6", "c7", "c8", "c9", "c10"], help="只跑某一检")
     args = ap.parse_args()
 
     print("=" * 60)
@@ -1193,13 +1313,14 @@ def main() -> int:
         "c7": check_c7(REPO_ROOT),
         "c8": check_c8(REPO_ROOT),
         "c9": check_c9(REPO_ROOT),
+        "c10": check_c10(REPO_ROOT),
     }
 
     if args.update_baseline:
         save_baseline(cur)
         return 0
 
-    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10"}
 
     # ---------- C3：硬失败，不做棘轮 ----------
     c3_errors = list(cur["c3"]["findings"])
@@ -1283,6 +1404,19 @@ def main() -> int:
         else:
             print("       通过：DPI 与档位全部符合公式与阈值")
 
+    # ---------- C10：硬失败，三处门禁 G3d 档位必须一致（TD-055）----------
+    c10_findings = list(cur["c10"]["findings"])
+    if "c10" in want:
+        print(f"\n[C10] 三处门禁档位一致（.sh / .ps1 / ci.yml 互比）："
+              f"核对 {cur['c10']['checked']} 处")
+        for gid, rp, mode, ln in cur["c10"]["table"]:
+            print(f"       {gid}  {rp}:{ln} = {mode}")
+        if c10_findings:
+            for f in c10_findings[:20]:
+                print(f"       - {f}")
+        else:
+            print("       通过：三处档位一致（本检只管漂移、不管取值）")
+
     # ---------- C1 / C2：棘轮 ----------
     base = None if args.show else load_baseline()
     if base is None and not args.show:
@@ -1353,6 +1487,9 @@ def main() -> int:
 
     if "c9" in want and c9_findings:
         errors.append(f"技术债台账评分不自洽 {len(c9_findings)} 处（C9）")
+
+    if "c10" in want and c10_findings:
+        errors.append(f"三处门禁 G3d 档位漂移 {len(c10_findings)} 处（C10）")
 
     if errors:
         print("[FAIL] 技术债检查未通过:")

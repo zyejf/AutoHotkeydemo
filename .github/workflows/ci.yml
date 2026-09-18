@@ -117,6 +117,12 @@ jobs:
       - name: 'G1 图谱基线'
         run: python scripts/check-graph-baseline.py
 
+      # G3i：build_graph.py 的 JS 边归类自检（TD-051，30 用例）。紧挨 G1，
+      # 因为它验的正是 G1 依赖的程序本身。⚠️ `--selftest` 不能丢：丢了会去跑
+      # build_ahk/rust/js 全量建图、退出码同样是 0 —— 自检没跑却显示 ✓。
+      - name: 'G3i build_graph.py JS 边归类自检（--selftest）'
+        run: python .review-analysis/build_graph.py --selftest
+
       # ------------------------------------------------------------ G2
       - name: 'G2a cargo fmt --all --check'
         working-directory: asd-tauri

@@ -969,13 +969,13 @@ scripts\check-gates.ps1 -Quick
 
 **静态**检查（不编译、不执行被测程序，约 2.5s），已作为 **G3e** 接入四闸门。
 C1a/C1b/C1c/C2/C3b 走**棘轮**：基线内的存量债只登记不报错，**只有新增项才 FAIL**；
-**C3、C4、C5、C6、C7 恒 0 硬阻断** —— 它们守的是**规则**（文档与代码必须一致 / 空占位目录不得放文件 / 成员目录不得有冗余 lock / vendored 引擎树必须与上游一致 / 布尔契约必须同步），
+**C3、C4、C5、C6、C7、C8、C9、C10 恒 0 硬阻断** —— 它们守的是**规则**（文档与代码必须一致 / 空占位目录不得放文件 / 成员目录不得有冗余 lock / vendored 引擎树必须与上游一致 / 布尔契约必须同步 / IPC 命令契约必须对齐 / 台账评分必须自洽 / **三处门禁档位必须一致**），
 不是存量债，没有「先登记、以后再说」的余地。
 
 ```bash
 python scripts/check-tech-debt.py                # 全检 + 与基线比对
 python scripts/check-tech-debt.py --show         # 只看现状
-python scripts/check-tech-debt.py --only c7      # 只跑某一检（c1/c2/c3/c3b/c4/c5/c6/c7）
+python scripts/check-tech-debt.py --only c10     # 只跑某一检（c1/c2/c3/c3b/c4/c5/c6/c7/c8/c9/c10）
 python scripts/check-tech-debt.py --update-baseline   # 清理后收紧水位
 ```
 
@@ -989,6 +989,7 @@ python scripts/check-tech-debt.py --update-baseline   # 清理后收紧水位
 | C5 | workspace 成员目录下的冗余 `Cargo.lock`（**不做棘轮**，TD-019）。独立 workspace（如 `src-tauri/fuzz/` 自带 `[workspace]`）的 lock 合法。cargo 只读根那一份，成员这份永不更新，会误导 `cargo audit` / dependabot 的安全结论 |
 | C6 | vendored 引擎树 `AutoHotkey-2.0.26/` 必须与官方 v2.0.26 **不多、不少、不改**（**不做棘轮**，TD-010）。基线在 `scripts/vendor-baseline-ahk-2.0.26.txt`，刻意取自**上游**而非本地快照 —— 取本地快照的话，一旦本地已被污染，污染就会被固化进基线、从此永远通过。⚠️ 内容口径是**工作区**哈希（`git hash-object`），不是索引 —— 用索引的话「改了引擎源码但还没 `git add`」完全抓不到，而那正是本条要防的。被 `.gitignore` 忽略的本机产物（`AutoHotkey.exe`、`*.log`）不在管辖范围，否则会出现「本地恒红、CI 恒绿」 |
 | C7 | **布尔契约同步**（**不做棘轮**，TD-030）：Rust 侧 `bool` / `Option<bool>` 字段的 JSON 键名，必须全部登记在 AHK `infrastructure/json_serializer.ahk` 的 `JSONSerializer.BoolKeys` 白名单里。起因是 AHK v2 **没有布尔类型**（`Type(true)` 是 `"Integer"`），序列化器只能靠键名判 JSON 布尔；白名单漏一个键，该字段就被写成 `0`/`1`，Rust 侧 serde 直接 `invalid type`。以 Rust 契约为事实源反向校验，新增布尔字段忘了登记即 FAIL |
+| C10 | **三处门禁档位一致**（**不做棘轮**，TD-055）：`scripts/check-gates.sh` / `scripts/check-gates.ps1` / `.github/workflows/ci.yml` 里同一个闸门的档位必须一致。现两个探针：**G3d**（`check-test-map.py` 的 `--no-cargo` 有无）与 **G3i**（`build_graph.py` 的 `--selftest` 有无）。起因是 `.sh` 与 `ci.yml` 已切完整模式（真跑 `cargo test --list` 对账运行期数字），`.ps1` 仍是 `--no-cargo` 快速档（只查文档内部自洽），于是运行期对账在**唯一能开发的平台（Windows）**上从未真正执行。⚠️ 判据每次从三份文件里**正则提取后互比**，脚本里**不存**「标准档位清单」—— 否则那份清单就成了第五份权威副本，与本检要消灭的漂移是同一类错误。本检**只管是否漂移、不管取哪个值**：要整体切档就三处一起改。⚠️ 判定用「**标志有无**」而非「调用命令全文」—— 三处 shell 语法天然不同（`.sh` 用 `env CARGO_INCREMENTAL=0 "$PY" …`、`.ps1` 用 `& $script:Py (Join-Path …)`、`ci.yml` 用 `python …`），比全文必然全是假阳性；也没做成「闸门 ID 集合齐备」，因为 G3g 只在 `.sh`/`ci.yml`、G3f/G3h 只在 `ci.yml`，属既有且已接受的差异，一上就红，压下去又要维护豁免清单 |
 
 > **C3b 的写法约定**：文档里**不要复写 AHK 用例总数**，一律写
 > 「见 `asd-tauri/docs/test-map.md`（当前 N）」这类指针。
