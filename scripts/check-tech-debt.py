@@ -54,6 +54,17 @@
      但这个开关一旦混进正式配置，**分发给用户的 release 产物就会带着远程调试端口**，
      那是安全红线而不只是配置噪声。两个配置长得几乎一样、只差一个字段，
      人眼分不出来，故必须由机器守住。
+  C13 台账结构自洽：`docs/tech-debt-register.md` 的**结构**（统计行汇总数 /
+     状态词是否在「状态流转」词表内 / 豁免·待定是否附到期日 / 档位格是否纯）
+     此前零守卫 —— C9 只校验 DPI·档位这类**数值**是否自洽，行里写什么状态词、
+     统计行报几个数，它一概不看。
+     —— 起因（2026-09-18 实测）：统计行声明「P0 23 / P1 18 / P2 17 / 合计 58」，
+     清单实际是 P0 24 / P1 21 / P2 17 / 合计 **62**；62 行里出现 11 种状态写法，
+     而「状态流转」章节只声明 6 种；台账第 5 行要求豁免/待定必须附**到期日**，
+     这条规则同样零守卫。与 C9 同族：**度量看着在管，实际管的是另一个东西**。
+     ⚠️ 与 C10 同一条教训：判据**一律从台账里提取**（状态词表取自「## 状态流转」
+     章节的代码块，统计口径取自「**统计**：」行），再与清单实际行互比 ——
+     脚本里**不存**期望值清单，否则那份清单就成了第二份权威副本。
 
 棘轮（ratchet）语义
 --------------------
@@ -66,16 +77,16 @@ C1/C2 的现状是**存量债**，不可能一次清零。所以脚本不要求�
   - 想主动下调水位：清理掉若干项后跑 `--update-baseline`，把新的（更小的）集合
     冻结为新基线。基线文件 diff 会出现在 CR 里，收紧必须过 review。
 
-C3 / C4 / C5 / C6 / C7 / C8 / C9 / C10 / C11 / C12 不做棘轮：它们守的是**规则**（文档与代码
+C3 / C4 / C5 / C6 / C7 / C8 / C9 / C10 / C11 / C12 / C13 不做棘轮：它们守的是**规则**（文档与代码
 必须一致 / 占位目录不得放文件 / 成员目录不得有冗余 lock / vendored 引擎树必须与上游
 一致 / 布尔契约必须同步 / 三处门禁档位必须一致 / 打包资源必须覆盖被引用的文件 /
-正式配置不得开调试端口），没有「先记账以后再说」的余地。
+正式配置不得开调试端口 / 台账结构必须自洽），没有「先记账以后再说」的余地。
 
 用法：
     python scripts/check-tech-debt.py                  # 三检 + 与基线比对（CI 用这个）
     python scripts/check-tech-debt.py --show           # 只打印当前结果，不与基线比对
     python scripts/check-tech-debt.py --update-baseline
-    python scripts/check-tech-debt.py --only c11       # 只跑某一检（c1…c11）
+    python scripts/check-tech-debt.py --only c13       # 只跑某一检（c1…c13）
 
 退出码：0 = 通过；1 = 有新增债或一致性错误。
 """
@@ -1441,6 +1452,325 @@ def check_c12(repo_root: Path) -> dict:
     return {"findings": findings, "checked": 1}
 
 
+# ---------------------------------------------------------------- C13 台账结构自洽
+# 台账 `docs/tech-debt-register.md` 的**结构**（统计行 / 状态词 / 豁免到期日 / 档位格纯度）
+# 此前零守卫：C9 只看 DPI 与档位这类**数值**是否自洽，行里写什么状态词、统计行报几个数，
+# 它一概不看。2026-09-18 实测：统计行声明 P0 23 / P1 18 / P2 17 / 合计 58，而清单实际是
+# P0 24 / P1 21 / P2 17 / 合计 62；62 行里出现 11 种状态写法，而「## 状态流转」只声明 6 种；
+# 台账第 5 行要求豁免/待定必须附**到期日**，这条规则同样零守卫。
+#
+# ⚠️ 与 C10 同一条教训：**判据一律从台账里提取，脚本里不存期望值**。
+#    状态词表从「## 状态流转」章节的代码块里正则提取，统计口径从「**统计**：」行里提取，
+#    再与清单实际行**互比** —— 于是「词表改了但行没改」与「行改了但词表没改」都会被抓，
+#    且不需要脚本跟着改（脚本里存一份词表就成了第二份权威副本，与本检要消灭的漂移同类）。
+#    下面三个常量只是**定位**（章节名 / 行首标记 / 日期形状），不是期望值。
+C13_STATS_PREFIX = "**统计**"
+C13_STATUS_SECTION = "状态流转"
+C13_TIER_RE = re.compile(r"P[0-3]")
+C13_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _c13_section_body(text: str, heading: str) -> str | None:
+    """取含 `## <heading>` 的标题行到下一个 `## ` 之间的正文；找不到返回 None。
+
+    用章节标题定位而不是写死行号 —— 行号会随债项增删漂移（C9 已因写死行号吃过亏）。
+    ⚠️ 标题**允许带后缀**（如 `## 状态流转（权威词表）`）：只要求标题行里含该词，
+    不要求整行相等 —— 否则给章节起个更清楚的名字就会把本检打成「提取不到」的假红。
+    """
+    m = re.search(r"(?m)^##[^\n]*" + re.escape(heading) + r"[^\n]*$", text)
+    if not m:
+        return None
+    rest = text[m.end():]
+    nxt = re.search(r"(?m)^##\s", rest)
+    return rest[:nxt.start()] if nxt else rest
+
+
+def _c13_table_rows(section_body: str) -> list[list[str]] | None:
+    """取章节里第一张 markdown 表格**分隔行之后**的数据行；章节里没有表格返回 None。
+
+    ⚠️ 必须从分隔行（`|---|---|---|`）之后取：表头行「状态词 / 定义 / 项数」本身也是
+    `|` 行，不跳过分隔行就会把表头当成一个状态词（自造假阳性）。
+    """
+    lines = section_body.splitlines()
+    sep = next((i for i, l in enumerate(lines)
+                if re.fullmatch(r"\s*\|[\s:|-]+\|\s*", l)), None)
+    if sep is None:
+        return None
+    rows: list[list[str]] = []
+    for l in lines[sep + 1:]:
+        if not l.lstrip().startswith("|"):
+            break
+        rows.append([x.strip() for x in l.split("|")])
+    return rows
+
+
+def _c13_status_vocab(section_body: str) -> list[str]:
+    """从「状态流转」章节里提取状态词（去重保序）。支持两种已出现的排版：
+
+      ① fenced 代码块里的状态机图（`待评估 → 已排期 → 进行中 → 已完成`）；
+      ② markdown 表格（`| 状态词 | 定义 | 项数 |`，2026-09-18 起改用的「权威词表」）。
+
+    ⚠️ 表格只取**分隔行之后**的第一列，跳过表头与分隔行 —— 否则表头「状态词」会被
+    当成一个状态词。
+    ⚠️ 不把整节切词：章节里的散文（「任何『不修』都必须落到此列…」）含状态词字面，
+    整节切词会把散文噪声当词表 —— 那是自造的假阳性。
+    """
+    words: list[str] = []
+
+    m = re.search(r"```[^\n]*\n(.*?)```", section_body, re.S)
+    if m:
+        for raw in m.group(1).splitlines():
+            line = re.sub(r"[（(][^）)]*[）)]", "", raw)   # 去掉（理由 + 到期日）这类批注
+            for tok in re.split(r"[→↘\s、,，/|]+", line):
+                tok = tok.strip()
+                if re.fullmatch(r"[\u4e00-\u9fff]{2,}", tok):
+                    words.append(tok)
+
+    for cells in _c13_table_rows(section_body) or []:
+        if len(cells) > 2:
+            tok = cells[1].replace("*", "").strip()
+            if re.fullmatch(r"[\u4e00-\u9fff]{2,}", tok):
+                words.append(tok)
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for w in words:
+        if w not in seen:
+            seen.add(w)
+            out.append(w)
+    return out
+
+
+def check_c13(repo_root: Path) -> dict:
+    """C13 台账结构自洽（2026-09-18 新增）。
+
+    `docs/tech-debt-register.md` 是技术债的**唯一登记处**，但它除了 DPI/档位（C9 管）
+    之外的**结构**从来没有被校验过：统计行可以随便报数、状态列可以随便造词、
+    台账第 5 行白纸黑字写的「豁免/待定必须附到期日」没有任何东西守着。
+
+    与 C3 / C4 / … / C12 同类：**硬失败、不做棘轮** —— 守的是规则不是存量债。
+
+    校验六条（1–3 是任务指定的必查项，4–6 见下）：
+      1. 统计行汇总数 == 清单实际：`**统计**：` 开头的行里声明的 `P0…P3`/`合计`
+         必须与按档位格分桶数出来的行数一致。
+      2. 状态词必须落在「## 状态流转」章节声明的词表内（词表**从台账提取**，不内嵌）。
+      3. 状态属「不修类」（词表里含 `豁免`/`待定` 字样的词）的行，状态格里必须有
+         `YYYY-MM-DD` 形式的**到期日**（台账第 5 行的规矩：没有期限的豁免=永久豁免）。
+      4. **档位格纯度**：档位格必须恰为 `P0`/`P1`/`P2`/`P3`。
+         —— 第 4 项放在 C13 而不是收紧 C9，理由：① C9 的职责是**数值自洽**
+         （DPI↔公式↔落档），它的 `tier[:2]` 是**刻意的容错**（`_cell_num` 注释明写
+         档位列可能带括号后缀），把格式纯度塞进 C9 会让「算错分」与「写错格」两类
+         失败混进同一个报错，且要改动已发布的 C9 语义与容错承诺；② 「格子里放什么」
+         本就是**结构**约束，与 C13 同类；③ C13 的统计分桶要按档位格取前两字符，
+         档位格不纯会**直接污染分桶结果**，两者本就耦合。
+         「硬性升档」的理由按 C9 报错文案给出的范式写在 **DPI 格**
+         （`**22.6**（+ 硬性升档：数据丢失）`），档位格只放档位。
+      5. **触发集不得空转**：词表里必须至少有一个含 `豁免`/`待定` 字样的词。
+         —— 第 3 条靠「词里含 豁免/待定」挑打击对象；词表若把这两个词改名
+         （如 `豁免-A`），触发集变空 → 第 3 条**无声退化成永真式**，而 C13 仍会
+         PASS。这正是本检要消灭的形状：守卫看着在跑，防的不是它声称防的东西。
+      6. **词表「项数」列 == 清单实际**：项数之和必须 == 清单行数，且每个词的项数
+         必须 == 按该词统计出的实际行数。
+         —— 「项数」列是**第二份计数声明**，与统计行、清单实际构成三处，只比对
+         统计行↔清单会漏掉它。表格解析不出数据行 / 项数列解析不出整数 → 按失败处理。
+
+    ⚠️ 文件不存在 / 读不了 / 正则提取不到 → **按失败处理**，绝不静默放过（与
+    C9/C11/C12 同口径）。「提取到 0 个状态词」「找不到统计行」「找不到状态流转章节」
+    都必须变红 —— 否则遍历被压到 0 就成了永真式（TD-049 的阳性对照专门钉过这一点）。
+    """
+    reg = repo_root / _REGISTER
+    findings: list[str] = []
+
+    if not reg.exists():
+        return {"findings": [f"台账 `{_REGISTER}` 不存在（C13 无法校验，按失败处理）"],
+                "checked": 0, "rows": 0, "vocab": [], "tier_counts": {}}
+    try:
+        text = read_text(reg)
+    except Exception as e:
+        return {"findings": [f"台账 `{_REGISTER}` 读取失败：{e}（C13 无法校验，按失败处理）"],
+                "checked": 0, "rows": 0, "vocab": [], "tier_counts": {}}
+
+    lines = text.splitlines()
+
+    # ---- 清单行（唯一事实源）----
+    rows: list[tuple[int, list[str]]] = []
+    for lineno, line in enumerate(lines, start=1):
+        if line.startswith("| TD-"):
+            rows.append((lineno, [x.strip() for x in line.split("|")]))
+
+    tier_counts = {"P0": 0, "P1": 0, "P2": 0, "P3": 0}
+    for lineno, cells in rows:
+        tid = cells[1] if len(cells) > 1 else f"第 {lineno} 行"
+        if len(cells) < 13:
+            findings.append(
+                f"{tid}：行结构不完整（{len(cells)} 段，取不到档位/状态格）—— "
+                f"C13 无法判定该行（按失败处理）"
+            )
+            continue
+        tier_raw = cells[11].replace("*", "").strip()
+        # 分桶用**前缀**匹配（与 C9 的 `tier[:2]` 同口径）：档位格不纯时也要能落桶，
+        # 否则该行会从统计里凭空消失、把统计行的偏差一起掩盖掉；纯度本身单独报。
+        m_tier = C13_TIER_RE.match(tier_raw)
+        if m_tier:
+            tier_counts[m_tier.group(0)] += 1
+        if not C13_TIER_RE.fullmatch(tier_raw):
+            findings.append(
+                f"{tid}：档位格不纯 —— 实际 `{cells[11]}`，应恰为 `P0`/`P1`/`P2`/`P3`。"
+                f"「硬性升档」的理由按 C9 报错文案的范式写在 **DPI 格**"
+                f"（`**22.6**（+ 硬性升档：数据丢失）`），档位格只放档位"
+            )
+    total = len(rows)
+
+    # ---- 1. 统计行汇总数 vs 实际 ----
+    stat_line: tuple[int, str] | None = None
+    for lineno, line in enumerate(lines, start=1):
+        if line.lstrip().startswith(C13_STATS_PREFIX):
+            stat_line = (lineno, line)
+            break
+    if stat_line is None:
+        findings.append(
+            f"提取不到以 `{C13_STATS_PREFIX}` 开头的统计行（C13 无法校验，按失败处理）"
+            f"—— 统计行是台账的汇总口径，它不在就没人能对账"
+        )
+    else:
+        sl_no, sl = stat_line
+        declared: dict[str, int] = {}
+        for m in re.finditer(r"(合计|P[0-3])\s*\**\s*(\d+)\s*\**\s*项", sl):
+            k, n = m.group(1), int(m.group(2))
+            if k in declared and declared[k] != n:
+                findings.append(
+                    f"统计行（第 {sl_no} 行）里 `{k}` 出现两个不同数字"
+                    f"（{declared[k]} 与 {n}）—— 无法判定哪个生效（按失败处理）"
+                )
+            declared.setdefault(k, n)
+        if not declared:
+            findings.append(
+                f"统计行（第 {sl_no} 行）里提取不到任何 `P0…P3`/`合计` 计数"
+                f"（C13 无法校验，按失败处理）"
+            )
+        else:
+            for k in ("P0", "P1", "P2", "P3"):
+                d = declared.get(k)
+                if d is None:
+                    if tier_counts[k]:
+                        findings.append(
+                            f"统计行漏报 `{k}`：清单实际有 **{tier_counts[k]}** 项，"
+                            f"统计行只报了 "
+                            + "、".join(f"{kk} {vv}" for kk, vv in declared.items())
+                        )
+                elif d != tier_counts[k]:
+                    findings.append(
+                        f"统计行 `{k}` 声明 **{d}** 项，实际 **{tier_counts[k]}** 项"
+                    )
+            d = declared.get("合计")
+            if d is None:
+                findings.append(f"统计行（第 {sl_no} 行）提取不到 `合计`（按失败处理）")
+            elif d != total:
+                findings.append(f"统计行 `合计` 声明 **{d}** 项，实际 **{total}** 项")
+
+    # ---- 2 / 3. 状态词表 + 不修类到期日 ----
+    section = _c13_section_body(text, C13_STATUS_SECTION)
+    vocab: list[str] = []
+    declared_items: dict[str, int] = {}   # 词表「项数」列（第二份计数声明）
+    if section is None:
+        findings.append(
+            f"提取不到 `## {C13_STATUS_SECTION}` 章节（C13 无法校验，按失败处理）—— "
+            f"状态词表就在那里；章节没了，状态校验会退化成永真式，必须变红"
+        )
+    else:
+        vocab = _c13_status_vocab(section)
+        if not vocab:
+            findings.append(
+                f"`## {C13_STATUS_SECTION}` 章节里提取不到任何状态词（代码块/词表表格缺失或为空）"
+                f"—— 提取到 0 个词即视为失败，不放行"
+            )
+        else:
+            # 加固 A：触发集空转。第 3 条到期日校验靠「词里含 豁免/待定」挑出打击对象；
+            # 若词表把这两个词改名（如 `豁免-A`），触发集变空 → 第 3 条**无声退化成
+            # 永真式**，而 C13 仍会 PASS。故词表里必须至少留一个这类词。
+            # ⚠️ 判据从词表提取后再判，脚本里不内嵌词表本身。
+            if not any(("豁免" in w) or ("待定" in w) for w in vocab):
+                findings.append(
+                    f"词表里没有任何含 `豁免`/`待定` 字样的词 —— 台账第 6 行要求任何"
+                    f"「不修」必须落到 `豁免`/`待定`，词表里没有这类词就意味着**该规则"
+                    f"无法表达**，且第 3 条到期日校验会**空转**（触发集为空 = 永真式）。"
+                    f"当前词表：{'、'.join(vocab)}"
+                )
+
+            # 加固 B：词表「项数」列。它是**第二份计数声明**，与统计行、清单实际三处
+            # 可以各自漂移；只比对统计行↔清单会漏掉它。
+            tbl = _c13_table_rows(section)
+            if tbl is None:
+                findings.append(
+                    f"`## {C13_STATUS_SECTION}` 章节里找不到状态词表格 —— 「项数」列是"
+                    f"第二份计数声明，缺它就无法与统计行/清单实际三处对账"
+                    f"（C13 无法校验，按失败处理）"
+                )
+            elif not tbl:
+                findings.append(
+                    f"`## {C13_STATUS_SECTION}` 的状态词表格解析不出任何数据行"
+                    f"（表头/分隔行之后为空）—— 按失败处理，不跳过当没事"
+                )
+            else:
+                for r in tbl:
+                    last = next((c for c in reversed(r) if c != ""), "")
+                    w = r[1].replace("*", "").strip() if len(r) > 1 else ""
+                    if len(r) < 3 or not re.fullmatch(r"\d+", last):
+                        findings.append(
+                            f"词表行 `{w or '（空）'}` 的**项数列**解析不出整数 —— "
+                            f"实际 `{last}`（C13 无法校验该词，按失败处理）"
+                        )
+                        continue
+                    declared_items[w] = int(last)
+                if declared_items:
+                    ssum = sum(declared_items.values())
+                    if ssum != total:
+                        findings.append(
+                            f"词表「项数」之和 **{ssum}** 与清单行数 **{total}** 不符 —— "
+                            + "、".join(f"{k} {v}" for k, v in declared_items.items())
+                        )
+
+    status_checked = 0
+    actual_items: dict[str, int] = {}
+    if vocab:
+        vocab_sorted = sorted(vocab, key=len, reverse=True)   # 长词优先，避免前缀误吞
+        for lineno, cells in rows:
+            if len(cells) < 13:
+                continue
+            tid = cells[1] if len(cells) > 1 else f"第 {lineno} 行"
+            raw = cells[12]
+            s = re.sub(r"^[^\w\u4e00-\u9fff]+", "", raw.replace("*", "").strip())
+            word = next((w for w in vocab_sorted if s.startswith(w)), None)
+            if word is None:
+                findings.append(
+                    f"{tid}：状态词不在「{C13_STATUS_SECTION}」词表内 —— 台账写 "
+                    f"`{raw[:40]}`，词表只认 {'、'.join(vocab)}。请改成词表里的词，"
+                    f"或（若确需新状态）同时更新「{C13_STATUS_SECTION}」章节"
+                )
+                continue
+            status_checked += 1
+            actual_items[word] = actual_items.get(word, 0) + 1
+            if ("豁免" in word) or ("待定" in word):
+                if not C13_DATE_RE.search(s):
+                    findings.append(
+                        f"{tid}：状态 `{word}` 属「不修类」，台账第 5 行要求必须附**到期日**，"
+                        f"但状态格里找不到 `YYYY-MM-DD` —— 实际 `{raw[:60]}`。"
+                        f"没有期限的豁免等于永久豁免，白名单会无声膨胀"
+                    )
+
+    # 加固 B（续）：逐词比对「项数」列 vs 按该词统计出的实际行数
+    for w, declared in declared_items.items():
+        got = actual_items.get(w, 0)
+        if declared != got:
+            findings.append(
+                f"词表「项数」列 `{w}` 声明 **{declared}** 项，按状态格实际统计为 **{got}** 项"
+            )
+
+    return {"findings": findings, "checked": total, "rows": total,
+            "vocab": vocab, "tier_counts": tier_counts,
+            "status_checked": status_checked, "declared_items": declared_items}
+
+
 # ---------------------------------------------------------------- 基线 / 棘轮
 
 
@@ -1499,12 +1829,12 @@ def main() -> int:
     )
     ap.add_argument("--update-baseline", action="store_true", help="把当前结果冻结为新基线")
     ap.add_argument("--show", action="store_true", help="只打印当前结果，不与基线比对")
-    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12"], help="只跑某一检")
+    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12", "c13"], help="只跑某一检")
     args = ap.parse_args()
 
     print("=" * 60)
     print("技术债度量检查（C1 孤儿文件 / C2 测试未接入 / C3 文档漂移 / C4 占位目录守卫 / "
-          "C5 冗余 lock / C6 vendored 引擎纯净性 / C7 布尔契约同步）")
+          "C5 冗余 lock / C6 vendored 引擎纯净性 / C7 布尔契约同步 / C13 台账结构自洽）")
     print("=" * 60)
 
     cur = {
@@ -1521,13 +1851,14 @@ def main() -> int:
         "c10": check_c10(REPO_ROOT),
         "c11": check_c11(REPO_ROOT),
         "c12": check_c12(REPO_ROOT),
+        "c13": check_c13(REPO_ROOT),
     }
 
     if args.update_baseline:
         save_baseline(cur)
         return 0
 
-    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12"}
+    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12", "c13"}
 
     # ---------- C3：硬失败，不做棘轮 ----------
     c3_errors = list(cur["c3"]["findings"])
@@ -1652,6 +1983,20 @@ def main() -> int:
         else:
             print("       通过：正式配置未开远程调试端口")
 
+    # ---------- C13：硬失败，台账结构自洽 ----------
+    c13_findings = list(cur["c13"]["findings"])
+    if "c13" in want:
+        print(f"\n[C13] 技术债台账结构自洽（统计行汇总数 / 状态词表 / 豁免到期日 / 档位格纯度）："
+              f"核对 {cur['c13']['checked']} 行，状态词表 "
+              f"{'、'.join(cur['c13']['vocab']) or '（提取不到）'}")
+        if c13_findings:
+            for f in c13_findings[:20]:
+                print(f"       - {f}")
+            if len(c13_findings) > 20:
+                print(f"       … 另有 {len(c13_findings) - 20} 处")
+        else:
+            print("       通过：统计行与清单一致、状态词都在词表内、豁免/待定均附到期日、档位格纯净")
+
     # ---------- C1 / C2：棘轮 ----------
     base = None if args.show else load_baseline()
     if base is None and not args.show:
@@ -1735,6 +2080,11 @@ def main() -> int:
         errors.append(
             f"正式 `tauri.conf.json` 出现 `{C12_FORBIDDEN}` {len(c12_findings)} 处"
             f"（会进 release 产物，安全红线）（C12）"
+        )
+
+    if "c13" in want and c13_findings:
+        errors.append(
+            f"技术债台账结构不自洽 {len(c13_findings)} 处（统计行/状态词/到期日/档位格）（C13）"
         )
 
     if errors:

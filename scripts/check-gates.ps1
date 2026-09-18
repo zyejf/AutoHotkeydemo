@@ -239,7 +239,7 @@ if (-not $Quick) {
     }
 
     # 静态检查，约 2.5s。C1a/C1b/C1c/C2/C3b 走棘轮（只阻新增），C3 恒 0 硬阻断。
-    Invoke-Gate -Id 'G3e' -Name '技术债度量（C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写数字）' -Action {
+    Invoke-Gate -Id 'G3e' -Name '技术债度量（C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写数字 / C13 台账结构自洽）' -Action {
         & $script:Py (Join-Path $repoRoot 'scripts/check-tech-debt.py')
         $LASTEXITCODE
     }

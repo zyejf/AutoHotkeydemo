@@ -203,7 +203,7 @@ if [ "$QUICK" -eq 0 ]; then
     env CARGO_INCREMENTAL=0 "$PY" "$REPO_ROOT_NATIVE/scripts/check-test-map.py"
 
   # 静态检查，约 2.5s。C1a/C1b/C1c/C2/C3b 走棘轮（只阻新增），C3 恒 0 硬阻断。
-  run_gate "G3e" "技术债度量（C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写数字）" "$REPO_ROOT" \
+  run_gate "G3e" "技术债度量（C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写数字 / C13 台账结构自洽）" "$REPO_ROOT" \
     "$PY" "$REPO_ROOT_NATIVE/scripts/check-tech-debt.py"
 
   # tests/ 下的独立脚本（不在 run_all_tests.ahk 的套件注册里）。2026-09-16 首次

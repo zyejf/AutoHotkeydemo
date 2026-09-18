@@ -253,7 +253,7 @@ jobs:
 
       # 静态检查，约 2.5s。C1a/C1b/C1c/C2/C3b 走棘轮（只阻新增），C3 恒 0 硬阻断。
       # 依赖 .review-analysis/tech-debt-baseline.json（已入库）。
-      - name: 'G3e 技术债度量（C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写数字）'
+      - name: 'G3e 技术债度量（C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写数字 / C13 台账结构自洽）'
         run: python scripts/check-tech-debt.py
 
       # tests/ 下 7 个独立脚本，不在 run_all_tests.ahk 的套件注册里，历史上从未被
