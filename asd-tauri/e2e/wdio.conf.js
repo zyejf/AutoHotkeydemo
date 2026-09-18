@@ -4,7 +4,7 @@
 // 通过 tauri-driver（监听 4444 端口）驱动 Tauri 应用窗口
 // 所有 JS 使用 ESM 语法（package.json type=module）
 // =================================================================
-import { spawn, execSync } from 'node:child_process';
+import { spawn, spawnSync, execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,6 +44,13 @@ const msedgedriverExePath = resolve(driversDir, 'msedgedriver.exe');
 
 // 全局引用：保存 tauri-driver 子进程，供 onComplete 关闭
 let tauriDriverProcess = null;
+// 全局引用：保存 tauri-driver 的 stdout/stderr。
+// ⚠️ 必须是模块级而非 onPrepare 内的局部变量：onComplete 要无条件落盘它，
+//    而「局部 const」在 onComplete 里根本不可见（这是第六道死因排查的硬要求）。
+// ⚠️ 落盘不能只在 waitForPort 失败的分支做 —— 那等于「只有没启动时才记录它为什么
+//    没启动」，而 run 35327797606 的实际失败形态是「启动了、已监听 4444，但
+//    POST /session 永不返回」，正好被那个条件排除，driver 输出一行都没留下来。
+const driverLog = [];
 // 全局引用：保存由本配置启动的 Vite dev server 子进程，供 onComplete 关闭。
 // 复用外部已运行的实例时不持有句柄（不关闭别人的进程）。
 let viteProcess = null;
@@ -89,6 +96,24 @@ async function warmupVite() {
   return lines;
 }
 
+// 无条件落盘 tauri-driver 的输出到 reports/tauri-driver.log。
+// 调用点：onPrepare 的 exit 钩子（进程自己退出时）+ onComplete（收尾时）。
+// 目的：让「tauri-driver 起来了但 /session 不返回」这种失败也能留下证据。
+function dumpDriverLog() {
+  try {
+    if (!existsSync(reportsDir)) {
+      mkdirSync(reportsDir, { recursive: true });
+    }
+    writeFileSync(
+      resolve(reportsDir, 'tauri-driver.log'),
+      (driverLog.join('') || '(无输出)\n'),
+      'utf-8'
+    );
+  } catch {
+    // 落盘失败不能影响测试流程本身
+  }
+}
+
 // 轮询等待端口进入监听状态
 async function waitForPort(host, port, timeoutMs = 40000) {
   const deadline = Date.now() + timeoutMs;
@@ -119,7 +144,17 @@ export const config = {
   logLevel: 'info',
   waitforTimeout: 10000,
   connectionRetryTimeout: 60000,
-  connectionRetryCount: 3,
+  // ⚠️ 由 3 改为 0。依据：4444 端口就绪已由 onPrepare 的 waitForPort（:474，
+  //    **无条件**执行，CI 与本地两条路径都走，无 process.env.CI 分支、无「复用已有
+  //    driver」分支）独立把关，workers 是在端口确认监听之后才派发的。
+  //    因此这 3 次重试重试的不是「driver 还没起来」，而是**一个已经挂死的 POST
+  //    /session** —— run 35327797606 实测：9 个 spec 各 4 次尝试全部超时，
+  //    每次都是同一个 connectionRetryTimeout(60s)，4×60s=240s，9×4min=36m32s，
+  //    与汇总行 `in 00:36:32` 完全吻合。重试提供的价值为零，只把一轮 CI 反馈
+  //    从 ~5 分钟拖到 42 分钟。
+  //    保留 connectionRetryTimeout: 60000 不变 —— 单次会话建立的预算没有被压缩，
+  //    冷启动慢的场景仍然有完整 60s。
+  connectionRetryCount: 0,
   framework: 'mocha',
   mochaOpts: {
     ui: 'bdd',
@@ -285,6 +320,50 @@ export const config = {
       diagLines.push(`[FAIL] msedgedriver.exe 不存在: ${msedgedriverExePath}`);
     }
 
+    // 4.5 环境探测：msedgedriver 版本 + WebView2 Runtime 是否在位
+    // ⚠️ 为什么必须在**建会话之前**打印：run 35327797606 的失败形态是 tauri-driver
+    //    已监听 4444，但对 POST /session 永不返回（9 个 spec 各烧掉 4 分钟全挂）。
+    //    当时 tauri-driver 自身的 stdout/stderr 一行都没落盘，所以「卡在哪」无从判断。
+    //    这两条探测各用一行输出，即可证实或排除两个待验假设：
+    //      ① runner 上根本没有 WebView2 Runtime（ci.yml 的 e2e job 无安装步骤，
+    //         仅 :31 的描述文字提到 WebView2）—— 若成立，该通道设计上不可能成功；
+    //      ② msedgedriver 版本与 runner 上的 WebView2 不匹配。
+    //    输出同时进 artifact（diagLines）和 CI 日志（console.log）。
+    {
+      const probe = (label, cmd, args) => {
+        try {
+          const r = spawnSync(cmd, args, { encoding: 'utf8', timeout: 15000, shell: false });
+          const raw = `${r.stdout || ''}${r.stderr || ''}${r.error ? ` [error: ${r.error.message}]` : ''}`;
+          const line = `[INFO] ${label}: ${raw.trim().split(/\r?\n/).join(' | ') || '(无输出)'}`;
+          diagLines.push(line);
+          console.log(line);
+        } catch (e) {
+          const line = `[WARN] ${label} 探测失败: ${e.message}`;
+          diagLines.push(line);
+          console.log(line);
+        }
+      };
+      if (existsSync(msedgedriverExePath)) {
+        probe('msedgedriver --version', msedgedriverExePath, ['--version']);
+      } else {
+        const line = '[WARN] msedgedriver.exe 不存在，跳过 --version 探测';
+        diagLines.push(line);
+        console.log(line);
+      }
+      // WebView2 Evergreen Runtime 在 EdgeUpdate 下的客户端 GUID；pv = 已安装版本。
+      // 两个根都查：HKLM WOW6432Node（机器级）/ HKCU（用户级）。
+      probe('WebView2 Runtime (HKLM WOW6432Node)', 'reg', [
+        'query',
+        'HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+        '/v', 'pv',
+      ]);
+      probe('WebView2 Runtime (HKCU)', 'reg', [
+        'query',
+        'HKCU\\SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+        '/v', 'pv',
+      ]);
+    }
+
     // 5. 检查 4444 端口是否被占用（tauri-driver 端口冲突）
     const port4444InUse = await checkPort('127.0.0.1', 4444);
     if (port4444InUse) {
@@ -370,7 +449,8 @@ export const config = {
       shell: false,
       env: childEnv,
     });
-    const driverLog = [];
+    // 复用模块级 driverLog（onComplete 需要可见），仅做清空
+    driverLog.length = 0;
     tauriDriverProcess.stdout?.on('data', (d) => driverLog.push(String(d)));
     tauriDriverProcess.stderr?.on('data', (d) => driverLog.push(String(d)));
     tauriDriverProcess.on('error', (err) => {
@@ -383,6 +463,8 @@ export const config = {
     });
     tauriDriverProcess.on('exit', (code, signal) => {
       driverLog.push(`tauri-driver exited: code=${code} signal=${signal}`);
+      // 进程自己退出时也要留下输出（例如 --native-driver 拉不起来而静默退出）
+      dumpDriverLog();
     });
 
     // ⚠️ 原来是「固定 sleep 2000ms 就继续」：端口没起来也照样发 9 个 worker，
@@ -462,6 +544,12 @@ export const config = {
   // onComplete: 关闭 tauri-driver 子进程
   // ----------------------------------------------------------------
   onComplete: () => {
+    // ⚠️ 无条件落盘 tauri-driver 输出 —— 不再只在 waitForPort 失败时写。
+    // 同时把尾部摘要打进 CI 日志（截断，避免超长），这样即使 artifact 没人下载，
+    // 日志里也能直接看到「/session 不返回时 tauri-driver 在干什么」。
+    dumpDriverLog();
+    const tail = driverLog.join('').slice(-4000).trim();
+    console.log(`[tauri-driver 输出尾部] ${tail || '(无输出)'}`);
     if (viteProcess) {
       try {
         // Windows: /T 终止整个子进程树，避免残留 esbuild / node 子进程占用 5173
