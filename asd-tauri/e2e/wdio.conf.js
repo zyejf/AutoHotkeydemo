@@ -370,16 +370,44 @@ export const config = {
       shell: false,
       env: childEnv,
     });
+    const driverLog = [];
+    tauriDriverProcess.stdout?.on('data', (d) => driverLog.push(String(d)));
+    tauriDriverProcess.stderr?.on('data', (d) => driverLog.push(String(d)));
     tauriDriverProcess.on('error', (err) => {
-      // tauri-driver 启动失败时记录错误，但不抛出（让用例自行处理）
+      driverLog.push(`spawn error: ${err.message}`);
       writeFileSync(
         resolve(reportsDir, 'tauri-driver-error.txt'),
         `Failed to start tauri-driver: ${err.message}\n`,
         'utf-8'
       );
     });
-    // 给 tauri-driver 2 秒启动时间后再继续
-    await new Promise((startupResolve) => setTimeout(startupResolve, 2000));
+    tauriDriverProcess.on('exit', (code, signal) => {
+      driverLog.push(`tauri-driver exited: code=${code} signal=${signal}`);
+    });
+
+    // ⚠️ 原来是「固定 sleep 2000ms 就继续」：端口没起来也照样发 9 个 worker，
+    //    全部 ECONNREFUSED —— 真正的失败（--native-driver 指向不存在的
+    //    msedgedriver.exe）被伪装成「driver 拒绝连接」，run 35310528367 实测
+    //    排查全靠下载 artifact 才定位。改成**轮询校验 + 带输出硬失败**。
+    const driverReady = await waitForPort('127.0.0.1', 4444, 30000);
+    if (!driverReady) {
+      const fatal = [
+        '',
+        '========================================',
+        'FATAL: tauri-driver 未能在 30s 内监听 127.0.0.1:4444',
+        '========================================',
+        `启动命令: tauri-driver --port 4444 --native-driver ${msedgedriverExePath}`,
+        `--native-driver 目标是否存在: ${existsSync(msedgedriverExePath)}`,
+        `PID: ${tauriDriverProcess?.pid}`,
+        '',
+        '--- tauri-driver 输出 ---',
+        driverLog.join('') || '(无输出)',
+        '',
+      ].join('\n');
+      writeFileSync(resolve(reportsDir, 'FATAL-tauri-driver-not-listening.txt'), fatal, 'utf-8');
+      throw new Error(fatal);
+    }
+    diagLines.push('[OK] tauri-driver 已在 127.0.0.1:4444 监听');
   },
 
   // ----------------------------------------------------------------

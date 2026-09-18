@@ -643,6 +643,15 @@ jobs:
 
           Invoke-WebRequest "https://msedgedriver.microsoft.com/$full/edgedriver_win64.zip" -OutFile "$env:RUNNER_TEMP\edgedriver.zip"
           Expand-Archive "$env:RUNNER_TEMP\edgedriver.zip" -DestinationPath "$env:RUNNER_TEMP\edgedriver" -Force
+          # ⚠️ 光放进 PATH **不够**：wdio.conf.js:42-43 把路径写死成
+          #    asd-tauri/e2e/drivers/msedgedriver.exe，并通过 --native-driver 以
+          #    **绝对路径**传给 tauri-driver（:364-372）。只加 PATH 不生效 ——
+          #    run 35310528367 实测：诊断日志 [FAIL] msedgedriver.exe 不存在，
+          #    tauri-driver 启动即退出，9 个 worker 全部 ECONNREFUSED。
+          $driversDir = Join-Path 'asd-tauri' 'e2e' 'drivers'
+          New-Item -ItemType Directory -Path $driversDir -Force | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\edgedriver\msedgedriver.exe" $driversDir -Force
+          Write-Host "已放置 msedgedriver.exe -> $driversDir"
           "$env:RUNNER_TEMP\edgedriver" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: 构建 Tauri 应用（debug）
         working-directory: asd-tauri
