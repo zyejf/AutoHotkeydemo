@@ -17,7 +17,7 @@
     "@wdio/local-runner": "^9.31.9",
     "@wdio/mocha-framework": "^9.31.9",
     "@wdio/spec-reporter": "^9.31.2",
-    "chai": "^4.5.0",
+    "chai": "^6.2.2",
     "fs-extra": "^11.3.5",
     "webdriverio": "^9.31.9"
   },
