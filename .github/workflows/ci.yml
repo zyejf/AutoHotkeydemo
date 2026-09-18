@@ -45,6 +45,11 @@ on:
         type: string
         required: false
         default: ''
+      e2e_build_config:
+        description: 'E2E 专用 Tauri 配置（相对 asd-tauri 的路径，如 src-tauri/tauri.e2e.conf.json）。留空=用正式配置构建。**方案 1 已证伪（run 35354358075），默认必须为空** —— 非空会让构建出的二进制带 --remote-debugging-port，是安全红线'
+        type: string
+        required: false
+        default: ''
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -669,31 +674,43 @@ jobs:
           Copy-Item "$env:RUNNER_TEMP\edgedriver\msedgedriver.exe" $driversDir -Force
           Write-Host "已放置 msedgedriver.exe -> $driversDir"
           "$env:RUNNER_TEMP\edgedriver" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-      - name: 构建 Tauri 应用（debug，走 E2E 专用配置）
+      - name: 构建 Tauri 应用（debug）
         working-directory: asd-tauri
-        # ⚠️ `--config src-tauri/tauri.e2e.conf.json` 是**方案 1** 的载体：
-        #    它给主窗口加 `additionalBrowserArgs =
-        #    "--remote-debugging-port=9333 --disable-features=..."`，
-        #    该字段经 tauri-runtime-wry:5054-5055 → wry::with_additional_browser_args
-        #    **直接**设进 WebView2 的 AdditionalBrowserArguments。
-        #    之所以必须走这条路：`webviewOptions.additionalBrowserArguments` 通道已实测证伪
-        #    （run 35350670139：真实 UDF 里有 EBWebView 但没有 DevToolsActivePort ⇒
-        #     端口没开 ⇒ 那条 capability 没抵达 WebView2 浏览器进程）。
+        # ⚠️ **默认不带 `--config`** —— `e2e_build_config` 默认空，构建走正式
+        #    `tauri.conf.json`。这是**安全整改**：非空会让产物带 `--remote-debugging-port`，
+        #    而 E2E 现在必红、并不依赖它，纯风险零收益。
         #
-        # ⚠️ **`--config` 的合并语义已实测（2026-09-18，本地 rc=0）**：
-        #    它是**深合并**，不是整体替换 —— 只写 delta（`app.windows` 那一段）即可，
-        #    判据是产物里仍带 `tauri.conf.json` 的 productName 与 bundle/nsis 配置
-        #    （delta 里完全没有这些字段，若为整体替换会直接报错或产物名丢失）。
-        #    路径相对 working-directory（asd-tauri），故写 `src-tauri/tauri.e2e.conf.json`。
-        #
-        # ⚠️ 端口用固定 9333 而非 0：`=0` 时 WebView2 自选端口但**不写**
-        #    DevToolsActivePort，EdgeDriver 无从得知端口；固定端口是唯一可挂的方式。
-        #    （固定端口不能靠 `ms:edgeOptions.debuggerAddress` 注入 —— tauri-driver 用
-        #     always_match.extend(native) 整体替换 ms:edgeOptions，server.rs:150-152。）
-        #
-        # ⚠️ 安全红线：`--remote-debugging-port` **只能**出现在 `tauri.e2e.conf.json`，
-        #    正式 `tauri.conf.json` 出现即 C12 硬失败（见 scripts/check-tech-debt.py）。
-        run: npm run tauri build -- --debug --config src-tauri/tauri.e2e.conf.json
+        # `--config` 只在 `e2e_build_config` 非空时附加（方案 1 的载体，详见
+        # `asd-tauri/src-tauri/tauri.e2e.conf.README.md`）：
+        #   它给主窗口加 `additionalBrowserArgs =
+        #   "--remote-debugging-port=9333 --disable-features=..."`，
+        #   经 tauri-runtime-wry:5054-5055 → wry::with_additional_browser_args
+        #   **直接**设进 WebView2 的 AdditionalBrowserArguments。
+        #   ⚠️ **方案 1 已证伪（run 35354358075）**：真实 UDF 有 EBWebView 但仍无
+        #      DevToolsActivePort，错误串 `session not created: DevToolsActivePort
+        #      file doesn't exist`。与 run 35350670139（webviewOptions 通道）**同结果**，
+        #      两条机制独立的通道全部失败 ⇒ 候选已穷尽，见 TD-061。
+        #   ⚠️ `--config` 合并语义已实测（2026-09-18 本地 rc=0）：**深合并**不是整体替换，
+        #      判据是产物仍带正式配置的 productName 与 bundle/nsis（delta 里没有这些字段）。
+        #      路径相对 working-directory（asd-tauri）。
+        #   ⚠️ 端口固定 9333 而非 0：`=0` 时 WebView2 自选端口但**不写**
+        #      DevToolsActivePort，EdgeDriver 无从得知端口。（固定端口不能靠
+        #      `ms:edgeOptions.debuggerAddress` 注入 —— tauri-driver 用
+        #      always_match.extend(native) 整体替换 ms:edgeOptions，server.rs:150-152。）
+        #   ⚠️ 安全红线：`--remote-debugging-port` 只能出现在 E2E 专用配置里，
+        #      正式 `tauri.conf.json` 出现即 C12 硬失败（scripts/check-tech-debt.py）。
+        env:
+          E2E_BUILD_CONFIG: ${{ inputs.e2e_build_config }}
+        # ⚠️ 保持 `npm run tauri build -- ...`：改写成裸 `npx tauri build` 会绕过
+        #    package.json 里的 CLI 调用链，本机实测过的那条路径就作废了。
+        run: |
+          if ($env:E2E_BUILD_CONFIG) {
+            Write-Host "使用 E2E 专用配置构建: $env:E2E_BUILD_CONFIG"
+            npm run tauri build -- --debug --config $env:E2E_BUILD_CONFIG
+          } else {
+            Write-Host "使用正式 tauri.conf.json 构建（默认）"
+            npm run tauri build -- --debug
+          }
       - name: 运行 E2E
         working-directory: asd-tauri/e2e
         # ⚠️ 必须 --no-install：裸 `npx wdio` 在本地找不到二进制时**会静默去 registry
