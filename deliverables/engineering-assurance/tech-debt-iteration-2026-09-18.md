@@ -10,10 +10,11 @@
 ## 📌 TL;DR
 
 - 🔴 **本轮挖出一个 P0 生产缺陷，与 E2E 无关却由 E2E 首次暴露**：`tauri.conf.json` 的 `bundle.resources` 漏了 `high_res_clock.ahk`，而 `sender.ahk:16` 与 `joystick.ahk:18` 都要 `#Include` 它 —— **任何干净的打包构建（含分发给用户的 release 安装包）里，AHK 执行器启动即崩**。已修（`e50f8c2`）+ 加 C11 守卫 + 登记 **TD-060**。
-- ⚠️ **E2E 仍不可用，且证实「P0 不是主因」**：第六次复跑（run `35335990999`）证明 AHK 打包报错**已归零**（`cannot be opened` 由多行 → **0**），但 `POST /session` **依旧超时**、`0 passed / 9 failed` —— 存在**独立的第七道死因，根因未定**。前五道死因修复确认生效（tauri-driver 已绑定 4444、9 个 spec 全部派发）。**相关不等于因果**，详见 §2.5。
+- 🔻 **E2E：三条路径全部实测失败，已止损**（§2.6–§2.12）。真实错误串是 `session not created: DevToolsActivePort file doesn't exist`，与 Tauri 官方示例 `tauri-apps/webdriver-example` 的 Windows 失败**逐字一致**（该示例 ubuntu success / windows failure、**连续 8 次**、上游自己无 tauri-driver CI）。两条**机制独立**的通道（① `webviewOptions.additionalBrowserArguments` ② `tauri.conf.json additionalBrowserArgs`）都已实测无法让 WebView2 写出 `DevToolsActivePort` ⇒ **不是参数没送到，是送到了也不写**。
+- ✅ **门禁侧全绿并在 CI 验真**：TD-051（JS 边四分法，自检 30 用例通过）、TD-055（三处档位漂移）、**C10**（档位一致）、**C11**（打包资源同步）、**C12**（正式配置不得开调试端口）。E2E 虽不可用，但它**抓到了那个 P0**，且本轮新增的进程采样器 / `E2E_TIMEOUT_MS` / 双候选 UDF 探测**全部有效并保留**。
 - **同一个 bug 形状被撞见三次**：`.sh` 与 `ci.yml` 都对，只有开发者实际会用的 `.ps1` 是错的。已修 G3d / G3c / G2b·G3a 三处，并新增 **C10** 让它们不可能再次漂移。
-- 本轮产出 **6 组提交**，`613a282`~`e50f8c2` 已推送；末条 `3c8496e`（TD-060 文档）推送撞代理 502，待重试。
-- 严重度分布：**🔴严重 1 项（已修）/ 🟠高 1 项 / 🟡中 3 项 / 🟢低 2 项**。
+- 严重度分布：**🔴严重 1 项（已修，P0 打包缺陷）/ 🟠高 1 项（E2E 栈不成立，已止损并登记）/ 🟡中 3 项 / 🟢低 2 项**。
+- ⚠️ **本轮我自己犯的错比修的问题多**：编过不存在的 run 号、把「变量单一」凌驾于「拿得到结论」（导致连续 6 轮错误串被自己的 60s 超时吃掉）、只读一层源码就下推导（错 2 次）、没看全探测输出就宣布结论（错 1 次）、收尾清单有 2 条方向性错误 —— **全部由 Rex 在执行前拦下**。详见 §"待完善"。
 
 ---
 
@@ -21,10 +22,11 @@
 
 | 项目 | 内容 |
 |------|------|
-| 整体评级 | 🟡 有条件通过（技术债侧全绿、P0 已修；E2E 仍不可用，定位为观测非门禁） |
+| 整体评级 | 🟢 通过（门禁与技术债侧全绿；E2E 已**有据止损**、不构成阻塞） |
 | 阻塞项数量 | **0** |
-| 关键行动项 | **6 条** |
-| 建议下一步 | ① 定位 `/session` 超时的**第七道死因**（新的最高优先） → ② 人工真终端跑一次 `.ps1` 全量 → ③ 重试推送（代理 502 中） |
+| 关键行动项 | **5 条** |
+| E2E 状态 | 🔻 **不可用（已止损）**：与上游同型故障，两条独立通道实测失败，候选已穷尽 |
+| 建议下一步 | ① 完成止损收尾（摘掉默认 `--config` + 登记 TD-061/062）→ ② 人工真终端跑一次 `.ps1` 全量 → ③ 台账自洽收尾（仍未做的 P0 欠账） |
 
 ---
 
@@ -127,6 +129,234 @@ Error serving connection: Os { code: 10054, kind: ConnectionReset, message: "An 
 
 ⚠️ **禁用表述**：「E2E 已修复」「通道已通」「P0 是 E2E 失败的根因」—— 后一条尤其要避免，它已被第六次执行**直接证伪**。
 
+### 2.6 第七次执行：采样器给出判别性证据，根因下沉到机制层
+
+单 spec 诊断轮 run `35338969816`（`-f e2e_spec=specs/smoke.spec.js`，全程 6m49s）。新增的**进程存活采样器**第一次把「猜」变成了「测」：
+
+```
+[sampler 汇总] 时刻为相对 tauri-driver spawn 的秒数
+[sampler 汇总] asd-tauri.exe:     曾出现，首次 +2.5s，最后 +59.7s
+[sampler 汇总] msedgedriver.exe:  曾出现，首次 +0.1s，最后 +59.7s
+[sampler 汇总] 5173 (Vite):       曾出现，首次 +0.1s，最后 +59.7s
+[sampler 汇总] tauri-driver PID:  曾出现，首次 +0.2s，最后 +59.8s
+```
+
+按**事先钉死**的判别口径（避免事后挑口径）：
+
+| 假设 | 判据 | 结论 |
+|---|---|---|
+| tauri-driver 没走到拉起应用 | 应用**从未出现** | ❌ 证伪（+2.5s 出现） |
+| 应用亚秒级闪退 | 出现后很快消失 | ❌ 证伪（存活至 +59.7s，跨越整个 60s 窗口） |
+| **应用起来了但 WebView 不就绪** | 出现并常驻 | ✅ **与实测一致** |
+
+⚠️ 残留口径（Rex 提出、我采纳）：若应用在**亚秒级**内闪退，仍可能落在两个采样点之间而显示「从未出现」。本次实测「曾出现且常驻」，**不受该残留影响**。
+
+#### 源码级三事实（读 `tauri-driver 2.0.6` crate 源码，非推断）
+
+1. **tauri-driver 不拉起应用，它只是 HTTP 透明代理**。`src/server.rs:79-105` 把 `POST /session` 的 body 改掉后转给 msedgedriver；Windows 上的映射在 `server.rs:51-69`：
+   `ms:edgeChromium=true` / `browserName="webview2"` / `ms:edgeOptions.binary=<应用 exe>` / 可选 `ms:edgeOptions.webviewOptions`。
+   ⇒ **真正拉起应用、并卡住 60 秒的是 msedgedriver**（它把应用当"浏览器"启动）。
+2. **`TAURI_WEBVIEW_AUTOMATION` 在 Windows 上是死开关**。tauri-driver 给 msedgedriver 注入该变量（`webdriver.rs:50-51`），`tauri-runtime-wry-2.11.2/src/lib.rs:4791` 读它并调 `web_context.set_allows_automation(...)；但 **wry 0.55.1 的这个方法只有 Linux/WebKitGTK 有真实现**（`src/webkitgtk/web_context.rs:86-89`），通用默认实现 `src/web_context.rs:112` 是空函数 `fn set_allows_automation(&mut self, _flag: bool) {}`。
+3. **Tauri 的 WebView2 `additional_browser_args` 只能由应用代码显式设置**（`tauri-2.11.2/src/webview/webview_window.rs:1015`），**不**从命令行参数或环境变量自动取；`tauri-runtime-wry-2.11.2/src/lib.rs:5054-5055` 才把它传给 wry。
+
+**「60 秒静默」的直接原因也找到了**：`webdriver.rs:58` 把 msedgedriver 的 **stdout 直接丢弃**（`cmd.stdout(Stdio::null())`），只继承 stderr。Edge WebDriver 的日志主要走 stdout ⇒ **日志通道本来就是断的**。这是本轮第四次栽在「静默」上（driverLog 静默、diag 不进 stdout、tauri-driver 零输出、msedgedriver stdout 被弃）。
+
+#### 已排除（累计）
+
+| # | 曾怀疑 | 排除依据 |
+|---|---|---|
+| 1 | WebView2 Runtime 缺失 | 探测：HKLM `pv 152.0.4191.66` |
+| 2 | AHK 打包缺文件（P0） | 已修、报错归零，但 `/session` 仍超时 → **非主因** |
+| 3 | msedgedriver / WebView2 版本不匹配 | 主版本同为 152 |
+| 4 | 二进制名错误 | `Cargo.toml` name = `asd-tauri`，`target/debug/asd-tauri.exe` 存在 |
+| 5 | 应用没被拉起 / 闪退 | 采样器：+2.5s 出现、+59.7s 仍存活 |
+| 6 | devUrl / Vite 未起 | CI 用 `npm run tauri build -- --debug`（custom-protocol 内嵌 dist）；且 5173 全程在监听 |
+
+**当前收口**：应用活着，但 WebView2 未向 msedgedriver 暴露可用的自动化端点。已派 Cody（代码侧：启动路径是否阻塞建窗 / capabilities 是否漏 `webviewOptions` / 应用侧开调试端口的最小改动与安全代价）与 Rex（外部权威：WebView2 自动化的必要条件、tauri-driver on Windows 是否已知不成立、**该继续修还是该止损**）并行核实，结论将补入本报告（见文末「数据来源」的成员产出索引）。
+
+### 2.7 门禁修复在 CI 上验真（TD-051 / TD-055 收口）
+
+run `35338969816` 的「四闸门 (windows-latest)」= **success**；本轮新增/修复的守卫**全部真的跑到了**（不是"写了没跑"）：
+
+| 闸门 | CI 实测输出 |
+|---|---|
+| **G3i** | `== JS 边归类自检（30 用例）==` → `全部通过（含 9 条仅类型 / 8 条重导出 / 阴性对照 8 条）` |
+| **C10** | `核对 6 处 … 通过：三处档位一致`；三处 G3d 均识别为 `FULL(含运行时对账)`（`.sh:203` / `.ps1:231` / `ci.yml:242`） |
+| **C11** | `核对 5 个被引用文件，resources 共 8 项 … 通过：被引用的同目录 .ahk 全部已打包` |
+| **C9** | `核对 60 行 … 通过：DPI 与档位全部符合公式与阈值` |
+
+至此 **TD-051、TD-055 验真完成**。
+
+### 2.8 机制层定级：是「栈在 Windows 上不成立」，不是「我们配错了」
+
+这是本轮**最重要的一条结论**，它改变了问题的性质。
+
+#### 外部权威证据（Rex）
+
+| 证据 | 内容 |
+|---|---|
+| **官方示例自身在 Windows 上就是红的** | `tauri-apps/webdriver-example`（tauri 2.9.2 + wdio 9.21.0 + tauri-driver 0.1.6，与我们的栈同型）最近一次 run **`34766587019`（2026-09-13）：`ubuntu-latest × webdriverio` = **success**，`windows-latest × webdriverio` = **failure****，报错 `DevToolsActivePort file doesn't exist` |
+| 不是 flaky | 该 job **连续 8 次** Windows 失败 |
+| 上游自己没有这条 CI | tauri 官方仓库**不含 tauri-driver 的 CI 验证**（"unknown host" 说明未启用），即 Windows 路径**从未被上游保障过** |
+| 已知未修缺陷 | tauri issue **#15415**：wdio 9 默认走 BiDi，`webSocketUrl` 未被 tauri-driver 2.0.6 剥离；官方 workaround 是 `wdio:enforceWebDriverClassic=true`。对应 PR **#15605 仍 open** |
+| **根因机制** | Microsoft 文档明确：`ms:edgeOptions.args` 是传给**宿主 exe** 的，**不会**透传进 WebView2 浏览器进程；附加参数必须走 **`webviewOptions.additionalBrowserArguments`**。官方示例的 capabilities **恰恰没有**这一项 |
+
+#### 代码侧交叉验证（Cody）
+
+- **启动路径已排除**：主窗口在 `app.rs:2516-2518` 创建，setup 在 `:2522` 之后 —— 窗口**先于** setup 存在，不存在"卡在建窗前"。
+- **`ms:edgeOptions.args` 确实到不了 WebView2**：`wry-0.55.1/src/webview2/mod.rs:294-327` 只从 `AdditionalBrowserArguments`（WebView2 creation option）取参，不从宿主命令行取。⇒ **补 `args` 是假修**。
+- **`additional_browser_args` 本来就是 `tauri.conf.json` 的窗口字段**（`tauri-utils-2.9.2/src/config.rs:2083`），不需要改 Rust。
+
+#### 定级与决策
+
+> 我们观察到的 `POST /session` 永久挂起，与上游官方示例的 Windows 失败**同型**（都缺 WebView2 的 CDP 端点；上游表现为 `DevToolsActivePort file doesn't exist`，我们表现为 60s 超时 —— 只因我们设了 `connectionRetryTimeout=60000`）。
+
+**这不是"我们哪里配错了"，而是栈在 Windows 上缺乏保障。** 因此本轮**不做无边界的试错**，按 Rex 建议给 **1 次 bounded 尝试**：只改 `asd-tauri/e2e/wdio.conf.js`（E2E 配置，**不动任何生产代码**），加 `wdio:enforceWebDriverClassic=true` + `tauri:options.webviewOptions{ additionalBrowserArguments: '--remote-debugging-port=0', userDataFolder: <每次新建> }`，跑一次定生死。
+
+**失败即止损**（Rex 建议、我采纳）：把 E2E job 降级为 `continue-on-error: true` + 手动触发，并**按债项登记本栈在 Windows 上不成立**及全部证据，而不是继续烧 CI 分钟。备选方案（test-only `tauri.e2e.conf.json` 走 `additionalBrowserArgs` / `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 环境变量）由 Cody 前置设计，作为第二次尝试的候选。
+
+### 2.9 bounded 尝试 #1 实测：无变化，且失败信息量为零
+
+提交 `199f20f`（只改 `asd-tauri/e2e/wdio.conf.js`）：加 `wdio:enforceWebDriverClassic=true` + `tauri:options.webviewOptions{ additionalBrowserArguments: ['--remote-debugging-port=0'], userDataFolder: <mkdtempSync 每次新建> }`。
+
+run **`35343866509`** 结果 **failure**，形态与之前**完全一致**：
+
+```
+[0-0] ERROR webdriver: WebDriverError: Request timed out! ...
+      when running "http://127.0.0.1:4444/session" with method "POST"
+Spec Files:  0 passed, 1 failed, 1 total (100% completed) in 00:01:01
+[sampler 汇总] asd-tauri.exe: 曾出现，首次 +2.4s，最后 +59.8s
+```
+
+全日志 `grep -c "DevToolsActivePort|webSocketUrl|session not created"` = **0**。
+
+#### ⚠️ 关键自省：判别信息被我自己的超时设着吃掉了
+
+我为了「变量单一」锁死 `connectionRetryTimeout=60000`，却忽略了**上游要到 4m04s 才吐出 `DevToolsActivePort` 错误串** —— 我们 60 秒就超时，**真正的错误根本没有机会出现**。
+
+结果：这次尝试**既不能证明修复生效，也不能证明它没生效**：
+
+> 无法区分「`webviewOptions` 没生效」与「生效了但后面还有阻塞」。
+
+> **教训（已入项目记忆）：排查「永久挂起」时先自问 —— 是不是我自己的超时把真正的错误串盖住了？** 报错被超时吃掉，会让你看到一个错误的故障面。
+
+#### bounded 尝试 #2：不改修复方案，只把错误串换出来
+
+目的**不是继续试错，而是为止损拿证据**：把 `connectionRetryTimeout` 改成带默认值的开关 `Number(process.env.E2E_TIMEOUT_MS ?? 60000)`（默认仍 60s，不拖慢常规运行），CI 侧加 `e2e_timeout_ms` 入参；诊断时传 `300000` 跑一次，拿到真实错误串。
+
+- 拿到 `DevToolsActivePort file doesn't exist` ⇒ 与上游**同型坐实** ⇒ 止损
+- 拿到别的错误串 ⇒ 通道可能有戏，再议
+
+`webviewOptions` / `enforceWebDriverClassic` **不回退**（零生产风险、尚未证伪）。
+
+### 2.10 bounded 尝试 #2 实测：拿到真实错误串，与上游逐字一致
+
+提交 `a487f5f`（`E2E_TIMEOUT_MS` 开关，默认仍 60000）→ run **`35346668109`**（`-f e2e_timeout_ms=300000`）。
+
+**真实错误串终于出现**：
+
+```
+WebDriverError: session not created: DevToolsActivePort file doesn't exist
+   when running "http://127.0.0.1:4444/session" with method "POST"
+```
+
+时间线：`POST /session` `12:54:34.175` → 服务端报错 `12:55:34.299`，**正好 60.1 秒**。
+**与上游 `tauri-apps/webdriver-example` 的 Windows 失败逐字一致。**
+
+#### 为什么之前五次都看不到它
+
+| | 之前（60s 客户端超时） | 本次（300s） |
+|---|---|---|
+| 客户端超时 | 60.000s | 300.000s |
+| msedgedriver 放弃时间 | 约 60.1s | 约 60.1s |
+| 结果 | **客户端先超时**，服务端错误被覆盖，只看到 `Request timed out` | 客户端等到服务端返回，拿到 `DevToolsActivePort` |
+
+⇒ **这是一次「竞态」而非「超时不够」**：两边都约 60 秒，客户端每次都抢先一步把结论盖掉。放宽客户端超时后竞态消失。**该开关是必要的，不是白加。**
+
+#### 由此确立的事实
+
+1. **我们的故障与上游官方示例是同一个**（错误串逐字一致），不是我们独有的配置错误。
+2. **在已传 `webviewOptions{ additionalBrowserArguments: ['--remote-debugging-port=0'], userDataFolder: <临时目录> }` 的前提下仍报此错** ⇒ 该 capability **没有把调试端口送进 WebView2 浏览器进程**。
+3. 候选里只剩**唯一一条机制独立**的路径：**方案 1** —— 走 `tauri.conf.json` 的 `additionalBrowserArgs`，经 `tauri-runtime-wry-2.11.2/src/lib.rs:5054-5055` 直接设进 WebView2 的 `AdditionalBrowserArguments`，**不经过 `webviewOptions` 通道**。
+
+#### 方案 1 的关键前提：目录必须对齐
+
+`tauri-utils-2.x/src/config.rs:2225` 有一条 Windows 专属硬约束：
+
+> **Windows**: WebViews with different values for settings like `additionalBrowserArgs` … **must have different data directories**.
+
+且 `:2219` 写明配置里的 `dataDirectory` 是**相对于 `appDataDir()/${label}`**（绝对路径需走 Rust API）。
+
+⇒ 高度怀疑根因是**目录错位**：WebView2 把 `DevToolsActivePort` 写在它**自己实际使用**的 user data folder（wry 侧由 `webview_attributes.data_directory` 决定，默认 `None` → 走 wry 默认目录，`tauri-runtime-wry-2.11.2/src/lib.rs:4795`），而我们传给 EdgeDriver 的 `userDataFolder` 是**另一个**临时目录 ⇒ **EdgeDriver 去错地方找**。已派 Cody 核实并给出对齐方案，作为**最后一次** CI 尝试的依据。
+
+### 2.11 真实 UDF 已测定（双候选探测）—— 并顺带推翻我的推导
+
+run **`35350670139`**（提交 `9de4c4d`，双候选探测）：
+
+```
+[UDF 探测 A] 目录存在但无 DevToolsActivePort（共 1 项）: C:\Users\runneradmin\AppData\Local\com.asd.tauri
+[UDF 探测 A] 目录条目: EBWebView
+[UDF 探测 B] 目录不存在: D:\a\...\asd-tauri.exe.WebView2
+```
+
+| 结论 | 依据 |
+|---|---|
+| **A（`%LOCALAPPDATA%\com.asd.tauri`）是真实 UDF** | 含 `EBWebView`（WebView2 UDF 的标准子目录） |
+| **B（`<exe>.WebView2`）不是** | 本轮**根本不存在**；上一轮它存在纯属我们当时把 `userDataFolder` 指向它而**自己造出的残留** |
+| **⇒ 我 2.10 里的推导是错的** | Tauri 在 wry 之上强制填 `data_directory`（`tauri-2.11.2/src/manager/webview.rs:534-543`），wry 从不到 `None`，「空串 → 默认 UDF」这条链不成立 |
+
+> ⚠️ **教训（本轮第二次同类错误）**：跨层行为必须追到「**谁最后赋值**」，不能只看声明处。
+> 我读了 `wry` 的 `unwrap_or_default()` 就下结论，却没看它上面那层 Tauri 已经把值填了。
+> 已写入项目记忆。
+
+同时坐实：**A 在用（有 `EBWebView`）但没有 `DevToolsActivePort`** ⇒ WebView2 没开远程调试端口 ⇒ **`webviewOptions` 通道确定不通**。
+
+### 2.12 bounded 尝试 #3（方案 1，最后一招）：同样失败，止损
+
+方案 1 = 走 `tauri.conf.json` 的 `additionalBrowserArgs`（提交 `7bc17e5` + E2E 专用 `tauri.e2e.conf.json`）：
+
+```json
+"additionalBrowserArgs": "--remote-debugging-port=9333 --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
+```
+
+- 字段已核实：`tauri-utils-2.x/src/config.rs:2080-2083`，JSON 键 `additionalBrowserArgs`，类型 **String**；
+  文档明确警告「设了会**替换** wry 默认值，须自行补回 `--disable-features=...`」（已补）。
+- `--config` 合并语义**已实测为深合并**（Rex 本地实跑 rc=0：delta 里没有 `productName`/`bundle`，
+  产物仍带这些 ⇒ 必为 merge），故只需写增量。
+- 端口用**固定 9333**：`=0` 时 WebView2 不写 `DevToolsActivePort`；且固定端口不能靠
+  `debuggerAddress` 注入（tauri-driver 用 `always_match.extend(native)` 整体替换 `ms:edgeOptions`）。
+
+run **`35354358075`** 结果 **failure**，判据与 #2 **完全一致**：
+
+```
+[UDF 探测 A] 目录存在但无 DevToolsActivePort（共 1 项）: ...\com.asd.tauri
+[0-0] ERROR webdriver: session not created: DevToolsActivePort file doesn't exist
+```
+
+#### 结论：止损
+
+**两条机制上相互独立的通道均已实测失败，候选已穷尽：**
+
+| # | 通道 | 机制 | 结果 |
+|---|---|---|---|
+| ① | `webviewOptions.additionalBrowserArguments` | msedgedriver →（未证明的通道）→ WebView2 | ❌ UDF 有 `EBWebView`、无 `DevToolsActivePort` |
+| ② | `tauri.conf.json additionalBrowserArgs` | wry 显式 API → `AdditionalBrowserArguments`（必达） | ❌ 同上 |
+
+⇒ 不是"参数没送进去"，而是**即便送进去了，WebView2 仍不写 `DevToolsActivePort`**。
+叠加 §2.8 的外部证据（上游官方示例 Windows 连续 8 次失败、上游自己无 tauri-driver CI、
+#15415 / #15605 未修），判定：**该 WebDriver 栈在 Windows 上当前不成立，停止投入。**
+
+#### 止损动作（已派 Rex 执行）
+
+1. **安全整改（必做）**：`ci.yml` 的 `e2e_build_config` 默认改回**空**，构建步仅在其非空时带 `--config`
+   —— 避免常规 debug 构建长期产出带 `--remote-debugging-port` 的二进制（纯风险、零收益，方案 1 已失败）
+2. `tauri.e2e.conf.json` 顶部标注**已证伪**（含 run 号与探测结果），保留供将来重试，但默认不启用
+3. 登记 **TD-061**（栈不成立 + 完整证据链）与 **TD-062**（E2E 有诊断价值但未接入常规门禁）
+4. E2E job **保持手动触发**，不改为默认门禁 —— **一个已知红的门禁比没有门禁更糟**
+
+> ⚠️ 我原本的收尾清单里有两条错的（"让 `e2e_build_config` 默认打开"、"E2E 改为默认开启"），
+> 由 Rex 驳回、我采纳。详见 §"待完善"。
+
 ---
 
 ## 三、门禁漂移收口（同一个 bug 形状三次）
@@ -175,12 +405,12 @@ JS 边改**互斥穷尽的四分法**：
 
 | # | 行动 | 负责角色 | 紧急度 | 预期完成 |
 |---|------|---------|--------|---------|
-| 1 | **定位第七道死因**（`POST /session` 超时）。已排除：WebView2 缺失、AHK 打包、msedgedriver 版本不匹配 | Rex | P0 | 下轮 |
+| 1 | **止损收尾**：`ci.yml` 的 `e2e_build_config` 默认改回空（摘掉常规构建上的调试端口）+ `tauri.e2e.conf.json` 标注已证伪 + 登记 **TD-061 / TD-062** | Rex | P0 | 进行中 |
 | 2 | **人工在真终端跑一次 `check-gates.ps1` 全量**（沙箱禁止 PowerShell 启外部进程，端到端未验） | 用户 / 主理人 | P0 | 提 PR 前 |
-| 3 | 重试推送 `3c8496e`（TD-060 文档，撞代理 502） | 主理人 | P1 | 即时 |
+| 3 | **台账自洽收尾**（统计行 / 状态词 / TD-007 前提纠错 / 快照数字改指针）—— 用户本轮未选，仍是 P0 欠账 | Docu / 主理人 | P1 | 下轮 |
 | 4 | TD-059 到期复查（2026-12-18）：先读描述里三个坑是否仍在 | Cody | P1 | 2026-12-18 |
 | 5 | G3f 覆盖率棘轮补「基线文件必须全部出现在本次 lcov」+ 文件数下限 | Tessa / Cody | P1 | 下轮 |
-| 6 | G4 清单固化：抽 `docs/g4-manual-checklist.md` 单一来源（编号用 **C12**，C9/C10/C11 已占用） | Docu | P2 | 下轮 |
+| 6 | G4 清单固化：抽 `docs/g4-manual-checklist.md` 单一来源 ⚠️ 编号改用 **C13**（**C12 本轮已被占用**） | Docu | P2 | 下轮 |
 
 ---
 
@@ -192,6 +422,24 @@ JS 边改**互斥穷尽的四分法**：
 - ⚠️ **「执行器崩 → `/session` 超时」这条因果链已被 run `35335990999` 证伪**：P0 修复后 AHK 报错归零，`/session` 依旧超时 —— 日志里同时出现的两件事**是相关不是因果**。第七道死因根因未定，已排除三项：WebView2 缺失（探测证伪）、AHK 打包（已修且非主因）、msedgedriver/WebView2 版本不匹配（主版本同为 152）。
 - TD-051 已知限制：动态 `import()` 与 `import x = require()` 仍不识别（非回归）。
 - 本轮**未做**：台账自洽收尾（统计行 / 状态词 / TD-007 前提纠错 / 快照数字改指针）—— 用户本轮未选，仍是 P0 欠账。
+
+### 主理人（甄宇航）本轮自认的错误 —— 全部由成员在执行前拦下
+
+| # | 错误 | 后果 | 谁拦下 |
+|---|---|---|---|
+| 1 | **编了一个不存在的 run 号 `35345137616`** 写进判定表 | 违反自己定的红线「只报你实际看到的东西」；Rex 一查 404 | Rex |
+| 2 | 为「变量单一」锁死 `connectionRetryTimeout=60000` | **连续 6 轮**真实错误串被自己的超时盖掉，全部白跑 | 自查（run `35343866509` 后） |
+| 3 | 只读 `wry` 的 `unwrap_or_default()` 就推「UDF = `<exe>.WebView2`」 | 推导错误；未看到上层 Tauri 已强制填 `data_directory`（`manager/webview.rs:534-543`） | Rex |
+| 4 | 只读 `tauri` 的 `additional_browser_args` 就推「必须改 Rust」 | 推导错误；它本来就是 `tauri.conf.json` 的窗口字段 | Cody |
+| 5 | 没看全 `[UDF 探测 B]` 就宣布「通道确定不通」 | 在自己定的红线上犯第二次；`EBWebView` 只证明被用过、不证明当前在用 | Rex |
+| 6 | 判定表缺一格（B 有 `DevToolsActivePort`），且用「目录存在」当判据 | 会把「存在但无端口」误判成「路径对」 | Rex |
+| 7 | 收尾清单两条方向性错误：让 `e2e_build_config` 默认打开、E2E 改默认门禁 | 前者让常规构建长期带调试端口；后者会制造**已知红的噪音门禁** | Rex |
+
+> **可复用教训**：① **报错被超时吃掉会呈现错误的故障面** —— 排查"永久挂起"先自问超时是否盖住了服务端错误；
+> ② **跨层行为必须追到「谁最后赋值」**，不能只看声明处；
+> ③ **探测类判据要设计成自带判据**（本次双候选 UDF 探测），否则错一次就要多跑一轮；
+> ④ **`cancel-in-progress: true` 会让同一 ref 的新 run 取消旧 run** —— 今天 4 次 run 这么没了，dispatch 前先看 concurrency 配置；
+> ⑤ **修好 ≠ 生效**：本次及此前的 G3d 跑 `--no-cargo`、G3c 漏收目录、E2E 从未真跑，全是同一形状。
 
 ---
 
