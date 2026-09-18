@@ -300,7 +300,15 @@ export const config = {
   ],
   logLevel: 'info',
   waitforTimeout: 10000,
-  connectionRetryTimeout: 60000,
+  // 默认 60000 —— **不要**把默认值调大，否则以后每一轮 E2E 都会白等几分钟。
+  // 仅诊断时用环境变量 E2E_TIMEOUT_MS 放宽，用途是「换取被超时吃掉的真正错误串」：
+  // run 35343866509 实测，60s 超时先触发，WebDriver 的真实错误根本没机会出现
+  // （全日志 grep "DevToolsActivePort|webSocketUrl|session not created" 命中 0 次）；
+  // 而上游 tauri-apps/webdriver-example 跑到 4m04s 才吐出
+  // `session not created: DevToolsActivePort file doesn't exist`。
+  // 放宽超时是为了拿到那串错误，从而区分「webviewOptions 没生效」
+  // 与「生效了但后面还有别的阻塞」—— 这两种失败形态含义完全不同。
+  connectionRetryTimeout: Number(process.env.E2E_TIMEOUT_MS ?? 60000),
   // ⚠️ 由 3 改为 0。依据：4444 端口就绪已由 onPrepare 的 waitForPort（:474，
   //    **无条件**执行，CI 与本地两条路径都走，无 process.env.CI 分支、无「复用已有
   //    driver」分支）独立把关，workers 是在端口确认监听之后才派发的。
@@ -309,8 +317,8 @@ export const config = {
   //    每次都是同一个 connectionRetryTimeout(60s)，4×60s=240s，9×4min=36m32s，
   //    与汇总行 `in 00:36:32` 完全吻合。重试提供的价值为零，只把一轮 CI 反馈
   //    从 ~5 分钟拖到 42 分钟。
-  //    保留 connectionRetryTimeout: 60000 不变 —— 单次会话建立的预算没有被压缩，
-  //    冷启动慢的场景仍然有完整 60s。
+  //    connectionRetryTimeout 默认仍是 60000（诊断时可用 E2E_TIMEOUT_MS 覆盖，见上）——
+  //    单次会话建立的预算没有被压缩，冷启动慢的场景仍然有完整 60s。
   connectionRetryCount: 0,
   framework: 'mocha',
   mochaOpts: {

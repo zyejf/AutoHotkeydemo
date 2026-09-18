@@ -40,6 +40,11 @@ on:
         type: string
         required: false
         default: ''
+      e2e_timeout_ms:
+        description: '诊断用：放宽 /session 超时（毫秒）以换取被超时吃掉的真正错误串，留空则用默认 60s。用途是区分「webviewOptions 没生效」与「生效了但后面还有别的阻塞」—— run 35343866509 实测 60s 超时先触发，真实错误串一次都没出现'
+        type: string
+        required: false
+        default: ''
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -679,6 +684,7 @@ jobs:
         shell: pwsh
         env:
           E2E_SPEC: ${{ inputs.e2e_spec }}
+          E2E_TIMEOUT_MS: ${{ inputs.e2e_timeout_ms }}
         run: |
           if ($env:E2E_SPEC) {
             Write-Host "E2E 仅运行 spec: $env:E2E_SPEC"
