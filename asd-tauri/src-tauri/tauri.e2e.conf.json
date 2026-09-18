@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicehash/Tauri/dev/crates/tauri-config-schema/schema.json",
+  "app": {
+    "windows": [
+      {
+        "title": "ASD - 技能管理器",
+        "width": 800,
+        "height": 600,
+        "additionalBrowserArgs": "--remote-debugging-port=9333 --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
+      }
+    ]
+  }
+}

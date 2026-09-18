@@ -309,6 +309,20 @@ export const config = {
         //     刻意不用固定端口，避免并行 / 重跑时端口撞车。
         //     转发链路：tauri-driver crates/tauri-driver/src/server.rs:60-61
         //     ms_edge_options.insert("webviewOptions", webview_options)
+        //
+        // ⚠️ **已证伪（run 35350670139 / job 105617854781），保留仅作记录**：
+        //    [UDF 探测 A] 目录存在但无 DevToolsActivePort（共 1 项）:
+        //        C:\Users\runneradmin\AppData\Local\com.asd.tauri
+        //    [UDF 探测 A] 目录条目: EBWebView
+        //    [UDF 探测 B] 目录不存在: ...\asd-tauri.exe.WebView2
+        //    ⇒ A 是真实 UDF（有 EBWebView），但里面**没有** DevToolsActivePort
+        //    ⇒ WebView2 在跑，远程调试端口没开 ⇒ 这条 capability 没能抵达 WebView2
+        //      浏览器进程（tauri-driver 转发了，msedgedriver 未据此给 WebView2 设参数）。
+        //    调试端口改由**方案 1** 提供：`tauri.e2e.conf.json` 的
+        //    `app.windows[0].additionalBrowserArgs` + `tauri build --config`，
+        //    该字段经 tauri-runtime-wry:5054-5055 → wry::with_additional_browser_args
+        //    **直接**设进 WebView2 的 AdditionalBrowserArguments，不经过本通道。
+        //    保留本段是因为它零副作用，且是「为什么必须走方案 1」的直接证据。
         webviewOptions: {
           additionalBrowserArguments: ['--remote-debugging-port=0'],
           userDataFolder: webviewUserDataFolder,

@@ -669,9 +669,31 @@ jobs:
           Copy-Item "$env:RUNNER_TEMP\edgedriver\msedgedriver.exe" $driversDir -Force
           Write-Host "已放置 msedgedriver.exe -> $driversDir"
           "$env:RUNNER_TEMP\edgedriver" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-      - name: 构建 Tauri 应用（debug）
+      - name: 构建 Tauri 应用（debug，走 E2E 专用配置）
         working-directory: asd-tauri
-        run: npm run tauri build -- --debug
+        # ⚠️ `--config src-tauri/tauri.e2e.conf.json` 是**方案 1** 的载体：
+        #    它给主窗口加 `additionalBrowserArgs =
+        #    "--remote-debugging-port=9333 --disable-features=..."`，
+        #    该字段经 tauri-runtime-wry:5054-5055 → wry::with_additional_browser_args
+        #    **直接**设进 WebView2 的 AdditionalBrowserArguments。
+        #    之所以必须走这条路：`webviewOptions.additionalBrowserArguments` 通道已实测证伪
+        #    （run 35350670139：真实 UDF 里有 EBWebView 但没有 DevToolsActivePort ⇒
+        #     端口没开 ⇒ 那条 capability 没抵达 WebView2 浏览器进程）。
+        #
+        # ⚠️ **`--config` 的合并语义已实测（2026-09-18，本地 rc=0）**：
+        #    它是**深合并**，不是整体替换 —— 只写 delta（`app.windows` 那一段）即可，
+        #    判据是产物里仍带 `tauri.conf.json` 的 productName 与 bundle/nsis 配置
+        #    （delta 里完全没有这些字段，若为整体替换会直接报错或产物名丢失）。
+        #    路径相对 working-directory（asd-tauri），故写 `src-tauri/tauri.e2e.conf.json`。
+        #
+        # ⚠️ 端口用固定 9333 而非 0：`=0` 时 WebView2 自选端口但**不写**
+        #    DevToolsActivePort，EdgeDriver 无从得知端口；固定端口是唯一可挂的方式。
+        #    （固定端口不能靠 `ms:edgeOptions.debuggerAddress` 注入 —— tauri-driver 用
+        #     always_match.extend(native) 整体替换 ms:edgeOptions，server.rs:150-152。）
+        #
+        # ⚠️ 安全红线：`--remote-debugging-port` **只能**出现在 `tauri.e2e.conf.json`，
+        #    正式 `tauri.conf.json` 出现即 C12 硬失败（见 scripts/check-tech-debt.py）。
+        run: npm run tauri build -- --debug --config src-tauri/tauri.e2e.conf.json
       - name: 运行 E2E
         working-directory: asd-tauri/e2e
         # ⚠️ 必须 --no-install：裸 `npx wdio` 在本地找不到二进制时**会静默去 registry
