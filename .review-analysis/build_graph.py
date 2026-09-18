@@ -444,6 +444,74 @@ def js_bucket(rel_path):
     return "unclassified"
 
 
+# ── import / 重导出 说明符抽取与「值 / 仅类型」归类（TD-051）──────────────
+#
+# 为什么必须区分：`import type { X } from './y.js'` 编译后**被完全擦除**，不产生
+# 运行时依赖；但旧正则把它当成一条普通边，于是「无害的类型循环」会被判成真环。
+# 而 `js_cycles` 自 TD-051 起是**硬失败项**，那会当场阻断提交。本仓尚未引入
+# TypeScript（实测仅类型边为 0），所以这是「引信未燃时先拆引信」—— 等真上了 TS
+# 再改，那时一边修假阳性一边赶提交的正是我们自己。
+#
+# 归类的**唯一判据**：这条语句经编译器处理后是否还留下运行时 import。
+#   - `import type ...` / `export type ...`                              → 整条擦除 → type
+#   - `import { type X } from` / `export { type X } from`
+#     （**全部**命名绑定都带 `type` 修饰）                               → 整条擦除 → type
+#   - `import { type X, y } from`、`import d, { type X } from`
+#     （仍留下值绑定）                                                   → value
+#   - `import './x.js'`（副作用导入）、`export * from './x.js'`（重导出）
+#     —— 模块**会被执行**，是货真价实的依赖                              → value
+#
+# ⚠️ 两个刻意不做的事（宁可漏，不可假）：
+#   1. 不做「目标模块是不是只有类型」的跨文件推断 —— 那要类型检查器，正则做不到；
+#      做一半只会给出看似权威的错答案。
+#   2. 动态 `import('./x.js')` 与 TS 的 `import x = require('./x.js')` 目前**都不
+#      识别**（与改动前一致，非回归），留待后续。
+#
+# ⚠️ 为什么要为 import 与重导出各写一条正则而不是一条通用 `^(import|export)`：
+#   通用写法会把 `export const x = './y.js'` / `export default './y.js'` 这种
+#   **本地导出**误判成一条指向 './y.js' 的依赖边（实测会命中）。重导出语句的语法
+#   是封闭的（`*` / `* as ns` / `{...}`，可前置 `type`），按它收紧即可天然排除。
+#   同理 import 的 mid 段收紧为「合法绑定子句」，避免 `import fs\nfoo("a")` 这类
+#   跨行误吸（旧正则的 `[^"']*` 有同样风险，这里顺手收窄）。
+_JS_BINDING = (r'(?:[\w$]+[ \t]*,[ \t]*)?'
+               r'(?:\*[ \t]+as[ \t]+[\w$]+|[\w$]+|\{[^{}]*\})'
+               r'(?:[ \t]*,[ \t]*\{[^{}]*\})?')
+JS_IMPORT_RE = re.compile(
+    r'^[ \t]*import[ \t]+(?P<mid>(?:type[ \t]+)?' + _JS_BINDING + r'[ \t]*)?'
+    r'(?:from[ \t]+)?["\'](?P<spec>[^"\']+)["\']',
+    re.M | re.S)
+JS_REEXPORT_RE = re.compile(
+    r'^[ \t]*export[ \t]+'
+    r'(?P<mid>(?:type[ \t]+)?(?:\*[ \t]+as[ \t]+[\w$]+|\*|\{[^{}]*\})[ \t]*)'
+    r'(?:from[ \t]+)?["\'](?P<spec>[^"\']+)["\']',
+    re.M | re.S)
+
+
+def _js_clause_parts(clause):
+    """拆一条绑定子句，返回 (命名绑定列表, 花括号外是否还有值绑定)。"""
+    s = re.sub(r'\s+', ' ', (clause or '').strip())
+    named = []
+    m = re.search(r'\{([^{}]*)\}', s, re.S)
+    if m:
+        named = [x.strip() for x in m.group(1).split(",") if x.strip()]
+    rest = re.sub(r'\{[^{}]*\}', ' ', s, flags=re.S)
+    rest = re.sub(r'[, \t]+', ' ', rest).strip()
+    return named, bool(rest)
+
+
+def js_edge_kind(clause):
+    """判定一条 import / 重导出是运行时依赖（value）还是仅类型（type）。"""
+    s = re.sub(r'\s+', ' ', (clause or '').strip())
+    # `import type X from` / `export type { X } from` / `export type * from`
+    if re.match(r'^type\b', s):
+        return "type"
+    named, has_value_binding = _js_clause_parts(s)
+    # 命名绑定**全部**带 type 修饰、且没有默认/命名空间绑定 → 整条被擦除
+    if named and not has_value_binding and all(re.match(r'^type\b', n) for n in named):
+        return "type"
+    return "value"
+
+
 def build_js():
     # TD-051：e2e **进图**。原 extra_exclude=("asd-tauri/e2e/",) 是 os.walk 时代为了
     # 挡掉 wdio.conf.js 的 5 条 `node:` 内建边加的，代价是 19 个 e2e 文件连同它们真实
@@ -459,35 +527,37 @@ def build_js():
     files = git_scope_files((".js", ".mjs"))
     rel = {f: norm(os.path.relpath(f, ROOT)) for f in files}
     node_set = set(rel.values())
-    # ⚠️ 若将来本仓引入 TypeScript：`import type { X } from './y.js'` **不产生运行时
-    # 依赖**，但会被下面这条正则当成一条普通边，从而把**无害的类型循环**判成环。
-    # 而 js_cycles 自 TD-051 起是**硬失败项**，那会当场阻断提交。
-    # 届时必须在下面的过滤里把 `import type` / `export type` 形式的边单独排除
-    #（只统计类型引用以外的边）。2026-09-18 与 team-lead 约定，由 team-lead 记忆跟踪。
-    imp_re = re.compile(r'^\s*import\s+(?:[^"\']*from\s+)?["\']([^"\']+)["\']', re.M)
     edges = []
     for absf, r in sorted(rel.items()):
         txt = read_text(absf)
-        for m in imp_re.finditer(txt):
-            spec = m.group(1)
-            is_builtin = spec.startswith("node:")
-            # ⚠️ 必须把相对说明符解析成**仓库相对路径**再判断是否落在图内。
-            # find_cycles() 的 `if a in adj and b in adj` 用的是节点名（仓库相对路径），
-            # 而原始说明符是 `../helpers/tauri.js` —— 两者不在一个命名空间，
-            # 不解析的话**所有 JS 边都会被静默丢弃，js_cycles 恒为 0**。
-            # 那会造出一个「永远通过」的永真式守护，比没有守护更危险。
-            resolved = None
-            if not is_builtin and spec.startswith("."):
-                cand = norm(os.path.normpath(
-                    os.path.join(norm(os.path.dirname(r)), spec)))
-                if cand in node_set:
-                    resolved = cand
-            edges.append({
-                "from": r, "to": spec, "resolved_to": resolved,
-                "is_builtin": is_builtin,
-                "is_internal": resolved is not None,
-                "from_bucket": js_bucket(r),
-            })
+        # 两类语句分别扫：`import ... from` 与重导出 `export ... from`。
+        # ⚠️ 后者此前**完全没被扫** —— `export { x } from './y.js'` 与
+        # `export * from './y.js'` 同样是条真实依赖边（模块会被执行、符号被转发），
+        # 漏掉它等于给「通过重导出绕开 import 的环」开了一扇后门（TD-051 假阴性）。
+        for form, rx in (("import", JS_IMPORT_RE), ("reexport", JS_REEXPORT_RE)):
+            for m in rx.finditer(txt):
+                spec = m.group("spec")
+                kind = js_edge_kind(m.group("mid"))
+                is_builtin = spec.startswith("node:")
+                # ⚠️ 必须把相对说明符解析成**仓库相对路径**再判断是否落在图内。
+                # find_cycles() 的 `if a in adj and b in adj` 用的是节点名（仓库相对路径），
+                # 而原始说明符是 `../helpers/tauri.js` —— 两者不在一个命名空间，
+                # 不解析的话**所有 JS 边都会被静默丢弃，js_cycles 恒为 0**。
+                # 那会造出一个「永远通过」的永真式守护，比没有守护更危险。
+                resolved = None
+                if not is_builtin and spec.startswith("."):
+                    cand = norm(os.path.normpath(
+                        os.path.join(norm(os.path.dirname(r)), spec)))
+                    if cand in node_set:
+                        resolved = cand
+                edges.append({
+                    "from": r, "to": spec, "resolved_to": resolved,
+                    "kind": kind, "form": form,
+                    "is_builtin": is_builtin,
+                    "is_internal": resolved is not None,
+                    "from_bucket": js_bucket(r),
+                    "to_bucket": js_bucket(resolved) if resolved else None,
+                })
     return {"files": sorted(rel.values()), "edges": edges,
             "buckets": {p: js_bucket(p) for p in rel.values()}}
 
@@ -598,7 +668,94 @@ def find_orphans(nodes, edges, key_from="from", key_to="to", ignore_no_in=()):
     return sorted(out)
 
 
+# ------------------------------------------------- JS 边归类自检（TD-051）
+# 为什么这里要有张期望表，而不是只靠「跑一遍不报错」：归类逻辑错了**不会崩**，
+# 它只会安静地给出错误的 kind —— 把类型边当值边就是假环（阻断提交），把值边当
+# 类型边就是漏检（守护变永真式）。两者都不会抛异常。所以期望值必须写死在外面。
+#
+# 用法：`python .review-analysis/build_graph.py --selftest`
+#（不接进闸门①是因为它不依赖仓库当前状态，接不接都不影响图谱结论；
+#  想接进 check-gates 由 team-lead 决定，避免与 TD-055 改同一文件冲突。）
+JS_KIND_CASES = (
+    # (源码片段, [(spec, kind, form), ...])  —— 期望值即规范，改前先想清楚
+    ("import './x.js';", [("./x.js", "value", "import")]),
+    ("import d from './x.js';", [("./x.js", "value", "import")]),
+    ("import * as ns from './x.js';", [("./x.js", "value", "import")]),
+    ("import { a, b as c } from './x.js';", [("./x.js", "value", "import")]),
+    ("import {\n  a,\n  b\n} from './x.js';", [("./x.js", "value", "import")]),
+    ("import {} from './x.js';", [("./x.js", "value", "import")]),
+    ("import d, { type X } from './x.js';", [("./x.js", "value", "import")]),
+    ("import { type X, y } from './x.js';", [("./x.js", "value", "import")]),
+    ("import { execSync } from 'node:child_process';",
+     [("node:child_process", "value", "import")]),
+    # ── 仅类型：编译后被完全擦除，不产生运行时依赖 ──
+    ("import type { X } from './x.js';", [("./x.js", "type", "import")]),
+    ("import type X from './x.js';", [("./x.js", "type", "import")]),
+    ("import type * as NS from './x.js';", [("./x.js", "type", "import")]),
+    ("import { type X } from './x.js';", [("./x.js", "type", "import")]),
+    ("import { type X, type Y } from './x.js';", [("./x.js", "type", "import")]),
+    # ── 重导出（旧实现**整体漏检**的假阴性，同样是一条真实依赖边）──
+    ("export { x } from './x.js';", [("./x.js", "value", "reexport")]),
+    ("export { getStreamAsArray } from './array.js';",
+     [("./array.js", "value", "reexport")]),
+    ("export * from './x.js';", [("./x.js", "value", "reexport")]),
+    ("export * as ns from './x.js';", [("./x.js", "value", "reexport")]),
+    ("export type { X } from './x.js';", [("./x.js", "type", "reexport")]),
+    ("export { type X } from './x.js';", [("./x.js", "type", "reexport")]),
+    ("export type * from './x.js';", [("./x.js", "type", "reexport")]),
+    ("export type * as ns from './x.js';", [("./x.js", "type", "reexport")]),
+    # ── 阴性对照：这些**不是**依赖边，被误判就会凭空造出边/环 ──
+    ("export const p = './y.js';", []),
+    ("export default './y.js';", []),
+    ("export function f() {}", []),
+    ("export { DEFAULT_AHK_PATH };", []),
+    ("// import { a } from './comment.js';", []),
+    ("const p = import('./dyn.js');", []),      # 动态 import：已知不支持，非回归
+    ("import x = require('./y.js');", []),      # TS 旧式导入：已知不支持，非回归
+    ("import fs\nfoo(\"a\");", []),             # 跨行误吸防护
+)
+
+
+def selftest_js_kinds():
+    """JS 边归类自检。返回进程退出码（0 通过）。
+
+    两个防永真式锚点：表为空、或表里没有 type / reexport 用例，都判失败 ——
+    否则「0 条失败」可能只是因为把用例删光了。
+    """
+    if not JS_KIND_CASES:
+        print("!! JS_KIND_CASES 为空 —— 自检没有用例，「通过」毫无意义")
+        return 1
+    kinds = {k for _, exp in JS_KIND_CASES for (_, k, _) in exp}
+    forms = {f for _, exp in JS_KIND_CASES for (_, _, f) in exp}
+    if "type" not in kinds or "reexport" not in forms:
+        print("!! 用例表缺少 type / reexport 覆盖 —— 自检退化，拒绝给出通过结论")
+        return 1
+
+    fails = []
+    for src, expect in JS_KIND_CASES:
+        got = []
+        for form, rx in (("import", JS_IMPORT_RE), ("reexport", JS_REEXPORT_RE)):
+            for m in rx.finditer(src):
+                got.append((m.group("spec"), js_edge_kind(m.group("mid")), form))
+        if sorted(got) != sorted(expect):
+            fails.append("  源码 %r\n    期望 %s\n    实得 %s"
+                         % (src, sorted(expect), sorted(got)))
+    print("== JS 边归类自检（%d 用例）==" % len(JS_KIND_CASES))
+    if fails:
+        print("  [FAIL] %d/%d 不通过：" % (len(fails), len(JS_KIND_CASES)))
+        for f in fails:
+            print(f)
+        return 1
+    print("  [PASS] 全部通过（含 %d 条仅类型 / %d 条重导出 / 阴性对照 %d 条）"
+          % (sum(1 for _, e in JS_KIND_CASES for x in e if x[1] == "type"),
+             sum(1 for _, e in JS_KIND_CASES for x in e if x[2] == "reexport"),
+             sum(1 for _, e in JS_KIND_CASES if not e)))
+    return 0
+
+
 if __name__ == "__main__":
+    if "--selftest" in sys.argv:
+        raise SystemExit(selftest_js_kinds())
     ahk = build_ahk()
     rust = build_rust()
     js = build_js()
@@ -646,9 +803,16 @@ if __name__ == "__main__":
     js_bucket_counts = {b: sum(1 for p in js_nodes if js_buckets[p] == b)
                         for b in JS_BUCKETS}
     js_builtin_edges = [e for e in js["edges"] if e["is_builtin"]]
-    # 只有解析到图内节点的边才进环检测 —— 见 build_js() 里关于 find_cycles 命名空间的说明
+    # 三分类互斥且穷尽（非内建部分再切值/仅类型），闸门①会校验这个划分，
+    # 防止有人新增一类边却忘了从环检测里排除（TD-051）。
+    js_value_edges = [e for e in js["edges"]
+                      if not e["is_builtin"] and e["kind"] == "value"]
+    js_type_only_edges = [e for e in js["edges"]
+                          if not e["is_builtin"] and e["kind"] == "type"]
+    # 进环检测的**只有值边**：见 build_js() 里关于 find_cycles 命名空间的说明；
+    # 仅类型边不进 —— `import type` 编译后被擦除，不产生运行时循环。
     js_internal_edges = [{"from": e["from"], "to": e["resolved_to"]}
-                         for e in js["edges"] if e["is_internal"]]
+                         for e in js_value_edges if e["is_internal"]]
     js_cycles = find_cycles(js_nodes, js_internal_edges)
 
     # extra_exclude 规则有效性守护（TD-051）
@@ -707,9 +871,14 @@ if __name__ == "__main__":
                 "js_src_files": js_bucket_counts["src"],
                 "js_e2e_files": js_bucket_counts["e2e"],
                 "js_unclassified_files": js_bucket_counts["unclassified"],
-                # js_edges 只计非内建模块边；内建边单独计 js_builtin_edges
-                #（总数 = js_edges + js_builtin_edges）
-                "js_edges": len(js["edges"]) - len(js_builtin_edges),
+                # 三个数互斥且穷尽：js_edges(值) + js_type_only_edges(仅类型)
+                # + js_builtin_edges(内建) == js.edges 总数，由闸门①校验。
+                # js_edges 只计**非内建的值边**；仅类型边单列（TD-051：编译后擦除，
+                # 不是运行时依赖，不能进环检测）；内建边单独计。
+                "js_edges": len(js_value_edges),
+                "js_type_only_edges": len(js_type_only_edges),
+                "js_reexport_edges": sum(1 for e in js_value_edges
+                                         if e["form"] == "reexport"),
                 "js_builtin_edges": len(js_builtin_edges),
                 "js_edges_internal": len(js_internal_edges),
                 "js_cycles": len(js_cycles),
@@ -739,7 +908,10 @@ if __name__ == "__main__":
             "prod_deps": rust["prod_deps"],
             "dev_deps": rust["dev_deps"],
         },
-        "js": js,
+        # 环检测的**实际输入**写进图里留痕（TD-051）：「js_cycles = 0」这个结论
+        # 唯一可审计的依据就是这张表 —— 否则它只是个没人能复核的数字，
+        # 而「环检测悄悄吃不到边」和「代码里真的没环」在计数上长得一模一样。
+        "js": dict(js, cycle_input_edges=js_internal_edges),
     }
     with io.open(os.path.join(OUT, "graph-raw.json"), "w", encoding="utf-8") as fh:
         json.dump(graph, fh, ensure_ascii=False, indent=2)
@@ -757,7 +929,8 @@ if __name__ == "__main__":
     print("Rust 生产 crate 环: %(rust_crate_cycles)d | 生产依赖违规: %(rust_crate_violations)d" % m)
     print("JS   文件: %(js_files)d  (src %(js_src_files)d / e2e %(js_e2e_files)d"
           " / 未归类 %(js_unclassified_files)d)" % m)
-    print("JS   import 边: %(js_edges)d（非内建） | 内建边: %(js_builtin_edges)d"
+    print("JS   import 边: %(js_edges)d（非内建值边，其中重导出 %(js_reexport_edges)d）"
+          " | 仅类型边: %(js_type_only_edges)d | 内建边: %(js_builtin_edges)d"
           " | 图内边: %(js_edges_internal)d | 环: %(js_cycles)d" % m)
     print()
     print("-- extra_exclude 规则有效性（TD-051）--")

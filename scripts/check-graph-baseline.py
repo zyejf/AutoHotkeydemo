@@ -282,6 +282,73 @@ def check_js_bucket_integrity(raw: dict, counts: dict) -> list[str]:
     return errs
 
 
+def check_js_edge_taxonomy(raw: dict, counts: dict) -> list[str]:
+    """TD-051：JS 边三分类（值 / 仅类型 / 内建）必须与边表自洽，
+    且**仅类型边不得进环检测输入**。
+
+    为什么由闸门**独立重算**一遍：build_graph.py 里 kind 判错了**不会崩**，它只会安静地
+      - 把类型边当值边 → 无害的类型循环被判成环 → 硬失败阻断提交（假阳性）；
+      - 把值边当类型边 → 真实依赖被漏检 → `js_cycles` 恒为 0（守护变永真式）。
+    两者都不抛异常。所以这里按 `js.edges` 重推一次环检测输入，跟图里留痕的
+    `cycle_input_edges` 对撞 —— 任一侧漏改当场炸，而不是「环数 0，一路绿灯」。
+    """
+    js = raw.get("js", {})
+    edges = js.get("edges")
+    if not isinstance(edges, list):
+        return ["graph-raw.json 缺 `js.edges` —— 无法校验 JS 边分类"]
+    if "js_type_only_edges" not in counts:
+        return ["graph-raw.json 的 counts 缺 `js_type_only_edges` —— 跑的是 TD-051 之前的"
+                "旧 build_graph.py？`import type` / `export type` 未做归类，一旦引入 TS 就会"
+                "把无害的类型循环判成环，闸门拒绝给出结论"
+                "（请先重跑 `python .review-analysis/build_graph.py`）"]
+    errs: list[str] = []
+
+    bad = [e for e in edges if e.get("kind") not in ("value", "type")
+           or e.get("form") not in ("import", "reexport")]
+    if bad:
+        errs.append(f"{len(bad)} 条 JS 边的 kind/form 非法"
+                    f"（应为 value|type 与 import|reexport），样例：{bad[:2]}")
+
+    n_val = sum(1 for e in edges if not e.get("is_builtin") and e.get("kind") == "value")
+    n_typ = sum(1 for e in edges if not e.get("is_builtin") and e.get("kind") == "type")
+    n_bi = sum(1 for e in edges if e.get("is_builtin"))
+    if (n_val, n_typ, n_bi) != (counts.get("js_edges"),
+                                counts.get("js_type_only_edges"),
+                                counts.get("js_builtin_edges")):
+        errs.append(f"JS 边三分类与 counts 不一致：按边表重算 值{n_val}/仅类型{n_typ}/内建{n_bi}"
+                    f" vs counts 值{counts.get('js_edges')}/仅类型"
+                    f"{counts.get('js_type_only_edges')}/内建{counts.get('js_builtin_edges')}")
+    if n_val + n_typ + n_bi != len(edges):
+        errs.append(f"JS 边三分类没穷尽：{n_val}+{n_typ}+{n_bi} != 边总数 {len(edges)}")
+
+    expect = sorted((e.get("from"), e.get("resolved_to"))
+                    for e in edges
+                    if e.get("is_internal") and e.get("kind") == "value")
+    got_raw = js.get("cycle_input_edges")
+    if got_raw is None:
+        errs.append("graph-raw.json 缺 `js.cycle_input_edges` —— 环检测的实际输入没留痕，"
+                    "「js_cycles = 0」无从审计（跑的是 TD-051 之前的旧实现？）")
+    else:
+        got = sorted((e.get("from"), e.get("to")) for e in got_raw)
+        if got != expect:
+            # 按**多重集**算差异：两边互为子集但条数不同（重复边）时，
+            # 「多出/缺少」都会是空列表 —— 只报空列表等于把人推向死胡同。
+            from collections import Counter
+            cg, ce = Counter(got), Counter(expect)
+            only_got = list((cg - ce).elements())
+            only_exp = list((ce - cg).elements())
+            detail = (f"多出 {only_got[:3]} / 缺少 {only_exp[:3]}"
+                      if only_got or only_exp
+                      else f"两边路径集合相同但条数不同（{len(got)} vs {len(expect)}）"
+                           f" —— 有边被重复计入或漏计")
+            errs.append(f"环检测输入与「图内值边」不一致：{detail}"
+                        f" —— 仅类型边绝不能进环检测（会把无害的类型循环判成环）")
+        if len(got) != counts.get("js_edges_internal"):
+            errs.append(f"js_edges_internal = {counts.get('js_edges_internal')}，但"
+                        f"cycle_input_edges 有 {len(got)} 条 —— 计数与环检测输入不同步")
+    return errs
+
+
 def check_scan_anchors(counts: dict) -> list[str]:
     """遍历失效探针：低于下限 = 节点发现塌了，不是「代码变干净了」。"""
     errs = []
@@ -449,6 +516,7 @@ def main() -> int:
     errors.extend(check_bucket_integrity(raw))
     errors.extend(check_bucket_classification(raw))
     errors.extend(check_js_bucket_integrity(raw, cur_counts))
+    errors.extend(check_js_edge_taxonomy(raw, cur_counts))
     errors.extend(check_extra_exclude_guard(raw))
     errors.extend(check_scan_anchors(cur_counts))
     errors.extend(check_untracked(raw))
@@ -510,7 +578,8 @@ def main() -> int:
         f"e2e {cur_counts.get('js_e2e_files')} / "
         f"未归类 {cur_counts.get('js_unclassified_files')}) / "
         f"{cur_counts.get('js_edges')} import 边"
-        f"(非内建) + {cur_counts.get('js_builtin_edges')} 内建边 / "
+        f"(非内建值边) + {cur_counts.get('js_type_only_edges')} 仅类型边 + "
+        f"{cur_counts.get('js_builtin_edges')} 内建边 / "
         f"图内边 {cur_counts.get('js_edges_internal')} / "
         f"环 {cur_counts.get('js_cycles')}"
     )
