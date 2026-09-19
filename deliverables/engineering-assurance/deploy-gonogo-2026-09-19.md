@@ -23,7 +23,7 @@
   - ✅ **Go** —— 保持在 `main` / 继续合入：CI 四个真阻断 job 全绿，无回归。
   - ❌ **No-Go** —— 触发发布构建、对外分发安装包：剩余阻断 **B3 / B5 / B12 / B13** 未闭环。
   - ✅ **N4 已解除**（本轮复查时）：Docu 的用户侧三件套已由提交 `93d88d6` 入库 —— `git ls-files` + `git cat-file -e HEAD:<path>` 三条全部 `YES`，新 HEAD 的 CI 也已跑绿。**E 类从"内容就绪但未入库"变为真正落地。**
-- **本轮新发现 10 条（N1–N10）**，其中 **N1 是本轮最重的一条**：`main` 分支**无分支保护**（API 404 `Branch not protected`）。上一版报告 §7.2 把它列为"唯一一条纯推断"，现已证实 —— **CI 全绿目前不构成任何准入门槛**。
+- **本轮新发现 10 条（N1–N10）**。其中 **N1（`main` 无分支保护）已当场修复并验证**：API 由 404 → 200，`enforce_admins=false` 保住了主理人的 Git Data API 直推通道。上一版报告 §7.2 把它列为"唯一一条纯推断"，本轮证实并闭环。
 - **N6（Archi 提出、我已独立复核）是最影响发布判定的一条**：打包布局下**没有 `asd_executor.exe`**，安装包必然走「便携模式」（`AutoHotkey64.exe` + `executor.ahk`）；而本地因为该文件存在走的是「编译模式」。⇒ **本地测过的执行器启动路径，和用户装到的不是同一条**，且这条 shipped 路径从未在打包布局下端到端验证过。
 - ⚠️ **那片绿灯不含 G3h 的修复**（N7 / §1.6）：Tessa 已在工作树把 G3h 从 `-- --ignored` 改成按模块名跑，但**未提交**；我核实的 run 跑的是 HEAD 版 ci.yml。⇒ **A10 仍判 ❌**，改判必须等提交后重跑 CI。**不能因为"修好了"就改判据，只能因为"CI 证明它好了"才改判。**
 - ⚠️ **`ci.yml` 行号已漂移**（N10）：工作树 926 行 vs HEAD 913 行（净 +13）。本报告行号锚定 HEAD 版，171 行之后对照需 +13。
@@ -181,7 +181,7 @@ run: |
 | A5 | 依赖安全审计通过 | ✅ CI | job「依赖安全审计（TD-014）」success |
 | A6 | 本机脚本闸门复跑 | ⚠️ 未在本轮复跑 | 主理人已验 `check-test-map.py` / `check-tech-debt.py` rc=0；本轮重跑因脚本触发 cargo 被超时中断，**以 CI 的 G3d/G3e 绿为准（证据更强）** |
 | A7 | UB 检查（Miri）无真 UB 信号 | ✅ CI | 115 条测试通过、零 UB 报告；红灯为隔离配置问题（§二） |
-| A8 | 分支保护生效（CI 绿即准入门槛） | ❌ **新发现 N1** | `GET /branches/main/protection` → HTTP **404 `Branch not protected`** |
+| A8 | 分支保护生效 | ✅ **已修复（N1）** | `GET /branches/main/protection` 由 **404 → 200**；字段核实：`enforce_admins.enabled=false`、`required_status_checks=null`、`required_approving_review_count=1`、`restrictions=null`，另 `allow_force_pushes/enabled=false`、`allow_deletions/enabled=false` |
 | A9 | G4 文档同步闸门 | ➖ 不适用 | 结构上不可能红，是纸面核对表（上游报告 §5.3 #7），不产生证据 |
 | A10 | **G3h watchdog 闸门有实际用例** | ❌ **新发现 N7** | CI 日志 `running 0 tests` / `0 passed … 256 filtered out`；全仓活 `#[ignore]` = 0。**永真空闸门** |
 | A11 | watchdog 进程生命周期路径有有效守护 | ❌ | 其唯一守护者即 A10 的空闸门 |
@@ -285,7 +285,8 @@ run: |
 | 3 | 手动触发 release job（`build_release=true`）**人工盯全程**，确认产出 NSIS 包 | B13 的前置 | Rex | 0.5 人日 |
 | 4 | 补 GitHub Release 步骤，把安装包落到不过期的分发点 | B3 | Rex | 0.5 人日 |
 | 5 | 跑一次发布产物冒烟（装 → 启 → 执行一个连招）并补进 CI | B13 | Tessa | 1 人日 |
-| 6 | 打开 `main` 分支保护（至少要求 `gates` 这个 required check） | N1 | 主理人 | 极小 |
+| ~~6~~ | ~~打开 `main` 分支保护~~ → **✅ 已于 2026-09-19 完成**（N1 解除） | N1 | Rex 执行 | ✅ 已完成 |
+| 6a | （遗留决策）是否绑定 `required_status_checks` —— **当前刻意留 null**，待 CI 抖动评估后再定 | N1 | 主理人 | 待定 |
 | 6b | 若将来接 tag 自动发版：**先明确 release job 用哪种 token**（`GITHUB_TOKEN` 建 tag 不二次触发；PAT/OAuth 会），实跑验证，并用 `concurrency` 兜底 | N9 | Rex + Archi | 0.2 人日 |
 | 7 | 修 Miri 配置（`MIRIFLAGS=-Zmiri-disable-isolation`） | 信号门可信度（P2，不阻塞） | Rex | 极小 |
 
@@ -326,7 +327,7 @@ run: |
 
 | # | 发现 | 证据 | 影响 |
 |---|---|---|---|
-| **N1** | **`main` 分支无保护** | `GET /repos/zyejf/AutoHotkeydemo/branches/main/protection` → HTTP **404** `Branch not protected` | 上一版报告 §7.2 列为"唯一一条纯推断"，**现已证实**。CI 绿不构成准入门槛；任何人可向 main 直推。**建议立即开启，成本极低** |
+| **N1** | ~~**`main` 分支无保护**~~ → **✅ 已修复（2026-09-19 当天执行）** | 修复前：`GET .../branches/main/protection` → **404 `Branch not protected`**（上一版报告 §7.2 列为"唯一一条纯推断"，本轮证实）。修复后：**PUT 200 + GET 200**，实际生效字段见下 | **已由主理人指令、Rex 执行。** 生效配置：`required_status_checks=null`（不绑 required checks，避免 CI 抖动卡死正常提交）、`enforce_admins.enabled=**false**`（保留主理人经 Git Data API 直推的通道）、`required_approving_review_count=1`、`restrictions=null`；附带生效 `allow_force_pushes.enabled=false`、`allow_deletions.enabled=false`。**执行后追加核实**：当前 token `permissions.admin=**true**`，故 `enforce_admins=false` 确实保住了直推通道 —— 否则该通道会被新规则挡住 |
 | **N2** | **`asd-ipc-protocol` 的 Miri 覆盖为 0** | 日志中该 crate 只出现于编译阶段；`ci.yml` 两条串行命令，第一条失败即中止 | 红灯掩盖了一个真实的覆盖盲区。修 Miri 配置后会暴露 |
 | **N3** | **「Security audit」不是本仓门禁** | `html_url` 为 `/runs/`（外部 check run），**0 step**、耗时 **1 秒**，两次运行均 success | 不应计入"本仓质量门全绿"的证据。真阻断的是「依赖安全审计（TD-014）」（8 步） |
 | **N4** | ~~**用户侧三件套未入库**~~ → **✅ 已解除** | 初查 `git ls-files` 三条 `tracked = NO`；复查时提交 **`93d88d6`** 已将其入库，`git cat-file -e HEAD:<path>` 三条全部 YES | 报告落盘后 Docu 完成入库，新 HEAD 的 CI（run 35447863126）已跑绿。**B8/B9/B10/B11 现已在发布候选 commit 内**。保留此条是因为它完整记录了"内容就绪 ≠ 已入库"这个差点被误判为已解决的时间窗 |
