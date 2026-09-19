@@ -697,7 +697,7 @@ $executorPath = "d:\1demo\AutoHotkeydemo\asd-tauri\src-tauri\ahk_executor\execut
 | Rust | stable (见 `rust-toolchain.toml`) | Rust 工具链 |
 | Node.js | 18+ | 前端构建 |
 | AutoHotkey v2 | 2.0+ | AHK 子进程 |
-| WebView2 | Edge Chromium 内核 | Windows 10+ 内置 |
+| WebView2 | Edge Chromium 内核 | **并非 Windows 10 必然内置** —— Windows 11 通常自带；Windows 10 的 LTSC / Server / 精简镜像 / 卸载过 Edge 的机器可能没有。因此 `tauri.conf.json` 配的是 `webviewInstallMode = downloadBootstrapper + silent`，装包时联网补装；**离线环境必须先手工预装**，否则「双击安装包没反应」。用户侧说明见 [`troubleshooting.md`](./troubleshooting.md) §1.1 |
 
 #### 初始化
 
