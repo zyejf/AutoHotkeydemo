@@ -6,6 +6,12 @@
 > 未执行任何 git 写操作；改动留在工作树，由主理人统一提交。
 > 未改 `docs/tech-debt-register.md`、未改 `scripts/check-tech-debt.py`。
 
+> ⚠️ **行号会漂，引用请以符号锚点为准。** 本文初稿按落笔时刻写了行号；2026-09-20 00:06 起
+> `ci.yml` 被他人改动（G3h 判据行 **164 → 191**、步骤行 **166 → 196**，整体 +27），
+> `watchdog_integration_tests.rs` 的判据段也因我自己的改写从 **L14-26 漂到 L18-~38**。
+> **已实测：三处判据内容与 G3h 步骤改动全部存活**，漂的只是行号。故下文一律给出符号锚点
+> （G3h 步骤名 / 判据关键字），行号只作当时定位提示 —— **不要按行号去改**。
+
 ---
 
 ## 0. 结论速览
@@ -158,12 +164,15 @@ run: cargo test -p asd-tauri --lib tests::watchdog_integration_tests -- --test-t
 
 ### 4.1 枚举结果（含行号，逐行打开核实）
 
-| # | 落点 | 原文口径 | 性质 |
+| # | 落点（**符号锚点**） | 原文口径 | 性质 |
 |---|------|---------|------|
-| ① | `.github/workflows/ci.yml:164` | 连续跑绿 **3-5 次** | 次数口径 |
-| ② | `watchdog_integration_tests.rs:23-24` | 本机与 CI 各连续 **≥10 次** | 次数口径（最严） |
-| ③ | `watchdog_integration_tests.rs:5-8` | 实测约 **13 秒**且 **15/15 通过** | ⚠️ **速度口径，不是次数判据** |
-| ④ | `docs/guard-effectiveness-checklist.md:45` 与 `:58` | 连续绿 **3-5 次** | 次数口径（文档复述） |
+| ① | `.github/workflows/ci.yml` — G3h 步骤上方的注释块（锚点：含「解禁判据」那行） | 连续跑绿 **3-5 次** | 次数口径 |
+| ② | `watchdog_integration_tests.rs` 文件头 — 判据第 4 条（锚点：「解禁前连跑 N 次」） | 本机与 CI 各连续 **≥10 次** | 次数口径（最严） |
+| ③ | `watchdog_integration_tests.rs` 文件头 — 摘除说明（锚点：「已摘掉全部」） | 实测约 **13 秒**且 **15/15 通过** | ⚠️ **速度口径，不是次数判据** |
+| ④ | `docs/guard-effectiveness-checklist.md` — G3h 行（锚点：`**G3h watchdog`）与该表下方第 3 条 | 连续绿 **3-5 次** | 次数口径（文档复述） |
+
+> 落笔时刻的行号（**已漂，仅备查**）：① `ci.yml:164` → 00:06 后为 `:191`；
+> ② `:23-24` → `:27-28`；③ `:5-8`；④ `guard-effectiveness-checklist.md:45` / `:58`（**未漂**）。
 
 **与预设的两点偏差**：
 
