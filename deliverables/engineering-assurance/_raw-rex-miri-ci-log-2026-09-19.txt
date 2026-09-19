@@ -1,0 +1,444 @@
+﻿2026-09-19T13:46:29.2169188Z Current runner version: '2.337.0'
+2026-09-19T13:46:29.2193788Z ##[group]Runner Image Provisioner
+2026-09-19T13:46:29.2194700Z Hosted Compute Agent
+2026-09-19T13:46:29.2195369Z Version: 20260828.587
+2026-09-19T13:46:29.2196059Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-09-19T13:46:29.2196780Z Build Date: 2026-08-28T16:44:25Z
+2026-09-19T13:46:29.2198044Z Worker ID: {06cf3375-a380-45a6-a4c6-4c891dd14713}
+2026-09-19T13:46:29.2198776Z Azure Region: centralus
+2026-09-19T13:46:29.2199346Z ##[endgroup]
+2026-09-19T13:46:29.2201110Z ##[group]Operating System
+2026-09-19T13:46:29.2201752Z Ubuntu
+2026-09-19T13:46:29.2202346Z 24.04.5
+2026-09-19T13:46:29.2202944Z LTS
+2026-09-19T13:46:29.2203434Z ##[endgroup]
+2026-09-19T13:46:29.2204081Z ##[group]Runner Image
+2026-09-19T13:46:29.2204688Z Image: ubuntu-24.04
+2026-09-19T13:46:29.2205274Z Version: 20260907.300.1
+2026-09-19T13:46:29.2206516Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260907.300/images/ubuntu/Ubuntu2404-Readme.md
+2026-09-19T13:46:29.2208490Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260907.300
+2026-09-19T13:46:29.2209446Z ##[endgroup]
+2026-09-19T13:46:29.2210671Z ##[group]GITHUB_TOKEN Permissions
+2026-09-19T13:46:29.2212788Z Contents: read
+2026-09-19T13:46:29.2213827Z Metadata: read
+2026-09-19T13:46:29.2214445Z Packages: read
+2026-09-19T13:46:29.2215373Z ##[endgroup]
+2026-09-19T13:46:29.2218569Z Secret source: Actions
+2026-09-19T13:46:29.2220234Z Cache mode: write
+2026-09-19T13:46:29.2221759Z Prepare workflow directory
+2026-09-19T13:46:29.2625088Z Prepare all required actions
+2026-09-19T13:46:29.2673151Z Getting action download info
+2026-09-19T13:46:29.5392203Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-09-19T13:46:29.6482491Z Download action repository 'Swatinem/rust-cache@v2' (SHA:6323deb102c322ba6fcbdcafc7e3dddab59af2b6)
+2026-09-19T13:46:30.2355574Z Complete job name: Miri UB Check
+2026-09-19T13:46:30.3152465Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-09-19T13:46:30.3161566Z ##[group]Run actions/checkout@v4
+2026-09-19T13:46:30.3162392Z with:
+2026-09-19T13:46:30.3162911Z   repository: zyejf/AutoHotkeydemo
+2026-09-19T13:46:30.3167376Z   token: ***
+2026-09-19T13:46:30.3167900Z   ssh-strict: true
+2026-09-19T13:46:30.3168378Z   ssh-user: git
+2026-09-19T13:46:30.3168870Z   persist-credentials: true
+2026-09-19T13:46:30.3169955Z   clean: true
+2026-09-19T13:46:30.3170452Z   sparse-checkout-cone-mode: true
+2026-09-19T13:46:30.3171023Z   fetch-depth: 1
+2026-09-19T13:46:30.3171489Z   fetch-tags: false
+2026-09-19T13:46:30.3171980Z   show-progress: true
+2026-09-19T13:46:30.3172468Z   lfs: false
+2026-09-19T13:46:30.3172984Z   submodules: false
+2026-09-19T13:46:30.3173482Z   set-safe-directory: true
+2026-09-19T13:46:30.3174027Z   allow-unsafe-pr-checkout: false
+2026-09-19T13:46:30.3174939Z env:
+2026-09-19T13:46:30.3175408Z   CARGO_TERM_COLOR: always
+2026-09-19T13:46:30.3175930Z   RUST_BACKTRACE: 1
+2026-09-19T13:46:30.3176412Z   PYTHONUTF8: 1
+2026-09-19T13:46:30.3177177Z   PYTHONIOENCODING: utf-8
+2026-09-19T13:46:30.3177715Z ##[endgroup]
+2026-09-19T13:46:30.4206582Z Syncing repository: zyejf/AutoHotkeydemo
+2026-09-19T13:46:30.4209785Z ##[group]Getting Git version info
+2026-09-19T13:46:30.4211198Z Working directory is '/home/runner/work/AutoHotkeydemo/AutoHotkeydemo'
+2026-09-19T13:46:30.4213163Z [command]/usr/bin/git version
+2026-09-19T13:46:30.4262508Z git version 2.55.0
+2026-09-19T13:46:30.4284194Z ##[endgroup]
+2026-09-19T13:46:30.4298905Z Temporarily overriding HOME='/home/runner/work/_temp/d20d3ea8-72fc-4e7d-af49-03fb7de536ff' before making global git config changes
+2026-09-19T13:46:30.4301723Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-19T13:46:30.4304949Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/AutoHotkeydemo/AutoHotkeydemo
+2026-09-19T13:46:30.4358989Z Deleting the contents of '/home/runner/work/AutoHotkeydemo/AutoHotkeydemo'
+2026-09-19T13:46:30.4363215Z ##[group]Initializing the repository
+2026-09-19T13:46:30.4367643Z [command]/usr/bin/git init /home/runner/work/AutoHotkeydemo/AutoHotkeydemo
+2026-09-19T13:46:30.4487382Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-09-19T13:46:30.4489943Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-09-19T13:46:30.4491640Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-09-19T13:46:30.4493027Z hint: call:
+2026-09-19T13:46:30.4493816Z hint:
+2026-09-19T13:46:30.4494754Z hint: 	git config --global init.defaultBranch <name>
+2026-09-19T13:46:30.4495848Z hint:
+2026-09-19T13:46:30.4497180Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-09-19T13:46:30.4499028Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-09-19T13:46:30.4500456Z hint:
+2026-09-19T13:46:30.4501184Z hint: 	git branch -m <name>
+2026-09-19T13:46:30.4502023Z hint:
+2026-09-19T13:46:30.4503143Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-09-19T13:46:30.4505465Z Initialized empty Git repository in /home/runner/work/AutoHotkeydemo/AutoHotkeydemo/.git/
+2026-09-19T13:46:30.4509755Z [command]/usr/bin/git remote add origin https://github.com/zyejf/AutoHotkeydemo
+2026-09-19T13:46:30.4552495Z ##[endgroup]
+2026-09-19T13:46:30.4554083Z ##[group]Disabling automatic garbage collection
+2026-09-19T13:46:30.4555716Z [command]/usr/bin/git config --local gc.auto 0
+2026-09-19T13:46:30.4589544Z ##[endgroup]
+2026-09-19T13:46:30.4591033Z ##[group]Setting up auth
+2026-09-19T13:46:30.4598151Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-19T13:46:30.4630479Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-19T13:46:30.5007958Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-19T13:46:30.5051018Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-19T13:46:30.5286075Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-19T13:46:30.5324818Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-19T13:46:30.5549501Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-09-19T13:46:30.5588963Z ##[endgroup]
+2026-09-19T13:46:30.5590666Z ##[group]Fetching the repository
+2026-09-19T13:46:30.5600672Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +9fd8a6972f9172f9e304c5737ec75739c585d9e0:refs/remotes/origin/main
+2026-09-19T13:46:31.5725142Z From https://github.com/zyejf/AutoHotkeydemo
+2026-09-19T13:46:31.5726725Z  * [new ref]         9fd8a6972f9172f9e304c5737ec75739c585d9e0 -> origin/main
+2026-09-19T13:46:31.5731036Z ##[endgroup]
+2026-09-19T13:46:31.5732590Z ##[group]Determining the checkout info
+2026-09-19T13:46:31.5734084Z ##[endgroup]
+2026-09-19T13:46:31.5739824Z [command]/usr/bin/git sparse-checkout disable
+2026-09-19T13:46:31.5790983Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-09-19T13:46:31.5824240Z ##[group]Checking out the ref
+2026-09-19T13:46:31.5835383Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-09-19T13:46:31.6940044Z Switched to a new branch 'main'
+2026-09-19T13:46:31.6943942Z branch 'main' set up to track 'origin/main'.
+2026-09-19T13:46:31.6955166Z ##[endgroup]
+2026-09-19T13:46:31.7000475Z [command]/usr/bin/git log -1 --format=%H
+2026-09-19T13:46:31.7028230Z 9fd8a6972f9172f9e304c5737ec75739c585d9e0
+2026-09-19T13:46:31.7302043Z ##[group]Run rustup toolchain install nightly --component miri
+2026-09-19T13:46:31.7304058Z [36;1mrustup toolchain install nightly --component miri[0m
+2026-09-19T13:46:31.7305735Z [36;1mrustup override set nightly[0m
+2026-09-19T13:46:31.7307245Z [36;1mcargo +nightly miri --version[0m
+2026-09-19T13:46:31.7351063Z shell: /usr/bin/bash -e {0}
+2026-09-19T13:46:31.7352220Z env:
+2026-09-19T13:46:31.7353149Z   CARGO_TERM_COLOR: always
+2026-09-19T13:46:31.7354264Z   RUST_BACKTRACE: 1
+2026-09-19T13:46:31.7355269Z   PYTHONUTF8: 1
+2026-09-19T13:46:31.7356281Z   PYTHONIOENCODING: utf-8
+2026-09-19T13:46:31.7357636Z ##[endgroup]
+2026-09-19T13:46:31.7834614Z info: syncing channel updates for nightly-x86_64-unknown-linux-gnu
+2026-09-19T13:46:31.9965539Z info: latest update on 2026-09-19 for version 1.100.0-nightly (420ed2a0c 2026-09-18)
+2026-09-19T13:46:31.9968952Z info: downloading 4 components
+2026-09-19T13:46:39.9960555Z 
+2026-09-19T13:46:40.0027618Z   nightly-x86_64-unknown-linux-gnu installed - rustc 1.100.0-nightly (420ed2a0c 2026-09-18)
+2026-09-19T13:46:40.0028161Z 
+2026-09-19T13:46:40.0120815Z info: override toolchain for /home/runner/work/AutoHotkeydemo/AutoHotkeydemo set to nightly-x86_64-unknown-linux-gnu
+2026-09-19T13:46:40.0325466Z miri 0.1.0 (420ed2a0c3 2026-09-18)
+2026-09-19T13:46:40.0416248Z ##[group]Run Swatinem/rust-cache@v2
+2026-09-19T13:46:40.0416562Z with:
+2026-09-19T13:46:40.0480721Z   workspaces: asd-tauri
+2026-09-19T13:46:40.0481036Z   prefix-key: v0-rust
+2026-09-19T13:46:40.0481271Z   add-job-id-key: true
+2026-09-19T13:46:40.0481520Z   add-rust-environment-hash-key: true
+2026-09-19T13:46:40.0481857Z   cache-targets: true
+2026-09-19T13:46:40.0482119Z   cache-all-crates: false
+2026-09-19T13:46:40.0482411Z   cache-workspace-crates: false
+2026-09-19T13:46:40.0482731Z   save-if: true
+2026-09-19T13:46:40.0482988Z   cache-provider: github
+2026-09-19T13:46:40.0483237Z   cache-bin: true
+2026-09-19T13:46:40.0483442Z   lookup-only: false
+2026-09-19T13:46:40.0483662Z   cmd-format: {0}
+2026-09-19T13:46:40.0483871Z env:
+2026-09-19T13:46:40.0484059Z   CARGO_TERM_COLOR: always
+2026-09-19T13:46:40.0484287Z   RUST_BACKTRACE: 1
+2026-09-19T13:46:40.0484504Z   PYTHONUTF8: 1
+2026-09-19T13:46:40.0484734Z   PYTHONIOENCODING: utf-8
+2026-09-19T13:46:40.0484961Z ##[endgroup]
+2026-09-19T13:46:40.4600439Z ##[group]Cache Configuration
+2026-09-19T13:46:40.4601032Z Cache Provider:
+2026-09-19T13:46:40.4601460Z     github
+2026-09-19T13:46:40.4601815Z Workspaces:
+2026-09-19T13:46:40.4602391Z     /home/runner/work/AutoHotkeydemo/AutoHotkeydemo/asd-tauri
+2026-09-19T13:46:40.4603027Z Cache Paths:
+2026-09-19T13:46:40.4603446Z     /home/runner/.cargo/bin
+2026-09-19T13:46:40.4603958Z     /home/runner/.cargo/.crates.toml
+2026-09-19T13:46:40.4604489Z     /home/runner/.cargo/.crates2.json
+2026-09-19T13:46:40.4605025Z     /home/runner/.cargo/registry
+2026-09-19T13:46:40.4605451Z     /home/runner/.cargo/git
+2026-09-19T13:46:40.4606066Z     /home/runner/work/AutoHotkeydemo/AutoHotkeydemo/asd-tauri/target
+2026-09-19T13:46:40.4606753Z Restore Key:
+2026-09-19T13:46:40.4607455Z     v0-rust-miri-Linux-x64-c66a22d0
+2026-09-19T13:46:40.4607956Z Cache Key:
+2026-09-19T13:46:40.4608373Z     v0-rust-miri-Linux-x64-c66a22d0-c4955b76
+2026-09-19T13:46:40.4608905Z .. Prefix:
+2026-09-19T13:46:40.4609303Z   - v0-rust-miri-Linux-x64
+2026-09-19T13:46:40.4609776Z .. Environment considered:
+2026-09-19T13:46:40.4610216Z   - Rust Versions:
+2026-09-19T13:46:40.4610879Z     - 1.100.0-nightly x86_64-unknown-linux-gnu 420ed2a0c3d7225b1744266fd884d431b4d8cfe0
+2026-09-19T13:46:40.4611849Z     - 1.98.1 x86_64-unknown-linux-gnu 48a229ceaefd4985c50990b14116b6d856af0985
+2026-09-19T13:46:40.4612567Z   - CARGO_INCREMENTAL
+2026-09-19T13:46:40.4612940Z   - CARGO_TERM_COLOR
+2026-09-19T13:46:40.4613291Z   - RUST_BACKTRACE
+2026-09-19T13:46:40.4614019Z .. Lockfiles considered:
+2026-09-19T13:46:40.4614716Z   - /home/runner/work/AutoHotkeydemo/AutoHotkeydemo/asd-tauri/Cargo.lock
+2026-09-19T13:46:40.4615863Z   - /home/runner/work/AutoHotkeydemo/AutoHotkeydemo/asd-tauri/crates/asd-application/Cargo.toml
+2026-09-19T13:46:40.4617456Z   - /home/runner/work/AutoHotkeydemo/AutoHotkeydemo/asd-tauri/crates/asd-domain/Cargo.toml
+2026-09-19T13:46:40.4618648Z   - /home/runner/work/AutoHotkeydemo/AutoHotkeydemo/asd-tauri/crates/asd-ipc-protocol/Cargo.toml
+2026-09-19T13:46:40.4619824Z   - /home/runner/work/AutoHotkeydemo/AutoHotkeydemo/asd-tauri/crates/asd-test-harness/Cargo.toml
+2026-09-19T13:46:40.4620482Z   - /home/runner/work/AutoHotkeydemo/AutoHotkeydemo/asd-tauri/src-tauri/Cargo.toml
+2026-09-19T13:46:40.4621104Z   - /home/runner/work/AutoHotkeydemo/AutoHotkeydemo/asd-tauri/src-tauri/rust-toolchain.toml
+2026-09-19T13:46:40.4621795Z ##[endgroup]
+2026-09-19T13:46:40.4621917Z 
+2026-09-19T13:46:40.4622011Z ... Restoring cache ...
+2026-09-19T13:46:40.6057282Z No cache found.
+2026-09-19T13:46:40.6180785Z ##[group]Run cargo +nightly miri test -p asd-domain
+2026-09-19T13:46:40.6181221Z [36;1mcargo +nightly miri test -p asd-domain[0m
+2026-09-19T13:46:40.6181573Z [36;1mcargo +nightly miri test -p asd-ipc-protocol[0m
+2026-09-19T13:46:40.6218117Z shell: /usr/bin/bash -e {0}
+2026-09-19T13:46:40.6218379Z env:
+2026-09-19T13:46:40.6218581Z   CARGO_TERM_COLOR: always
+2026-09-19T13:46:40.6218832Z   RUST_BACKTRACE: 1
+2026-09-19T13:46:40.6219045Z   PYTHONUTF8: 1
+2026-09-19T13:46:40.6219258Z   PYTHONIOENCODING: utf-8
+2026-09-19T13:46:40.6219501Z   CACHE_ON_FAILURE: false
+2026-09-19T13:46:40.6219730Z   CARGO_INCREMENTAL: 0
+2026-09-19T13:46:40.6219955Z ##[endgroup]
+2026-09-19T13:46:40.6624140Z Running `"rustup" "component" "add" "rust-src"` to install the `rust-src` component for the selected toolchain.
+2026-09-19T13:46:40.7212295Z info: downloading component rust-src
+2026-09-19T13:47:00.1998453Z Preparing a sysroot for Miri (target: x86_64-unknown-linux-gnu)... done
+2026-09-19T13:47:00.2584368Z [1m[92m    Updating[0m crates.io index
+2026-09-19T13:47:01.1913323Z [1m[92m Downloading[0m crates ...
+2026-09-19T13:47:01.2694918Z [1m[92m  Downloaded[0m unicode-ident v1.0.24
+2026-09-19T13:47:01.2819223Z [1m[92m  Downloaded[0m proc-macro2 v1.0.106
+2026-09-19T13:47:01.2867517Z [1m[92m  Downloaded[0m itoa v1.0.18
+2026-09-19T13:47:01.2888863Z [1m[92m  Downloaded[0m equivalent v1.0.2
+2026-09-19T13:47:01.2964737Z [1m[92m  Downloaded[0m thiserror-impl v2.0.18
+2026-09-19T13:47:01.3015461Z [1m[92m  Downloaded[0m zmij v1.0.21
+2026-09-19T13:47:01.3090084Z [1m[92m  Downloaded[0m serde v1.0.228
+2026-09-19T13:47:01.3125934Z [1m[92m  Downloaded[0m quote v1.0.45
+2026-09-19T13:47:01.3154081Z [1m[92m  Downloaded[0m thiserror v2.0.18
+2026-09-19T13:47:01.3221234Z [1m[92m  Downloaded[0m serde_derive v1.0.228
+2026-09-19T13:47:01.3260541Z [1m[92m  Downloaded[0m serde_core v1.0.228
+2026-09-19T13:47:01.3287072Z [1m[92m  Downloaded[0m memchr v2.8.1
+2026-09-19T13:47:01.3343041Z [1m[92m  Downloaded[0m indexmap v2.14.0
+2026-09-19T13:47:01.3386642Z [1m[92m  Downloaded[0m serde_json v1.0.150
+2026-09-19T13:47:01.3458675Z [1m[92m  Downloaded[0m syn v2.0.117
+2026-09-19T13:47:01.3874484Z [1m[92m   Compiling[0m proc-macro2 v1.0.106
+2026-09-19T13:47:01.3875379Z [1m[92m   Compiling[0m unicode-ident v1.0.24
+2026-09-19T13:47:01.3876294Z [1m[92m   Compiling[0m quote v1.0.45
+2026-09-19T13:47:01.3889206Z [1m[92m   Compiling[0m serde_core v1.0.228
+2026-09-19T13:47:01.4518455Z [1m[92m   Compiling[0m zmij v1.0.21
+2026-09-19T13:47:01.6006322Z [1m[92m   Compiling[0m serde_json v1.0.150
+2026-09-19T13:47:01.6518323Z [1m[92m   Compiling[0m thiserror v2.0.18
+2026-09-19T13:47:01.7128477Z [1m[92m   Compiling[0m serde v1.0.228
+2026-09-19T13:47:01.9728823Z [1m[92m   Compiling[0m memchr v2.8.1
+2026-09-19T13:47:02.4158812Z [1m[92m   Compiling[0m itoa v1.0.18
+2026-09-19T13:47:02.4227915Z [1m[92m   Compiling[0m equivalent v1.0.2
+2026-09-19T13:47:02.4598419Z [1m[92m   Compiling[0m syn v2.0.117
+2026-09-19T13:47:02.5128251Z [1m[92m   Compiling[0m hashbrown v0.17.1
+2026-09-19T13:47:03.7938612Z [1m[92m   Compiling[0m indexmap v2.14.0
+2026-09-19T13:47:04.0925179Z [1m[92m   Compiling[0m thiserror-impl v2.0.18
+2026-09-19T13:47:04.0938248Z [1m[92m   Compiling[0m serde_derive v1.0.228
+2026-09-19T13:47:06.4595124Z [1m[92m   Compiling[0m asd-ipc-protocol v0.1.0 (/home/runner/work/AutoHotkeydemo/AutoHotkeydemo/asd-tauri/crates/asd-ipc-protocol)
+2026-09-19T13:47:06.6358597Z [1m[92m   Compiling[0m asd-domain v0.1.0 (/home/runner/work/AutoHotkeydemo/AutoHotkeydemo/asd-tauri/crates/asd-domain)
+2026-09-19T13:47:07.0934202Z [1m[92m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 6.87s
+2026-09-19T13:47:07.1775863Z [1m[92m     Running[0m unittests src/lib.rs (target/miri/x86_64-unknown-linux-gnu/debug/build/asd-domain/1cd432d883880498/out/asd_domain-1cd432d883880498)
+2026-09-19T13:47:08.4007360Z 
+2026-09-19T13:47:08.4008603Z running 111 tests
+2026-09-19T13:47:09.3867911Z test config::unit_tests::test_config_roundtrip ... ok
+2026-09-19T13:47:09.4891684Z test config::unit_tests::test_control_hotkeys_deserialize ... ok
+2026-09-19T13:47:09.7237658Z test config::unit_tests::test_group_config_enhanced_hybrid_deserialize ... ok
+2026-09-19T13:47:09.8972744Z test config::unit_tests::test_group_config_enhanced_periodic_deserialize ... ok
+2026-09-19T13:47:10.0710483Z test config::unit_tests::test_group_config_enhanced_sequence_deserialize ... ok
+2026-09-19T13:47:10.2429596Z test config::unit_tests::test_group_config_hold_deserialize ... ok
+2026-09-19T13:47:10.4011142Z test config::unit_tests::test_group_config_hold_triggers_absent ... ok
+2026-09-19T13:47:10.5736250Z test config::unit_tests::test_group_config_hold_triggers_null ... ok
+2026-09-19T13:47:10.7902401Z test config::unit_tests::test_group_config_hold_triggers_valid_array ... ok
+2026-09-19T13:47:11.0874043Z test config::unit_tests::test_group_config_hybrid_deserialize ... ok
+2026-09-19T13:47:11.2636729Z test config::unit_tests::test_group_config_joystick_hold_deserialize ... ok
+2026-09-19T13:47:11.4506095Z test config::unit_tests::test_group_config_joystick_periodic_deserialize ... ok
+2026-09-19T13:47:11.6818266Z test config::unit_tests::test_group_config_joystick_sequence_deserialize ... ok
+2026-09-19T13:47:11.8719940Z test config::unit_tests::test_group_config_malformed_hold_triggers_rejected ... ok
+2026-09-19T13:47:11.9952865Z test config::unit_tests::test_group_config_missing_hotkey ... ok
+2026-09-19T13:47:12.1212501Z test config::unit_tests::test_group_config_missing_mode ... ok
+2026-09-19T13:47:12.3156416Z test config::unit_tests::test_group_config_optional_fields_skip_serialization ... ok
+2026-09-19T13:47:12.4902459Z test config::unit_tests::test_group_config_periodic_deserialize ... ok
+2026-09-19T13:47:12.6808628Z test config::unit_tests::test_group_config_sequence_deserialize ... ok
+2026-09-19T13:47:12.8319327Z test config::unit_tests::test_group_config_unknown_mode ... ok
+2026-09-19T13:47:13.1702309Z test config::unit_tests::test_group_config_with_all_optional_fields ... ok
+2026-09-19T13:47:13.2894135Z test config::unit_tests::test_group_item_periodic_deserialize ... ok
+2026-09-19T13:47:13.4094084Z test config::unit_tests::test_group_item_sequence_deserialize ... ok
+2026-09-19T13:47:13.5068205Z test config::unit_tests::test_hold_settings_deserialize ... ok
+2026-09-19T13:47:13.9337473Z test config::unit_tests::test_roundtrip_enhanced_hybrid ... ok
+2026-09-19T13:47:14.3618201Z test config::unit_tests::test_roundtrip_enhanced_periodic ... ok
+2026-09-19T13:47:14.6624378Z test config::unit_tests::test_roundtrip_enhanced_sequence ... ok
+2026-09-19T13:47:15.0591909Z test config::unit_tests::test_roundtrip_hold ... ok
+2026-09-19T13:47:15.6605008Z test config::unit_tests::test_roundtrip_hybrid ... ok
+2026-09-19T13:47:15.9555377Z test config::unit_tests::test_roundtrip_joystick_hold ... ok
+2026-09-19T13:47:16.2948070Z test config::unit_tests::test_roundtrip_joystick_periodic ... ok
+2026-09-19T13:47:16.6226399Z test config::unit_tests::test_roundtrip_joystick_sequence ... ok
+2026-09-19T13:47:16.9788530Z test config::unit_tests::test_roundtrip_periodic ... ok
+2026-09-19T13:47:17.2792150Z test config::unit_tests::test_roundtrip_sequence ... ok
+2026-09-19T13:47:17.4145974Z test config::unit_tests::test_watchdog_state_enum_serialization ... ok
+2026-09-19T13:47:17.5134722Z test models::tests::test_skill_group_default_name ... ok
+2026-09-19T13:47:17.6092160Z test models::tests::test_skill_group_from_group_config ... ok
+2026-09-19T13:47:17.9258489Z test models::tests::test_skill_group_serialization_roundtrip ... ok
+2026-09-19T13:47:18.0255750Z test traits::tests::test_emit_records_event_and_payload ... ok
+2026-09-19T13:47:18.0989789Z test traits::tests::test_emit_returns_false_when_no_listener ... ok
+2026-09-19T13:47:18.1715838Z test traits::tests::test_ipc_sender_is_object_safe_and_send_sync ... ok
+2026-09-19T13:47:18.2479893Z test traits::tests::test_overridden_reset_succeeds_and_counts ... ok
+2026-09-19T13:47:18.3628521Z test traits::tests::test_overridden_send_and_wait_returns_message ... ok
+2026-09-19T13:47:18.4693237Z test traits::tests::test_overridden_send_message_rejects_empty_type ... ok
+2026-09-19T13:47:18.5431019Z test traits::tests::test_process_watcher_default_reset_rejects ... ok
+2026-09-19T13:47:18.6348011Z test traits::tests::test_process_watcher_reports_state_and_restart_count ... ok
+2026-09-19T13:47:18.7152903Z test traits::tests::test_send_and_wait_default_rejects ... ok
+2026-09-19T13:47:18.8188997Z test traits::tests::test_send_command_returns_monotonic_seq ... ok
+2026-09-19T13:47:18.9225347Z test traits::tests::test_send_message_default_rejects ... ok
+2026-09-19T13:47:19.1654299Z test validator::tests::mode_data_msg_empty_keys_and_timings ... ok
+2026-09-19T13:47:19.2586645Z test validator::tests::mode_data_msg_empty_subgroups ... ok
+2026-09-19T13:47:19.3488060Z test validator::tests::mode_data_msg_joystick_hold_missing_duration_is_warning ... ok
+2026-09-19T13:47:19.5285969Z test validator::tests::mode_data_msg_subgroups ... ok
+2026-09-19T13:47:19.7098387Z test validator::tests::mode_data_msg_type_mismatch ... ok
+2026-09-19T13:47:19.7888507Z test validator::tests::mode_data_msg_unknown_mode_only_reports_mode_field ... ok
+2026-09-19T13:47:19.9936828Z test validator::tests::mode_data_msg_zero_timing ... ok
+2026-09-19T13:47:20.3924939Z test validator::tests::test_control_hotkey_conflict_with_group_hotkey ... ok
+2026-09-19T13:47:20.6935447Z test validator::tests::test_control_hotkey_empty_error ... ok
+2026-09-19T13:47:21.0051488Z test validator::tests::test_default_config_is_valid ... ok
+2026-09-19T13:47:21.1815669Z test validator::tests::test_duplicate_hotkey_detection ... ok
+2026-09-19T13:47:21.2719856Z test validator::tests::test_empty_config_warning ... ok
+2026-09-19T13:47:21.3900590Z test validator::tests::test_empty_hotkey_error ... ok
+2026-09-19T13:47:21.5073669Z test validator::tests::test_empty_hybrid_groups ... ok
+2026-09-19T13:47:21.6400491Z test validator::tests::test_empty_keys_periodic ... ok
+2026-09-19T13:47:21.8101049Z test validator::tests::test_empty_mode_error ... ok
+2026-09-19T13:47:21.9325244Z test validator::tests::test_enhanced_hybrid_empty_groups ... ok
+2026-09-19T13:47:22.0969355Z test validator::tests::test_enhanced_hybrid_mode_data_mismatch ... ok
+2026-09-19T13:47:22.2315853Z test validator::tests::test_enhanced_periodic_empty_intervals ... ok
+2026-09-19T13:47:22.3627569Z test validator::tests::test_enhanced_periodic_empty_keys ... ok
+2026-09-19T13:47:22.4947671Z test validator::tests::test_enhanced_periodic_mode_data_mismatch ... ok
+2026-09-19T13:47:22.6270710Z test validator::tests::test_enhanced_sequence_empty_delays ... ok
+2026-09-19T13:47:22.7594518Z test validator::tests::test_enhanced_sequence_empty_keys ... ok
+2026-09-19T13:47:22.8886205Z test validator::tests::test_enhanced_sequence_mode_data_mismatch ... ok
+2026-09-19T13:47:23.1830427Z test validator::tests::test_excessive_hotkey_length_warning ... ok
+2026-09-19T13:47:23.3459458Z test validator::tests::test_extreme_interval_warning ... ok
+2026-09-19T13:47:23.4785283Z test validator::tests::test_hold_keys_without_hold_mode_warning ... ok
+2026-09-19T13:47:23.6144762Z test validator::tests::test_hold_mode_data_mismatch ... ok
+2026-09-19T13:47:23.7723821Z test validator::tests::test_hold_mode_without_hold_keys_warning ... ok
+2026-09-19T13:47:23.9076071Z test validator::tests::test_hold_zero_duration ... ok
+2026-09-19T13:47:24.0525270Z test validator::tests::test_hybrid_mode_data_mismatch ... ok
+2026-09-19T13:47:24.2348627Z test validator::tests::test_invalid_hotkey_format_warning ... ok
+2026-09-19T13:47:24.3714288Z test validator::tests::test_joystick_hold_mode_data_mismatch ... ok
+2026-09-19T13:47:24.4968042Z test validator::tests::test_joystick_hold_none_duration_warning ... ok
+2026-09-19T13:47:24.6205777Z test validator::tests::test_joystick_hold_zero_duration_warning ... ok
+2026-09-19T13:47:24.7497241Z test validator::tests::test_joystick_periodic_empty_keys ... ok
+2026-09-19T13:47:24.9080007Z test validator::tests::test_joystick_periodic_mode_data_mismatch ... ok
+2026-09-19T13:47:25.0396002Z test validator::tests::test_joystick_sequence_empty_keys ... ok
+2026-09-19T13:47:25.1698353Z test validator::tests::test_joystick_sequence_mode_data_mismatch ... ok
+2026-09-19T13:47:25.3154446Z test validator::tests::test_keys_intervals_length_mismatch_warning ... ok
+2026-09-19T13:47:25.4546159Z test validator::tests::test_large_key_press_duration_warning ... ok
+2026-09-19T13:47:25.6078525Z test validator::tests::test_modifier_hotkey_format_valid ... ok
+2026-09-19T13:47:25.7998491Z test validator::tests::test_modifier_hotkey_invalid_key_warning ... ok
+2026-09-19T13:47:25.9438828Z test validator::tests::test_normal_mode_values_produce_no_suspicious_warning ... ok
+2026-09-19T13:47:26.0762318Z test validator::tests::test_periodic_mode_data_mismatch ... ok
+2026-09-19T13:47:26.2252761Z test validator::tests::test_periodic_zero_interval ... ok
+2026-09-19T13:47:26.3592930Z test validator::tests::test_sequence_empty_delays ... ok
+2026-09-19T13:47:26.5081062Z test validator::tests::test_sequence_empty_keys ... ok
+2026-09-19T13:47:26.6424897Z test validator::tests::test_sequence_mode_data_mismatch ... ok
+2026-09-19T13:47:26.7929618Z test validator::tests::test_too_many_hold_keys_warning ... ok
+2026-09-19T13:47:26.9391943Z test validator::tests::test_unknown_mode ... ok
+2026-09-19T13:47:27.1568522Z test validator::tests::test_valid_enhanced_modes ... ok
+2026-09-19T13:47:27.2813738Z test validator::tests::test_valid_hold_config ... ok
+2026-09-19T13:47:27.4073353Z test validator::tests::test_valid_hotkey_format_no_warning ... ok
+2026-09-19T13:47:27.5224203Z test validator::tests::test_valid_joystick_hold ... ok
+2026-09-19T13:47:27.6458539Z test validator::tests::test_valid_joystick_periodic ... ok
+2026-09-19T13:47:27.7703600Z test validator::tests::test_valid_joystick_sequence ... ok
+2026-09-19T13:47:27.8950940Z test validator::tests::test_valid_periodic_config ... ok
+2026-09-19T13:47:28.0201336Z test validator::tests::test_valid_sequence_config ... ok
+2026-09-19T13:47:28.1069398Z test validator::tests::test_validation_error_display ... ok
+2026-09-19T13:47:28.1889087Z test validator::tests::test_validation_result_default ... ok
+2026-09-19T13:47:28.3578199Z test validator::tests::test_validation_result_serialization ... ok
+2026-09-19T13:47:28.3730677Z 
+2026-09-19T13:47:28.4167208Z test result: ok. 111 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 26.63s
+2026-09-19T13:47:28.4168030Z 
+2026-09-19T13:47:28.4712313Z [1m[92m     Running[0m tests/config_version_compat_tests.rs (target/miri/x86_64-unknown-linux-gnu/debug/build/asd-domain/5c8e2cde5ecbf2e4/out/config_version_compat_tests-5c8e2cde5ecbf2e4)
+2026-09-19T13:47:29.0147908Z 
+2026-09-19T13:47:29.0148766Z running 4 tests
+2026-09-19T13:47:29.5023816Z test old_config_without_optional_fields_still_deserializes ... ok
+2026-09-19T13:47:29.7049903Z test old_version_string_is_preserved_not_migrated ... ok
+2026-09-19T13:47:30.0228859Z test required_config_fields_cannot_be_omitted ... ok
+2026-09-19T13:47:30.2449030Z test unknown_extra_fields_do_not_break_deserialization ... ok
+2026-09-19T13:47:30.2595934Z 
+2026-09-19T13:47:30.3008001Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.44s
+2026-09-19T13:47:30.3008714Z 
+2026-09-19T13:47:30.3271126Z [1m[92m     Running[0m tests/cross_lang_validator_parity.rs (target/miri/x86_64-unknown-linux-gnu/debug/build/asd-domain/e3e2676f76c18e51/out/cross_lang_validator_parity-e3e2676f76c18e51)
+2026-09-19T13:47:30.8665703Z 
+2026-09-19T13:47:30.8666193Z running 3 tests
+2026-09-19T13:47:30.9498461Z error: unsupported operation: `statx` not available when isolation is enabled
+2026-09-19T13:47:30.9499632Z    --> /home/runner/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/pal/unix/weak/syscall.rs:13:26
+2026-09-19T13:47:30.9500488Z     |
+2026-09-19T13:47:30.9500771Z  13 |                   unsafe { fun($($param),*) }
+2026-09-19T13:47:30.9501644Z     |                            ^^^^^^^^^^^^^^^^ unsupported operation occurred here
+2026-09-19T13:47:30.9502089Z     |
+2026-09-19T13:47:30.9502765Z    ::: /home/runner/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/fs/unix.rs:157:9
+2026-09-19T13:47:30.9503517Z     |
+2026-09-19T13:47:30.9503772Z 157 | /         syscall!(
+2026-09-19T13:47:30.9504065Z 158 | |             fn statx(
+2026-09-19T13:47:30.9504363Z 159 | |                 fd: c_int,
+2026-09-19T13:47:30.9504704Z 160 | |                 pathname: *const c_char,
+2026-09-19T13:47:30.9505058Z ...   |
+2026-09-19T13:47:30.9505294Z 164 | |             ) -> c_int;
+2026-09-19T13:47:30.9505582Z 165 | |         );
+2026-09-19T13:47:30.9505849Z     | |_________- in this macro invocation
+2026-09-19T13:47:30.9506175Z     |
+2026-09-19T13:47:30.9506543Z     = help: set `MIRIFLAGS=-Zmiri-disable-isolation` to disable isolation;
+2026-09-19T13:47:30.9507985Z     = help: or set `MIRIFLAGS=-Zmiri-isolation-error=warn` to make Miri return an error code from isolated operations (if supported for that operation) and continue with a warning
+2026-09-19T13:47:30.9508976Z     = note: this is on thread `fixture_self_ch`
+2026-09-19T13:47:30.9509352Z     = note: stack backtrace:
+2026-09-19T13:47:30.9509685Z             0: std::sys::fs::unix::try_statx::statx
+2026-09-19T13:47:30.9510477Z                 at /home/runner/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/pal/unix/weak/syscall.rs:13:26: 13:42
+2026-09-19T13:47:30.9511209Z             1: std::sys::fs::unix::try_statx
+2026-09-19T13:47:30.9511871Z                 at /home/runner/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/fs/unix.rs:173:31: 173:69
+2026-09-19T13:47:30.9512540Z             2: std::sys::fs::unix::stat
+2026-09-19T13:47:30.9513194Z                 at /home/runner/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/fs/unix.rs:2053:37: 2058:10
+2026-09-19T13:47:30.9514694Z             3: <for<'a> fn(&'a std::ffi::CStr) -> std::result::Result<std::sys::fs::unix::FileAttr, std::io::Error> {std::sys::fs::unix::stat} as std::ops::Fn<(&std::ffi::CStr,)>>::call - shim(for<'a> fn(&'a std::ffi::CStr) -> std::result::Result<std::sys::fs::unix::FileAttr, std::io::Error> {std::sys::fs::unix::stat})
+2026-09-19T13:47:30.9517231Z                 at /home/runner/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ops/function.rs:79:5: 79:67
+2026-09-19T13:47:30.9518590Z             4: std::sys::helpers::small_c_string::run_with_cstr_stack::<std::sys::fs::unix::FileAttr>
+2026-09-19T13:47:30.9520161Z                 at /home/runner/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/helpers/small_c_string.rs:48:18: 48:22
+2026-09-19T13:47:30.9521619Z             5: std::sys::helpers::small_c_string::run_with_cstr::<std::sys::fs::unix::FileAttr>
+2026-09-19T13:47:30.9523307Z                 at /home/runner/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/helpers/small_c_string.rs:28:18: 28:47
+2026-09-19T13:47:30.9525219Z             6: std::sys::helpers::small_c_string::run_path_with_cstr::<std::sys::fs::unix::FileAttr>
+2026-09-19T13:47:30.9526297Z                 at /home/runner/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/helpers/small_c_string.rs:18:5: 18:58
+2026-09-19T13:47:30.9527335Z             7: std::sys::fs::metadata
+2026-09-19T13:47:30.9527946Z                 at /home/runner/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/fs/mod.rs:114:5: 114:39
+2026-09-19T13:47:30.9528586Z             8: std::fs::metadata::<&std::path::Path>
+2026-09-19T13:47:30.9529185Z                 at /home/runner/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/fs.rs:2966:5: 2966:36
+2026-09-19T13:47:30.9529773Z             9: std::path::Path::is_file
+2026-09-19T13:47:30.9530685Z                 at /home/runner/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/path.rs:3617:9: 3617:27
+2026-09-19T13:47:30.9531856Z             10: fixture_self_check
+2026-09-19T13:47:30.9532241Z                 at crates/asd-domain/tests/cross_lang_validator_parity.rs:200:9: 200:40
+2026-09-19T13:47:30.9532664Z             11: fixture_self_check::{closure#0}
+2026-09-19T13:47:30.9533079Z                 at crates/asd-domain/tests/cross_lang_validator_parity.rs:196:24: 196:24
+2026-09-19T13:47:30.9533718Z     = note: this error originates in the macro `syscall` (in Nightly builds, run with -Z macro-backtrace for more info)
+2026-09-19T13:47:30.9534174Z 
+2026-09-19T13:47:30.9534447Z note: some details are omitted, run with `MIRIFLAGS=-Zmiri-backtrace=full` for a verbose backtrace
+2026-09-19T13:47:30.9534877Z 
+2026-09-19T13:47:30.9534996Z error: aborting due to 1 previous error
+2026-09-19T13:47:30.9535207Z 
+2026-09-19T13:47:30.9556312Z [1m[91merror[0m: test failed, to rerun pass `-p asd-domain --test cross_lang_validator_parity`
+2026-09-19T13:47:30.9557140Z 
+2026-09-19T13:47:30.9557269Z Caused by:
+2026-09-19T13:47:30.9559249Z   process didn't exit successfully: `/home/runner/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/bin/cargo-miri runner /home/runner/work/AutoHotkeydemo/AutoHotkeydemo/asd-tauri/target/miri/x86_64-unknown-linux-gnu/debug/build/asd-domain/e3e2676f76c18e51/out/cross_lang_validator_parity-e3e2676f76c18e51` (exit status: 1)
+2026-09-19T13:47:30.9561729Z [1m[92mnote[0m: test exited abnormally; to see the full output pass --no-capture to the harness.
+2026-09-19T13:47:30.9717621Z test fixture_self_check ... 
+2026-09-19T13:47:30.9728843Z ##[error]Process completed with exit code 1.
+2026-09-19T13:47:30.9885279Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-09-19T13:47:30.9886571Z Post job cleanup.
+2026-09-19T13:47:31.0730931Z [command]/usr/bin/git version
+2026-09-19T13:47:31.0776106Z git version 2.55.0
+2026-09-19T13:47:31.0828374Z Temporarily overriding HOME='/home/runner/work/_temp/4f18e0bd-3bfa-445d-bd53-f811c5a8c838' before making global git config changes
+2026-09-19T13:47:31.0829599Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-19T13:47:31.0837797Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/AutoHotkeydemo/AutoHotkeydemo
+2026-09-19T13:47:31.0888711Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-19T13:47:31.0904936Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-19T13:47:31.1151946Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-19T13:47:31.1195579Z http.https://github.com/.extraheader
+2026-09-19T13:47:31.1228962Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-09-19T13:47:31.1238637Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-19T13:47:31.1497581Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-19T13:47:31.1535845Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-19T13:47:31.1931809Z Cleaning up orphan processes
+2026-09-19T13:47:31.2223024Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
