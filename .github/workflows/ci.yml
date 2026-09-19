@@ -803,8 +803,14 @@ jobs:
     # 产出任何东西 —— 这正是想要的行为。只依赖 gates，不依赖其它辅助 job
     # （coverage / miri / fuzz / bench 等信号类 job 不参与判定）。
     needs: gates
-    # 双重默认关闭：事件必须是手动 dispatch，且必须勾选 build_release。
-    if: github.event_name == 'workflow_dispatch' && inputs.build_release
+    # 三重默认关闭：① 事件必须是手动 dispatch；② 必须勾选 build_release；
+    # ③ **必须构建 main 分支，不允许选 tag**。
+    # ⚠️ 第 ③ 条是硬性护栏，不是洁癖：远端存在 Release `v0.1.0`，其 tag 指向的提交
+    #    远落后于当前 main（三个月、数百个提交之前）。workflow_dispatch 的 ref 下拉框
+    #    里 tag 与分支是并列的，一旦选到 `v0.1.0`，构建出的会是**旧代码的 NSIS 包**，
+    #    而它在产品外观上与正常发版产物**无法区分**。这类错误只能靠「不让它跑起来」
+    #    来防 —— 事后看产物是看不出来的。
+    if: github.event_name == 'workflow_dispatch' && inputs.build_release && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
 
