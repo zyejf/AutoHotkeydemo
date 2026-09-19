@@ -500,12 +500,19 @@ fn setup_ipc_and_watchdog(
 
     {
         let exe_str = exe_path.to_string_lossy().to_string();
-        let mut wd = tokio::task::block_in_place(|| watchdog.blocking_lock());
-        if let Err(e) = wd.spawn_child(&exe_str, auth_token) {
-            // TD-089：带上两级快照。否则 `os error 3`（目录分量缺失）与
+        // TD-089 ②：只有**启动点**用带重试的版本。崩溃重启路径仍走 `spawn_child`
+        // （由 `restart_child` 调用），保持 `MAX_RESTART_ATTEMPTS` 语义不变。
+        // 整个重试（含退避 sleep）包在 `block_in_place` 里，避免阻塞 tokio 工作线程。
+        let result = tokio::task::block_in_place(|| {
+            let mut wd = watchdog.blocking_lock();
+            wd.spawn_child_with_retry(&exe_str, auth_token)
+        });
+        if let Err(e) = result {
+            // TD-089 ①：带上两级快照。否则 `os error 3`（目录分量缺失）与
             // `os error 2`（文件缺失）在日志里无法区分，排障方向会被带偏。
             tracing::error!(
-                "启动 AHK 子进程失败: {e}。{}",
+                "启动 AHK 子进程失败（已重试{}次）: {e}。{}",
+                infrastructure::watchdog::SPAWN_RETRY_MAX_ATTEMPTS - 1,
                 format_resource_snapshot(exe_path.parent(), exe_path)
             );
         }

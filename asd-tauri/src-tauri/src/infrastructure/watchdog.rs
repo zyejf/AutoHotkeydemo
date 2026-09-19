@@ -40,6 +40,63 @@ const SHUTDOWN_IPC_TIMEOUT: Duration = Duration::from_secs(2);
 const SHUTDOWN_WM_CLOSE_TIMEOUT: Duration = Duration::from_secs(3);
 const STABLE_HEARTBEAT_THRESHOLD: u32 = 5;
 
+/// 启动期 spawn 失败的最大尝试次数（TD-089 ②）。
+///
+/// ⚠️ **刻意远小于** [`MAX_RESTART_ATTEMPTS`]（10）：本常量只用于「启动抢跑」这类
+/// **瞬时**故障，重试全部失败的代价是拖慢启动；而 `MAX_RESTART_ATTEMPTS` 守的是
+/// 「子进程反复崩溃」，两种失败的代价结构完全不同，不能共用同一个预算。
+pub const SPAWN_RETRY_MAX_ATTEMPTS: u32 = 3;
+
+/// 启动期 spawn 重试的退避基数（指数退避：200ms → 400ms）。
+///
+/// ⚠️ 与 [`BACKOFF_DURATIONS`]（1s 起）刻意不同：启动是用户可感知的关键路径，
+/// 最坏累计延迟必须控制在亚秒级（3 次尝试 ≈ 600ms），不能照搬崩溃重启的秒级退避。
+pub const SPAWN_RETRY_BASE_BACKOFF: Duration = Duration::from_millis(200);
+
+/// 启动期 spawn 失败后的重试决策。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpawnRetryDecision {
+    /// 值得再试一次：等 `backoff` 后重试。
+    Retry { backoff: Duration },
+    /// 不再重试：把错误交给调用方上报。
+    GiveUp,
+}
+
+/// 决定第 `attempt` 次（1-based）spawn 失败之后该怎么办（TD-089 ②）。
+///
+/// # 为什么必须先问 `exe_exists`
+///
+/// 这是本策略的核心门控，目的只有一个：**不让重试掩盖「真缺失」**。
+///
+/// - `exe_exists == false`：路径根本不存在，属**永久性**故障（打包资源没打进包）。
+///   再试 N 次只会得到同一个 `os error 2/3`，唯一效果是**把失败延迟 N 次、拖慢启动**，
+///   还会在日志里刷出 N 条一模一样的报错，淹掉真正有用的那一条。⇒ **立即放弃**。
+/// - `exe_exists == true`：文件在、但 spawn 仍失败 ⇒ 只可能是**瞬时**竞态
+///   （实测证据：同一份包 4 次启动失败 1 次 —— 若是永久缺失必然 4/4 失败）。
+///   ⇒ 值得退避重试。
+///
+/// # 为什么是纯函数
+///
+/// 不碰 `self`、不碰 IO、不读时钟，只依赖入参 —— 因此可单测、可变异验证。
+/// 与 TD-089 ① 的 `format_resource_snapshot` 同一套做法：诊断/策略代码本身
+/// 必须有测试守护，否则它会和它要治理的问题一起腐烂。
+#[must_use]
+pub fn decide_spawn_retry(attempt: u32, exe_exists: bool) -> SpawnRetryDecision {
+    if !exe_exists {
+        return SpawnRetryDecision::GiveUp;
+    }
+    if attempt >= SPAWN_RETRY_MAX_ATTEMPTS {
+        return SpawnRetryDecision::GiveUp;
+    }
+    // `attempt` 从 1 起：第 1 次失败后等 200ms，第 2 次失败后等 400ms。
+    // 用 `saturating_pow` 兜住溢出（attempt 有上界，实际上到不了）。
+    let shift = attempt.saturating_sub(1).min(4);
+    let factor = 1u32 << shift;
+    SpawnRetryDecision::Retry {
+        backoff: SPAWN_RETRY_BASE_BACKOFF.saturating_mul(factor),
+    }
+}
+
 /// Phase 3 强制 kill 之后的**有界**等待上限。
 ///
 /// 不能无限等：`Child::wait()` 底层是 `WaitForSingleObject`，没有超时版本，
@@ -343,6 +400,77 @@ impl ProcessWatchdog {
         register_spawned_child(child.id(), &program);
 
         self.attach_child(child)
+    }
+
+    /// **仅启动期**使用：带退避重试地启动 AHK 子进程（TD-089 ②）。
+    ///
+    /// # 与 `spawn_child` 的分工（⚠️ 不要合并）
+    ///
+    /// [`Self::spawn_child`] 被**两个**调用点共用：启动（本方法）与崩溃重启
+    /// （`restart_child`）。重试**只能**加在本方法这一层，理由是：
+    ///
+    /// 1. **避免双重计数**：重启路径已有自己的预算 [`MAX_RESTART_ATTEMPTS`]（10）。
+    ///    若把重试塞进 `spawn_child`，`restart_count` 只加 1、实际 spawn 尝试却是 N 次，
+    ///    「10 次上限」这个约束住崩溃循环的不变量就失效了（最坏 10×N）。
+    /// 2. **避免反复杀进程**：`spawn_child` 入口会调 `cleanup_stale_executor_processes()`。
+    ///    在本层重试 = 每次「真实的新尝试」前各清理一次，符合原语义；若在其内部重试，
+    ///    则会在同一个尝试周期里反复执行进程终止。
+    ///
+    /// # 为什么重试不会产生僵尸子进程
+    ///
+    /// `Command::spawn()` 返回 `Err` 意味着**子进程根本没被创建**，没有东西需要回收。
+    /// 另一类失败「起来了但立刻退出」**不属于**本方法职责 —— 那是看门狗的**重启**语义
+    /// （`restart_child`），两者不要混进同一套重试，否则又是一处重复计数。
+    ///
+    /// # 失败语义
+    ///
+    /// 返回 `Err` 时携带的是**最后一次**失败的错误，由调用方（启动点）连同
+    /// `format_resource_snapshot` 的两级快照一起上报。刻意**不在**这里打 `error!`：
+    /// 启动点已经有一条带快照的 `error!`，在这里再打一条会得到两条语义重复、
+    /// 其中一条没有快照的日志。
+    ///
+    /// # 锁的持有
+    ///
+    /// 调用方持有 `watchdog` 锁期间本方法会 `sleep`，累计最坏约 600ms。
+    /// 期间看门狗监控循环取同一把锁会短暂等待 —— 启动期可接受；这也是把
+    /// 尝试次数压到 3 次、退避压到亚秒级的原因。
+    ///
+    /// # Errors
+    ///
+    /// 与 [`Self::spawn_child`] 相同；重试全部耗尽后返回最后一次的错误。
+    pub fn spawn_child_with_retry(
+        &mut self,
+        exe_path: &str,
+        auth_token: &str,
+    ) -> Result<(), String> {
+        let mut attempt = 0_u32;
+        loop {
+            attempt += 1;
+            match self.spawn_child(exe_path, auth_token) {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    let exe_exists = std::path::Path::new(exe_path).exists();
+                    match decide_spawn_retry(attempt, exe_exists) {
+                        SpawnRetryDecision::Retry { backoff } => {
+                            tracing::warn!(
+                                "启动 AHK 子进程第 {attempt} 次失败（文件存在={exe_exists}），{backoff:?} 后重试: {e}"
+                            );
+                            std::thread::sleep(backoff);
+                        }
+                        SpawnRetryDecision::GiveUp => {
+                            if !exe_exists {
+                                // 永久缺失：明确说清「不是抖动，不重试」，
+                                // 否则日志里只剩一条孤零零的失败，会被误读成偶发。
+                                tracing::error!(
+                                    "AHK 执行器文件不存在（{exe_path}），判定为永久性缺失 —— 不重试，立即上报"
+                                );
+                            }
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     pub fn notify_heartbeat(&mut self) {
@@ -1307,6 +1435,98 @@ impl WatchdogRunner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── TD-089 ②：启动期 spawn 重试策略 ────────────────────────────────────
+    //
+    // 守护对象：[`decide_spawn_retry`]。
+    //
+    // 为什么策略本身要有测试：它是纯函数，改坏了**编译照样过**、`spawn_child_with_retry`
+    // 的行为变化也不会让任何业务测试变红（正常路径根本不走重试）。等到真出故障时
+    // 才发现"重试逻辑早就被改坏了"，就晚了 —— 与 TD-089 ① 的快照同一条纪律。
+
+    /// **核心门控**：执行器文件不存在 ⇒ 立即放弃，**一次都不重试**。
+    ///
+    /// 若这条失败，说明「永久缺失」被当成了抖动 —— 重试只会把失败延迟 N 次、
+    /// 拖慢启动，并在日志里刷出 N 条同义报错。
+    #[test]
+    fn retry_gives_up_immediately_when_executor_missing() {
+        let d = decide_spawn_retry(1, false);
+        assert_eq!(
+            d,
+            SpawnRetryDecision::GiveUp,
+            "文件不存在属永久性缺失，必须立即放弃不重试 —— 若这里是 Retry，说明门控被摘掉了"
+        );
+        // 即便声明"才第 1 次"，也不该因为次数少就试一试。
+        assert_eq!(decide_spawn_retry(0, false), SpawnRetryDecision::GiveUp);
+    }
+
+    /// 文件存在 → 第 1 次失败后应重试，退避为基数 200ms。
+    #[test]
+    fn retry_attempts_when_executor_exists() {
+        let d = decide_spawn_retry(1, true);
+        assert_eq!(
+            d,
+            SpawnRetryDecision::Retry {
+                backoff: SPAWN_RETRY_BASE_BACKOFF
+            },
+            "文件存在的瞬时失败应该重试，退避应为基数"
+        );
+    }
+
+    /// 退避按指数增长：第 2 次失败后应为 400ms（基数的 2 倍）。
+    #[test]
+    fn retry_backoff_grows_exponentially() {
+        let d = decide_spawn_retry(2, true);
+        assert_eq!(
+            d,
+            SpawnRetryDecision::Retry {
+                backoff: SPAWN_RETRY_BASE_BACKOFF * 2
+            },
+            "第二次重试的退避应翻倍"
+        );
+    }
+
+    /// 达到次数上限后必须放弃 —— 否则重试会无限循环，启动时直接卡死。
+    #[test]
+    fn retry_gives_up_at_max_attempts() {
+        let d = decide_spawn_retry(SPAWN_RETRY_MAX_ATTEMPTS, true);
+        assert_eq!(
+            d,
+            SpawnRetryDecision::GiveUp,
+            "第 {SPAWN_RETRY_MAX_ATTEMPTS} 次之后必须放弃，否则启动会被无限拖住"
+        );
+    }
+
+    /// 重试预算必须与常量一致：恰好 `MAX - 1` 次重试（第 MAX 次失败即放弃）。
+    ///
+    /// 这条同时把 `SPAWN_RETRY_MAX_ATTEMPTS` 钉住了 —— 改常量会红，
+    /// 逼着改的人重新确认"启动最坏延迟是否还在亚秒级"。
+    #[test]
+    fn retry_budget_matches_constant() {
+        let retries = (1..=SPAWN_RETRY_MAX_ATTEMPTS)
+            .filter(|a| matches!(decide_spawn_retry(*a, true), SpawnRetryDecision::Retry { .. }))
+            .count();
+        assert_eq!(
+            retries,
+            (SPAWN_RETRY_MAX_ATTEMPTS - 1) as usize,
+            "重试次数应恰好为 MAX-1，实际 {retries}"
+        );
+    }
+
+    /// 启动是用户可感知的关键路径：重试累计延迟必须是亚秒级。
+    #[test]
+    fn retry_total_delay_stays_sub_second() {
+        let total: Duration = (1..=SPAWN_RETRY_MAX_ATTEMPTS)
+            .filter_map(|a| match decide_spawn_retry(a, true) {
+                SpawnRetryDecision::Retry { backoff } => Some(backoff),
+                SpawnRetryDecision::GiveUp => None,
+            })
+            .sum();
+        assert!(
+            total < Duration::from_secs(1),
+            "启动重试累计延迟应 < 1s，实际 {total:?} —— 这也是不能照搬 BACKOFF_DURATIONS 的原因"
+        );
+    }
 
     /// 静态 Mutex 确保所有修改全局 panic hook 的测试不会并行运行（R3 测试隔离）。
     /// `register_panic_hook` 与 `build_panic_hook_closure` 测试均通过 `take_hook`/`set_hook`
