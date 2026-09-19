@@ -531,7 +531,7 @@ function Get-AhkResourceStability {
         按时间顺序的布尔采样序列，如 @($true, $true, $false)。
 
     .OUTPUTS
-        Verdict         : Stable | Vanished | Missing | Unknown
+        Verdict         : Stable | Vanished | Missing | Late | Unknown
         Stable          : 是否「全部采样都为 True」——**只有它为真**才允许 C1 认为资源齐全
         Trace           : 可读序列，如 'T,T,F'（进证据包，供事后排障）
         FirstFalseIndex : 第一个 False 的 1 基下标（全 True 时为 0）
@@ -559,8 +559,20 @@ function Get-AhkResourceStability {
         return [pscustomobject]@{ Verdict = 'Stable';   Stable = $true;  Trace = $trace; FirstFalseIndex = 0 }
     }
     if ($firstFalse -eq 1) {
-        # 首样就不在 ⇒ 采样窗口内从未出现。
-        return [pscustomobject]@{ Verdict = 'Missing';  Stable = $false; Trace = $trace; FirstFalseIndex = 1 }
+        # 首样不在时**必须再看后面有没有出现过** —— 这两种情形的处置相反，
+        # 合并成一个 Missing 会把「采样太早」误报成「打包缺失」（本函数第一版的缺陷，
+        # 由科迪复核指出：F,T,T 与 F,F,F 在旧版里同判 Missing，而前者的注释还写着
+        # 「采样窗口内从未出现」—— 那句话对 F,T,T 是**错的**）。
+        $anyLaterTrue = $false
+        for ($i = 1; $i -lt $n; $i++) {
+            if ($Samples[$i]) { $anyLaterTrue = $true; break }
+        }
+        if ($anyLaterTrue) {
+            # 迟到出现 ⇒ 安装器已退出、但资源尚未落盘 / 可见性延迟。**不是**打包缺失。
+            return [pscustomobject]@{ Verdict = 'Late';    Stable = $false; Trace = $trace; FirstFalseIndex = 1 }
+        }
+        # 窗口内全程不在 ⇒ 打包 / 安装层。
+        return [pscustomobject]@{ Verdict = 'Missing'; Stable = $false; Trace = $trace; FirstFalseIndex = 1 }
     }
     # 首样在、之后消失 ⇒ 出现过又被删。
     return [pscustomobject]@{ Verdict = 'Vanished'; Stable = $false; Trace = $trace; FirstFalseIndex = $firstFalse }
@@ -838,11 +850,13 @@ function Invoke-GuardSelfCheck {
         # ── AHK 资源「稳定性」判定的双向对照（MC1s）─────────────────────────
         # ⚠️ **判定规则写在这里，与 Get-AhkResourceStability 的注释必须逐字一致**：
         #    全 T ⇒ Stable（**唯一**允许 C1 认为资源齐全的情形）；
-        #    首样 F ⇒ Missing；首样 T 之后 F ⇒ Vanished。
-        #    为什么把「首样」单独拎出来：Missing 与 Vanished 的**处置相反**
-        #    （查打包清单 vs 查谁在删安装目录），合并成一个 FAIL 就把判别器又抹掉了。
+        #    首样 F 且之后出现 ⇒ Late；全程 F ⇒ Missing；首样 T 之后 F ⇒ Vanished。
+        #    为什么必须把「首样」与「后续」分开看：这四者的**处置相反**
+        #    （Late 查「装完为什么还没落盘」/ Missing 查打包清单 / Vanished 查谁在删安装目录），
+        #    合并成一句「资源不存在」就把判别器抹掉了 —— 旧版正是把 F,T,T 与 F,F,F 同判 Missing。
         $sStable = Get-AhkResourceStability -Samples @($true, $true, $true)
         $sVan    = Get-AhkResourceStability -Samples @($true, $false, $true)
+        $sLate   = Get-AhkResourceStability -Samples @($false, $true, $true)
         $sMiss   = Get-AhkResourceStability -Samples @($false, $false, $false)
         $sEmpty  = Get-AhkResourceStability -Samples @()
         if ($sStable.Verdict -ne 'Stable' -or -not $sStable.Stable) {
@@ -850,6 +864,9 @@ function Invoke-GuardSelfCheck {
         }
         if ($sVan.Verdict -ne 'Vanished' -or $sVan.Stable) {
             $broken += "MC1s 负向失效：出现过又被删（T,F,T）应判 Vanished 且**不算齐全**，实际 $($sVan.Verdict) / Stable=$($sVan.Stable) —— 删除竞态会被记成打包缺陷，归因引偏"
+        }
+        if ($sLate.Verdict -ne 'Late' -or $sLate.Stable) {
+            $broken += "MC1s 负向失效：首样不在、之后出现（F,T,T）应判 Late（采样太早 / 落盘延迟）且不算齐全，实际 $($sLate.Verdict) / Stable=$($sLate.Stable) —— 会被误报成「资源没打进包」，把排障引向 tauri.conf.json 的资源清单"
         }
         if ($sMiss.Verdict -ne 'Missing' -or $sMiss.Stable) {
             $broken += "MC1s 负向失效：全程不在（F,F,F）应判 Missing 且不算齐全，实际 $($sMiss.Verdict) / Stable=$($sMiss.Stable)"
@@ -1223,12 +1240,16 @@ try {
     # AHK 资源必须和主 exe 一起验：只查主 exe 的话，「装完资源不全」会在 C1 假绿，
     # 一路带到 C4/C5 才炸，把打包缺陷报成运行时故障。
     # ⚠️ **判定规则**（改这里必须同步改 Get-AhkResourceStability 的注释与 MC1s 断言）：
-    #     全部采样 True        ⇒ Stable   ⇒ AhkResourceExists=$true（C1 才可能 PASS）
-    #     首样 False           ⇒ Missing  ⇒ 采样窗口内从未出现 ⇒ 打包 / 安装层
-    #     首样 True 之后 False ⇒ Vanished ⇒ 出现过又被删 ⇒ 有东西在删安装目录
+    #     全部采样 True            ⇒ Stable   ⇒ AhkResourceExists=$true（C1 才可能 PASS）
+    #     首样 False 且之后出现过  ⇒ Late     ⇒ 安装尚未落盘 / 可见性延迟，**不是**打包缺失
+    #     全程 False               ⇒ Missing  ⇒ 打包 / 安装层
+    #     首样 True 之后 False     ⇒ Vanished ⇒ 出现过又被删 ⇒ 有东西在删安装目录
     #    **任一次 False 都不算齐全**：单次快照会在「删之前 / 删之后」之间随机落点，
     #    既可能假绿也可能假红 —— 用它当「资源齐全」的判据，判别力是有偏的。
-    # ⚠️ 已知覆盖边界：这 5 次采样只覆盖「安装器退出后的 ~40ms」。若删除发生在
+    #    ⚠️ Late 也判不齐全（C1 FAIL）是**刻意的取舍**：宁可吵闹 —— 「安装器已退出、
+    #       资源却还没落盘」本身就值得看一眼；代价是慢盘机器上可能假红。基率未知，
+    #       首次真跑之前不要假定它罕见。
+    # ⚠️ 已知覆盖边界：5 次 × 8ms 间隔 ⇒ 只覆盖「安装器退出后 ~32ms」。若删除发生在
     #    「启动 app」那一段（实测 16:03Z 那次 init→spawn 相隔 970ms），本处仍会报
     #    Stable —— 要覆盖它需要第二个采样点（放在 finally 清理之前），本处不越界。
     $ahkSampleCount = 5
