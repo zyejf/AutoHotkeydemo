@@ -982,8 +982,12 @@ jobs:
           $installer = $installers[0].FullName
           Write-Host "冒烟目标: $installer"
 
-          # ① 先跑守卫自检（不安装任何东西）：把坏输入喂给每条判据，必须变红；
-          #    好输入必须变绿。守卫坏了要在**装之前**暴露，而不是发布之后。
+          # ① 先跑守卫自检（不安装任何东西）：喂坏输入必须变红、喂好输入必须变绿。
+          #    ⚠️ 覆盖范围**有限**，别过度解读：它只对照 3 个辅助函数
+          #    （Test-LogContains / Test-FileFresh / Test-ProcessSince），
+          #    **不覆盖 C1–C5 的判据组装**。变异对照实测（tessa-smoke2）：
+          #    把主流程的 `if ($c5.Found)` 改成 `if ($true)`，SelfCheck 仍 exit 0。
+          #    ⇒ SelfCheck 绿 ≠ C5 不是摆设；C1–C5 谓词的正确性目前只靠人工读码。
           #    退出码 2 = 存在假守卫（不会失败的检查），直接让本 step 红。
           pwsh -NoProfile -File scripts/smoke-release-install.ps1 -SelfCheck
           if ($LASTEXITCODE -ne 0) {
