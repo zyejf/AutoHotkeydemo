@@ -69,6 +69,21 @@
 #          「换包后必须重跑」这条规矩不变：**行号就是可机读的取证锚点**，
 #          拿旧包日志给新包背书等同于伪造证据；
 #       ② 只跑过 debug 包，**release 包从未产出过**；
+#          ⚠️ **2026-09-20 订正 —— 上面这句已被证伪**（原文照上保留，不删）：
+#          用 **release 包**（`target/release/bundle/nsis/ASD - 技能管理器_0.1.0_x64-setup.exe`，
+#          3,691,396 B，sha256 `fcb51f2ebb3bb384419b8ae82423658387afd53b9ccab4ffccf291cc3e2fda66`）
+#          静默装到可丢弃目录后跑本脚本：**exit 0**，C1/C2/C4/C5 = PASS
+#          （C3 仍 UNVERIFIED —— 跑通不会让它自动变绿；C5 日志命中 **`ipc.rs:275`**，
+#          与当前 HEAD 源码一致 ⇒ 绿灯属于这个 release 包本身，不是拿旧包日志背书）。
+#          引用源：`deliverables/engineering-assurance/release-pipeline-2026-09-20.md`
+#          「⚠️ 待完善 / 已知局限」段（该段第 ① 条同步划掉并升级为「首次产出成功」）。
+#          ⚠️ **仍不能读成「发布链路已验证」**，三条限制照旧成立：
+#             · **样本数 = 1** —— release 包只跑过这一次，不具统计意义，
+#               换包后必须重跑（规矩同上：行号是可机读的取证锚点）；
+#             · **CI 上的 release job 一次都没跑过** —— 它 `needs: gates`，
+#               gates 红 ⇒ 该 job 是 **skipped 而非 failure**（不红、不报警），
+#               所以「它一次都没跑过」这件事在 CI 上**完全不可见**；
+#             · 判据只覆盖「日志 + 进程表」，**不覆盖 GUI 可操作性**（TD-083 仍需人工点）。
 #       ③ 判据取自日志与进程表，**不覆盖 GUI 可操作性**（TD-083 那一类仍需人工点）。
 #   · 首次发布（workflow_dispatch + build_release）之前**必须人工观察本 step 的输出**。
 #     在那之前，不要把「CI 能出包」或「冒烟已通过」当成既有事实。
@@ -1480,6 +1495,16 @@ finally {
                 #    对照：安装器内部的覆盖安装路径也是这么调的
                 #    （asd-tauri/target/debug/nsis/x64/installer.nsi:350 `_?=$4`）——
                 #    只有本脚本自己调卸载器时漏了这个参数。
+                #    ⚠️ **但加了 `_?=` 也不是零残留**：实测（精确 argv 传参、不经 shell）
+                #    `uninstall.exe /S _?=<dir>` 退出码 0、`$INSTDIR` 下其余文件全清干净，
+                #    但**必然留下 `uninstall.exe` 自身** —— 就地运行时它删不掉自己。
+                #    这是 NSIS 的固有行为，**不是清理失败**；目录最终是靠下面那句
+                #    `Remove-Item -Recurse` 才干净的。
+                #    ⇒ 下一个人看到 `uninstall.exe` 还在，**别当成清理失败去查**；
+                #      判定标准是「目录有没有被删掉」，不是「卸载器有没有删掉自己」。
+                #    ⚠️ 另一个坑：从 Git Bash 传 `_?=C:\...` 会被 MSYS 改写参数，
+                #      实测拿到假的 `exit=2`；同一调用走精确 argv 是 `exit=0`。
+                #      **别用 shell 拼这个参数**（本脚本用 `Start-Process -ArgumentList`，不受影响）。
                 Start-Process -FilePath $uninst -ArgumentList @('/S', "_?=$InstallDir") -Wait -ErrorAction SilentlyContinue | Out-Null
             }
             # ⚠️ 这里**不能**用 `-ErrorAction SilentlyContinue`：清理失败时脚本照样 exit 0，
