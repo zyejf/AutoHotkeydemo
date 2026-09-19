@@ -447,7 +447,18 @@ impl ProcessWatchdog {
         loop {
             attempt += 1;
             match self.spawn_child(exe_path, auth_token) {
-                Ok(()) => return Ok(()),
+                Ok(()) => {
+                    if attempt > 1 {
+                        // 重试成功本身就是信号：一次**真实**失败被重试抹平了。
+                        // 不打这条，日志里就只剩「启动成功」，瞬时故障会彻底消失 ——
+                        // 那会让任何基于日志的成功率统计失去判别力。
+                        tracing::warn!(
+                            "启动 AHK 子进程在第 {attempt} 次尝试才成功（此前失败 {} 次）—— 瞬时失败被重试掩盖，留痕备查",
+                            attempt - 1
+                        );
+                    }
+                    return Ok(());
+                }
                 Err(e) => {
                     let exe_exists = std::path::Path::new(exe_path).exists();
                     match decide_spawn_retry(attempt, exe_exists) {
@@ -465,6 +476,14 @@ impl ProcessWatchdog {
                                     "AHK 执行器文件不存在（{exe_path}），判定为永久性缺失 —— 不重试，立即上报"
                                 );
                             }
+                            // 实际尝试次数由**这里**输出，而不是让调用方拿常量去拼。
+                            // 曾经出现过「一次都没重试，却打印『已重试 2 次』」的假日志
+                            // （调用方拼了 `SPAWN_RETRY_MAX_ATTEMPTS - 1`），
+                            // 那与 TD-089 要消灭的「伪装」是同一类病。
+                            tracing::error!(
+                                "启动 AHK 子进程放弃：共尝试 {attempt} 次（实际重试 {} 次，文件存在={exe_exists}）",
+                                attempt.saturating_sub(1)
+                            );
                             return Err(e);
                         }
                     }
@@ -1458,6 +1477,23 @@ mod tests {
         );
         // 即便声明"才第 1 次"，也不该因为次数少就试一试。
         assert_eq!(decide_spawn_retry(0, false), SpawnRetryDecision::GiveUp);
+    }
+
+    /// `exe_exists=false` 时必须**恒 GiveUp** —— 任何 attempt 序号都不例外。
+    ///
+    /// 这条同时是 TD-089 定性的判据：TD-089 的失败形态是资源**目录**不存在
+    /// （`os error 3`）⇒ `exe_exists == false` ⇒ 永远走 GiveUp ⇒
+    /// **退避重试对 TD-089 完全不生效**，它是防御性加固、不是 TD-089 的修复。
+    /// 守住它，等于守住「这段代码不会被误记成已修」。
+    #[test]
+    fn retry_never_fires_when_executor_missing_at_any_attempt() {
+        for attempt in 0..=SPAWN_RETRY_MAX_ATTEMPTS.saturating_add(2) {
+            assert_eq!(
+                decide_spawn_retry(attempt, false),
+                SpawnRetryDecision::GiveUp,
+                "文件不存在时第 {attempt} 次也必须 GiveUp —— 出现 Retry 就说明门控被绕过了"
+            );
+        }
     }
 
     /// 文件存在 → 第 1 次失败后应重试，退避为基数 200ms。

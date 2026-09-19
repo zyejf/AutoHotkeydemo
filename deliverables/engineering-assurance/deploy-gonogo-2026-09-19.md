@@ -340,6 +340,11 @@ run: |
 | **N8** | **远端 tag `v0.1.0` 已存在且严重落后** | `GET /repos/.../tags` → 全仓仅 **1** 个 tag：`v0.1.0` → `0fbfce52e3c0d3d299e49916091321b992d7ceb8`，日期 **2026-06-28**，较 HEAD `93d88d6` **落后 363 个提交** | ⚠️ **对 Archi 表述的一处修正**：`ci.yml:22-24` 的 `on.push` **只有 `branches: [main, master]`，并无 `tags:` 过滤器** —— 不是"待办失效"，而是 `ci.yml:765-770` 明确记录了**刻意不接 tag 触发**的决策。但这不改变事实本身：**`v0.1.0` 指向的是 3 个月前、落后 362 个提交的代码**。任何人若按"打了 v0.1.0 就算发过版"来理解，会严重误判。将来若要接 tag 自动发版，必须打**新** tag（如 `v0.1.1`） |
 | **N9** | **接 tag 自动发版存在二次触发风险 —— 且风险取决于用哪个 token**（Archi 提出为「未验证」，我已查证到官方规则） | GitHub Docs（Events that trigger workflows / Triggering a workflow）原文：「**When you use the repository's `GITHUB_TOKEN` to perform tasks, events triggered by the `GITHUB_TOKEN` will not create a new workflow run**」；并明确「**For all other events** … if a workflow run pushes code using the `GITHUB_TOKEN`, a new workflow will not run even when the repository contains a workflow configured to run on `push` events」；反之「use a **GitHub App installation access token or a personal access token** instead of `GITHUB_TOKEN` to trigger events that require a token」 | **结论：用 `secrets.GITHUB_TOKEN` → 建的 tag 不会二次触发；用 PAT / OAuth token / App token → 会触发。** ⚠️ 本环境 `gh auth token` 取到的是 **`gho_` 前缀的 OAuth 用户 token**（非 `GITHUB_TOKEN`），故**人工手动 `gh release create` 走的是"会触发"那条路**。⇒ 接 tag 自动发版前必须：① 明确 release job 用的是哪种 token；② 实跑一次验证；③ 用 `concurrency` 兜底 |
 | **N10** | **`ci.yml` 行号漂移** | 工作树 926 行 vs HEAD 913 行，净 +13（Archi 提出，我已复核 `git diff HEAD --stat` 确认 19 插入 / 6 删除） | 本报告所有 `ci.yml` 行号锚定 **HEAD 版**；与工作树版对照时 171 行之后需 +13。跨报告引用行号时务必注明版本，否则两报告会对不上 |
+| **N11** | ⚠️ **提交 `b758f23`（本地同内容副本曾为 `96af5ad`）的标题与内容不符 —— 记为「已知记录偏差」，不修历史** | 标题写「（TD-089 ②）」。但 `decide_spawn_retry` 的门控是 `if !exe_exists { return GiveUp; }`，而 TD-089 的失败形态是资源**目录**不存在（`os error 3`）⇒ `exe_exists == false` ⇒ **恒 GiveUp、一次都不重试** ⇒ **对 TD-089 完全不生效**。它实际覆盖的是另一类形态（文件在但 spawn 仍失败），**目前零样本** | **不影响代码判定**：代码已过单测 + 变异验证 + `cargo test` 271 项通过，留着合理。**正确定性以 `release-pipeline-2026-09-20.md` §8 与台账为准：防御性加固，不是缺陷修复；台账里 TD-089 的「spawn 退避重试」一项仍记未做。** ⚠️ **刻意不改提交信息**：该提交已推送，改信息必须重写其上三笔（`3047a33` / `b32f0b9` / `2f31ad0`）并 force-push —— 与「不 force-push、不重写已推送历史」冲突，且队友活跃期执行 `--amend` 已出过一次误伤他人提交的事故。**提交信息的正确性改由「报告 + 台账里有可查询的正确表述」保证，不再由 amend 保证** |
+| **N12** | **重复提交对 `4443173` / `efbcf39`（同 tree、同信息）** | 两笔 tree 均为 `f77a58348d98f675ccc4593e4ab8dc07140ea963`，父子相连：先随 `f9b8a54` + `6286004` 一起推送（→ `4443173`），随后又单独推送了一次 `6286004`（→ `efbcf39`）；第二次的父已含该改动 ⇒ 产出**一笔内容为空的重复提交** | 内容无误，仅历史冗余。同样按「**不修、只记录**」处理（与 N11 同一处置原则） |
+
+> **SHA 引用约定（2026-09-20 起生效，主理人裁定）**：**远端链为正统**；本地链因 `_api_push.py` 用 `+0000` 复刻而 SHA 必然不同，属已知代价，记为**影子链**。⇒ 台账 / 报告 / 本文件今后一律引用**远端 SHA**；同一改动若出现两个 SHA（如本报告的 `b758f23` 与 `96af5ad`），**以远端为准**。
+> ⚠️ 本文件成文早于该约定，正文中 `93d88d6` 等 SHA 均为**本地链**旧值，引用时需注意；不影响任何判定（判定依据的是 CI run 与文件内容，不是 SHA 字面）。
 
 ---
 
@@ -378,4 +383,4 @@ run: |
 
 ---
 
-> 本报告由雷克斯（Rex）· SRE 工程师出具。**CI 部分全部为 run 35446746668 的 CI 实测，非推断**；本机取证项已逐条标注「本机」。所有阻断项编号沿用 `production-readiness-2026-09-19.md`，新增发现单独以 N1–N4 编号，未混入原体系。
+> 本报告由雷克斯（Rex）· SRE 工程师出具。**CI 部分全部为 run 35446746668 的 CI 实测，非推断**；本机取证项已逐条标注「本机」。所有阻断项编号沿用 `production-readiness-2026-09-19.md`，新增发现单独以 **N1–N12** 编号，未混入原体系。其中 **N11 / N12 是「已知记录偏差」**：内容无误、不影响判定，**刻意不修历史**（理由见 §六表内）。

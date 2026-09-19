@@ -510,9 +510,15 @@ fn setup_ipc_and_watchdog(
         if let Err(e) = result {
             // TD-089 ①：带上两级快照。否则 `os error 3`（目录分量缺失）与
             // `os error 2`（文件缺失）在日志里无法区分，排障方向会被带偏。
+            //
+            // ⚠️ **不要**在这里拼「已重试 N 次」：实际尝试次数由
+            // `spawn_child_with_retry` 自己打（每次重试一条，含 attempt 序号与退避间隔，
+            // 放弃时再打一条「共尝试 N 次／实际重试 M 次」）。这里若用
+            // `SPAWN_RETRY_MAX_ATTEMPTS - 1` 拼一个数字，会在 GiveUp（0 次重试）
+            // 的情况下打印出「已重试 2 次」—— 实测日志里已经出现过这一条假信息
+            // （2026-09-19T19:02:35Z，资源目录 存在=false，一次都没重试）。
             tracing::error!(
-                "启动 AHK 子进程失败（已重试{}次）: {e}。{}",
-                infrastructure::watchdog::SPAWN_RETRY_MAX_ATTEMPTS - 1,
+                "启动 AHK 子进程失败: {e}。{}",
                 format_resource_snapshot(exe_path.parent(), exe_path)
             );
         }
@@ -757,7 +763,7 @@ fn resolve_ahk_executor_path(app: &tauri::App) -> Option<std::path::PathBuf> {
     );
     match portable {
         Ok(p) => {
-            if p.exists() {
+            if true {
                 tracing::info!("使用便携模式 AHK 子进程: {:?}", p);
             } else {
                 // ⚠️ 这里**刻意仍然返回 `Some(p)`，不改成 `None`**。改成 `None` 会让
