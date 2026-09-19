@@ -968,6 +968,54 @@ jobs:
       #    发布之前暴露，而不是等用户装上才发现。
       #    ⇒ 首次手动跑这个 job 时，请把本 step 的输出当**首次观测数据**读，
       #      不要拿它去反推「构建没问题」。
+      # ⚠️ 本 step 存在的唯一理由：**MR4（文本级接线断言）补不上的那一块**。
+      #    MR4 只能抓住「重构时忘了重接」，抓不住「按新写法重接」—— 后者的失效链条是：
+      #    MR4 报红 → 改一行正则去匹配新写法 → 绿 → CI 绿 → 合入，**那次红没有任何人看到**。
+      #    （我原先写「误报会逼人看一眼，漏报不会」—— 在合入门禁的语义下这句是错的。）
+      #    ⇒ 只有**真的跑一次 C1 失败**并断言输出里确有 `SMOKE_RESIDUE`，才能证明
+      #      「主流程真的会打印」，而不是从文本匹配里推断它会打印。
+      #    做法：拿一个**不会真的安装**的可执行文件当假安装器 ⇒ C1 必 FAIL ⇒ 脚本必须
+      #    打印残留提示并以 exit 1 终止。
+      #    ⚠️ **不依赖它的退出码**：C1 有**两条** FAIL 分支（退出码非 0 / 退出 0 但主 exe
+      #    不存在）。whoami 吃到不认识的参数后返回什么都不重要 —— 主 exe 一定不会出现，
+      #    C1 两条分支必居其一。换成任何「不会真的安装」的可执行文件都行。
+      #    选 `whoami.exe` 只是因为它在 windows-latest 上必然存在、立即返回、无需夹具。
+      #    放在**真实冒烟之前**：真实冒烟首次执行很可能红，放后面就永远轮不到它跑。
+      - name: 端到端：C1 失败必须打印残留告警（不是靠文本断言推断）
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $fake = 'C:\Windows\System32\whoami.exe'
+          if (-not (Test-Path -LiteralPath $fake)) {
+            throw "假安装器不存在：$fake —— 换一个「不会真的安装」的可执行文件"
+          }
+          # ⚠️ 用 Start-Process + 重定向到**文件**，而不是 `2>&1 | Out-String`：
+          #    子进程的 Write-Host 走 Information 流，**能否被父进程管道捕获**取决于宿主，
+          #    本机没有 pwsh、无法验证 ⇒ 不赌它。重定向到文件是确定的，读回来即可。
+          $outFile = Join-Path ([System.IO.Path]::GetTempPath()) 'smoke-e2e-out.txt'
+          $errFile = Join-Path ([System.IO.Path]::GetTempPath()) 'smoke-e2e-err.txt'
+          Remove-Item $outFile, $errFile -Force -ErrorAction SilentlyContinue
+          $proc = Start-Process -FilePath 'pwsh' `
+            -ArgumentList @('-NoProfile', '-File', 'scripts/smoke-release-install.ps1', '-InstallerPath', $fake) `
+            -RedirectStandardOutput $outFile -RedirectStandardError $errFile -Wait -PassThru -NoNewWindow
+          $rc  = $proc.ExitCode
+          $out = if (Test-Path -LiteralPath $outFile) { Get-Content -LiteralPath $outFile -Raw } else { '' }
+          if (Test-Path -LiteralPath $errFile) {
+            $errTxt = Get-Content -LiteralPath $errFile -Raw
+            if ($errTxt) { Write-Host '--- stderr ---'; Write-Host $errTxt }
+          }
+          Write-Host '--- stdout ---'
+          Write-Host $out
+          # ⚠️ 退出码与输出**两条都要断言**：只看退出码会漏掉「exit 1 但没打印提示」
+          #    （装失败却不留痕，正是本 step 要守的缺陷）；只看输出会漏掉终止路径坏了。
+          if ($rc -ne 1) {
+            throw "C1 失败时应 exit 1，实际 $rc —— 终止路径坏了（或脚本改了退出码约定）"
+          }
+          if (-not $out -or $out -notmatch 'SMOKE_RESIDUE:') {
+            throw 'C1 失败却没有打印 SMOKE_RESIDUE —— 静默残留缺陷复发；AST 级接线断言只能证明「代码里有这个调用」，证明不了「真的会执行到」，本 step 就是为它存在的'
+          }
+          Write-Host '✓ 端到端确认：C1 失败会真的打印 SMOKE_RESIDUE'
+
       - name: 发布产物冒烟（静默安装 → 启动 → AHK 子进程 → IPC 认证）
         shell: pwsh
         run: |
@@ -983,15 +1031,26 @@ jobs:
           Write-Host "冒烟目标: $installer"
 
           # ① 先跑守卫自检（不安装任何东西）：喂坏输入必须变红、喂好输入必须变绿。
-          #    ⚠️ 覆盖范围**有限**，别过度解读：它只对照 3 个辅助函数
-          #    （Test-LogContains / Test-FileFresh / Test-ProcessSince），
-          #    **不覆盖 C1–C5 的判据组装**。变异对照实测（tessa-smoke2）：
-          #    把主流程的 `if ($c5.Found)` 改成 `if ($true)`，SelfCheck 仍 exit 0。
-          #    ⇒ SelfCheck 绿 ≠ C5 不是摆设；C1–C5 谓词的正确性目前只靠人工读码。
+          #    ⚠️ 覆盖范围**有限**，别过度解读。且这段描述**已过期两次**，现状重写：
+          #    原写「只对照 3 个辅助函数、不覆盖 C1–C5 判据组装」（那是 2026-09-19
+          #    的状态，当时实测把 `if ($c5.Found)` 改成 `if ($true)` 自检仍 exit 0）。
+          #    现在涵盖：辅助函数层 N1–N5/P1–P3、判据组装层 C1–C5（含 C1 的 AHK 资源
+          #    **隔离**变异 MC1r）、格式化层 MR1/MR2、决策层 MR3、接线层 MR4、汇总层 MD1–MD4。
+          #    **已知仍覆盖不到的三块**：① 判据谓词的**语义** —— 只能证明「故意破坏会红」，
+          #    证明不了「它判的东西是对的」；② **主流程是否真的打印** —— 由前一个 step
+          #    端到端守；③ C1–C5 的运行时路径只在本机跑过 2 次，且用的是 09-18 旧包。
           #    退出码 2 = 存在假守卫（不会失败的检查），直接让本 step 红。
           pwsh -NoProfile -File scripts/smoke-release-install.ps1 -SelfCheck
-          if ($LASTEXITCODE -ne 0) {
-            throw "冒烟脚本守卫自检失败（exit=$LASTEXITCODE）—— 判据是假守卫，先修脚本再谈发布"
+          if ($LASTEXITCODE -eq 2) {
+            throw "冒烟脚本守卫自检失败（exit=2）—— 存在假守卫（不会失败的检查），先修脚本再谈发布"
+          }
+          elseif ($LASTEXITCODE -ne 0) {
+            # ⚠️ 必须和 exit 2 **分开报**：非 2 的非零通常是**脚本自身抛错**（参数校验失败、
+            #   Set-StrictMode 下引用未定义变量等），**不是**「判据是假守卫」。混成一条会
+            #   把排障引向错误方向 —— 本轮真实发生过一次：某条断言引用了定义在它之后的
+            #   变量，StrictMode 下直接抛出、退出码 1；若按「假守卫」处理就会去改判据，
+            #   而真正的缺陷是**那行代码放错了位置**（也因此后面的断言一条都没跑到）。
+            throw "冒烟脚本自身执行出错（exit=$LASTEXITCODE，非 2）—— 这**不是**「判据是假守卫」，先修脚本本身"
           }
 
           # ② 再实装冒烟。⚠️ 只传 -InstallerPath：InstallDir / MainExeName / AppIdentifier
