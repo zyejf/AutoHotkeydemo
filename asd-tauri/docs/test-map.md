@@ -32,7 +32,9 @@
 | asd-domain | 单元 | crates/asd-domain/src/models.rs | 3 | SkillGroup 领域模型构造与字段访问 |
 | asd-domain | 单元 | crates/asd-domain/src/traits.rs | 11 | IpcSender / EventEmitter / ProcessWatcher 三 trait：**默认方法体必须「明确拒绝」而非 panic**（send_and_wait / send_message / reset）、默认体可被覆写、序列号单调递增、对象安全性与 `Send + Sync` 超trait 约束（编译期钉子） |
 | asd-domain | 集成 | crates/asd-domain/tests/integration_tests.rs | 43 | 跨模块配置解析与验证集成 |
-| **小计** | — | — | **154** | — |
+| asd-domain | 集成 | crates/asd-domain/tests/config_version_compat_tests.rs | 4 | **旧版本配置兼容性契约**（审查发现 #21，2026-09-19 新增；由 Tessa 登记，本行为保证「小计 = 明细之和」由阿奇代补，如与负责人版本重复请保留一份）。核实后**不是**迁移用例 —— Rust 侧零迁移逻辑（`grep -rni migrat --include=*.rs` 零命中），故改测真正存在的契约：旧配置缺 `Option` 字段仍可反序列化、`version` 字符串原样保留而不被改写、必填字段不可省略、多余未知字段不破坏反序列化 |
+| asd-domain | 集成 | crates/asd-domain/tests/cross_lang_validator_parity.rs | 3 | **跨语言校验对拍**（TD-067，2026-09-19 新增）：同一批 16 个配置样本（夹具 `tests/fixtures/configs/cross_lang_validator_cases.json`）在 Rust `ConfigValidator` 与 AHK `ConfigValidator` 两侧的**结论必须一致**。① 契约核心 **9 条**（两侧都判合法 / 都判非法）任一漂移即红；② 已知分歧 **7 条**（AHK 有 10ms 下限与 24h 上限、Rust 没有；热键白名单含下划线键名的差异；查重入口不对称；控制热键空值级别不同；`HoldSettings` 区间；`joystick_hold` 最小 50ms）钉住 Rust 侧现状，任一有意收敛也变红以逼人复核；③ 装置自检（夹具非空、四类样本各至少一条、每个样本都能被反序列化）防「空集对空集」假绿。⚠️ AHK 那一列由 `tools/ahk-probes/p_cross_lang_validator.ahk` **实跑**产出，改 AHK 侧校验规则须重跑并写回夹具 |
+| **小计** | — | — | **161** | — |
 
 ## asd-ipc-protocol
 
@@ -93,11 +95,11 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 | Crate | 类型 | 文件路径 | 测试数 | 覆盖范围 |
 |-------|------|---------|-------|---------|
-| asd-tauri | 单元 | src-tauri/src/infrastructure/ipc.rs | 52 | IpcManager named pipe 通信 |
-| asd-tauri | 单元 | src-tauri/src/infrastructure/watchdog.rs | 32 | ProcessWatchdog + WatchdogRunner 进程管理 |
+| asd-tauri | 单元 | src-tauri/src/infrastructure/ipc.rs | 54 | IpcManager named pipe 通信。**2026-09-19 实测 52 → 54（+2）**：① `test_ipc_pipe_name_is_per_session_and_stable` —— 管道名须以 `IPC_PIPE_NAME_BASE` 开头、不等于基础名、含当前 PID、同进程内稳定（对应 `IPC_PIPE_NAME` 拆为 `IPC_PIPE_NAME_BASE` + `IPC_PIPE_NAME_ENV_VAR` + `ipc_pipe_name()` 的每会话化改造）；② `test_create_listener_reports_name_conflict` —— 同名管道二次 `create_listener` 须返回 `Err`（抢注可检出的阳性对照）。另 `test_ipc_pipe_name_constant_value` / `test_ipc_pipe_name_matches_ahk_client` 属**改写非新增**，后者现同时校验「AHK 回退基础名」与「EnvGet 变量名」两维 |
+| asd-tauri | 单元 | src-tauri/src/infrastructure/watchdog.rs | 38 | ProcessWatchdog + WatchdogRunner 进程管理。**2026-09-19 实测 32 → 38（+6，Cody 批次）**：① `test_cleanup_does_not_kill_unregistered_same_name_process` —— 未登记的同名进程**必须存活**（核心阳性对照，旧行为是被杀）；② `test_terminate_registered_child_kills_it` —— 登记过的必须真被终止（反向对照，证明清理能力未失效）；③ `test_is_terminable_child_excludes_self_pid`；④ `test_cleanup_drains_registry`；⑤ `test_expected_image_name_variants`；⑥ `test_no_image_name_based_taskkill_in_source`（静态禁源码出现 `"/IM"`）。①②会**真实起进程**（把 `cmd.exe` 复制到 temp 改名 `asd_executor.exe`，跑完 kill + 删目录；取不到 `SystemRoot\System32\cmd.exe` 则打印「跳过」并 return，不假绿也不假红），两条合计约 1s |
 | asd-tauri | 集成 | src-tauri/src/tests/ipc_tests.rs | 26 | IPC 边界条件与错误处理 |
 | asd-tauri | 集成 | src-tauri/src/tests/bridge_tests.rs | 12 | IpcBridge / WatchdogBridge trait 实现 + build_hotkey_event_payload 纯函数（原 13 个，2026-09-13 删除必然 panic 的死测试 `test_tauri_event_bridge_emit`，见 BUG-4） |
-| asd-tauri | 集成 | src-tauri/src/tests/watchdog_integration_tests.rs | 17 | ProcessWatchdog 跨平台集成（`#![cfg(windows)]` gating，15 个 `#[ignore]` 需 `--ignored` 手动运行；本行为运行时注册数，与 `TESTING.md` 的 `fn` 口径 17 一致；旧口径按 `#[test]` 属性数记为 14，见文首口径差异提示） |
+| asd-tauri | 集成 | src-tauri/src/tests/watchdog_integration_tests.rs | 17 | ProcessWatchdog 跨平台集成（`#![cfg(windows)]` gating；**2026-09-19 已摘除原先 15 条 `#[ignore]`，现全部随常规 `cargo test` 执行，实测 17/17 通过、约 13s**；本行为运行时注册数，与 `TESTING.md` 的 `fn` 口径 17 一致；旧口径按 `#[test]` 属性数记为 14，见文首口径差异提示） |
 | asd-tauri | 集成 | src-tauri/src/tests/config_compat_tests.rs | 11 | Rust Config 与 AHK config.json 格式兼容性 |
 | asd-tauri | 集成 | src-tauri/src/tests/command_contract_tests.rs | 5 | Tauri 命令契约守护（命令名/签名与前端 api.js 调用一致性）+ **TD-045 新增 `tauri_command_args_stay_owned`**：静态扫描，命令参数除 `state` 外不得是借用类型 + **TD-045 批次 8 新增 `no_blanket_missing_errors_doc_allow`**：禁止用文件头 blanket allow 关掉文档契约 lint |
 | asd-tauri | 单元 | src-tauri/src/commands/config_cmd.rs | 29 | config_cmd Tauri 命令 |
@@ -105,21 +107,21 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | asd-tauri | 单元 | src-tauri/src/commands/hotkey_cmd.rs | 6 | register_hotkey / unregister_hotkey / list_hotkeys 命令 |
 | asd-tauri | 单元 | src-tauri/src/commands/group_cmd.rs | 20 | group_cmd Tauri 命令 |
 | asd-tauri | 单元 | src-tauri/src/commands/recording_cmd.rs | 21 | recording_cmd Tauri 命令 |
-| asd-tauri | 单元 | src-tauri/src/lib.rs | 6 | IPC_PIPE_NAME 常量验证 + try_acquire_shutdown_guard 关机锁纯函数 |
+| asd-tauri | 单元 | src-tauri/src/lib.rs | 6 | `shutdown_tests` 模块 6 条：3 条 `try_acquire_shutdown_guard`（首次成功／二次失败／已锁定）+ 3 条**关机编排**（`test_run_shutdown_sequence_order` 断言「标记 IPC 关闭 → 设置 runner 停止标志 → watchdog 优雅关机」顺序；`perform_graceful_shutdown` 的 guard 提前返回与二次调用拦截，用真实 `IpcManager` + 真实 `ProcessWatchdog`）。⚠️ 2026-09-19 审查曾判「关机编排零覆盖」，**属误判**（只读了 `infrastructure/shutdown.rs`），本行是实测反证 |
 | asd-tauri | 单元 | src-tauri/src/infrastructure/logging.rs | 3 | **TD-054 新增**：`env_filter_from` 契约 —— 默认 `info`、显式 spec 生效、非法 spec 回落到 `info`（`init()` 依赖真实 `tauri::App` 不可测，故抽纯函数） |
 | asd-tauri | 集成 | src-tauri/src/tests/doc_markdown_contract_tests.rs | 2 | **TD-045 批次 9 新增**：禁止 blanket allow 关掉 `doc_markdown`（源码层 `#![allow(` + `Cargo.toml` 的 `[lints.clippy]` 层，各带防永真式锚点） |
-| **小计** | — | — | **248** | — |
+| **小计** | — | — | **256** | — |
 
 ### 集成测试（`tests/` 目录）
 
 | Crate | 类型 | 文件路径 | 测试数 | 覆盖范围 |
 |-------|------|---------|-------|---------|
 | asd-tauri | 集成 | src-tauri/tests/test_manifest_feature_removed.rs | 1 | 验证已废弃的 feature 已从 Cargo.toml 移除 |
-| **asd-tauri 总计** | — | — | **249** | — |
+| **asd-tauri 总计** | — | — | **257** | — |
 
-> 注：`--lib` 明细之和 248 与 `cargo test -p asd-tauri --lib -- --list` 运行时注册数一致；
+> 注：`--lib` 明细之和 256 与 `cargo test -p asd-tauri --lib -- --list` 运行时注册数一致；
 > benches 使用 criterion（`harness = false`），在 `--all-targets -- --list` 下**不注册**为测试，
-> 故 `--all-targets` = 248（lib）+ 1（tests/test_manifest_feature_removed.rs）= **249**，
+> 故 `--all-targets` = 256（lib）+ 1（tests/test_manifest_feature_removed.rs）= **257**，
 > 与基准测试的 7 个 criterion 微基准**互不计入**（口径隔离，避免重复计数）。
 
 ## 基准测试
@@ -146,6 +148,12 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 > **数字冲突时以该 JSON 为准**）。
 
 **整体 89.05%**（命中 5336 / 总行 5992，15 个文件）
+
+> ⚠️ **口径（引用 89.05% 时必须连同本句一起引用）：这是「3 个纯逻辑 crate」门禁口径，不是全仓覆盖率。**
+> 89.05% 只覆盖 `asd-domain` / `asd-ipc-protocol` / `asd-application`（即 G3f 棘轮的范围）；
+> **`src-tauri` 完全在棘轮之外**，而它是全仓代码量最大的 crate。全仓（含 `src-tauri`）口径**另算**，
+> 对照表、数字与测量命令见 `docs/developer-guide.md` §4.6.1.3 —— **该节是全仓口径的唯一权威**，
+> 本文件不复写全仓数字（避免两处漂移）。⚠️ 两个数字不可混用：把 89.05% 当全仓覆盖率会**严重高估**。
 
 > ⚠️ **口径：分母含 `#[cfg(test)]` 测试代码，跨文件百分比不可比。**
 > cargo-llvm-cov 测的是测试二进制，`src/*.rs` 的内联测试一并进分母。实测测试代码占比
@@ -182,7 +190,9 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | asd-application/src/time_format.rs | 100.00% | 分母 83.9% 是测试代码（口径见上） |
 
 覆盖范围：仅 `asd-domain` / `asd-ipc-protocol` / `asd-application` 三个纯逻辑 crate。
-`src-tauri` 依赖 windows / tauri 系列 crate，在 Linux 上无法编译，不纳入。
+`src-tauri` 依赖 windows / tauri 系列 crate，在 CI 的 ubuntu runner 上编译不过，未纳入
+（⚠️ 这是**平台**限制，不是「`src-tauri` 不可测」：同仓库 `gates` job 跑在 `windows-latest`，
+`src-tauri` 的单测一直在跑 —— TD-007 原文「Linux 不可编译」的措辞已被证伪，勿据此判断）。
 
 ⚠️ 已实测的一个认知偏差：删掉 `asd-ipc-protocol/tests/integration_tests.rs`（463 行）
 后覆盖率**纹丝不动** —— 该文件的用例所覆盖的行已被单元测试覆盖，
@@ -221,6 +231,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 |---------|------|-------|
 | asd-tauri/tests/fixtures/configs/tests_config.json | 主测试配置样本（Task 1 迁移自 src-tauri/tests_config.json） | src-tauri/src/tests/config_compat_tests.rs |
 | asd-tauri/src-tauri/config.json | 主运行时配置样本（`MAIN_CONFIG_JSON`，经 `include_str!("../../config.json")` 引用，用于 Config roundtrip 序列化兼容性验证） | src-tauri/src/tests/config_compat_tests.rs |
+| tests/fixtures/configs/cross_lang_validator_cases.json | 跨语言校验对拍样本集（16 例：8 条契约核心 + 8 条已知分歧），**同一份文件被两侧共用** | Rust 侧：`crates/asd-domain/tests/cross_lang_validator_parity.rs`；AHK 侧：`tools/ahk-probes/p_cross_lang_validator.ahk`（后者逐例输出 `id<TAB>errors<TAB>warnings`，用于重新生成夹具里的 `ahk_has_error` 列） |
 
 ---
 
@@ -228,7 +239,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 | 类别 | 统计 |
 |------|------|
-| Rust 测试（运行时注册数，`--all-targets -- --list`） | 651（asd-domain 154 + asd-ipc-protocol 72 + asd-application 173 + asd-test-harness 3 + asd-tauri 249；其中 `#[ignore]` 15 个）。2026-09-18 +8：本轮新增 `backtick_cjk_contract_tests` 3 条（TD-050）、`doc_markdown_contract_tests` 2 条（TD-045 批次 9）、`infrastructure::logging` 3 条（TD-054）；另含 TD-045 批次 8 的 `no_blanket_missing_errors_doc_allow` 1 条此前未登记 |
+| Rust 测试（运行时注册数，`--all-targets -- --list`） | 666（asd-domain 161 + asd-ipc-protocol 72 + asd-application 173 + asd-test-harness 3 + asd-tauri 257；其中 `#[ignore]` **0 个** —— 2026-09-19 已摘除 `watchdog_integration_tests.rs` 的 15 条 `#[ignore]`，全仓 `cargo test --workspace` 实测 **0 ignored**，此前的「15 个」为陈旧数字）。⚠️ 2026-09-19 **本轮为并行改动，本行为当日实测快照**：合计 651 → **666**（+15）= asd-domain **+7**（`cross_lang_validator_parity` 3 条 [TD-067，阿奇] + `config_version_compat_tests` 4 条 [#21，Tessa]）+ **asd-tauri +8**（`infrastructure/ipc.rs` 52→54、`infrastructure/watchdog.rs` 32→38，明细行已同步，小计 248→256、总计 249→257）。此前 2026-09-18 +8：本轮新增 `backtick_cjk_contract_tests` 3 条（TD-050）、`doc_markdown_contract_tests` 2 条（TD-045 批次 9）、`infrastructure::logging` 3 条（TD-054）；另含 TD-045 批次 8 的 `no_blanket_missing_errors_doc_allow` 1 条此前未登记 |
 | AHK 执行器测试（`Test_` 方法数） | 61 套件 / 279 个 `Test_` 方法（`tests/test_ahk_executor/` 5 文件；不含 `test_joy_hotkey_manager_ahu.ahk` 的 7 套件） |
 | AHK v2 完整测试套件（`tests/run_all_tests.ahk` 汇总） | 722 个用例 / 182 个套件。**本机**（`scripts/check-gates.sh`，默认）：通过 722 / 失败 0 / 跳过 0。**CI**（G3b，`ASD_HOST_TIMING=0`）：通过 715 / 失败 0 / **跳过 7** —— 跳过的是 `SenderPreciseTimingTests` 里 7 条绝对墙钟时延断言，原因见下。2026-09-16 三次增长：① +33 用例 / +13 套件，原 `tests/test_joystick.ahk`（独立脚本，断言从未执行）改名并转为 `tests/test_joystick_input.ahk` 接入套件（TD-002）；② +10 用例 / +1 套件，`JSONSerializerScalarTypeTests` 钉住 JSON 标量的布尔/数字分派（TD-030，AHK v2 无布尔类型导致的 1/0 串味）；③ +12 用例 / +2 套件，`JSONSerializerIndentTests`（+6，TD-034：`Stringify(x, 0)` 必须是单行紧凑）与 `ConfigValidatorJoystickFieldTests`（+5，TD-035：手柄模式的间隔/延迟字段是 `joyIntervals`/`joyDelays`），另在 `base_suites.ahk` 的 `ConfigStoreGroupTests` 补 1 条 `_GenerateGroupId` 配置侧碰撞用例（TD-036）。接入 `tests/` 下从未执行的独立脚本时一并修好了一批陈旧断言。2026-09-17 再 +3 用例 / +1 套件：`ConfigValidatorFallbackConfigTests` 钉住「配置读取失败时的降级默认值必须能通过自家校验器」（TD-047，详见下） |
 | 基准测试 | 7 个 criterion bench |
@@ -236,7 +247,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | 模糊测试 | 5 个 fuzz target |
 | E2E 测试 | 9 suite / 53 用例 |
 
-自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 154 + 72 + 173 + 3 + 249 = 651。
+自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 161 + 72 + 173 + 3 + 257 = 666。
 
 > **备注（T8-07† 处置）**：`docs/review/2026-08-20/task-8-tests.md` 分报告《总结》自报「发现总数 7（Important 3 + Minor 4）」，但正文仅列 T8-01~T8-06 共 6 条（其中 Minor 3 条：T8-04/T8-05/T8-06）。已核实第 4 条 Minor 无正文，属该报告自报计数笔误（正文实际为 Important 3 + Minor 3 = 6 条），无遗漏问题，占位 `T8-07†` 予以关闭。
 
@@ -271,6 +282,25 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 
 > **执行模式口径**：系统能力共 10 种执行模式（见 AGENTS.md「支持的执行模式」）；E2E 覆盖 7 种（`modes.spec.js`），`joystick_periodic` / `joystick_sequence` / `joystick_hold` 三种未纳入 E2E。两口径分别标注，不混用。
 
+> ⚠️ **执行环境口径：上表的 9 suite / 53 用例是「本机（Windows）手动按需」口径，不是 CI 口径 —— 两者不可混用。**
+> **CI 上 E2E 结构性不可达**：`.github/workflows/ci.yml:564` 的 job 门控是
+> `if: github.event_name == 'workflow_dispatch' && inputs.run_e2e`，而 `run_e2e` 的
+> `default: false`（`ci.yml:30-33`）—— **`push` / `pull_request` / `schedule` 在结构上不可能触发该 job**，
+> 因此 **CI 上 E2E 从未有任一用例被执行过**（不是「偶尔失败」，是「零执行」）。
+> 本机口径的另一端是 **2026-09-17 实测 9 suite / 53 用例全绿**（Windows 桌面环境，`cd asd-tauri/e2e && npm test`）。
+> ⚠️ **不要把「53 全绿」当作 CI 质量信号** —— 它没有在 CI 上跑过，也不在 DoD 四闸门内。
+>
+> **为何不把门控打开（2026-09-19 复核，结论：只标口径，不改 `ci.yml`）**：打开门控会让 CI
+> 从「不跑」变成「必跑且必挂」，收益为负。证据：① 上游 `tauri-apps/webdriver-example` 的**官方 CI**
+> 在 `windows-latest × webdriverio` 上失败（run 34766587019，失败原文
+> `session not created: DevToolsActivePort file doesn't exist`），同 run 的 `ubuntu-latest × webdriverio`
+> 却成功 —— 根因在栈，不在本仓配置；② 本仓已穷尽两条**机制独立**的通道，结果相同
+> （`webviewOptions` 通道 run 35350670139、`--config` 注入 `--remote-debugging-port` 通道 run 35354358075），
+> 候选已穷尽。一个**已知红**的门禁比没有门禁更糟（会训练所有人无视红色），故维持「手动按需」。
+> **待办（本轮未做）**：上游栈问题解决前不改 `ci.yml` 门控；该事项已登记为
+> `docs/tech-debt-register.md` 的 **TD-061**（根因：Windows CI 上 E2E 从未建立 WebDriver 会话）
+> 与 **TD-062**（E2E 有价值但未接入常规门禁），**到期复查见台账**，本文档不另立条目。
+
 ### E2E 测试固件
 
 | 文件路径 | 用途 |
@@ -287,6 +317,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | asd-tauri/e2e/helpers/__tests__/ahk_path.test.js | ahk_path.js 单元测试（node:test） |
 | asd-tauri/e2e/helpers/__tests__/error_utils.test.js | error_utils.js 单元测试（node:test） |
 | asd-tauri/src/__tests__/api_contract.test.js | **前端 api.js ↔ Rust 命令的契约测试**（TD-005）：静态双向核对 —— JS 调用的命令集 == Rust 的 `#[tauri::command]` 命令集、JS 传的每个参数名能对上 Rust 的 snake_case 参数、Rust 的必填参数都被前端传了。7 个用例（含一条「解析器不许静默失效」的锚点）。首次运行即抓到 `export_recording` 漏传 `delays` |
+| asd-tauri/src/__tests__/diagnostics_contract.test.js | **「诊断信息」页与 UI 事件接线的静态契约测试**（2026-09-19 新增，随 E3 一并落地）：9 个用例，锁三类不变量 —— ① `index.html` 的每个 `data-action` 都在 `main.js` 有分发分支（**防"按钮点了没反应"**，这类错没有任何报错、只表现为点击静默无效）；② 日志目录取 `appDataDir()` 而**不是** `appLogDir()`（与 Rust 侧实际落盘位置 `logging.rs:19-33` 的 `app.path().app_data_dir()` 对齐 —— 取错则诊断页给出打不开的路径，比不给更糟）；③ `index.html` 与 `main.js` 生成的 HTML 均无内联事件处理器（CSP `script-src 'self'` 无 `unsafe-inline` 的回归防线，即 #16 的硬指标）。**三条阳性对照均已实测变红并精确点名**（改 `appDataDir`→`appLogDir` / 把 `refreshDiagnostics` 改名 / 注入 `onclick=`），还原后回绿 |
 
 ### 运行方式
 

@@ -71,8 +71,8 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 
 | # | 妥协 | 影响文件 | 说明 | 约束边界 |
 |---|------|---------|------|---------|
-| 1 | **DDD 层依赖违规** | `domain/mode_registry.ahk` → `infrastructure/error_system.ahk` | 领域层直接依赖基础设施层的 `ErrorSystem`。在严格 DDD 中领域层应通过接口使用日志服务，但 AHK v2 无 DI 容器，通过接口注入会导致过度复杂化。 | 仅允许 `domain/` 引用 `infrastructure/error_system.ahk` 的 `LogError` 方法。禁止领域层引用 `infrastructure/` 中的其他模块。此外，允许 `infrastructure/joy_hotkey_manager.ahk` 引用 `domain/joystick_input.ahk` 的纯工具函数（`JoystickInput` 类，无副作用、无状态），以消除代码重复（A1 修复：删除冗余的 `infrastructure/joystick_input_utils.ahk`，该文件曾为避免反向依赖而复制 `JoystickInput` 的全部方法）。同样允许 `infrastructure/joy_sender.ahk` 反向 `#Include "../domain/interfaces.ahk"`（`JoySender` 实现 `IJoySender` 抽象接口，依赖倒置）；该引用仅用于类型继承、无副作用无状态，仅限「domain 定义接口 / joy_sender 实现接口」这一边界。此外，允许 `infrastructure/config_validator.ahk` 引用 `domain/joystick_input.ahk` 的 `JoystickInput.IsJoystickKey()` 纯静态方法（无副作用、无状态），用于摇杆按键名的合法性校验（`config_validator.ahk:167`）。 |
-| 2 | **`BackupCore` 隐式依赖** | `application/config_service.ahk` → `infrastructure/backup_core.ahk` | 应用层通过全局 `BackupCore` 类名隐式引用基础设施层模块。应通过显式 `#Include` 或接口抽象化。 | `ConfigService` 内部仅通过 `BackupCore.CreateBackup()` 静态方法调用，不直接访问其内部状态。未来若引入 DI 机制应重构为接口注入。 |
+| 1 | **DDD 层依赖违规** | `domain/mode_registry.ahk` → `infrastructure/error_system.ahk` | 领域层直接依赖基础设施层的 `ErrorSystem`。在严格 DDD 中领域层应通过接口使用日志服务，但 AHK v2 无 DI 容器，通过接口注入会导致过度复杂化。 | 仅允许 `domain/` 引用 `infrastructure/error_system.ahk` 的 `LogError` 方法。禁止领域层引用 `infrastructure/` 中的其他模块。此外，允许 `infrastructure/joy_hotkey_manager.ahk` 引用 `domain/joystick_input.ahk` 的纯工具函数（`JoystickInput` 类，无副作用、无状态），以消除代码重复（A1 修复：删除冗余的 `infrastructure/joystick_input_utils.ahk`，该文件曾为避免反向依赖而复制 `JoystickInput` 的全部方法）。⚠️ **2026-09-19 订正「无副作用、无状态」的措辞**：`JoystickInput` 的多数方法确实是纯函数，但 `IsJoystickConnected`（`domain/joystick_input.ahk:97`）与 `GetConnectedJoysticks`（`:105`）内部调用 `GetKeyState("1Joy1")` **查询设备实时状态**，并非无状态。这两处作为**已知例外**登记：`joy_hotkey_manager.ahk` 可以继续用它们，**但不得把「无状态」当作可缓存、可重放的假设**；除这两个方法外，不得再向 `infrastructure/` 暴露任何读取设备状态的 `domain` 方法。同样允许 `infrastructure/joy_sender.ahk` 反向 `#Include "../domain/interfaces.ahk"`（`JoySender` 实现 `IJoySender` 抽象接口，依赖倒置）；该引用仅用于类型继承、无副作用无状态，仅限「domain 定义接口 / joy_sender 实现接口」这一边界。此外，允许 `infrastructure/config_validator.ahk` 引用 `domain/joystick_input.ahk` 的 `JoystickInput.IsJoystickKey()` 纯静态方法（无副作用、无状态），用于摇杆按键名的合法性校验（`config_validator.ahk:167`）。 |
+| 2 | **应用层 → `BackupCore` 依赖面** | `application/config_service.ahk`（`:19` 显式 `#Include`、`:170`）；`application/group_service.ahk`（`:96` `:164` `:174` `:196` `:297`）；`application/backup_service.ahk`（`:20` `:25` `:30` `:35` `:40` `:45`） | 应用层三个文件依赖基础设施层 `BackupCore`。方向 application → infrastructure **合法**；`#Include` 已是**显式**的（早期登记的「隐式依赖 / 应通过显式 #Include 抽象化」描述**已过期**，2026-09-19 订正）。 | 允许调用 `BackupCore` 的静态方法：`CreateBackup` / `RecordConfigChange` / `ListBackups` / `RestoreBackup` / `DeleteBackup`。**已知例外**：`backup_service.ahk:20` 直读 `BackupCore.backupDir`（读内部状态），作为应用层封装的既有实现被接受，**不得扩散到其它文件**。表现层**禁止**直接调用 `BackupCore`（须经 `backup_service.ahk`，见其文件头「修复 I1」注释）。未来若引入 DI 机制应重构为接口注入。 |
 
 #### AHK 内部工具函数迁移
 
@@ -144,7 +144,7 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
 | 2 | **I/O 泄漏修复** | Config 的 I/O 方法从 domain 层移到 application 层的 ConfigRepository，确保 domain crate 无文件 I/O。 |
 | 3 | **Miri 兼容** | asd-domain, asd-ipc-protocol, asd-application 可通过 Miri 验证（0 UB），不含 unsafe 代码。 |
 | 4 | **AHK 子进程隔离** | AHK 执行器（asd_executor.exe）作为子进程由 Rust 主进程管理，通过 interprocess named pipe 通信。 |
-| 5 | **测试覆盖** | 测试数量与分布的**唯一权威为 `asd-tauri/docs/test-map.md`**（Rust / AHK 完整套件 / AHK 执行器 / E2E / criterion bench / fuzz target 全覆盖）。本文档**只写指针、不复制数字**——数字一旦复制就会过期（此处曾长期滞留已失效的旧值）。纯逻辑 crate 覆盖率 96.57%（2026-09-12 实测）。 |
+| 5 | **测试覆盖** | 测试数量与覆盖率数字的**唯一权威为 `asd-tauri/docs/test-map.md`**（Rust / AHK 完整套件 / AHK 执行器 / E2E / criterion bench / fuzz target 全覆盖）。本文档**只写指针、不复制数字**——数字一旦复制就会过期（此处曾长期滞留失效的旧值 `96.57%`，已于 2026-09-19 清除）。引用覆盖率时**必须带口径**：3-crate 门禁口径与全仓口径不可混用。 |
 | 6 | **进程清理与 panic hook 补偿** | watchdog.rs 的 `cleanup_stale_executor_processes` 仅清理项目专用的 `asd_executor.exe`，**绝不**清理 `AutoHotkey64.exe` 等通用进程名，避免误杀用户其他 AHK 脚本（R1 安全约束）。`build_panic_hook_closure` 纯函数将 panic hook 的构建逻辑与全局 `set_hook` 注册分离，使测试可验证 hook 行为（先 cleanup 后 original_hook）而不污染全局 `Once` 状态（R3 可测试性）。JobObject 失败时，`register_panic_hook` 作为补偿机制确保主进程崩溃时子进程被清理（I36）。 |
 
 #### Rust/Tauri 已知架构妥协
@@ -233,6 +233,10 @@ asd-tauri (src-tauri) ──→ asd-application ──→ asd-domain ──→ a
 - 热路径日志（Execute\* 方法）会自动限速，每秒最多记录一次
 - 模块文件顶部必须包含 `#Requires AutoHotkey v2.0`
 - 主脚本使用 `#Include` 引入模块
+  - ⚠️ **`main.ahk` 的 `#Include` 顺序是加载期契约，调整前须知晓**：`#Include` 是**文本插入**，AHK 在加载期按书写顺序就地展开 —— `main.ahk` 的顺序即组合后脚本的**顶层语句执行顺序**（实测：被包含文件的顶层语句按 include 顺序执行）。`main.ahk` 现按 DDD 四层手工分层排布（基础设施 → 领域 → 应用 → 表现）。
+  - **实测边界（2026-09-19，AHK v2.0.26）**：`class` 与函数定义会被**提升**，前向引用无碍 —— 同文件内「先实例化后定义」「子类先于基类」，以及跨文件 `class A extends C`（`C` 所在文件在 `A` 之后才 include）**均可正常加载**。故**定义之间的先后不是硬约束**；与顺序真正绑定的是**顶层可执行语句**。
+  - **已有守护（文件级 / 图级）**：`C1a`（孤儿文件：无入边 / 非入口 / 无跨语言引用）、`C1b`（同名 basename 重复 ≥2 次）、`C1c`（代码误放 `docs/` 等目录）只管**文件级坏味道**；`#Include` 的**环**与**未解析 include** 由 **G1 图谱基线**硬失败守护（`scripts/check-graph-baseline.py` 的 `ahk_cycles` / `ahk_missing`，见 `.review-analysis/graph-baseline.json` 的 `policy.hard_fail`）。
+  - **未守护**：include 的**相对顺序本身** —— 没有门禁校验「书写顺序是否构成合法的顶层执行顺序」。当前被包含的 28 个文件基本是纯定义，故**今天**调序多半无害；但这**不是契约保证**，一旦某个被包含文件出现依赖另一文件顶层初始化的顶层代码，调序即改变行为或在加载期报错。**调整顺序前须人工确认顶层语句依赖。**
 
 #### Rust/Tauri 规则
 

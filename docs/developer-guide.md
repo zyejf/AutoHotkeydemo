@@ -444,7 +444,14 @@ Phase 3: TerminateProcess
 | 输出目标 | 位置 | 详细程度 |
 |---|---|---|
 | 控制台 | stdout | 简洁（无线程 ID、无文件/行号） |
-| 文件 | `{app_data_dir}/asd.log` | 详细（含线程 ID、文件名、行号） |
+| 文件 | `{app_data_dir}/asd.<YYYY-MM-DD>.log` | 详细（含线程 ID、文件名、行号） |
+
+⚠️ **两个容易抄错的点（2026-09-19 实测订正，原文两处都错）**：
+
+1. **目录名不是 `asd-tauri`**：`{app_data_dir}` 取决于 `tauri.conf.json` 的 **`identifier`**（当前 `com.asd.tauri`），不是 `productName`、也不是仓库目录名。Windows 上真实路径是 `%APPDATA%\com.asd.tauri\`。原文写的 `$env:APPDATA\asd-tauri\` **不存在**，照抄会一条日志都找不到。
+2. **文件名带日期**：`Rotation::DAILY` 下 `tracing_appender` 产出的是 `asd.2026-09-17.log` 这样带日期的文件，**不存在固定的 `asd.log`**（`max_log_files(7)` 只保留最近 7 份）。
+
+> 不确定路径时**不要猜**：应用内「🩺 诊断信息」页会直接显示日志所在目录与版本号，并支持一键复制（见 §3.1.5）。
 
 日志级别由 `RUST_LOG` 环境变量控制，默认 `info`：
 
@@ -476,14 +483,18 @@ $env:RUST_LOG = "error"
 cd d:\1demo\AutoHotkeydemo\asd-tauri
 npm run tauri dev
 
-# 查看日志文件
-Get-Content "$env:APPDATA\asd-tauri\asd.log" -Tail 20 -Wait
+# 日志目录 = %APPDATA%\<tauri.conf.json 的 identifier>（当前 com.asd.tauri）
+$logDir = "$env:APPDATA\com.asd.tauri"
+
+# 查看最新的日志文件（文件名带日期，故按时间取最后一份）
+Get-ChildItem "$logDir\asd.*.log" | Sort-Object LastWriteTime | Select-Object -Last 1 |
+  Get-Content -Tail 20 -Wait
 
 # 过滤特定模块日志
-Select-String -Path "$env:APPDATA\asd-tauri\asd.log" -Pattern "Watchdog"
+Select-String -Path "$logDir\asd.*.log" -Pattern "Watchdog"
 
 # 过滤错误日志
-Select-String -Path "$env:APPDATA\asd-tauri\asd.log" -Pattern "ERROR"
+Select-String -Path "$logDir\asd.*.log" -Pattern "ERROR"
 ```
 
 #### 3.1.4 Watchdog 状态机调试
@@ -505,6 +516,21 @@ Idle -> Starting -> Running <-> Hung -> Restarting -> Running
 const status = await invoke('get_executor_status');
 // 返回: { status: "Running", restart_count: 0 }
 ```
+
+#### 3.1.5 诊断信息页（向用户收集事故信息的入口）
+
+应用左侧导航的「🩺 诊断信息」页显示**应用版本号**与**日志所在目录**，并支持一键复制。
+
+- **为什么有它**：本系统**没有任何运行时遥测**（无崩溃上报、无指标回传，见台账 TD-076），
+  真实用户环境发生了什么完全不可知 —— 事故只能靠用户反馈发现。过去让用户自己找日志目录
+  基本找不到（目录名取决于 `identifier`、文件名带日期，见 §3.1.1 的两处易错点）。
+  让用户把这一页的内容贴出来，是**目前唯一能拿到"版本 + 日志"的低成本路径**。
+- **数据来源**：版本号 = `tauri.conf.json` 的 `version`（经 `@tauri-apps/api` 的 `getVersion()`）；
+  日志目录 = `appDataDir()`，与 Rust 侧落盘位置 `logging.rs` 的 `app.path().app_data_dir()` **同一目录**
+  （不是 `appLogDir()` —— 那会给出打不开的路径）。
+- ⚠️ **已知不一致**：该页显示的版本号与界面左上角的自述版本文案**目前不相同**（见台账 **TD-078**）。
+  收到用户反馈时以**本页显示的值**为准，那是构建产物的真实版本。
+- **未覆盖**：日志文件的打开 / 导出仍需用户自行前往该目录（TD-076 的后续项）。
 
 ### 3.2 前端调试
 
@@ -1011,6 +1037,11 @@ G3e **不随 `--quick` 运行**（quick 只跑 G1/G2）。
 只覆盖三个纯逻辑 crate（`asd-domain` / `asd-ipc-protocol` / `asd-application`；
 `src-tauri` 依赖 windows / tauri 系列，在 Linux 上编译不了）。
 
+> ⚠️ **口径（引用本节数字时必须连同本句一起引用）**：本节门禁报出的百分比是
+> **3 个纯逻辑 crate 口径**，**不是全仓覆盖率** —— `src-tauri` 整个在棘轮之外。
+> 全仓口径（含 `src-tauri`）**另算**，对照表与测量命令见下一节 §4.6.1.3。
+> 两个数字**不可混用**：把这里的数字当全仓覆盖率会严重高估。
+
 ```bash
 # 在 asd-tauri/ 下生成 lcov（约 1 分钟，首次含编译）
 cargo llvm-cov --package asd-domain --package asd-ipc-protocol \
@@ -1039,7 +1070,7 @@ python scripts/check-coverage.py --lcov ... --update-baseline   # 补完测试�
 ⚠️ 基线在**本机（Windows）**实测。若 CI（ubuntu）因 cfg 分支系统性偏离，
 下载 CI 的 `coverage-report` artifact 重跑一次 `--update-baseline` 校准即可。
 
-#### 4.6.1.3 完整覆盖率（含 `src-tauri`，**仅 Windows 可跑**，2026-09-18 补）
+#### 4.6.1.3 完整覆盖率（含 `src-tauri`，**仅 Windows 可跑**，2026-09-18 补 / 2026-09-19 重测）
 
 G3f 的棘轮**只覆盖 3 个纯逻辑 crate**，它报出的百分比**不是全仓覆盖率**。要拿全仓数字，
 在 Windows 本机跑（`src-tauri` 依赖 windows / tauri 系列，Linux 编译不过，
@@ -1047,24 +1078,31 @@ G3f 的棘轮**只覆盖 3 个纯逻辑 crate**，它报出的百分比**不是�
 
 ```bash
 cd asd-tauri
-CARGO_INCREMENTAL=0 cargo llvm-cov --workspace --summary-only    # 约 4 分钟（含编译）
+CARGO_INCREMENTAL=0 cargo llvm-cov --workspace --summary-only    # 首次含编译约 8 分钟
 ```
 
-⚠️ **两个数字口径不同，不要混用**：
+⚠️ **两个数字口径不同，不要混用**（本节是全仓口径的**唯一权威**，其它文档一律指向本节）：
 
-| 口径 | 命令 | 实测（2026-09-18） |
-|------|------|--------------------|
-| 门禁口径（3 个纯逻辑 crate） | `--package asd-domain --package asd-ipc-protocol --package asd-application` | **89.05%** |
-| 全仓口径（含 `src-tauri` + `asd-test-harness`） | `--workspace` | **82.05%**（10206 行 / 1832 未覆盖） |
+| 口径 | 命令 | 实测 |
+|------|------|------|
+| 门禁口径（3 个纯逻辑 crate） | `--package asd-domain --package asd-ipc-protocol --package asd-application` | **89.05%**（棘轮基线，2026-09-16 取；逐文件基线见 `.review-analysis/coverage-baseline.json`） |
+| 全仓口径（含 `src-tauri` + `asd-test-harness`） | `--workspace` | **84.00%**（10428 行 / 1668 未覆盖，2026-09-19 04:13 本机实测） |
 
-差 7 个百分点。原因是 `src-tauri` 有 **3732 行、占全仓 36.6%**，却只到 **63.67%** ——
+> ⚠️ 上一版此处记的是 **82.05%**（10206 行 / 1832 未覆盖，2026-09-18 实测），已过期 ——
+> 2026-09-19 重测为 **84.00%**。全仓口径**没有基线文件**（只有棘轮基线、且它不含 `src-tauri`），
+> 所以这个数字会随代码与测试增长自然变动，**引用时必须带实测日期**；±0.2pp 内的差异通常
+> 只是「两次测量之间又有人合了代码」，不是回归。
+
+差 **5 个百分点**。原因是 `src-tauri` 有 **3960 行、占全仓 38.0%**，却只到 **69.90%** ——
 它是代码量最大的 crate，而 G3f 把它整个排除在外。最低的几处：
 
 | 文件 | 行覆盖率 | 说明 |
 |------|---------|------|
-| `src-tauri/src/lib.rs` | 23.65% | 应用装配（`setup_ipc_callbacks` / `run`），与 TD-045 批次 7 记的「零自动化覆盖」一致 |
-| `src-tauri/src/infrastructure/watchdog.rs` | 57.94% | 进程监控与重启退避 |
-| `src-tauri/src/infrastructure/logging.rs` | 0.00% | 日志初始化 |
+| `src-tauri/src/lib.rs` | 23.01% | 应用装配（`setup_ipc_callbacks` / `run`），与 TD-045 批次 7 记的「零自动化覆盖」一致 |
+| `src-tauri/src/infrastructure/logging.rs` | 33.90% | 日志初始化（`env_filter_from` 已抽纯函数并补契约测试，其余依赖真实 `tauri::App` 不可测） |
+| `src-tauri/src/commands/system_cmd.rs` | 68.64% | 系统命令（紧急释放 / hold 模式切换 / 状态查询） |
+
+（`src-tauri/src/main.rs` 0.00%，但只有 3 行入口，无实质意义；`watchdog.rs` 已从 57.94% 升至 84.84%。）
 
 **结论**：讨论「覆盖率是多少」时必须说明口径 —— 把 G3f 的 89.05% 当成全仓覆盖率会**严重高估**。
 （登记见 TD-007。）
@@ -1670,7 +1708,9 @@ scripts/check-gates.sh                           # 一键跑 DoD 四闸门
 npm run tauri build                  # 完整发布构建
 
 # === 日志 ===
-Get-Content "$env:APPDATA\asd-tauri\asd.log" -Tail 20 -Wait  # 实时查看日志
+$logDir = "$env:APPDATA\com.asd.tauri"                       # = %APPDATA%\<identifier>
+Get-ChildItem "$logDir\asd.*.log" | Sort-Object LastWriteTime | Select-Object -Last 1 |
+  Get-Content -Tail 20 -Wait                                 # 实时查看最新日志
 ```
 
 ### 4.10 推送与 CI 结论核查（TD-028）
