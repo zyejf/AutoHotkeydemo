@@ -171,7 +171,7 @@ CARGO_INCREMENTAL=0 cargo llvm-cov --workspace --summary-only
 | 3 | **高** | 未覆盖高风险路径 | `ci.yml:566-568` + `30-33`（`run_e2e` 默认 false）；`src-tauri/src/lib.rs` 行覆盖 22.84%（本机 llvm-cov） | **启动装配路径无自动化验证。** 53 条 E2E 在 CI 上结构性不可达（零执行），只能在开发者本机手动跑；而 `lib.rs`（app 装配 + `run()`）覆盖仅 22.84%，`main.rs` 0%。"用户装完双击打不开"这类事故没有任何自动化防线。 | 实测（配置 + 覆盖率） | 接受 E2E 上不了 CI（TD-061 已证伪两条通道），但必须：① 把"发版前本机手动跑一遍 `cd asd-tauri/e2e && npm test` 并把结果贴进发布记录"写成发布 DoD；② 把 `lib.rs` 里可抽出的纯装配逻辑（如 builder 配置映射）抽成纯函数补单测 |
 | 4 | **高** | 发布验证缺失 | `ci.yml:786-913` release job 全部步骤：checkout → toolchain → cache → node → `npm ci` → AHK → `npm run tauri build` → 收集 exe + SHA256 → 上传 | **发布产物无任何冒烟**：不安装、不启动、不执行一次连招、不校验 AHK 子进程能否拉起。`release` job 从未执行（TD-074，P0）。也就是说"CI 能出包"目前是**未验证假设**（ci.yml:781-785 自己承认"首次执行不保证一次绿"）。 | 实测（读配置） | 发布前：① 手动 dispatch 跑一次 `release` 并人工观察；② 补一条冒烟步骤（装 NSIS → 启动 → `invoke('get_groups')` 或执行一个连招 → 退出码校验），哪怕只在手动 dispatch 下跑 |
 | 5 | **中** | 假守护（空转） | 三种独立算法交叉验证（详见 §5.1）：① `grep -rn "#\[ignore" --include=*.rs asd-tauri/` = **9 命中，全部在注释里**；② PowerShell `Select-String -Pattern '#\[ignore'` = **9**；③ 逐行判定行首非注释的真实属性 = **0**；另 `cargo test -p asd-tauri --lib -- --ignored --list` → **`0 tests, 0 benchmarks`** | **CI 的 G3h 步骤（`ci.yml:166-171`）实测执行 0 个用例**（2026-09-19 提交 `721159a` 摘除了 watchdog 的 15 条 `#[ignore]`，但 G3h 与它的注释 159-164 都没跟着改）。叠加 170 行 `continue-on-error: true` ⇒ 这一步既空转又不阻断。 | 实测 | **采纳 Cody 的方案 2 并加牙**：改写为"元门禁"——断言 `cargo test -p asd-tauri --lib -- --ignored --list` 输出为 `0 tests`（**不要**用 grep 判注释里的 `#[ignore]`，会有假的阳性/阴性），并**去掉 `continue-on-error: true`**，否则仍是没有牙的门禁 |
-| 5b | **高** | 门禁晋级未留痕 | `ci.yml:164`「连续跑绿 3-5 次后再摘 `#[ignore]` 转硬门禁」；实测真实 `#[ignore]` 属性 **0**（已摘）、15 条已进入**阻塞的** G3a（Cody 实测 `cargo test -p asd-tauri --lib watchdog` = 59 passed；我实测 `cargo test --workspace` 全绿、asd-tauri `--lib` 256 passed / 13.12s）；全仓检索「观测期 / 3-5」40 处命中，**唯一接近的留痕是 `remaining-issues-review-2026-09-18.md:24` 的"本地 15 passed / 13.39s + CI success"——一次本地 + 一次 CI，不是连续 3-5 次** | **晋级动作做了，前置判据没留痕。** 更麻烦的是**两处判据本身不一致**：`ci.yml:159-164` 写的是「连续跑绿 3-5 次」，`watchdog_integration_tests.rs:5-17` 写的依据却是「实测全量仅约 13 秒且 15/15 通过」（"不慢" ≠ "连续绿 N 次"）——晋级按了后者，规定写的是前者。风险实质化：这批用例**真起 `cmd.exe` 子进程、做 PID/taskkill 清理**（`spawn_fake_executor`、`test_terminate_registered_child_kills_it`、`test_cleanup_does_not_kill_unregistered_same_name_process`），共享 runner 上比本机更易抖；一旦抖，**直接把阻塞的 G3a 打红**，不再被 `continue-on-error` 兜住。 | 实测（配置 + 检索）+ 推断（抖动风险未实测复现） | ① 补留痕：连续 3-5 次 CI 绿跑记录；或 ② 暂把该组单独成步并保留 `continue-on-error` 至观测期完成；③ 统一两处判据文字。**与 team-lead 汇总报告 finding #11 同源，已指派 Tessa，P0，0.5 人日** |
+| 5b | **高** | 门禁晋级未留痕（**三套判据互相冲突**） | 实测真实 `#[ignore]` 属性 **0**（已摘）、15 条已进入**阻塞的** G3a（Cody 实测 `cargo test -p asd-tauri --lib watchdog` = 59 passed；我实测 `cargo test --workspace` 全绿、asd-tauri `--lib` 256 passed / 13.12s）；全仓检索「观测期 / 3-5」40 处命中，**唯一接近的留痕是 `remaining-issues-review-2026-09-18.md:24` 的"本地 15 passed / 13.39s + CI success"——一次本地 + 一次 CI** | **晋级动作做了，前置判据没留痕，而且判据本身有三套且互相冲突**（Cody 指出第三套，我已核实原文）：<br>· `ci.yml:164`：**连续跑绿 3-5 次**<br>· `watchdog_integration_tests.rs:5-8`：**实测约 13 秒且 15/15 通过**（速度判据**不是**次数判据）<br>· `watchdog_integration_tests.rs:23-24`：**本机与 CI 各连续 ≥10 次全绿**（含 `--test-threads=1`）——最严<br>**晋级实际按的是最弱那条（"不慢"）**，留痕（1 次本地 + 1 次 CI）离最严判据差得最远。<br>ⓘ **独立反证 1**：`watchdog_integration_tests.rs:24` 自己规定「摘的同时必须把本段判据一并删除或改写，不许留下过期说明」——而**该判据段（L14-26）至今仍在文件里**，摘除动作连它自己写的规则都没执行。<br>ⓘ **独立反证 2**（Cody 补充）：同段 L25-26 第 5 条要求「能用替身覆盖就**优先用替身**，把真实进程用例降级为可选的手动验证」——而这 15 条恰恰是**真实进程用例**（真起 `cmd.exe`、做 taskkill），按第 5 条本应先做替身，现在直接摘 `#[ignore]` 进 CI，与判据 5 也拧着。风险实质化：这批用例**真起 `cmd.exe` 子进程、做 PID/taskkill 清理**（`spawn_fake_executor`、`test_terminate_registered_child_kills_it`、`test_cleanup_does_not_kill_unregistered_same_name_process`），共享 runner 上比本机更易抖；一旦抖，**直接把阻塞的 G3a 打红**，不再被 `continue-on-error` 兜住。 | 实测（配置 + 检索 + 原文）+ 推断（抖动风险未实测复现） | ① 补留痕：按**最严**那套（本机与 CI 各 ≥10 次连续绿）补齐，或显式决议改判据并同步三处；② 或暂把该组单独成步并保留 `continue-on-error` 至观测期完成；③ 统一三处判据文字，并按 L24 的要求把过期判据段删除/改写；④ 补做第 5 条（L25-26）要求的"替身优先"评估——若不打算做替身，就显式记录为什么接受真实进程用例进 CI。**与 team-lead 汇总报告 finding #11 同源，已指派 Tessa，P0，0.5 人日** |
 | 6 | **中** | 假守护（排除） | `scripts/check-tech-debt.py:286` `PRUNE_DIR_NAMES = {..., "archive"}` + 130-131 显式排除 `tests/archive`；`find tests/archive -name '*.ahk' \| wc -l` = **41**；G3g 清单只收了其中 3 个 | **C2「测试未接入执行」检查把 `archive` 整个目录排除在扫描之外**，于是 `tests/archive/` 下 **38 个 .ahk 从未被执行、且不出现在任何告警里**（TD-079 的同型问题：死代码穿了隐身衣）。`tests/run_tests.ahk` 同理：全仓零引用、永不执行。 | 实测 | 二选一：① 把 `archive/` 整体移出 `tests/`（比如 `_attic/`），让命名与"归档=不跑"的语义一致；② 在 C2 里对 `archive` 单独出一份"仅统计、不阻断"的清单，让死脚本数量可见 |
 | 7 | **中** | 门禁不可达 | `scripts/check-gates.sh` 全文：闸门为 G1/G3i/G2a/G2b/G3a/G3b/G3c/G3d/G3e/G3g + G4，**无 G3f** | **覆盖率棘轮不在本地四闸门里。** 开发者本机跑 `check-gates.sh` 全绿，也可能在 CI 上被 G3f 拦下；反过来本机的 `check-gates.sh` 也没有任何一步会告诉开发者"你把覆盖率跑掉了 3pp"。且 G3f 跑在 ubuntu、基线取于 Windows（`ci.yml:332-333` 自己承认平台可能系统性偏离）。 | 实测 | 给 `check-gates.sh` 加 `--with-coverage`（本机生成 lcov 后跑 `check-coverage.py`，仅提示不阻断），至少让"覆盖率掉了"在本地可见；或明确写"覆盖率判定以 CI 为准"并给出取数命令 |
 | 8 | **中** | 口径未决 | 本机实测 ② src-tauri 69.98% / ③ 全仓 83.98%；`test-map.md` 已加 banner 标注 89.05% 是"3 个纯逻辑 crate"口径 | **T1（`src-tauri` 是否纳入覆盖率口径）仍未决策。** 现状是：代码量最大、覆盖最低（69.98%）的那个 crate 完全在棘轮之外，只有文档标注。且 89.05% 这个"对外主引用数字"现在已经过期（见 #1）。 | 实测 + 推断（T1 未决为既有事实） | 本轮就决策：若纳入，用 Windows runner 另起一个 coverage job（`src-tauri` 在 Linux 编不过）并单独设基线；若不纳入，把对外材料的默认引用数字改成"① 91.82%（3 个纯逻辑 crate，门禁口径）/ ② 69.98%（src-tauri）/ ③ 83.98%（全仓）"三数字并列，禁止单引 |
@@ -196,6 +196,27 @@ Cody 用 `Select-String` 扫三遍得 **0 命中**，我用 `grep` 得 **9 命�
 - 字面量模式把 `\` 当普通字符，源码里是 `#[ignore]` 而不是 `#\[ignore]`，故恒为 0。
 - 那 9 条**确实全在注释里**（`//!` 或 `//` 开头）：`bridge_tests.rs` L5/L181/L189、`watchdog_integration_tests.rs` L5/L6/L7/L14/L15/L17。其中 L181/L189 说的是 BUG-4 已于 2026-09-13 删除的死测试。
 - **结论（真实属性 0）双方一致**；但引用"9 处"时必须带上"全在注释里、真实属性 0"，否则审稿人会按字面量复现后扑空。已按此改写发现 #5。
+
+### 5.2 元门禁的必要补充：用例总数下限门（Cody 提出，我已核实并修正其基线数字）
+
+Cody 指出 `-- --ignored --list == 0` 这道元门禁**拦不住三类"测试消失"**：注释掉的、`#[cfg]` 排除的、根本没参与编译的。本项目有现成先例 —— `bridge_tests.rs:178-190` 记载 `test_tauri_event_bridge_emit` 是**整段被删除**（2026-09-13 BUG-4），不是挂 `#[ignore]`，元门禁对它完全无感。（该删除本身合理：死测试无条件 `panic!`，使 `--ignored` 永远 1 failed、形成狼来了效应。）
+
+**因此建议再加一道「用例总数下限门」**：断言 `cargo test --workspace -- --list` 的注册数 ≥ 基线，一条命令同时覆盖"删除 / 注释 / 条件编译排除"三类消失，成本同样低。
+
+⚠️ **但 Cody 给的基线数字 465 不能用 —— 本机实测不符：**
+
+| 命令 | 实测值（本机 2026-09-19） |
+|---|:---:|
+| `cargo test --workspace -- --list \| grep -c ": test$"` | **667**（Cody 已独立复现，一致） |
+| 逐 crate `--all-targets -- --list` 求和（G3d 权威口径） | **666**（161+72+173+3+257） |
+
+**465 的来历（Cody 已自查并说明，此处留痕以防他人再踩）** = `406 + 59`：
+- `406` = `cargo test -p asd-application -p asd-domain -p asd-ipc-protocol`（**只 3 个 crate，完全不含 src-tauri**）
+- `59` = `cargo test -p asd-tauri --lib watchdog`（**按名过滤**，原文 `59 passed; 197 filtered out`）
+
+即把一个**过滤后的子集**当成了全量。`667 − 465 = 202`，正好对上那 `197 filtered` 加零头 —— 我算的"约 202 条消失额度"在机制上说得通。
+
+若按 465 设下限，闸门会有 **约 202 条用例的静默消失额度** —— 那不是守护，是把 TD-058 的 A 类失效换了个壳。**水位线必须取实测值，且先定死用哪条命令再定基线**（两条命令差 1 条，差在 bin 目标；这正是 §4「重取基线必须用同一条命令」那条纪律的同一个坑）。建议：以 G3d 已在用的逐 crate `--all-targets` 口径为准，基线 **666**，容差 0（只阻下降），与 G3d 共用同一次采集。
 
 **归属更正**：`#[ignore]` 的摘除来自今日提交 **`721159a`**（`fix(core): 修 IPC 管道名抢注与看门狗误杀范围…`，author `AutoHotkeyDemo Dev`，2026-09-19）。该提交作者是共用账号，**不能归属到某位成员** —— 我上一条给 Cody 的消息里写成"你摘掉的"是不成立的，已更正。（另：`git log -S '#[ignore'` 显示该属性由 `f2edfde` 引入、`721159a` 移除。）
 
@@ -270,3 +291,5 @@ Cody 用 `Select-String` 扫三遍得 **0 命中**，我用 `grep` 得 **9 命�
 
 - v1（2026-09-19 18:55）：初稿。
 - v2（2026-09-19）：根据 Cody 的独立复核修订 —— ① 发现 #5 的证据改为三算法交叉验证并说明「字面量匹配」复现陷阱（新增 §5.1）；② 新增发现 **#5b（高）门禁晋级未留痕**；③ #5 建议改为 Cody 的方案 2 并去掉 `continue-on-error`；④ 发现 #12（G3b 重试不对称）下调为 P2 并采纳 Cody 的反向建议；⑤ 更正 `#[ignore]` 摘除的归属为提交 `721159a`（共用账号，不归属到个人）。
+- v3（2026-09-19）：根据 Cody 第二轮复核修订 —— ① **#5b 升级为"三套判据互相冲突"**：补入第三套（`watchdog_integration_tests.rs:23-24` 本机与 CI 各 ≥10 次连续全绿），并新增两条独立反证（L24 要求"摘除时须一并删除判据段"，而该段 L14-26 至今仍在文件里；L25-26 第 5 条"替身优先"亦被绕过）；② 新增 **§5.2 用例总数下限门**——采纳 Cody 的补充方案，但**修正其基线数字**：实测 `cargo test --workspace -- --list` = **667**、G3d 权威口径 = **666**，其提议的 465 会带来约 202 条用例的静默消失额度，不可用。
+- v4（2026-09-19）：按 Cody 第三轮复核**校准行号**（「≥10 次」24-25 → **23-24**；「须删除判据段」L25 → **L24**；判据段范围 L15-27 → **L14-26**）—— 经 Read 工具逐行核对原文确认其修正正确；并补入「独立反证 2」（第 5 条替身优先被绕过）与 465 来历（`406 + 59` 过滤子集）的留痕。
