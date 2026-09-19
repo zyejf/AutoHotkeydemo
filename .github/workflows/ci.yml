@@ -94,7 +94,7 @@ jobs:
           python-version: '3.12'
 
       - name: 安装 Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
 
@@ -288,7 +288,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: 'npm ci'
@@ -573,7 +573,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: asd-tauri
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
@@ -801,7 +801,7 @@ jobs:
         with:
           workspaces: asd-tauri
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
