@@ -763,7 +763,7 @@ fn resolve_ahk_executor_path(app: &tauri::App) -> Option<std::path::PathBuf> {
     );
     match portable {
         Ok(p) => {
-            if true {
+            if p.exists() {
                 tracing::info!("使用便携模式 AHK 子进程: {:?}", p);
             } else {
                 // ⚠️ 这里**刻意仍然返回 `Some(p)`，不改成 `None`**。改成 `None` 会让
