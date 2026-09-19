@@ -1,14 +1,19 @@
 # CI「静默 skip 面」普查（`needs:` / `if:` / `continue-on-error`）
 
-**日期**：2026-09-20　**范围**：只读普查 `.github/workflows/ci.yml`（1249 行）与相关 docs，**不改任何 job 触发逻辑**
+**日期**：2026-09-20　**范围**：只读普查 `.github/workflows/ci.yml`（普查时 1249 行）与相关 docs，**普查阶段不改任何 job 触发逻辑**
+
+> ⚠️ **引用请用 `grep` 锚点，不要只引行号。** 该文件正在被多人改动：普查之后已因新增哨兵 job 从 1249 行长到 1284 行，`needs:` 从 `:908` 漂到 `:924`、发布 job 的 `if:` 从 `:930` 漂到 `:946`。**行号只作参考**，定位请用本文给出的 `grep` 锚点。
 **任务**：普查所有挂在 `needs:` 下的 job，画出「上游红 ⇒ 本 job skipped（不红不报警）」的静默 skip 面
 
 ---
 
 ## 0. 结论摘要
 
-1. **全文件只有一处 `needs:`**：`ci.yml:908` `release: needs: gates`，且**没有** `if: always()`。
+1. **A 面的边只有一条**：`release` → `needs: gates`（普查时是全文件唯一一处 `needs:`），且**没有** `if: always()`。
    上游 `gates` 红 / skipped / cancelled ⇒ `release` **skipped，不是 failed**。
+   ⚠️ **2026-09-20 后续更新**：已新增 `release_skip_sentinel`（`1d9ac7c`，同样 `needs: gates`），
+   故 `needs:` 现在共 **2 处**。但既有语义**一处未改**，且哨兵**不依赖** `release`、`release` 也不依赖它
+   ⇒ **A 面的边仍然只有 `release ← gates` 这一条**，本节结论不受影响。哨兵自身的覆盖边界见 §8。
 2. **但「静默」的成因不是这一条，而是 `skipped` 这个状态本身不可自证。** `release` 的 `skipped` 至少由 **4 个互不相同的原因**产生，且**原因 1 在 `release` job 自身完全不可见**（该 job 从未启动，因此没有任何日志）。
 3. **另有 4 个 job 靠 `if:` 门控**（`fuzz` / `bench` / `ahk-bench` / `e2e`），它们的 `skipped` 是「按设计不跑」，与 `release` 的「本该跑但被上游掐掉」**外观完全相同**（都是灰色 skipped）。这两类**必须靠人记住上下文才能分开**。
 4. **发现一处自述与机制矛盾**：`ahk-bench` 自陈「本 job 是**门禁** —— 失败会阻断合并」（`ci.yml:600-602`），但其 `if:`（`:610-612`）**排除了 `pull_request`** ⇒ 它在 PR 上**从不运行**，因此**结构上不可能阻断合并**，只能在合并之后于 main 上事后报警。
@@ -27,14 +32,14 @@
 ## 2. A 面 —— `needs:` 级联（核心案例，1 处）
 
 ```yaml
-release:                                    # ci.yml:902
-  needs: gates                              # ci.yml:908
-  if: github.event_name == 'workflow_dispatch' && inputs.build_release && github.ref == 'refs/heads/main'   # :930
+release:                    # 定位：grep -n '^  release:'
+  needs: gates              # 定位：grep -n 'needs: gates'（第一处）
+  if: github.event_name == 'workflow_dispatch' && inputs.build_release && github.ref == 'refs/heads/main'
 ```
 
 GitHub Actions 语义：`needs` 指向的 job **失败或被跳过或被取消**时，下游 job 默认**被跳过**（除非下游写 `if: always()`）。本 job **没有** `if: always()`。
 
-`ci.yml:905-907` 的注释**已经承认**这个行为并判为刻意：
+`release` job 头之后的注释（定位：`grep -n '这正是想要的行为'`）**已经承认**这个行为并判为刻意：
 
 > 「发布产物是拿去给用户装的，必须建立在四闸门绿之上。若 gates 红，本 job 本就不该产出任何东西 —— 这正是想要的行为。」
 
@@ -107,7 +112,7 @@ GitHub Actions 语义：`needs` 指向的 job **失败或被跳过或被取消**
 
 ---
 
-## 5. 总表（全部 10 个 job）
+## 5. 总表（普查时 10 个 job + 2026-09-20 新增哨兵 1 个 = 11）
 
 | job | 行 | 性质 | `needs` | `if:` 门控 | job 级 `continue-on-error` | 静默面 |
 |---|---|---|---|---|---|---|
@@ -121,12 +126,15 @@ GitHub Actions 语义：`needs` 指向的 job **失败或被跳过或被取消**
 | `ahk-bench` | 599 | **自称门禁** | — | `push&&main` 或 dispatch+flag | 否 | **PR 上 skipped ⇒ 无法阻断合并** |
 | `e2e` | 682 | 手动 | — | `dispatch && run_e2e` | 否 | skip 面（TD-016 已记账） |
 | `release` | 902 | 交付物 | **`gates`** | `dispatch && build_release && main` | 否 | **核心案例：`skipped` 四因不可分** |
+| `release_skip_sentinel` | — | **报警器** | `gates` | `always() && dispatch && build_release && gates != success` | 否 | 2026-09-20 新增（`1d9ac7c`）；**自身健康态即 `skipped`，无法自证**，见 §8 |
 
 ---
 
-## 6. 建议（**未执行**，供裁定）
+## 6. 建议
 
-### 6.1 `ci.yml` 注释草案（给 `release` job，插在 `:907` 之后）
+### 6.1 `ci.yml` 注释草案（给 `release` job）
+
+**⚠️ 已落地（2026-09-20，`1d9ac7c`）—— 但落地形态与本草案不同。** 实际采用的是**新增哨兵 job** `release_skip_sentinel`（把静默 skipped 变成可见失败），而不是加注释；`release` job 内也已另有团队补写的缺口注释（定位：`grep -n '观测性缺口'`）。本草案保留作历史记录，**不要重复插入**。
 
 > ```yaml
 >     # ⚠️ 上面这条「gates 红 ⇒ 本 job 不产出」是对的，但**信号有代价**：
@@ -153,4 +161,36 @@ GitHub Actions 语义：`needs` 指向的 job **失败或被跳过或被取消**
 1. **未实跑任何 CI**：全部结论来自静态读 `ci.yml` + GitHub Actions 的**文档语义**。「上游不绿 ⇒ 下游 skipped」是文档语义，**本仓未实测复现**（虽然任务描述里那两次观测与该语义一致）。
 2. **未验证分支保护设置**：`skipped` 是否被算作「必需检查通过」，取决于 GitHub 侧配置，**仓库内部看不到**。本文**不主张**该风险已成立，只标注**它是危险性的前提**。
 3. **`ci.yml` 是仓库内唯一的 workflow 文件**（`.github/workflows/` 下只有它一个）⇒ 「只扫了 `ci.yml`」等价于「扫了全部 workflow」。若日后新增 workflow，本普查**不覆盖**。
-4. 行号取自 2026-09-20 的 `ci.yml`（1249 行）；该文件正在被多人改动，**引用时请连 subject 一起引**，不要只引行号。
+4. 行号按 2026-09-20 普查时的版本（1249 行）标注；该文件正在被多人改动，**引用请用本文的 `grep` 锚点**，不要只引行号。
+
+---
+
+## 8. 哨兵 job 自身的覆盖边界（2026-09-20 补，`1d9ac7c` 之后）
+
+新增的 `release_skip_sentinel` 把「gates 未通过导致发布被静默跳过」变成一条具名失败。**但它不等于「静默跳过已解决」**，两条边界必须一起记：
+
+### 8.1 它只覆盖 §2 四个原因里的**第 1 个**
+
+`ref != refs/heads/main`（如误选 tag）时 **`gates` 是 `success`** ⇒ 哨兵**静默**，而 `release` 照样被跳过。
+⇒ 而这恰恰是文件自己标为硬护栏的那一条 —— 理由是从旧 tag 构建出的包**与正常发版产物无法区分**。
+**哨兵漏掉的正是唯一会产出「像样但错」的产物那个原因。**
+
+原因 2/4（未勾 `build_release` / 事件不是 dispatch）哨兵静默是**对的** —— 本来就没要求构建，不是缺口。
+
+### 8.2 ⚠️ 它**无法自证**：健康态与退化态是同一个观测
+
+哨兵在 push / PR / schedule / 未勾 `build_release` 的 dispatch / gates 绿的 dispatch 下**本来就应该 `skipped`**。
+⇒ 「因为一切正常所以 skipped」与「因为条件被改成恒假所以 skipped」**在 UI 上完全一样**。
+⇒ 它是一个**只有缺席才可见的报警器，而它的缺席与它的健康长得一模一样**。
+
+**变异对照结论**（不落进代码注释，记在此处）：
+
+| 变异 | 误报 | 漏报 | UI 可检出性 |
+|---|---|---|---|
+| `!= 'success'`（**现行**） | `gates == cancelled`（如被后续 dispatch 顶掉）时归因偏成「上游闸门未通过」 | **原因 3 全部** | — |
+| → `!= 'failure'` | **gates 绿时也报**（而发布其实正在正常构建）⇒ 每次成功发版都红 | **gates 红时静默 ⇒ 造它的那个场景被漏掉**（检查被反相） | **高**（正常路径即红，自我暴露） |
+| → 恒假 | 无 | **全部**（四个原因一起复活） | **零** ← 最危险 |
+
+**⇒ 恒红：不会。恒绿（从不触发）：会，且静默。**
+**⇒ 它需要与冒烟脚本变异测试同一条纪律（*变异不生效 = 等于没验*），但此处跑不了运行时变异**（要故意让 gates 红并勾 `build_release`）。唯一便宜的办法是**静态钉住**：解析 `ci.yml` 断言 ① job 存在 ② `if:` 含 `always()` ③ 含 `!= 'success'` ④ `needs: gates`。
+**本普查未实施该守卫**（属改机制）。**次便宜**：把「本 job 的存在不构成它有效」记进账本，免得后人把「文件里有这个 job」读成「静默跳过已解决」。
