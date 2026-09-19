@@ -365,7 +365,7 @@ jobs:
         run: python scripts/check-coverage.py --lcov asd-tauri/coverage/lcov.info
       - name: 上传覆盖率报告
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: asd-tauri/coverage/lcov.info
@@ -462,7 +462,7 @@ jobs:
           cargo +nightly fuzz run fuzz_hotkey_merger -- -max_total_time=600
       - name: 上传 fuzz 产物
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-artifacts
           path: asd-tauri/src-tauri/fuzz/artifacts/
@@ -575,7 +575,7 @@ jobs:
 
       - name: 上传基准 CSV（失败时便于人工复核）
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ahk-bench-csv
           path: |
@@ -586,7 +586,7 @@ jobs:
 
       - name: 上传新基线（仅重设基线时）
         if: github.event_name == 'workflow_dispatch' && inputs.update_ahk_bench_baseline
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ahk-bench-baseline
           path: tools/ahk-bench/baselines.json
@@ -768,7 +768,7 @@ jobs:
           }
       - name: 上传 E2E 报告
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-reports
           path: asd-tauri/e2e/reports
@@ -1024,7 +1024,7 @@ jobs:
       #    因为发版步骤在其后，job 已失败不会走到。）
       - name: 上传安装包 + 校验和
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ASD-SkillManager-v${{ steps.meta.outputs.version }}-windows-x64
           path: ${{ runner.temp }}/release-artifacts/*
