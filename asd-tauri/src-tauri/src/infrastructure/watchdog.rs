@@ -1479,10 +1479,10 @@ mod tests {
         assert_eq!(decide_spawn_retry(0, false), SpawnRetryDecision::GiveUp);
     }
 
-    /// `exe_exists=false` 时必须**恒 GiveUp** —— 任何 attempt 序号都不例外。
+    /// `exe_exists=false` 时必须**恒 `GiveUp`** —— 任何 attempt 序号都不例外。
     ///
     /// 这条同时是 TD-089 定性的判据：TD-089 的失败形态是资源**目录**不存在
-    /// （`os error 3`）⇒ `exe_exists == false` ⇒ 永远走 GiveUp ⇒
+    /// （`os error 3`）⇒ `exe_exists == false` ⇒ 永远走 `GiveUp` ⇒
     /// **退避重试对 TD-089 完全不生效**，它是防御性加固、不是 TD-089 的修复。
     /// 守住它，等于守住「这段代码不会被误记成已修」。
     #[test]
