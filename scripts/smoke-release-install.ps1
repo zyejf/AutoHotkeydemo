@@ -322,10 +322,39 @@ function Get-CriterionStates {
         # ⚠️ 这一条是**打包/安装层**的判据，不是运行时的。少了它，安装目录只落了主 exe
         #    时 C1 照样 PASS，脚本会继续启动，然后在 C4/C5 报「拉不起 AHK / IPC 没认证」
         #    —— 真正的原因（资源没打进包）被伪装成运行时缺陷，排障被引偏。
+        # ⚠️ **失败归因必须跟着 Verdict 走**（2026-09-20 补，team-lead 批）。
+        #    只读 $ahkResOk 的话，「资源曾就位、之后被删」（Vanished）也会被写成
+        #    「打包/安装层缺陷」—— 那是同一种引偏，只是引到了另一侧。
+        #    Verdict 由 Get-AhkResourceStability 从采样序列算出。
+        #    ⚠️ **判据本身（PASS/FAIL）不看 Verdict**：这里只改「失败时说什么」，
+        #       C1 的 PASS/FAIL 语义与加 Verdict 之前逐字相同（由 MC1r 钉住）。
+        $ahkVerdict = [string](Get-Ev $Evidence 'AhkResourceVerdict' 'Missing')
+        $ahkDirOk   = [bool](Get-Ev $Evidence 'AhkResourceDirExists' $false)
+        $ahkTrace   = [string](Get-Ev $Evidence 'AhkResourceTrace' '')
+        $ahkPaths   = [string](Get-Ev $Evidence 'AhkResourcePathTrace' '')
         $c1State = 'FAIL'
-        $c1Detail = "安装器退出 0、$mainExe 已就位，但 $ahkRes 不存在 —— 包内 AHK 资源没落全。"
-        $c1Detail += ' 这是打包/安装层缺陷（资源清单见 tauri.conf.json:37-48），不是运行时故障；'
-        $c1Detail += ' 继续启动只会得到「拉起 AHK 失败」，把原因引偏到 IPC 认证上。'
+        $c1Detail = "安装器退出 0、$mainExe 已就位，但 $ahkRes 在 5 次采样里没有做到「次次都在」（轨迹 $ahkTrace）。"
+        if ($ahkVerdict -eq 'Vanished') {
+            $c1Detail += ' 归因：**资源曾就位、之后消失** —— 有东西在删安装目录（清理器 / 竞态），'
+            $c1Detail += '**不是**「资源没打进包」。先查谁在删，别去改 tauri.conf.json 的资源清单。'
+        }
+        elseif ($ahkVerdict -eq 'Late') {
+            $c1Detail += ' 归因：**首样不在、之后出现** —— 安装器已退出但资源尚未落盘 / 可见性延迟，'
+            $c1Detail += '既不是打包缺失也不是被删。慢盘上会假红，属**已知取舍**（见 TD-089）。'
+        }
+        elseif ($ahkDirOk) {
+            $c1Detail += ' 归因：**ahk_executor 目录在、但这个文件不在** —— 打包清单少列了它'
+            $c1Detail += '（资源清单见 tauri.conf.json:37-48），属打包/安装层缺陷。'
+            $c1Detail += " 目录/文件逐次存在性：$ahkPaths"
+        }
+        else {
+            $c1Detail += ' 归因：**连 ahk_executor 目录都不在** —— 资源整块没落盘 / 装到了别处，'
+            $c1Detail += '不是「清单漏列一个文件」。'
+            $c1Detail += " 目录/文件逐次存在性：$ahkPaths"
+        }
+        if ($ahkVerdict -ne 'Vanished' -and $ahkVerdict -ne 'Late') {
+            $c1Detail += ' 这是打包/安装层缺陷，不是运行时故障；继续启动只会得到「拉起 AHK 失败」，把原因引偏到 IPC 认证上。'
+        }
     }
     else {
         $c1State = 'PASS'; $c1Detail = "$mainExe 已就位（$mainSize 字节）+ AHK 资源齐全，退出码 0"
@@ -875,6 +904,46 @@ function Invoke-GuardSelfCheck {
             $broken += 'MC1s 负向失效：空采样被判齐全 —— 「一次都没采到」被当成通过，正是不会失败的检查'
         }
 
+        # ── C1 的失败归因必须跟着 Verdict 走（MC1v）─────────────────────────
+        # ⚠️ 本组钉的是「**失败时说的是哪种失败**」，**不是** PASS/FAIL（那是 MC1r 的活）。
+        #    为什么必须钉：归因文案若写死成「打包/安装层缺陷」，Vanished（资源被删）
+        #    也会被这么报 —— 把排障引向 tauri.conf.json 的资源清单，是同一种引偏的另一侧。
+        #    验收方式：把 AhkResourceVerdict 的读取改成恒定值 ⇒ 四句归因塌成同一句 ⇒ 本组变红。
+        #    ⇒ 所以这里既查「每句说到点上」，也查「四句两两不同」——后者才是防塌陷的那一条。
+        $attBase = @{}
+        foreach ($k in $goodPack.Keys) { $attBase[$k] = $goodPack[$k] }
+        $attBase['AhkResourceExists']  = $false   # 逼 C1 落进 AHK 分支
+        $attBase['AhkResourceTrace']   = 'T,F,T'
+        $attBase['AhkResourcePathTrace'] = 'root=TTTTT dir=TTTTT exec=FFFFF'
+        $mkAtt = {
+            param([string]$Verdict, [bool]$DirExists)
+            $p = @{}
+            foreach ($k in $attBase.Keys) { $p[$k] = $attBase[$k] }
+            $p['AhkResourceVerdict']   = $Verdict
+            $p['AhkResourceDirExists'] = $DirExists
+            $p
+        }
+        $dVan    = [string](Get-StateOf @(Get-CriterionStates -Evidence (& $mkAtt 'Vanished' $true))  'C1').Detail
+        $dLate   = [string](Get-StateOf @(Get-CriterionStates -Evidence (& $mkAtt 'Late' $true))      'C1').Detail
+        $dMissD  = [string](Get-StateOf @(Get-CriterionStates -Evidence (& $mkAtt 'Missing' $true))   'C1').Detail
+        $dMissNo = [string](Get-StateOf @(Get-CriterionStates -Evidence (& $mkAtt 'Missing' $false))  'C1').Detail
+        if ($dVan -notmatch '之后消失') {
+            $broken += "MC1v 归因失效：Verdict=Vanished 时文案没点明「之后消失」—— 资源被删会被当成打包缺失。实际：$dVan"
+        }
+        if ($dLate -notmatch '之后出现') {
+            $broken += "MC1v 归因失效：Verdict=Late 时文案没点明「之后出现」—— 慢盘假红会被当成打包缺失。实际：$dLate"
+        }
+        if ($dMissD -notmatch '少列了它') {
+            $broken += "MC1v 归因失效：Verdict=Missing 且目录在时，文案没点明「打包清单少列了它」。实际：$dMissD"
+        }
+        if ($dMissNo -notmatch '目录都不在') {
+            $broken += "MC1v 归因失效：Verdict=Missing 且目录不在时，文案没点明「目录都不在」。实际：$dMissNo"
+        }
+        $attUnique = @(@($dVan, $dLate, $dMissD, $dMissNo) | Select-Object -Unique).Count
+        if ($attUnique -lt 4) {
+            $broken += "MC1v 归因失效：四种归因的文案没有两两不同（去重后只剩 $attUnique 种）—— 归因被写死成同一句，判别器等于不存在"
+        }
+
         # C3 单独处理：它的坏包按**设计**是 UNVERIFIED（「拿不到稳定判据」是刻意的，
         # 见文件头 C3 说明），硬断言 FAIL 会与设计自相矛盾。三档：
         #   ① 坏包必须「不是 PASS」（恒绿会被抓住）
@@ -1183,6 +1252,10 @@ $ev = @{
     AhkResourceVerdict  = 'Missing'
     AhkResourceTrace    = ''
     AhkResourceSampleMs = 0
+    # 目录位缺省 $false = 按「最严重口径」说（连目录都不在）；主流程采样后覆盖它。
+    # 这是**诊断字段**，不参与 C1 的 PASS/FAIL（判定只由 AhkResourceExists 决定）。
+    AhkResourceDirExists = $false
+    AhkResourcePathTrace = ''
     MainProcFound       = $false
     MainProcName        = $mainProcName
     MainProcId          = 0
@@ -1239,7 +1312,7 @@ try {
     }
     # AHK 资源必须和主 exe 一起验：只查主 exe 的话，「装完资源不全」会在 C1 假绿，
     # 一路带到 C4/C5 才炸，把打包缺陷报成运行时故障。
-    # ⚠️ **判定规则**（改这里必须同步改 Get-AhkResourceStability 的注释与 MC1s 断言）：
+    # ⚠️ **判定规则**（改这里必须同步改 Get-AhkResourceStability 的注释与 MC1s / MC1v 断言）：
     #     全部采样 True            ⇒ Stable   ⇒ AhkResourceExists=$true（C1 才可能 PASS）
     #     首样 False 且之后出现过  ⇒ Late     ⇒ 安装尚未落盘 / 可见性延迟，**不是**打包缺失
     #     全程 False               ⇒ Missing  ⇒ 打包 / 安装层
@@ -1247,23 +1320,46 @@ try {
     #    **任一次 False 都不算齐全**：单次快照会在「删之前 / 删之后」之间随机落点，
     #    既可能假绿也可能假红 —— 用它当「资源齐全」的判据，判别力是有偏的。
     #    ⚠️ Late 也判不齐全（C1 FAIL）是**刻意的取舍**：宁可吵闹 —— 「安装器已退出、
-    #       资源却还没落盘」本身就值得看一眼；代价是慢盘机器上可能假红。基率未知，
-    #       首次真跑之前不要假定它罕见。
+    #       资源却还没落盘」本身就值得看一眼；代价是慢盘机器上可能假红，基率未知
+    #       （首次真跑之前不要假定它罕见）。**下一个看到慢盘假红的人：那不是 bug，
+    #       不要把它「修」成不吵闹** —— 判据一旦不吵就等于哑了。同款记录见
+    #       docs/tech-debt-register.md 的 TD-089（只写在对话里的取舍等于没有取舍）。
+    # ⚠️ **Stable 仍只由 `AutoHotkey64.exe` 这一条路径决定 —— 语义一字未改。**
+    #    另外三条路径（安装目录 / ahk_executor / asd_executor.exe）只做**诊断记录**，
+    #    **不参与判定**，理由各有不同：
+    #      · `asd_executor.exe`：健康安装里**本来就不存在**（未列进 tauri.conf.json:37-48
+    #        的 resources，应用走便携模式）。把它算进「全部 True」会让每一次正常安装都 FAIL。
+    #      · `ahk_executor` 目录位：文件在 ⇒ 目录必然在，加进判定是冗余、不改行为。
+    #        它的唯一用途是**把「目录整块不在」与「只缺这个文件」分开**（Cody 的 ①/② 对照）。
+    #      · 安装根目录：同目录位，只作记录。
     # ⚠️ 已知覆盖边界：5 次 × 8ms 间隔 ⇒ 只覆盖「安装器退出后 ~32ms」。若删除发生在
     #    「启动 app」那一段（实测 16:03Z 那次 init→spawn 相隔 970ms），本处仍会报
     #    Stable —— 要覆盖它需要第二个采样点（放在 finally 清理之前），本处不越界。
     $ahkSampleCount = 5
     $ahkSampleMs    = 8
     $ahkSamples     = @()
+    $ahkRootSamples = @()
+    $ahkDirSamples  = @()
+    $ahkExecSamples = @()
+    $ahkProbeDir    = Join-Path $InstallDir 'ahk_executor'
+    $ahkProbeExec   = Join-Path $ahkProbeDir 'asd_executor.exe'
     for ($i = 0; $i -lt $ahkSampleCount; $i++) {
         if ($i -gt 0) { Start-Sleep -Milliseconds $ahkSampleMs }
-        $ahkSamples += [bool](Test-Path -LiteralPath $ahkResPath -PathType Leaf)
+        $ahkRootSamples += [bool](Test-Path -LiteralPath $InstallDir   -PathType Container)
+        $ahkDirSamples  += [bool](Test-Path -LiteralPath $ahkProbeDir  -PathType Container)
+        $ahkExecSamples += [bool](Test-Path -LiteralPath $ahkProbeExec -PathType Leaf)
+        $ahkSamples     += [bool](Test-Path -LiteralPath $ahkResPath   -PathType Leaf)
     }
     $ahkStab = Get-AhkResourceStability -Samples $ahkSamples
+    $rootT = ''; foreach ($v in $ahkRootSamples) { $rootT += $(if ($v) { 'T' } else { 'F' }) }
+    $dirT  = ''; foreach ($v in $ahkDirSamples)  { $dirT  += $(if ($v) { 'T' } else { 'F' }) }
+    $execT = ''; foreach ($v in $ahkExecSamples) { $execT += $(if ($v) { 'T' } else { 'F' }) }
     $ev['AhkResourceExists']   = [bool]$ahkStab.Stable
     $ev['AhkResourceVerdict']  = [string]$ahkStab.Verdict
     $ev['AhkResourceTrace']    = [string]$ahkStab.Trace
     $ev['AhkResourceSampleMs'] = [int]$ahkSampleMs
+    $ev['AhkResourceDirExists'] = [bool]($ahkDirSamples[-1])
+    $ev['AhkResourcePathTrace'] = "root=$rootT dir=$dirT exec=$execT"
 
     # 运行时证据还没有，先只判 C1。⚠️ 判定仍走纯函数，不在这里写 if/else ——
     #    主流程里每多一个判定谓词，-SelfCheck 就少覆盖一处。
