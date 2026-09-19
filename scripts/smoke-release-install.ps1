@@ -600,8 +600,17 @@ function Invoke-GuardSelfCheck {
         #    **零调用点**的状态 —— 那时 MR1–MR3 会全部变绿，而它要守的静默失败
         #    **一点没被守住**。「抽了纯函数却没接线」属于「守卫存在但从未接入」。
         #    -SelfCheck 在 `if ($SelfCheck) { exit }` 处就返回、结构上够不着主流程的
-        #    调用点，所以只能做文本级断言。**误报会逼人看一眼，漏报不会** —— 这个
-        #    方向的取舍是对的。代价：格式敏感，改写法需同步改本断言。
+        #    调用点，所以只能做文本级断言。
+        # ⚠️ **本条能覆盖什么、不能覆盖什么（措辞经校准，我先前写的 slogan 是错的）**：
+        #    能覆盖 —— 「重排 / 重构时**忘了**重接」；
+        #    覆盖不了 —— 「**按新写法重接**」。后者更危险：MR4 报红之后，只要改一行
+        #       正则去匹配新写法就变绿，CI 绿 ⇒ 合入 ⇒ **那次红色没有任何人看到**。
+        #    ⇒ 我曾写「误报会逼人看一眼，漏报不会」—— **在合入门禁的语义下这句是错的**：
+        #      误报同样会被悄悄抹平，区别只是多改一行正则。别拿它当安全网。
+        #    要保证「主流程真的会打印」，只有**端到端**一条路：实跑一次 C1 失败、
+        #    断言输出里确有 `SMOKE_RESIDUE` 行。**已固化进 CI**（release job 的
+        #    「端到端：C1 失败必须打印残留告警」step，排在真实冒烟**之前** —— 真实冒烟
+        #    首次执行很可能红，放后面就永远轮不到它跑）。本机亦已人工跑通一次。
         # ⚠️ 为什么锚点写成「**赋值形态** + `<安装目录>`」而不是光秃秃的函数名：
         #    ① 只匹配函数名会把**注释里的同名文字**算成调用点 ⇒ 断言恒绿。**已实测到**：
         #       本条自己的说明文字一度含锚点原文，于是「删掉一处真调用 + 留一段注释」
@@ -612,26 +621,57 @@ function Invoke-GuardSelfCheck {
         #       —— 这也是「行首过滤」不够、必须叠加形态锚定的原因。
         $selfPath = $PSCommandPath
         if ($selfPath -and (Test-Path -LiteralPath $selfPath)) {
-            # 锚点 = **赋值形态**：`   $notice = <函数名> -Path $InstallDir ...`
-            #   - `^\s*\$\w+\s*=\s*<函数名>` 排除了「行中 # 注释掉的调用」与「纯注释行」；
-            #   - `-Path\s+\$InstallDir` 排除了自检里那些喂字面量路径的调用。
-            #   两条缺一不可：只锚形态会被真调用 + 注释混过计数，只锚路径会被行中 # 混过。
-            $hits = @(Select-String -LiteralPath $selfPath -Pattern '^\s*\$\w+\s*=\s*Get-ResidueNotice\s+-Path\s+\$InstallDir')
-            # ⚠️ **必须跳过注释行**：本条是纯文本匹配，**注释里写同样一句话也会计数** ——
-            #    那样只要「删掉真调用 + 留两行注释」就能让 MR4 恒绿（已实测到这条伪造
-            #    路径，见提交信息里的伪造变异对照）。mutC 只证明了「拆掉调用点会红」，
-            #    **没证明「伪造不会绿」**，两者是不同的方向。
-            #    先例：scripts/check-tech-debt.py 的 `_c10_invocations` 同样靠
-            #    「跳过以 # 开头的行」避免同类误判 —— 与本条同一类问题。
-            $wired = @($hits | Where-Object { ($_.Line.TrimStart()) -notmatch '^#' })
-            if ($wired.Count -lt 2) {
-                $broken += "MR4 接线失效：主流程里 `Get-ResidueNotice -Path `$InstallDir` 的调用点只有 $($wired.Count) 处（期望 ≥2：C1 失败 + 清理失败）—— 函数还在但没人调用 ⇒ 残留提示永远不会打印，静默失败照旧"
+            # ⚠️ **改用 AST 解析，不再用文本匹配**。文本匹配这条路已被连续三轮找到
+            #    伪造向量，每补一层正则就有人从下一层缝漏进来（打地鼠），故整体换掉：
+            #      ① 行首 `#` 注释里写同样一句话 → 加「跳过 # 行」堵住；
+            #      ② 行中 `#`（`$x = # <fn> ...`）→ `#` 不在行首，①拦不住 → 加赋值形态锚点堵住；
+            #      ③ **块注释 `<# ... #>` 的内部行不以 `#` 开头** → ①②都拦不住，实测伪造后仍绿。
+            #    AST 直接从语法树取**真实命令调用**：行注释、块注释、字符串都不是 CommandAst，
+            #    一次性堵住这一整类。**别再往正则上堆层** —— 那是同一层的重复投入。
+            #    ⚠️ 剩余边界（无法自动覆盖）：AST 只能证明「**代码里有这个调用**」，
+            #    证明不了「**这次运行会执行到它**」（例如被前置 `return` 挡住）。
+            #    后者没有自动机制能覆盖，只能靠上面的端到端 step + 首次人工观察兜底。
+            $astErr = $null
+            $astTok = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($selfPath, [ref]$astTok, [ref]$astErr)
+            if ($null -eq $ast -or ($astErr -and $astErr.Count -gt 0)) {
+                # 解析不了就**报错**，绝不默认通过 —— 默认通过正是「不会失败的检查」。
+                $broken += 'MR4 无法自检：脚本自身 AST 解析失败 —— 接线断言**未执行**，不要当成通过'
+            }
+            else {
+                $cmds = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true))
+                $wired = @($cmds | Where-Object {
+                    $hit = $false
+                    if ($_.GetCommandName() -eq 'Get-ResidueNotice') {
+                        $els = @($_.CommandElements)
+                        for ($k = 0; $k -lt $els.Count - 1; $k++) {
+                            $e = $els[$k]
+                            if ($e -is [System.Management.Automation.Language.CommandParameterAst] -and $e.ParameterName -eq 'Path') {
+                                $nx = $els[$k + 1]
+                                if ($nx -is [System.Management.Automation.Language.VariableExpressionAst] -and $nx.VariablePath.UserPath -eq 'InstallDir') {
+                                    $hit = $true
+                                    break
+                                }
+                            }
+                        }
+                    }
+                    $hit
+                })
+                if ($wired.Count -lt 2) {
+                    $broken += "MR4 接线失效：主流程里 Get-ResidueNotice -Path `$InstallDir 的调用点只有 $($wired.Count) 处（期望 >=2：C1 失败 + 清理失败）—— 函数还在但没人调用 => 残留提示永远不会打印，静默失败照旧"
+                }
             }
         }
         else {
             # 拿不到自身路径时**不许**默认通过 —— 那正是「不会失败的检查」。
             $broken += 'MR4 无法自检：拿不到脚本自身路径（$PSCommandPath 为空或文件不在），接线断言**未执行**，不要当成通过'
         }
+
+        # ⚠️ MR5 组合层**不在这里**，已下移到「C1–C5 判据组装」之后（见后半段）。
+        #    原因（实测，不是推测）：它需要从 `$badPack` 取 C1 的判定结果，而 `$badPack`
+        #    定义在**本位置之后**；在 `Set-StrictMode` 下引用未定义变量会**直接抛出**，
+        #    于是 :679 之后的所有断言（含 MC1r、MD1–MD4）**一条都不会执行**，
+        #    而退出码仍是 1 —— 会被误读成「判据是假守卫」。**位置本身就是断言的一部分**。
 
         # ── C1–C5 的判据组装：坏证据包必须变红 / 好证据包必须变绿 ────────────────
         # ⚠️ 这一段补的是**覆盖缺口**：在此之前 -SelfCheck 只喂上面 3 个辅助函数，
@@ -761,6 +801,40 @@ function Invoke-GuardSelfCheck {
             }
             elseif ($c3Strict.State -ne 'FAIL') {
                 $broken += "MC3s 失效：坏证据包 + StrictConfig 时 C3 应为 FAIL，实际 $($c3Strict.State) —— -StrictConfig 开关是摆设"
+            }
+        }
+
+        # ── MR5 组合层：从**证据包**一路走到底 —— C1 失败 ⇒ 最终串含 SMOKE_RESIDUE ─
+        # ⚠️ 位置说明：必须放在 `$badPack` 定义**之后**（故不放在 MR1–MR4 那一段）。
+        # ⚠️ 为什么这一层必须**从证据包取 C1 的判定结果**，而不是写死 `-C1Passed $false`：
+        #    写死输入的话只覆盖「决策 + 格式化」两层的组合，**覆盖不到「C1 的判定结果
+        #    有没有真的传到决策层」**。一旦 C1 谓词被改成恒真，写死版照样绿，而真实行为
+        #    变成「装失败了也不提示」—— 正是要防的那件事。从证据包取 ⇒ 恒真变异会
+        #    让 $mr5C1.State 变 PASS ⇒ 不发提示 ⇒ MR5 红。**已实测**：把
+        #    `State = $c1State` 改成 `State = 'PASS'`，自检 exit 2 并点名 MR5。
+        #    ⚠️ 边界：仍只证明「给定失败证据 ⇒ 产出正确的话」，**不证明主流程真会执行到
+        #    那两处调用** —— 后者由 CI 的端到端 step 守（且只覆盖 C1 失败这一条分支）。
+        $mr5Bad = @{}
+        foreach ($k in $badPack.Keys) { $mr5Bad[$k] = $badPack[$k] }
+        $mr5C1 = Get-StateOf @(Get-CriterionStates -Evidence $mr5Bad) 'C1'
+        if ($null -eq $mr5C1) {
+            $broken += 'MR5 组合失效：坏证据包没返回 C1 —— 组合断言无从判定，**不要**当成通过'
+        }
+        else {
+            $mr5Plan = Get-ResiduePlan -C1Passed ($mr5C1.State -eq 'PASS') -KeepInstalled $false -CleanupOk $true
+            if (-not $mr5Plan.Emit) {
+                # ⚠️ 必须先判 Emit 再去格式化：**不要**在 Emit=false 时调 Get-ResidueNotice。
+                #    那时 Kind 是空串，而 Kind 带 [ValidateSet]，传空会**抛参数验证异常**
+                #    ⇒ 自检崩溃（实测：变异把 C1 改成恒 PASS 后，本条直接崩、退出码还被
+                #    记成 0 —— 比变红更糟，看起来像「没问题」）。先判 Emit 才能让它
+                #    **正当地报红**，这也是「守卫崩了 ≠ 守卫生效」的一个具体样例。
+                $broken += "MR5 组合失效：C1 判定为 $($mr5C1.State) 时决策层应发提示，实际 Emit=false —— 判据结果没有传到决策层"
+            }
+            else {
+                $mr5Str = Get-ResidueNotice -Path 'C:\Temp\asd-smoke-install-mr5' -Kind $mr5Plan.Kind -Reason $mr5Plan.Reason
+                if (-not $mr5Str -or $mr5Str -notmatch '^SMOKE_RESIDUE: ' -or $mr5Str -notmatch '未清理') {
+                    $broken += "MR5 组合失效：C1 判定为 $($mr5C1.State) 时应产出「SMOKE_RESIDUE … 未清理」，实际产出「$mr5Str」—— 决策 → 格式化这条链断了"
+                }
             }
         }
 
