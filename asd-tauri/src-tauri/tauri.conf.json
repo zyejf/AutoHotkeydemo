@@ -40,7 +40,9 @@
       "ahk_executor/joystick.ahk",
       "ahk_executor/high_res_clock.ahk",
       "ahk_executor/AutoHotkey64.exe",
-      "ahk_executor/asd_executor.bat"
+      "ahk_executor/asd_executor.bat",
+      "third-party/AutoHotkey-GPLv2.txt",
+      "third-party/THIRD-PARTY-NOTICES.md"
     ],
     "publisher": "ASD Team",
     "windows": {

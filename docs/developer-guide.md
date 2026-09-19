@@ -1597,6 +1597,8 @@ python -c "import zipfile;zipfile.ZipFile('asd-tauri/e2e/drivers/edriver.zip').e
 >
 > ⚠️ 若报 `Cannot find module '.../node_modules/<pkg>/index.js'` 之类，是 **node_modules 半损坏**
 > （安装过程中途被中断）。`npm install` 往往自愈不了 —— 删掉那个具体目录再 `npm install` 即可。
+
+```bash
 cd asd-tauri      && cargo audit        # 需要能访问 RustSec advisory-db
 ```
 
@@ -1678,10 +1680,10 @@ npm run tauri build
 
 | 环境 | config.json 位置 | 日志文件位置 |
 |---|---|---|
-| 开发模式 | `src-tauri/config.json` | `{app_data_dir}/asd.log` |
-| 生产环境 | `{app_data_dir}/config.json` | `{app_data_dir}/asd.log` |
+| 开发模式 | `src-tauri/config.json` | `{app_data_dir}/asd.<YYYY-MM-DD>.log` |
+| 生产环境 | `{app_data_dir}/config.json` | `{app_data_dir}/asd.<YYYY-MM-DD>.log` |
 
-`{app_data_dir}` 通常为 `C:\Users\{username}\AppData\Roaming\asd-tauri\`
+`{app_data_dir}` 通常为 `C:\Users\{username}\AppData\Roaming\com.asd.tauri\`
 
 ### 4.9 常用开发命令速查
 
