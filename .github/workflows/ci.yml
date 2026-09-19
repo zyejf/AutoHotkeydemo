@@ -391,12 +391,78 @@ jobs:
       # 且 `npm audit fix` 常常需要 breaking change —— 一刀切阻断的结果不是
       # 「大家去修依赖」，而是「把这个 job 关掉」。
       # 所以 dev 这边只把数字打进日志（不静默），存量漏洞单独登记排期（TD-020）。
+      #
+      # ⚠️⚠️ 2026-09-19 实测归因（推翻了「某个提交导致恒红」的说法）：
+      #   **本 step 不是恒红，是间歇红。** 同一份 package-lock.json 下，
+      #   2026-09-19 当天 14:33–17:00 连续 12 次绿、17:15 与 17:20 两次红、
+      #   17:42 又绿。⇒ 与代码无关，也与「提交」无关。
+      #
+      #   根因链条（读 npm 源码 + CI 日志取证，不是推测）：
+      #   ① `@npmcli/arborist/lib/audit-report.js` 的 `_getReport` **先** POST
+      #      bulk 端点 `/-/npm/v1/security/advisories/bulk`，**只有它失败时**才
+      #      兜底到 `/-/npm/v1/security/audits/quick`（本机 npm 10.9.7 源码
+      #      :323 / :336）。⇒ runner 并不是「还在用旧端点」，quick 只是**兜底**。
+      #      因此「升级 npm 就能改用 bulk 端点」这个修法**不成立** —— 10.9.8
+      #      （actions/runner-images Ubuntu2404 Readme 文档值；本 step 首行
+      #      `npm --version` 会实测打印，可复核）首选就已经是 bulk。
+      #   ② quick 端点已下线，恒返回 400（响应头 `npm-notice: This endpoint is
+      #      being retired...` 被 `npm-registry-fetch/lib/check-response.js:14-16`
+      #      打印成 `npm notice`，所以日志里先看到 notice 再看到 400）。
+      #   ③ `make-fetch-happen/lib/remote.js:82-87` 的判据是
+      #      `req.method !== 'POST' && (408|420|429|>=500)` —— **POST 一律不重试**。
+      #      ⇒ bulk 端点一抖动（限流 / 5xx / 网络），npm **不会自愈**，直接掉进
+      #      已下线的 quick，必然 400 ⇒ 硬红。`--fetch-retries` 同样无效（POST
+      #      根本不进重试分支）。这正是「间歇」而非「恒红」的成因：bulk 平时是好的。
+      #
+      #   修法（最小、且不动阻断级别）：**只对「审计端点自身故障」重试**，真漏洞
+      #   绝不重试。判据是输出里出现 `audits/quick` 或 `audit endpoint returned
+      #   an error` —— 漏洞报告里没有这两串。若把真漏洞也一起重试，等于把
+      #   「有高危 CVE」伪装成「等等再看」，那是比红灯脱敏更坏的降级。
+      #   三次都失败 → **仍然红灯（保持阻断）**，因为「查不动」不等于「没问题」；
+      #   本仓规矩是不静默变绿（与 coverage job 的同类取舍一致）。
       - name: 'npm audit · 前端生产依赖（阻断）'
         working-directory: asd-tauri
-        run: npm audit --package-lock-only --omit=dev --audit-level=high
+        run: |
+          npm --version
+          for attempt in 1 2 3; do
+            if out=$(npm audit --package-lock-only --omit=dev --audit-level=high 2>&1); then
+              printf '%s\n' "$out"
+              exit 0
+            fi
+            printf '%s\n' "$out"
+            if [[ "$out" != *"audits/quick"* && "$out" != *"audit endpoint returned an error"* ]]; then
+              echo "::error::npm audit 失败，但不是审计端点故障（多半是**真漏洞**）—— 不重试，按阻断处理"
+              exit 1
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::npm 审计端点故障（第 $attempt / 3 次），退避后重试"
+              sleep $((attempt * 10))
+            fi
+          done
+          echo "::error::npm 审计端点连续 3 次故障 —— 本次未能完成审计，按阻断处理（这是基础设施故障，不是依赖漏洞）"
+          exit 1
       - name: 'npm audit · E2E 生产依赖（阻断）'
         working-directory: asd-tauri/e2e
-        run: npm audit --package-lock-only --omit=dev --audit-level=high
+        # 与上一步同款重试逻辑，理由见上一步的注释块（不重复写，避免两处口径漂移）
+        run: |
+          npm --version
+          for attempt in 1 2 3; do
+            if out=$(npm audit --package-lock-only --omit=dev --audit-level=high 2>&1); then
+              printf '%s\n' "$out"
+              exit 0
+            fi
+            printf '%s\n' "$out"
+            if [[ "$out" != *"audits/quick"* && "$out" != *"audit endpoint returned an error"* ]]; then
+              echo "::error::npm audit 失败，但不是审计端点故障（多半是**真漏洞**）—— 不重试，按阻断处理"
+              exit 1
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::npm 审计端点故障（第 $attempt / 3 次），退避后重试"
+              sleep $((attempt * 10))
+            fi
+          done
+          echo "::error::npm 审计端点连续 3 次故障 —— 本次未能完成审计，按阻断处理（这是基础设施故障，不是依赖漏洞）"
+          exit 1
       - name: 'npm audit · dev 依赖（仅报告，不阻断）'
         continue-on-error: true
         run: |
