@@ -1263,3 +1263,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "gh release create 失败（exit=$LASTEXITCODE）" }
           "已发布: https://github.com/${{ github.repository }}/releases/tag/$tag" |
             Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8
+
+  # 发布构建的「静默跳过」哨兵：
+  # needs 不满足时，下游 job 的 conclusion 是 skipped —— 不红、不报警、不进失败列表。
+  # 本 job 用 always() 绕开 needs 的默认跳过语义，在「有人明确要求构建发布包、
+  # 但上游闸门没过」时显式失败，把原因摆在 Checks 列表里。
+  release_skip_sentinel:
+    name: 发布构建未执行（上游闸门未通过）
+    needs: gates
+    if: >-
+      always() &&
+      github.event_name == 'workflow_dispatch' &&
+      inputs.build_release &&
+      needs.gates.result != 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 报告未执行原因
+        run: |
+          echo "::error::发布构建未执行：上游 gates 结论 = ${{ needs.gates.result }}。本 job 存在的唯一目的是把 skipped 变成可见的失败 —— 发布是最不该静默的那一条路径。"
+          exit 1
