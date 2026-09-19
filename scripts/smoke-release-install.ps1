@@ -510,6 +510,62 @@ function Get-SmokeVerdict {
 # 守卫自检（反向对照）：不安装、不启动，只验证判据函数真的会红 / 真的会绿
 # ═════════════════════════════════════════════════════════════════════════════
 
+function Get-AhkResourceStability {
+    <#
+    .SYNOPSIS
+        AHK 资源「安装后是否**稳定**存在」的判定：纯函数 —— 只读采样序列，不碰磁盘 / 进程 / 时钟。
+
+    .DESCRIPTION
+        为什么非抽不可（与 Get-CriterionStates 同一条理由）：判定住在主流程里，-SelfCheck 就够不着，
+        把它改成恒真也没人拦得住（变异不生效 = 等于没验）。
+
+        为什么 C1 要「多次采样」而不是一次 Test-Path：
+          单次快照把两个**处置相反**的问题混成一个 FAIL ——
+            ① 资源从未落盘  ⇒ 打包 / 安装层缺陷（查 tauri.conf.json 的资源清单）；
+            ② 资源落过盘、随后被删 ⇒ 有东西在删安装目录（查「谁在删」）。
+          更糟的是：单次采样的**时刻**本身可能与「删除」竞态（安装器退出 → 启动 app 之间），
+          于是它删之前采到就报绿、删之后采到就报红，**判别力是有偏的**。
+          ⇒ 改为多次采样，并把「首样」与「后续」分开看。
+
+    .PARAMETER Samples
+        按时间顺序的布尔采样序列，如 @($true, $true, $false)。
+
+    .OUTPUTS
+        Verdict         : Stable | Vanished | Missing | Unknown
+        Stable          : 是否「全部采样都为 True」——**只有它为真**才允许 C1 认为资源齐全
+        Trace           : 可读序列，如 'T,T,F'（进证据包，供事后排障）
+        FirstFalseIndex : 第一个 False 的 1 基下标（全 True 时为 0）
+    #>
+    param([bool[]]$Samples)
+
+    if ($null -eq $Samples) { $Samples = @() }
+    $n = $Samples.Count
+
+    $traceParts = @()
+    foreach ($s in $Samples) { $traceParts += $(if ($s) { 'T' } else { 'F' }) }
+    $trace = ($traceParts -join ',')
+
+    if ($n -eq 0) {
+        # 空采样**不许**当通过 —— 那是「不会失败的检查」。
+        return [pscustomobject]@{ Verdict = 'Unknown'; Stable = $false; Trace = $trace; FirstFalseIndex = 0 }
+    }
+
+    $firstFalse = 0
+    for ($i = 0; $i -lt $n; $i++) {
+        if (-not $Samples[$i]) { $firstFalse = $i + 1; break }
+    }
+
+    if ($firstFalse -eq 0) {
+        return [pscustomobject]@{ Verdict = 'Stable';   Stable = $true;  Trace = $trace; FirstFalseIndex = 0 }
+    }
+    if ($firstFalse -eq 1) {
+        # 首样就不在 ⇒ 采样窗口内从未出现。
+        return [pscustomobject]@{ Verdict = 'Missing';  Stable = $false; Trace = $trace; FirstFalseIndex = 1 }
+    }
+    # 首样在、之后消失 ⇒ 出现过又被删。
+    return [pscustomobject]@{ Verdict = 'Vanished'; Stable = $false; Trace = $trace; FirstFalseIndex = $firstFalse }
+}
+
 function Invoke-GuardSelfCheck {
     $broken = @()
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('asd-smoke-guard-' + [guid]::NewGuid().ToString('N'))
@@ -614,7 +670,8 @@ function Invoke-GuardSelfCheck {
         #    断言输出里确有 `SMOKE_RESIDUE` 行。**已固化进 CI**（release job 的
         #    「端到端：C1 失败必须打印残留告警」step，排在真实冒烟**之前** —— 真实冒烟
         #    首次执行很可能红，放后面就永远轮不到它跑）。本机亦已人工跑通一次。
-        # ⚠️ 为什么锚点写成「**赋值形态** + `<安装目录>`」而不是光秃秃的函数名：
+        # ⚠️ 【历史沿革，**不是**当前理由】下面 ①–③ 是**文本匹配那一代**锚点的设计理由，
+        #    现已被下方的 **AST 解析**整体取代，保留仅作沿革，别再照它改当前实现：
         #    ① 只匹配函数名会把**注释里的同名文字**算成调用点 ⇒ 断言恒绿。**已实测到**：
         #       本条自己的说明文字一度含锚点原文，于是「删掉一处真调用 + 留一段注释」
         #       仍被算成 2 处（泰莎独立复现确认）⇒ 说明文字里**禁止**写锚点原文；
@@ -776,6 +833,29 @@ function Invoke-GuardSelfCheck {
         }
         elseif ($c1Ahk.State -ne 'FAIL') {
             $broken += "MC1r 负向失效：主 exe 在、AHK 资源缺失时 C1 应为 FAIL，实际 $($c1Ahk.State) —— 打包层缺陷被放行到运行时，会伪装成 IPC 认证失败"
+        }
+
+        # ── AHK 资源「稳定性」判定的双向对照（MC1s）─────────────────────────
+        # ⚠️ **判定规则写在这里，与 Get-AhkResourceStability 的注释必须逐字一致**：
+        #    全 T ⇒ Stable（**唯一**允许 C1 认为资源齐全的情形）；
+        #    首样 F ⇒ Missing；首样 T 之后 F ⇒ Vanished。
+        #    为什么把「首样」单独拎出来：Missing 与 Vanished 的**处置相反**
+        #    （查打包清单 vs 查谁在删安装目录），合并成一个 FAIL 就把判别器又抹掉了。
+        $sStable = Get-AhkResourceStability -Samples @($true, $true, $true)
+        $sVan    = Get-AhkResourceStability -Samples @($true, $false, $true)
+        $sMiss   = Get-AhkResourceStability -Samples @($false, $false, $false)
+        $sEmpty  = Get-AhkResourceStability -Samples @()
+        if ($sStable.Verdict -ne 'Stable' -or -not $sStable.Stable) {
+            $broken += "MC1s 正向失效：全 T 的采样应判 Stable，实际 $($sStable.Verdict) / Stable=$($sStable.Stable) —— 恒红，装成功了也会被判成资源不全"
+        }
+        if ($sVan.Verdict -ne 'Vanished' -or $sVan.Stable) {
+            $broken += "MC1s 负向失效：出现过又被删（T,F,T）应判 Vanished 且**不算齐全**，实际 $($sVan.Verdict) / Stable=$($sVan.Stable) —— 删除竞态会被记成打包缺陷，归因引偏"
+        }
+        if ($sMiss.Verdict -ne 'Missing' -or $sMiss.Stable) {
+            $broken += "MC1s 负向失效：全程不在（F,F,F）应判 Missing 且不算齐全，实际 $($sMiss.Verdict) / Stable=$($sMiss.Stable)"
+        }
+        if ($sEmpty.Stable) {
+            $broken += 'MC1s 负向失效：空采样被判齐全 —— 「一次都没采到」被当成通过，正是不会失败的检查'
         }
 
         # C3 单独处理：它的坏包按**设计**是 UNVERIFIED（「拿不到稳定判据」是刻意的，
@@ -1074,6 +1154,11 @@ $ev = @{
     MainExeSize         = 0
     AhkResourcePath     = $ahkResPath
     AhkResourceExists   = $false
+    # 稳定性采样的默认值必须是「不齐全 / 未测定」：主流程若因任何原因没跑到采样，
+    # 缺省值不能替它说「资源齐全」。
+    AhkResourceVerdict  = 'Missing'
+    AhkResourceTrace    = ''
+    AhkResourceSampleMs = 0
     MainProcFound       = $false
     MainProcName        = $mainProcName
     MainProcId          = 0
@@ -1130,9 +1215,27 @@ try {
     }
     # AHK 资源必须和主 exe 一起验：只查主 exe 的话，「装完资源不全」会在 C1 假绿，
     # 一路带到 C4/C5 才炸，把打包缺陷报成运行时故障。
-    if (Test-Path -LiteralPath $ahkResPath -PathType Leaf) {
-        $ev['AhkResourceExists'] = $true
+    # ⚠️ **判定规则**（改这里必须同步改 Get-AhkResourceStability 的注释与 MC1s 断言）：
+    #     全部采样 True        ⇒ Stable   ⇒ AhkResourceExists=$true（C1 才可能 PASS）
+    #     首样 False           ⇒ Missing  ⇒ 采样窗口内从未出现 ⇒ 打包 / 安装层
+    #     首样 True 之后 False ⇒ Vanished ⇒ 出现过又被删 ⇒ 有东西在删安装目录
+    #    **任一次 False 都不算齐全**：单次快照会在「删之前 / 删之后」之间随机落点，
+    #    既可能假绿也可能假红 —— 用它当「资源齐全」的判据，判别力是有偏的。
+    # ⚠️ 已知覆盖边界：这 5 次采样只覆盖「安装器退出后的 ~40ms」。若删除发生在
+    #    「启动 app」那一段（实测 16:03Z 那次 init→spawn 相隔 970ms），本处仍会报
+    #    Stable —— 要覆盖它需要第二个采样点（放在 finally 清理之前），本处不越界。
+    $ahkSampleCount = 5
+    $ahkSampleMs    = 8
+    $ahkSamples     = @()
+    for ($i = 0; $i -lt $ahkSampleCount; $i++) {
+        if ($i -gt 0) { Start-Sleep -Milliseconds $ahkSampleMs }
+        $ahkSamples += [bool](Test-Path -LiteralPath $ahkResPath -PathType Leaf)
     }
+    $ahkStab = Get-AhkResourceStability -Samples $ahkSamples
+    $ev['AhkResourceExists']   = [bool]$ahkStab.Stable
+    $ev['AhkResourceVerdict']  = [string]$ahkStab.Verdict
+    $ev['AhkResourceTrace']    = [string]$ahkStab.Trace
+    $ev['AhkResourceSampleMs'] = [int]$ahkSampleMs
 
     # 运行时证据还没有，先只判 C1。⚠️ 判定仍走纯函数，不在这里写 if/else ——
     #    主流程里每多一个判定谓词，-SelfCheck 就少覆盖一处。
