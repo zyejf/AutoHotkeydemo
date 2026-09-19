@@ -957,8 +957,9 @@ jobs:
       #
       # ⚠️ 这是**硬失败**，刻意不加 continue-on-error：一个永远绿的冒烟等于没有冒烟。
       #    本仓已抓到过同型假守卫（CI 里 `cargo test -- --ignored` 在零条 `#[ignore]`
-      #    时恒绿）。判据全部取自「安装目录 + 注册表 + 进程表 + 应用日志文件」四类
-      #    磁盘/系统证据，不做 GUI 截图、不做像素判断。
+      #    时恒绿）。判据全部取自「应用日志文件 + 进程表」两类磁盘/系统证据，
+      #    不做 GUI 截图、不做像素判断；拿不到的判据如实报 UNVERIFIED，不静默变绿。
+      #    脚本自身另带 `-SelfCheck` 双向对照（坏输入必红 / 好输入必绿），本 step 先跑它。
       #
       # ⚠️ 首次人工观察前，**不要把「CI 能出包」当既有事实**：本 job 的 release 构建
       #    路径从未在 CI 上真正跑通过（唯一含 `tauri build` 的 e2e job 被
@@ -981,31 +982,48 @@ jobs:
           $installer = $installers[0].FullName
           Write-Host "冒烟目标: $installer"
 
-          # 刻意不设 $ErrorActionPreference='Stop'：PS7 下 native 命令写 stderr 可能被
-          # 升级成终止错误，从而吞掉真正的退出码。这里用显式 throw + exit $rc 控制。
-          $logDir = Join-Path $env:RUNNER_TEMP 'smoke-logs'
-          pwsh -NoProfile -File scripts/smoke-release-install.ps1 `
-            -InstallerPath $installer -LogCopyDir $logDir
+          # ① 先跑守卫自检（不安装任何东西）：把坏输入喂给每条判据，必须变红；
+          #    好输入必须变绿。守卫坏了要在**装之前**暴露，而不是发布之后。
+          #    退出码 2 = 存在假守卫（不会失败的检查），直接让本 step 红。
+          pwsh -NoProfile -File scripts/smoke-release-install.ps1 -SelfCheck
+          if ($LASTEXITCODE -ne 0) {
+            throw "冒烟脚本守卫自检失败（exit=$LASTEXITCODE）—— 判据是假守卫，先修脚本再谈发布"
+          }
+
+          # ② 再实装冒烟。⚠️ 只传 -InstallerPath：InstallDir / MainExeName / AppIdentifier
+          #    的默认值已按 CI 场景设好（TEMP 下无空格目录 / asd-tauri.exe / com.asd.tauri）。
+          #    ⚠️ 不要传 -LogCopyDir 之类的旧参数 —— 脚本重写后已移除该参数，传了会在
+          #    **参数绑定阶段**就报错，让冒烟红在「参数名写错」而不是真问题上。
+          pwsh -NoProfile -File scripts/smoke-release-install.ps1 -InstallerPath $installer
           $rc = $LASTEXITCODE
 
           if ($rc -ne 0) {
             # 失败时把应用日志打进 job 日志：runner 是临时环境，不导出就永久丢失，
             # 而「哪条判据挂了 / 日志最后写了什么」是唯一的排障线索。
+            # 日志在 app_data_dir 根下（logging.rs:28-34），**不是** app_data_dir\logs。
+            $appLogDir = Join-Path $env:APPDATA 'com.asd.tauri'
             Write-Host '--- 冒烟失败：导出应用日志尾部 ---'
-            if (Test-Path $logDir) {
-              foreach ($f in (Get-ChildItem -Path $logDir -File)) {
+            if (Test-Path $appLogDir) {
+              foreach ($f in (Get-ChildItem -Path $appLogDir -Filter 'asd.*.log' -File)) {
                 Write-Host "### $($f.Name)"
                 Get-Content -LiteralPath $f.FullName -Tail 200 -Encoding utf8
               }
             } else {
-              Write-Host "（无日志可导出：$logDir 不存在 —— 失败发生在应用写日志之前）"
+              Write-Host "（无日志可导出：$appLogDir 不存在 —— 失败发生在应用写日志之前）"
             }
           }
           exit $rc
 
       # 命名带版本号，便于事后回滚时按版本取用。
       # retention-days 90：发布产物需要覆盖回滚窗口，不能按普通 CI 产物 30 天清理。
+      # ⚠️ `if: always()` 是刻意的，不要删：冒烟排在**本步之前**且是硬失败，
+      #   而这个 job 从未真正跑通过 ⇒ **首次执行几乎必红**。若不加它，冒烟一红就
+      #   连 artifact 都不上传 —— 而 artifact 恰恰是两件事的唯一载体：
+      #   ① 事后排查「冒烟为什么红」的取证材料；② 90 天回滚兜底。
+      #   （代价：即便冒烟红，产物也已存档 —— 这正是想要的。Release 仍不会发，
+      #    因为发版步骤在其后，job 已失败不会走到。）
       - name: 上传安装包 + 校验和
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ASD-SkillManager-v${{ steps.meta.outputs.version }}-windows-x64
