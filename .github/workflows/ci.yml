@@ -905,6 +905,22 @@ jobs:
     # 发布产物是拿去给用户装的，必须建立在四闸门绿之上。若 gates 红，本 job 本就不该
     # 产出任何东西 —— 这正是想要的行为。只依赖 gates，不依赖其它辅助 job
     # （coverage / miri / fuzz / bench 等信号类 job 不参与判定）。
+    # ⚠️ **观测性缺口（2026-09-20 实测，不是推测）**：
+    #   `needs` 不满足时本 job 的 conclusion 是 **skipped**，不是 failure ——
+    #   **不红、不报警、也不出现在 Checks 的失败列表里**。于是「release 一次都没在
+    #   CI 上跑过」这件事在 CI 上**完全不可见**。
+    #   实测（run 35463218206）：`四闸门 (windows-latest) = failure`、
+    #   本 job = `skipped`。光看 UI 只会看到「发布构建 skipped」，**看不出它是被
+    #   gates 拖下来的**，还是本来就不该跑。
+    # ⚠️ 更麻烦的是**两类 skipped 在 UI 上长得一模一样**：同一个 run 里
+    #   `E2E` / `Fuzz Testing` / `Benchmark Regression` / `AHK Benchmark Regression`
+    #   四个 job 也是 skipped —— 但它们是因为**各自的 `if:` 条件不满足**
+    #   （有意为之，语义是「本次不适用」），与本 job 的「上游失败」是两种原因。
+    #   ⇒ 「上游红导致没跑」与「条件不满足所以不跑」**无法从 UI 区分**。
+    #   ⇒ 本文件里 `needs:` **只此 1 处**，所以这个缺口的影响面就是这一条边；
+    #      但它压住的恰恰是发布 —— 最不该静默的那一个。
+    #   ⇒ 想确认本 job 到底跑没跑，别看 conclusion：要么看同 run 里 gates 的
+    #      conclusion，要么看本 job 有没有 steps（skipped 的 job 没有 steps）。
     needs: gates
     # `gh release create` 要经 API 建远端 tag 并写 Release，缺 `contents: write` 必红，
     # 且报错是**误导性的权限串** —— 本仓 TD-014 在 security-audit job 上踩过同型坑：
