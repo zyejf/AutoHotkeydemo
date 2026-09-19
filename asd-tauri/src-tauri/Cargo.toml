@@ -25,10 +25,17 @@ serde_json = "1.0"
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
     "Win32_Security",
+    # TD-071：命名管道 DACL —— `ConvertSidToStringSidW` 位于此子模块，用它把
+    # 当前进程令牌的用户 SID 转成 SDDL 里可用的 trustee 字符串。
+    "Win32_Security_Authorization",
     "Win32_System_JobObjects",
     "Win32_System_Threading",
     "Win32_UI_WindowsAndMessaging",
 ] }
+# TD-071：`interprocess` 的 `SecurityDescriptor::deserialize` 收 `&U16CStr`，
+# 需要 widestring 把 SDDL 字符串转成 UTF-16。版本与 interprocess 的 1.x 约束
+# 同源，不会引入第二份副本。
+widestring = "1.2"
 tokio = { version = "1", features = ["full"] }
 interprocess = { version = "2.4.2", features = ["tokio"] }
 thiserror = "2.0"

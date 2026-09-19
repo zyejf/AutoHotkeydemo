@@ -4,6 +4,11 @@ use interprocess::local_socket::{
     traits::tokio::Stream as StreamTrait,
     GenericNamespaced, ListenerOptions, ToNsName,
 };
+// Windows 侧给监听端挂显式安全描述符（DACL）用，见 [`IPC_PIPE_SDDL_TEMPLATE`]。
+#[cfg(windows)]
+use interprocess::os::windows::local_socket::ListenerOptionsExt;
+#[cfg(windows)]
+use interprocess::os::windows::security_descriptor::SecurityDescriptor;
 use parking_lot::Mutex as SyncMutex;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -60,13 +65,24 @@ static PIPE_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 /// 且一旦撞名，`create_listener` 会返回错误（可被当作启动失败上报），
 /// 不再是静默降级。
 ///
-/// # 遗留：未显式设置 DACL
+/// # DACL：已于 2026-09-19 显式设置（此处原注释已被证伪）
 ///
-/// `interprocess` 2.4.2 的 `ListenerOptions` 没有暴露安全描述符（DACL）设置
-/// 入口，要限定「仅当前用户可连接」得绕过该库直接调 `CreateNamedPipeW`。
-/// 当前缓解手段是随机名 + 认证 token（`ASD_AUTH_TOKEN`）：连上来的进程
-/// 仍必须在首条消息里回传正确 token 才被接受。DACL 收紧作为独立技术债，
-/// 需评估是否替换/包装 `interprocess` 的监听端创建。
+/// ⚠️ **本段原写「`interprocess` 2.4.2 的 `ListenerOptions` 没有暴露安全描述符
+/// （DACL）设置入口，要限定『仅当前用户可连接』得绕过该库直接调
+/// `CreateNamedPipeW`」—— 该说法已实测证伪**：库原生提供
+/// `interprocess::os::windows::local_socket::ListenerOptionsExt::security_descriptor`，
+/// 且一路透传到 `CreateNamedPipeW`（见 `named_pipe/local_socket/tokio/listener.rs`
+/// 的 `impl_options.security_descriptor = options.security_descriptor`）。
+///
+/// 这条错误注释曾把本项包装成「替换/包装依赖级别」的架构难题而长期无人敢动，
+/// **实际改动量很小**。与 TD-058 是同型病灶：代码里的说明写错了，且错的
+/// 方向正是「让人不敢修」。
+///
+/// **但它挡不住原描述的主威胁**：DACL 设成「仅当前用户」后，**同一用户**运行的
+/// 其它进程照样能连（SID 相同）。挡住「同权本地进程冒充」靠的仍是随机管道名 +
+/// `ASD_AUTH_TOKEN` 首消息认证。显式 DACL 的实际增量是两条：
+/// ① 跨用户 / 跨会话隔离；② 消除对「系统默认 DACL」的隐式依赖（默认 DACL
+/// 随进程 token 变化，且不可审计）。**不得把显式 DACL 当成主威胁的解法。**
 #[must_use]
 pub fn ipc_pipe_name() -> &'static str {
     PIPE_NAME.get_or_init(|| {
@@ -955,6 +971,133 @@ fn classify_message(msg: &IpcMessage) -> MessageKind {
     }
 }
 
+/// IPC 管道安全描述符的 [SDDL] **模板**——`{sid}` 由 [`ipc_pipe_sddl`] 替换成
+/// 当前进程令牌的用户 SID。
+///
+/// - `D:P` —— DACL 存在且为「保护型」（不从父对象继承 ACE）；
+/// - `(A;;GA;;;{sid})` —— **当前用户**完全控制。AHK 是 Rust 主进程的子进程，
+///   继承同一 SID，因此不受影响；
+/// - `(A;;GA;;;SY)` —— SYSTEM 完全控制（服务 / 计划任务场景需要）。
+///
+/// 上述两者之外的身份一律无法连接。
+///
+/// 🚫 **不要把 `{sid}` 改回 `CO`（Creator Owner）** —— 那是本项 2026-09-19 初版
+/// 的写法，已被实测证伪（连自己都连不上），原因见 [`ipc_pipe_sddl`]。
+///
+/// ⚠️ **它挡不住「同一用户的其它进程」**（SID 相同）—— 那条威胁由随机管道名 +
+/// `ASD_AUTH_TOKEN` 首消息认证承担，见 [`ipc_pipe_name`]。不要以为加了 DACL
+/// 就解决了「同权本地进程冒充」。
+///
+/// [SDDL]: https://learn.microsoft.com/en-us/windows/win32/secauthz/security-descriptor-string-format
+#[cfg(windows)]
+pub const IPC_PIPE_SDDL_TEMPLATE: &str = "D:P(A;;GA;;;{sid})(A;;GA;;;SY)";
+
+/// 当前进程令牌所属用户的 SID 字符串（`S-1-5-21-…` 形式）。
+///
+/// 用作 [`IPC_PIPE_SDDL_TEMPLATE`] 里 ACE 的 trustee。
+///
+/// 返回 `None` 表示令牌查询或 SID→字符串转换失败；调用方据此决定是否降级。
+#[cfg(windows)]
+fn current_user_sid_string() -> Option<String> {
+    use windows::Win32::Foundation::{CloseHandle, LocalFree, HANDLE, HLOCAL};
+    use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
+    use windows::Win32::Security::{GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER};
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    // SAFETY: 全部是标准 Win32 令牌查询调用。`buf` 的生命周期覆盖到其中的 SID
+    // 被 `ConvertSidToStringSidW` 读完为止；后者产出的字符串用 `LocalFree` 释放。
+    unsafe {
+        let mut token = HANDLE::default();
+        OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw mut token).ok()?;
+        if token.is_invalid() {
+            return None;
+        }
+
+        // 第一次调用只为取缓冲区长度：长度传 0 必然失败（ERROR_INSUFFICIENT_BUFFER），
+        // 返回值无意义，只看 `needed` 有没有被填上。
+        let mut needed = 0_u32;
+        let _ = GetTokenInformation(token, TokenUser, None, 0, &raw mut needed);
+        if needed == 0 {
+            let _ = CloseHandle(token);
+            return None;
+        }
+
+        // `needed` 是 u32，在 32/64 位 Windows 上转 usize 都不会失败；仍然显式处理，
+        // 避免为不可能的分支写出 `unwrap_or(usize::MAX)` 这种「一触发就 OOM」的兜底。
+        let Ok(len) = usize::try_from(needed) else {
+            let _ = CloseHandle(token);
+            return None;
+        };
+        let mut buf = vec![0_u8; len];
+        let queried = GetTokenInformation(
+            token,
+            TokenUser,
+            Some(buf.as_mut_ptr().cast()),
+            needed,
+            &raw mut needed,
+        );
+        let _ = CloseHandle(token);
+        queried.ok()?;
+
+        // `TOKEN_USER` 位于缓冲区开头，`User.Sid` 指向缓冲区内部（SID 随结构一起
+        // 返回）。`Vec<u8>` 只保证 1 字节对齐，故用 `read_unaligned`。
+        let token_user = buf.as_ptr().cast::<TOKEN_USER>().read_unaligned();
+
+        let mut raw_sid = windows::core::PWSTR::null();
+        ConvertSidToStringSidW(token_user.User.Sid, &raw mut raw_sid).ok()?;
+        let sid = raw_sid.to_string().ok();
+        // `ConvertSidToStringSidW` 用 `LocalAlloc` 分配字符串，必须 `LocalFree`。
+        let _ = LocalFree(Some(HLOCAL(raw_sid.as_ptr().cast())));
+        sid
+    }
+}
+
+/// 把 [`IPC_PIPE_SDDL_TEMPLATE`] 的 `{sid}` 替换成当前用户的真实 SID。
+///
+/// ## 证伪痕迹：`CO`（Creator Owner）在这里不管用
+///
+/// 本项 2026-09-19 初版把 SDDL 写成常量 `D:P(A;;GA;;;CO)(A;;GA;;;SY)`，注释声称
+/// 「`CO` = Creator Owner（建管道的当前用户）」。**实测并非如此**：用该 SDDL 建出
+/// 的监听端，**同进程（即同一用户）连接直接返回 `ERROR_ACCESS_DENIED (os error 5)`**
+/// —— 见 `test_ipc_listener_accepts_same_user_connection` 的失败记录，也见
+/// `deliverables/engineering-assurance/td071-ipc-dacl-2026-09-19.md`。
+///
+/// 原因：`CO` 被 `ConvertStringSecurityDescriptorToSecurityDescriptorW` 转成
+/// 占位 SID `S-1-3-0`（`CREATOR_OWNER`），这种 ACE 只在「请求者 SID == 对象
+/// owner」时命中；而显式传入的安全描述符不带 owner，`CreateNamedPipeW` 也不会
+/// 凭 token 补齐，于是这条 ACE 匹配不到任何人 —— 包括建管道的用户自己。
+///
+/// 也就是说：**「看起来最贴切的那个 SDDL 别名」恰好是最容易把用户锁在门外的
+/// 那个**。所以这里老老实实用 token 查出来的真实 SID。
+///
+/// 返回 `None` 表示拿不到当前用户 SID（此时调用方应退回系统默认 DACL）。
+#[cfg(windows)]
+fn ipc_pipe_sddl() -> Option<String> {
+    let sid = current_user_sid_string()?;
+    Some(IPC_PIPE_SDDL_TEMPLATE.replace("{sid}", &sid))
+}
+
+/// 构造 IPC 管道的显式安全描述符。
+///
+/// **构造失败时返回 `None`（退回系统默认 DACL），而不是让监听端建不起来**：
+/// IPC 建不起来等于功能彻底不可用且用户无感知，代价远大于退回系统默认 DACL —
+/// 而且退回后仍有随机管道名 + token 认证兜底。
+#[cfg(windows)]
+fn ipc_security_descriptor() -> Option<SecurityDescriptor> {
+    let Some(sddl) = ipc_pipe_sddl() else {
+        tracing::warn!("取不到当前用户 SID，IPC 管道退回系统默认 DACL");
+        return None;
+    };
+    let wide = widestring::U16CString::from_str(&sddl).ok()?;
+    match SecurityDescriptor::deserialize(&wide) {
+        Ok(sd) => Some(sd),
+        Err(e) => {
+            tracing::error!("IPC 安全描述符构造失败，退回系统默认 DACL: {e}");
+            None
+        }
+    }
+}
+
 /// 创建命名管道监听端（服务端侧）。
 ///
 /// # Errors
@@ -970,6 +1113,13 @@ pub fn create_listener(
 ) -> Result<Listener, Box<dyn std::error::Error + Send + Sync>> {
     let name = pipe_name.to_ns_name::<GenericNamespaced>()?;
     let opts = ListenerOptions::new().name(name);
+    // 挂显式 DACL（Windows）。构造失败时 `ipc_security_descriptor()` 返回
+    // `None`，此处退回系统默认 DACL —— 见该函数的注释说明为何不直接报错。
+    #[cfg(windows)]
+    let opts = match ipc_security_descriptor() {
+        Some(sd) => opts.security_descriptor(sd),
+        None => opts,
+    };
     let listener = opts.create_tokio()?;
     Ok(listener)
 }
@@ -1623,5 +1773,86 @@ mod tests {
             "同名管道已被占用时 create_listener 必须返回 Err —— 否则抢注会静默降级"
         );
         drop(first);
+    }
+
+    /// 显式 DACL 不得把自家 AHK 子进程挡在门外。
+    ///
+    /// 收紧 DACL 最大的回归风险是「同用户 / 子进程反而连不上」—— 那会让 IPC
+    /// 彻底不可用且用户无感知。这里走**生产同一条路径**（`create_listener`，
+    /// 即带 [`IPC_PIPE_SDDL_TEMPLATE`]）建监听端，再从同进程发起一次真实连接。
+    ///
+    /// ⚠️ 本测试**确实抓到过一次真回归**：2026-09-19 初版 SDDL 用 `(A;;GA;;;CO)`，
+    /// 本测试以「拒绝访问」（os error 5）失败。不要把它当形式主义。
+    /// （此处原写作反引号包裹的中英混排片段，违反 TD-050 的反引号 / 中文契约，
+    /// 被 `backtick_cjk_contract_tests` 抓到 —— 该契约测试是真守护，不是纸面的。）
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn test_ipc_listener_accepts_same_user_connection() {
+        let name = asd_test_harness::unique_pipe_name("dacl_same_user");
+        let listener = create_listener(&name).expect("带 DACL 的监听端应能创建");
+        let ns = name.to_ns_name::<GenericNamespaced>().unwrap();
+        if let Err(e) = Stream::connect(ns).await {
+            panic!(
+                "同用户连接必须成功 —— 否则收紧 DACL 会把 AHK 子进程挡在门外，\
+                 IPC 彻底不可用且用户无感知: {e}"
+            );
+        }
+        drop(listener);
+    }
+
+    /// 阳性对照：安全描述符必须真的生效，而不是「设了却被库静默忽略」。
+    ///
+    /// 用一条**只允许 SYSTEM** 的 SDDL 建监听端，本进程（非 SYSTEM 身份）必须连不上。
+    /// 若哪天这里连上了，说明 `security_descriptor` 根本没传到 `CreateNamedPipeW` ——
+    /// 那 [`IPC_PIPE_SDDL_TEMPLATE`] 就是一条自欺欺人的防线，**比不设更危险**，
+    /// 因为它会让人以为已经加固过。
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn test_security_descriptor_is_actually_enforced() {
+        let name = asd_test_harness::unique_pipe_name("dacl_system_only");
+        let ns_server = name.clone().to_ns_name::<GenericNamespaced>().unwrap();
+        let ns_client = name.to_ns_name::<GenericNamespaced>().unwrap();
+        let sddl = widestring::U16CString::from_str("D:P(A;;GA;;;SY)").unwrap();
+        let sd = SecurityDescriptor::deserialize(&sddl).unwrap();
+        let listener = ListenerOptions::new()
+            .name(ns_server)
+            .security_descriptor(sd)
+            .create_tokio()
+            .expect("SYSTEM-only SDDL 的监听端应能创建");
+        let client = Stream::connect(ns_client).await;
+        assert!(
+            client.is_err(),
+            "只允许 SYSTEM 的 DACL 下，非 SYSTEM 进程必须连不上 —— 若连上了，说明 \
+             security_descriptor 被静默忽略，DACL 防线形同虚设"
+        );
+        drop(listener);
+    }
+
+    /// 生产用的 SDDL 必须用**真实 SID** 授信，不能用 `CO` / `OW` 这类占位别名。
+    ///
+    /// 这是 [`ipc_pipe_sddl`] 那条证伪痕迹的守护测试：初版用 `(A;;GA;;;CO)` 时
+    /// 编译通过、阳性对照（SYSTEM-only）也通过，但**当前用户自己连不上** ——
+    /// 「看起来对」的写法骗过了除实跑之外的一切检查。这里把「必须用真实 SID」
+    /// 钉成断言，防止有人图省事改回别名。
+    #[cfg(windows)]
+    #[test]
+    fn test_ipc_pipe_sddl_trustee_is_real_current_user_sid() {
+        let sid = current_user_sid_string().expect("应能取到当前用户 SID");
+        assert!(
+            sid.starts_with("S-1-"),
+            "SID 应为 SDDL 可识别的字符串形式: {sid}"
+        );
+
+        let sddl = ipc_pipe_sddl().expect("应能构造生产 SDDL");
+        assert_eq!(
+            sddl,
+            format!("D:P(A;;GA;;;{sid})(A;;GA;;;SY)"),
+            "生产 SDDL 必须把当前用户 SID 作为 trustee: {sddl}"
+        );
+        assert!(
+            !sddl.contains(";CO)") && !sddl.contains(";OW)"),
+            "不得使用 CO/OW 等占位别名 —— 实测它们匹配不到当前用户，\
+             会把自家 AHK 子进程锁在门外: {sddl}"
+        );
     }
 }

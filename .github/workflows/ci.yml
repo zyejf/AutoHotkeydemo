@@ -156,19 +156,32 @@ jobs:
         working-directory: asd-tauri
         run: cargo test --workspace
 
-      # watchdog 进程生命周期用例带 `#[ignore]`（G3a 默认跳过），覆盖
-      # start_child_process / crash_restart / restart_limit / graceful_shutdown 等路径 ——
-      # 这些路径一旦回归，表现是「按键静默失效」而**没有任何红灯**。
+      # watchdog 进程生命周期用例覆盖 start_child_process / crash_restart /
+      # restart_limit / graceful_shutdown 等路径 —— 这些路径一旦回归，表现是
+      # 「按键静默失效」而**没有任何红灯**。
       # 原排除理由写的是「避免在 CI 中运行慢测试」，但 2026-09-18 在当前 HEAD 实测：
       # 15 passed / 0 failed / finished in 13.39s —— 理由不成立（且不算慢）。
-      # 故以「观测期」接入：continue-on-error 不阻断，连续跑绿 3-5 次后再摘 `#[ignore]` 转硬门禁。
+      # 故 15 条 `#[ignore]` 已于 2026-09-19 摘除，它们现在随 `cargo test --workspace`
+      # 在**阻断的** G3a 里跑。
+      #
+      # ⚠️ 2026-09-19 实测：摘除之后，本步骤原先的 `--ignored` 筛选**已选不到任何用例**
+      #   （`cargo test -p asd-tauri --lib -- --ignored --list` = 0 tests、rc=0）。
+      #   叠加 `continue-on-error` 后它退化成「恒绿空转」—— 绿，但一条都没跑过。
+      #   故改为**按模块名直接跑这组用例**并保留 `--test-threads=1`：真实进程用例
+      #   （起 `cmd.exe` / taskkill）在共享 runner 上比本机更易抖，串行跑是为采集抖动
+      #   证据，**不是为了阻断**（`continue-on-error` 维持不变）。
       # ⚠️ 必须带 CARGO_INCREMENTAL=0：否则 rustc 可能 ICE（退出码 101），会被误读成测试失败。
-      - name: 'G3h watchdog 进程生命周期（--ignored，观测期不阻断）'
+      # 解禁判据（2026-09-19 三处已统一为最严口径）：本机与 CI 各连续 **≥10 次全绿**
+      #   （含 `--test-threads=1`）后，才可摘掉本步骤的 `continue-on-error` 转硬门禁。
+      #   ⚠️ 三处是 `ci.yml`（本段）/ `watchdog_integration_tests.rs` 文件头 /
+      #   `docs/guard-effectiveness-checklist.md`；由 `scripts/check-test-map.py` 的
+      #   **F2 段**机器校验，任一处改小即红、改一处不同步也红 —— 别再各写一套。
+      - name: 'G3h watchdog 进程生命周期（串行，观测期不阻断）'
         working-directory: asd-tauri
         env:
           CARGO_INCREMENTAL: '0'
         continue-on-error: true
-        run: cargo test -p asd-tauri --lib -- --ignored --test-threads=1
+        run: cargo test -p asd-tauri --lib tests::watchdog_integration_tests -- --test-threads=1
 
       - name: 'G3b AHK 完整测试套件'
         shell: pwsh

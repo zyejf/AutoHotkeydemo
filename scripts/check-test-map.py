@@ -9,10 +9,15 @@
      `cargo test -p <crate> --all-targets -- --list` 的实际注册数比对。
   C. 汇总行对账：解析《汇总》表中 Rust 总数的首个数字，与 B 的实际总和比对。
   D. AHK 两维口径校验（2026-09-19 新增，见审查发现 #9）：见 `check_d_ahk_dimensions`。
+  D5. Rust **按文件**明细行守护（TD-077）：见 `check_d5_rust_rows`。
+  E. 用例总数下限（2026-09-19 新增，容差 0）：见 `check_e_min_total`。
+  F. **G3h 元闸门**（2026-09-19 新增）：F1 全仓 `#[ignore]` 必须为 0（排除腿，
+     需 cargo）；F2 解禁判据「连续 N 次绿灯」在各权威落点必须 ≥ 10（判据腿，
+     不需 cargo）。见 `check_f_meta_gate` / `count_ignored_tests`。
 
 用法：
-    python scripts/check-test-map.py                # A + B + C + D
-    python scripts/check-test-map.py --no-cargo     # 只做 A + D（快，不编译）
+    python scripts/check-test-map.py                # A + B + C + D + D5 + E + F
+    python scripts/check-test-map.py --no-cargo     # 只做 A + D + F2（快，不编译）
 """
 
 from __future__ import annotations
@@ -46,6 +51,63 @@ CRATES = [
 
 SUBTOTAL_RE = re.compile(r"小计|总计")
 NUM_RE = re.compile(r"\d+")
+
+# ------------------------------------------------------------------ E 段：用例总数下限
+# 守的是 TD-058 的 **A 类「预防性排除」失效**里最根本的那一种形态：测试**静默消失**。
+# 「消失」有五条路径，只有第 ① 条会被「0 ignored」类检查抓到，其余四条都不会：
+#   ① 挂 `#[ignore]`（运行时不执行，但 `--list` 仍列出）
+#   ② 整段被注释掉 / 被 `#[cfg(...)]` 排除出编译
+#   ③ 测试文件还在，但没被任何 `mod` 声明挂进编译（从未参与构建）
+#   ④ 测试文件被整个删除
+#   ⑤ `Cargo.toml` 的 target 配置被改（如 `test = false`）
+# ②③④⑤ 的共同特征只有一个：**运行时注册数变小**。故下限门直接钉住注册总数。
+#   ⚠️ 本仓已有先例：`bridge_tests.rs` 的 `test_tauri_event_bridge_emit` 是**整个被删除**
+#      （不是挂 ignore），详见 test-map.md 的 `bridge_tests.rs` 行。
+# 口径与 B/C/D5 完全一致（每 crate `--tests` 运行时注册数之和），**不新增编译**：
+# 实测 `--tests` 与 `--all-targets` 两种口径在 5 个 crate 上计数相同（670）。
+# 容差 **0**、只许增不许减 —— 与 G3f 覆盖率棘轮同构的「水位只涨不落」。
+# ⚠️ 抬高本常量是**显式的人的决定**，必须在提交信息里说明新增了哪些测试。
+#
+# 水位沿革（每次抬升都要留痕，否则「只涨不落」无从判断涨的是不是真测试）：
+#   670 = 2026-09-19 工程总监给定的基线（`cargo test --workspace --all-targets -- --list` 实测）
+#   673 = 2026-09-19 晚本机实测水位（+3：TD-071 IPC 管道 DACL 收紧，
+#         `src-tauri/src/infrastructure/ipc.rs` 54 → 57）。取实测值而不是沿用 670，
+#         是因为下限钉的是**当前水位** —— 沿用 670 等于默许「先加 3 条再删 3 条」。
+# ⚠️ 口径：本常量与 B/C/D5 同源，是每 crate `--tests` 运行时注册数之和
+#    （实测与 `--all-targets` 计数一致：criterion benches 的 harness = false，注册数为 0）。
+MIN_TOTAL_TESTS = 673
+
+# ------------------------------------------------------------------ F 段：G3h 元闸门
+# 元闸门 = 「闸门自身的守护」。它回答的不是「测试过没过」，而是
+# **「守着测试的那几条规矩，现在还灵不灵」**。分两腿：
+#
+#   F1 排除腿：全仓 `#[ignore]` 运行时注册数必须为 0。
+#      · 防的是 TD-058 A 类失效**复活** —— 2026-09-19 刚摘掉 15 条 watchdog `#[ignore]`，
+#        没有任何机制阻止它们明天被挂回去。
+#      · 实证：`cargo test --workspace --tests -- --ignored --list` 当前 = **0**；
+#        而 CI 的 `ci.yml:171` G3h 步骤跑的是 `--ignored` 筛选，**在 0 条 ignore 的前提下
+#        该步骤恒为「0 tests / rc=0」—— 它已经从「观测期门禁」退化成「恒绿空转」**，
+#        正是本腿要消灭的形状（详见交付报告）。
+#
+#   F2 判据腿：解禁判据（「连续 N 次绿灯」）在所有权威落点必须 ≥ MIN_CONSECUTIVE_GREEN。
+#      · 防的是「改了判据却没同步」—— 2026-09-19 实测同一件事有**四套**口径在流通，
+#        且晋级时按的是最弱的那套（详见交付报告 §4）。
+#      · 只认**同时含解禁语境词**的行，避免把 `E2E 连续 5 次`、`连续 N 次心跳` 之类
+#        无关判据卷进来（实测 `watchdog_integration_tests.rs:387` 的心跳判据即属此类）。
+#      · 锚点：任一声明的落点若**一条都匹配不到**，按**失败**处理 —— 判据被删/被改写
+#        格式后本腿会静默失效，那正是本腿自己要防的事。
+MIN_CONSECUTIVE_GREEN = 10
+CRITERIA_SITES = [
+    ".github/workflows/ci.yml",
+    "asd-tauri/src-tauri/src/tests/watchdog_integration_tests.rs",
+    "docs/guard-effectiveness-checklist.md",
+]
+# 解禁语境词：一行必须命中其一，才被认作「解禁判据行」。
+CRITERIA_CONTEXT_RE = re.compile(r"#\[ignore\]|ignore|解禁|摘|G3h")
+# 「连续/连跑 … N 次」，兼容 `3-5`、`≥10`、`N`（非数字则不匹配）。
+CONSECUTIVE_RE = re.compile(
+    r"(?:连续|连跑)\D{0,12}?(\d+)(?:\s*[-–—~]\s*(\d+))?\s*次"
+)
 
 
 def cells(line: str) -> list[str]:
@@ -502,6 +564,74 @@ def check_d5_rust_rows(text: str) -> list[str]:
     return errors
 
 
+def check_e_min_total(actual: dict[str, int]) -> list[str]:
+    """E 段：Rust 测试总数下限（容差 0，只许增不许减）。"""
+    if not actual:
+        return ["[E] 未拿到运行时注册数（本段会静默失效，按失败处理）"]
+    total = sum(actual.values())
+    if total < MIN_TOTAL_TESTS:
+        return [
+            f"[E] Rust 测试总数 {total} < 下限 {MIN_TOTAL_TESTS}（容差 0）—— "
+            f"测试只能增加不能减少。若为有意删除，须显式下调 MIN_TOTAL_TESTS 并说明理由；"
+            f"若为无意，先查明是哪一类「静默消失」（ignore / cfg 排除 / 未挂进编译 / "
+            f"文件被删 / target 配置被改）。各 crate："
+            + "，".join(f"{c}={n}" for c, n in actual.items())
+        ]
+    return []
+
+
+def count_ignored_tests() -> int:
+    """全仓 `#[ignore]` 运行时注册数（口径 `--tests`，与 B/C/D5 同源、不额外编译）。"""
+    proc = subprocess.run(
+        ["cargo", "test", "--workspace", "--tests", "--", "--ignored", "--list"],
+        cwd=str(TAURI_DIR),
+        env=dict(os.environ, CARGO_INCREMENTAL="0"),
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    if proc.returncode != 0:
+        sys.stderr.write(proc.stdout + proc.stderr)
+        raise SystemExit("ERROR: cargo test --workspace --tests -- --ignored --list 失败")
+    return sum(1 for ln in proc.stdout.splitlines() if ln.endswith(": test"))
+
+
+def _criteria_hits(repo_root: Path, rel: str) -> list[tuple[int, int, str]]:
+    """返回 [(行号, 判据 N, 原文)]。只收**含解禁语境词**的行。"""
+    p = repo_root / rel
+    if not p.exists():
+        return []
+    out: list[tuple[int, int, str]] = []
+    for lineno, raw in enumerate(
+        p.read_text(encoding="utf-8", errors="replace").splitlines(), start=1
+    ):
+        if not CRITERIA_CONTEXT_RE.search(raw):
+            continue
+        for m in CONSECUTIVE_RE.finditer(raw):
+            nums = [int(g) for g in m.groups() if g]
+            out.append((lineno, min(nums), raw.strip()))
+    return out
+
+
+def check_f_meta_gate(repo_root: Path) -> list[str]:
+    """F2 段：解禁判据（连续 N 次绿灯）在全部权威落点必须 ≥ MIN_CONSECUTIVE_GREEN。"""
+    errors: list[str] = []
+    for rel in CRITERIA_SITES:
+        hits = _criteria_hits(repo_root, rel)
+        if not hits:
+            errors.append(
+                f"[F2] {rel}：未匹配到任何「连续 N 次」解禁判据 —— "
+                f"判据被删了还是措辞改了？（锚点缺失，按失败处理，防止本腿静默失效）"
+            )
+            continue
+        for lineno, n, text in hits:
+            if n < MIN_CONSECUTIVE_GREEN:
+                errors.append(
+                    f"[F2] {rel}:{lineno} 解禁判据「连续 {n} 次」< 统一口径 "
+                    f"{MIN_CONSECUTIVE_GREEN} 次 —— 判据在多处不一致时，实际执行的必然是"
+                    f"最弱那一条。原文：{text[:90]}"
+                )
+    return errors
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-cargo", action="store_true", help="跳过运行时对账（不编译）")
@@ -531,10 +661,17 @@ def main() -> int:
     print(f"[D] AHK 两维口径（套件/方法 + 文首口径提示）："
           f"{'通过' if not d_errors else f'{len(d_errors)} 处不一致'}")
 
+    # --- F2 元闸门·判据腿（不需要 cargo） ---
+    f2_errors = check_f_meta_gate(REPO_ROOT)
+    if f2_errors:
+        errors.extend(f2_errors)
+    print(f"[F2] 元闸门·判据一致性（连续 N 次 ≥ {MIN_CONSECUTIVE_GREEN}）："
+          f"{'通过' if not f2_errors else f'{len(f2_errors)} 处不一致'}")
+
     if args.no_cargo:
         for e in errors:
             print(f"  - {e}")
-        print("\n（--no-cargo：已跳过 B/C 运行时对账）")
+        print("\n（--no-cargo：已跳过 B/C/D5/E/F1 运行时对账）")
         return 1 if errors else 0
 
     # --- B 运行时对账 ---
@@ -562,6 +699,27 @@ def main() -> int:
     if d5:
         errors.extend(d5)
     print(f"[D5] Rust 明细行（按文件）：{'通过' if not d5 else f'{len(d5)} 处不一致'}")
+
+    # --- E 用例总数下限（复用 B 的运行时注册数，不额外编译） ---
+    e_errors = check_e_min_total(actual)
+    if e_errors:
+        errors.extend(e_errors)
+    print(f"[E] 用例总数下限（≥ {MIN_TOTAL_TESTS}，容差 0）："
+          f"{'通过' if not e_errors else '未达标'}（实测 {sum(actual.values())}）")
+
+    # --- F1 元闸门·排除腿：全仓 #[ignore] 必须为 0 ---
+    n_ignored = count_ignored_tests()
+    f1_errors: list[str] = []
+    if n_ignored != 0:
+        f1_errors.append(
+            f"[F1] 全仓 `#[ignore]` 运行时注册数 {n_ignored} ≠ 0 —— "
+            f"TD-058 A 类「预防性排除」失效。挂 `#[ignore]` 须先满足 "
+            f"`watchdog_integration_tests.rs` 里的解禁判据，且**写明怎么算能摘**；"
+            f"若本就打算永久排除，应显式登记为技术债条目并带到期日，而不是挂属性了事。"
+        )
+        errors.extend(f1_errors)
+    print(f"[F1] 元闸门·排除腿（全仓 `#[ignore]` 注册数 = 0）："
+          f"{'通过' if not f1_errors else f'发现 {n_ignored} 条'}")
 
     # --- C 汇总行对账 ---
     summary = parse_summary_total(text)
