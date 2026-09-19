@@ -20,7 +20,7 @@
 | 项目 | 内容 |
 |------|------|
 | 整体评级 | 🟢 通过（合入）／🔴 不通过（对外分发） |
-| 阻塞项数量 | 2（发布链路未接通、`main` 无分支保护） |
+| 阻塞项数量 | 1（发布链路未接通；分支保护已于本轮启用并独立验证） |
 | 本轮闭环 | TD-071 IPC DACL、用户侧文档三件套入库、G3h 假守护、test-map 口径 |
 | 关键行动项 | 5 条（见行动清单） |
 | 建议下一步 | 接通发布链路（GitHub Release + 产物冒烟），再谈对外分发 |
@@ -38,6 +38,8 @@
 | `7d53846` | `aee4179b` | 归档交付报告与发布链路调研 |
 | `438cd63` | `ee8008bc` | 测试闸门加固报告 + 既有报告更新 |
 | `70cc57f` | `bfffeb12` | TD-071 结项，统计行与状态词表同步 |
+| `8e19a25` | `e8bcaf5e` | release job 加第三重护栏：禁止以 tag 触发（防产出旧代码包） |
+| `8c42385` | `606686ba` | 记录分支保护已启用并核实管理员推送通道 |
 
 最终远端 `main` = `bfffeb12047b5c2754bcd0cd32d6ec79f0f1888d`，本地 `main` / `origin/main` 已对齐，未提交改动 0 项。
 
@@ -84,7 +86,7 @@
 
 我原先把它归为「不可完成（无法验证）」。Rex 用 API 返回 404 **直接证实** `main` 无分支保护，
 把判断从推断变成事实。已派其开启，要求 `enforce_admins: false` —— 否则会把我自己的 API 推送通道堵死
-（`github.com` 直连不可达，本轮全程走 Git Data API 复刻推送）。
+（`github.com` 直连不可达，本轮全程走 Git Data API 复刻推送）。**已执行并独立验证通过**（详见行动清单 #1）。Rex 还主动核实了 token 的 `admin: true` —— 这正是 `enforce_admins=false` 能保住通道的前提，也是这类配置最容易埋雷的地方。
 
 ### 3.4 一条真回归被契约测试抓到（正面证据）
 
@@ -101,6 +103,7 @@
 | `35447863126` | `93d88d68` | completed / **success** |
 | `35449054180` | `aee4179b` | completed / **success** |
 | `35449825193` | `bfffeb12` | completed / **success** |
+| `35450459973` | `e8bcaf5e` | completed / **success** |
 
 `四闸门 (windows-latest)` job 内 G3h 步骤实测 `running 17 tests` / `17 passed; 0 failed`。
 Miri UB Check job 仍 `failure`，但为 `continue-on-error`，不阻断合并。
@@ -114,7 +117,7 @@ Miri UB Check job 仍 `failure`，但为 `continue-on-error`，不阻断合并�
 
 | # | 行动 | 负责角色 | 紧急度 | 预期完成 |
 |---|------|---------|--------|---------|
-| 1 | 给 `main` 开启最小分支保护（`enforce_admins: false`，暂不绑 required checks） | Rex | P0 | 下一轮 |
+| 1 | ~~给 `main` 开启最小分支保护~~ **已完成**：PUT 200，且 GET 读回独立验证 `enforce_admins=False`、`required_status_checks=None`、`restrictions=None`、review=1；另 `allow_force_pushes=False`、`allow_deletions=False`。Rex 并额外核实 token `admin: true`（这是 `enforce_admins=false` 能保住推送通道的前提） | Rex | P0 | 2026-09-19 |
 | 2 | 接通发布链路：GitHub Release 步骤 + NSIS 产物冒烟 | Archi 出方案，主理人执行 | P0 | 需人工参与 |
 | 3 | 处理远端遗留 Release `v0.1.0`（tag 指向远落后于 HEAD 的旧提交，误触发会产出旧代码包） | Rex | P1 | 同 2 |
 | 4 | G3a 晋级留痕：本机与 CI 各连续 ≥10 次全绿的证据尚未留痕 | Tessa / Rex | P1 | 下一轮 |
@@ -124,7 +127,8 @@ Miri UB Check job 仍 `failure`，但为 `continue-on-error`，不阻断合并�
 
 ## ⚠️ 待完善 / 已知局限
 
-- **分支保护仍在推进**，尚未回报结论；若 API 返回 403（权限不足），则属于确实做不了，将如实记录。
+- ~~**分支保护仍在推进**~~ **已闭环**（行动清单 #1）。附带收益：`allow_deletions=false` 堵住了历史上「嵌套 ref 被删除导致仓库看起来没了」那类事故的**远端**路径（本地侧另有 `scripts/hooks/reference-transaction` 守卫）。
+- **分支保护刻意留了缺口**：`required_status_checks` 仍为 null —— 现在绑 required checks，CI 偶发抖动会把正常提交卡死。等 CI 稳定后再单独决策，不要顺手补上。
 - **发布链路为方案阶段，未执行**：本轮明确禁止打 tag / 创建 Release / dispatch 发布 job。
 - **TD-083（重启后热键是否真的不恢复）** 仍需端到端实测，Archi 已给出零 GUI 的对账路径论证。
 - **首次真实 NSIS 打包冒烟** 仍未做过 —— 产物层面「从未产出过发布包」这一点未改变。
