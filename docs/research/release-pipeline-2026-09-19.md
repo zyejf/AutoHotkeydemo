@@ -456,7 +456,7 @@ git rev-list --count 0fbfce5..HEAD               → 363
 - **1b** Rust 侧：在 watchdog 回到 `Running` 且 IPC 重新认证后，发一次 `query_hotkeys`，与 `AppState.active_hotkeys` 的数量对账；不一致 → `tracing::error!` + emit 事件（可进 UI）。**这一条顺带补上了 TD-083 点名的「热键注册失败零日志」**。
 - **1c** 测试：仓库**已有**两个现成的积木 ——
   - `RecordingMockIpcSender`（`crates/asd-application/src/state.rs:1260-1285`）：把发出的每条 `IpcCommand` 记进 `Vec`，`take_commands()` 取回；
-  - 真实进程重启先例（`src-tauri/src/tests/watchdog_integration_tests.rs:172-226`）：`spawn_child("cmd.exe", "token")` + `WatchdogRunner` + kill + 轮询 `restart_count > 0`，**已有可复现的重启驱动方式**。
+  - 真实进程重启先例（`src-tauri/src/tests/watchdog_integration_tests.rs:187-240`）：`spawn_child("C:\\Windows\\System32\\cmd.exe", "test_auth_token")`（`:194`）+ `WatchdogRunner` + kill + 轮询 `restart_count > 0`，**已有可复现的重启驱动方式**。<br>⚠️ 行号于 2026-09-19 更新：Tessa 在同日改写了该文件头（前瞻约束段落），原 `172-226` → 现 `187-240`，**驱动逻辑本身未变**。
 
   断言写成：**重启完成后，向 AHK 发出的命令里必须包含一次 `query_hotkeys`，且对账产生的告警被记录**。
 

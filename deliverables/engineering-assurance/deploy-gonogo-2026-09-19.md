@@ -23,8 +23,10 @@
   - ✅ **Go** —— 保持在 `main` / 继续合入：CI 四个真阻断 job 全绿，无回归。
   - ❌ **No-Go** —— 触发发布构建、对外分发安装包：剩余阻断 **B3 / B5 / B12 / B13** 未闭环。
   - ✅ **N4 已解除**（本轮复查时）：Docu 的用户侧三件套已由提交 `93d88d6` 入库 —— `git ls-files` + `git cat-file -e HEAD:<path>` 三条全部 `YES`，新 HEAD 的 CI 也已跑绿。**E 类从"内容就绪但未入库"变为真正落地。**
-- **本轮新发现 8 条（N1–N8）**，其中 **N1 是本轮最重的一条**：`main` 分支**无分支保护**（API 404 `Branch not protected`）。上一版报告 §7.2 把它列为"唯一一条纯推断"，现已证实 —— **CI 全绿目前不构成任何准入门槛**。
+- **本轮新发现 10 条（N1–N10）**，其中 **N1 是本轮最重的一条**：`main` 分支**无分支保护**（API 404 `Branch not protected`）。上一版报告 §7.2 把它列为"唯一一条纯推断"，现已证实 —— **CI 全绿目前不构成任何准入门槛**。
 - **N6（Archi 提出、我已独立复核）是最影响发布判定的一条**：打包布局下**没有 `asd_executor.exe`**，安装包必然走「便携模式」（`AutoHotkey64.exe` + `executor.ahk`）；而本地因为该文件存在走的是「编译模式」。⇒ **本地测过的执行器启动路径，和用户装到的不是同一条**，且这条 shipped 路径从未在打包布局下端到端验证过。
+- ⚠️ **那片绿灯不含 G3h 的修复**（N7 / §1.6）：Tessa 已在工作树把 G3h 从 `-- --ignored` 改成按模块名跑，但**未提交**；我核实的 run 跑的是 HEAD 版 ci.yml。⇒ **A10 仍判 ❌**，改判必须等提交后重跑 CI。**不能因为"修好了"就改判据，只能因为"CI 证明它好了"才改判。**
+- ⚠️ **`ci.yml` 行号已漂移**（N10）：工作树 926 行 vs HEAD 913 行（净 +13）。本报告行号锚定 HEAD 版，171 行之后对照需 +13。
 - ⚠️ **"CI 绿"的作用域只有已提交的 HEAD `93d88d6`**（N5）：工作区里有 **9 处未提交改动**（Cody 的 TD-071、Tessa 的 G3h 用例改动，以及 **`ci.yml` 与 `check-test-map.py` 两处闸门自身的定义**），一个都没过 CI。这张通行证不能代表当前这棵树 —— **放行前必须重跑 `git status` 并重查最新 run**。
 
 ---
@@ -94,6 +96,18 @@ G1 图谱基线 ✅ ／ G3i build_graph.py JS 边归类自检 ✅ ／ G2a `cargo
 ### 1.5 已排除的一类误判
 
 上游提示的「所有 job steps 为空、秒级失败 = 账户账单问题」**本次不适用**：`四闸门` 27 步、`Coverage` 11 步、`Miri` 8 步，且 `四闸门` 实跑 4 分 17 秒（13:46:28→13:50:45）。**运行痕迹真实，无需改代码。**
+
+### 1.6 ⚠️ 两条时效性告警（读本报告前必看）
+
+**① `ci.yml` 行号已整体漂移。** 工作树的 `.github/workflows/ci.yml` 被改动（未提交）：`git diff HEAD --stat` = **19 插入 / 6 删除（净 +13）**，文件 **913 → 926 行**。
+⇒ **本报告引用的 `ci.yml` 行号均为 HEAD（`93d88d6`）版。171 行之后的行号，工作树版需 +13**（例：`release` job 的 `if:` 794→807、artifact 名 908→921、文件末 913→926）。详见 N10。
+
+**② 那片绿灯不含 G3h 的修复 —— 别把它记成"已修"。** 工作树里 Tessa 已把 G3h 从
+`cargo test -p asd-tauri --lib -- --ignored --test-threads=1`
+改为
+`cargo test -p asd-tauri --lib tests::watchdog_integration_tests -- --test-threads=1`
+（按模块名直接跑，注释里写明了「恒绿空转」的成因与解禁判据）。**但该改动未提交**，而本报告核实的 run `35447863126` 跑的是 **HEAD 版（913 行）的 ci.yml**。
+⇒ **A10「G3h 有实际用例」在本报告里仍判 ❌**，绿灯守的东西没变。**只有等它提交后重跑一次 CI，才能改判。** 这与 N7 是同一条纪律的两面：**不能因为"修好了"就改判据，只能因为"CI 证明它好了"才改判。**
 
 ---
 
@@ -267,11 +281,12 @@ run: |
 | ~~1~~ | ~~把用户侧三件套入库~~ → **已由 `93d88d6` 完成**（N4 解除） | B8/B9/B10/B11 | Docu | ✅ 已完成 |
 | 2 | 实测 B5：杀掉 `asd_executor.exe` → 按原热键，确认是否失效；若失效则加 `active_hotkeys` 重放 | B5 | Tessa | 0.5 人日 |
 | 2b | **把 N6 的便携模式验证并进冒烟**：A5/A6 断言（日志出现「使用(便携\|编译)模式 AHK 子进程」+ `IPC 已接受 AHK 连接（已认证）` + 进程表有 `AutoHotkey64`/`asd_executor`）。**这是唯一能证明 shipped 启动路径真的能跑的手段**，采纳 Archi 的设计 | N6 | Tessa | 并入 #5 |
-| 2c | **修 G3h 空闸门**：要么断言用例数 > 0，要么在摘 `#[ignore]` 后同步改命令；另按上游 3b 补「用例总数下限门」 | N7 | Tessa | 并入 3b |
+| 2c | **G3h 修复已在工作中**（Tessa 改为按模块名跑），**剩余动作只有"提交 + 等 CI 复验"**。⚠️ 未复验前 A10 保持 ❌，不得提前改判 | N7 | Tessa | 极小 |
 | 3 | 手动触发 release job（`build_release=true`）**人工盯全程**，确认产出 NSIS 包 | B13 的前置 | Rex | 0.5 人日 |
 | 4 | 补 GitHub Release 步骤，把安装包落到不过期的分发点 | B3 | Rex | 0.5 人日 |
 | 5 | 跑一次发布产物冒烟（装 → 启 → 执行一个连招）并补进 CI | B13 | Tessa | 1 人日 |
 | 6 | 打开 `main` 分支保护（至少要求 `gates` 这个 required check） | N1 | 主理人 | 极小 |
+| 6b | 若将来接 tag 自动发版：**先明确 release job 用哪种 token**（`GITHUB_TOKEN` 建 tag 不二次触发；PAT/OAuth 会），实跑验证，并用 `concurrency` 兜底 | N9 | Rex + Archi | 0.2 人日 |
 | 7 | 修 Miri 配置（`MIRIFLAGS=-Zmiri-disable-isolation`） | 信号门可信度（P2，不阻塞） | Rex | 极小 |
 
 **顺序约束**：3 必须在 2 之后（否则产出一个已知缺陷的包，反而锁定坏基线）；4 必须与 3 同批（否则产物仍会落到 90 天过期点）。6 可与任何一步并行，且成本极低 —— 建议**现在就做**。
@@ -318,7 +333,9 @@ run: |
 | **N5** | **工作区存在进行中的改动，且范围在扩大** | 初查 3 处 `M`：`ipc.rs`（+117/−6，Cody 的 TD-071 DACL）、`Cargo.toml`（+7）、`Cargo.lock`（+1）。**复查时已扩到 9 处**，新增：`.github/workflows/ci.yml`、`asd-tauri/docs/test-map.md`、`scripts/check-test-map.py`、`asd-tauri/src-tauri/src/tests/watchdog_integration_tests.rs`、`docs/guard-effectiveness-checklist.md`、`docs/tech-debt-register.md` | CI 绿只代表**已提交的 HEAD**（`93d88d6`）。**这 9 处改动一个都没被 CI 验证过**。⚠️ 其中 `ci.yml` 与 `check-test-map.py` 是**闸门自身的定义** —— 改闸门的同时用旧闸门的结果下 Go/No-Go 结论是无效的。发布前必须先把工作区归宿定死：提交并等一轮新 CI，或明确剥离后再发 |
 | **N6** | **打包布局的执行器路径 ≠ 本地开发路径**（Archi 提出，我已独立复核并全部证实） | ① `tauri.conf.json:37-48` `bundle.resources` 无 `asd_executor.exe`；② `.gitignore:35` `*.exe` 排除；③ `build.rs` 全文无 `asd_executor`（不生成）；④ 本地 `src-tauri/ahk_executor/asd_executor.exe` **存在** → 本地走 `lib.rs:640` 编译模式；⑤ 安装包内该文件不存在 → 走 `lib.rs:653` 便携模式 | **本地测过的执行器启动路径，和用户装到的不是同一条**。CI 全新 clone 同样拿不到该文件 ⇒ CI 侧也是便携模式，但 CI 从不启动应用，所以**便携模式在打包布局下从未被端到端验证过**。这是 B13 的直接加重项 |
 | **N7** | **G3h 是永真空闸门**（Archi 提出，我用 CI 日志坐实） | job 105906876013 日志：`running 0 tests` → `test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; **256 filtered out**`；全仓 grep `^\s*#\[ignore\]` **0 命中** | 摘 `#[ignore]`（`721159a`）时未同步改这道门的命令。绿灯不携带任何信息；**watchdog 进程生命周期路径当前无任何有效守护** |
-| **N8** | **远端 tag `v0.1.0` 已存在且严重落后** | `GET /repos/.../tags` → 全仓仅 **1** 个 tag：`v0.1.0` → `0fbfce52e3c0d3d299e49916091321b992d7ceb8`，日期 **2026-06-28**，较 HEAD `9fd8a69` **落后 362 个提交** | ⚠️ **对 Archi 表述的一处修正**：`ci.yml:22-24` 的 `on.push` **只有 `branches: [main, master]`，并无 `tags:` 过滤器** —— 不是"待办失效"，而是 `ci.yml:765-770` 明确记录了**刻意不接 tag 触发**的决策。但这不改变事实本身：**`v0.1.0` 指向的是 3 个月前、落后 362 个提交的代码**。任何人若按"打了 v0.1.0 就算发过版"来理解，会严重误判。将来若要接 tag 自动发版，必须打**新** tag（如 `v0.1.1`） |
+| **N8** | **远端 tag `v0.1.0` 已存在且严重落后** | `GET /repos/.../tags` → 全仓仅 **1** 个 tag：`v0.1.0` → `0fbfce52e3c0d3d299e49916091321b992d7ceb8`，日期 **2026-06-28**，较 HEAD `93d88d6` **落后 363 个提交** | ⚠️ **对 Archi 表述的一处修正**：`ci.yml:22-24` 的 `on.push` **只有 `branches: [main, master]`，并无 `tags:` 过滤器** —— 不是"待办失效"，而是 `ci.yml:765-770` 明确记录了**刻意不接 tag 触发**的决策。但这不改变事实本身：**`v0.1.0` 指向的是 3 个月前、落后 362 个提交的代码**。任何人若按"打了 v0.1.0 就算发过版"来理解，会严重误判。将来若要接 tag 自动发版，必须打**新** tag（如 `v0.1.1`） |
+| **N9** | **接 tag 自动发版存在二次触发风险 —— 且风险取决于用哪个 token**（Archi 提出为「未验证」，我已查证到官方规则） | GitHub Docs（Events that trigger workflows / Triggering a workflow）原文：「**When you use the repository's `GITHUB_TOKEN` to perform tasks, events triggered by the `GITHUB_TOKEN` will not create a new workflow run**」；并明确「**For all other events** … if a workflow run pushes code using the `GITHUB_TOKEN`, a new workflow will not run even when the repository contains a workflow configured to run on `push` events」；反之「use a **GitHub App installation access token or a personal access token** instead of `GITHUB_TOKEN` to trigger events that require a token」 | **结论：用 `secrets.GITHUB_TOKEN` → 建的 tag 不会二次触发；用 PAT / OAuth token / App token → 会触发。** ⚠️ 本环境 `gh auth token` 取到的是 **`gho_` 前缀的 OAuth 用户 token**（非 `GITHUB_TOKEN`），故**人工手动 `gh release create` 走的是"会触发"那条路**。⇒ 接 tag 自动发版前必须：① 明确 release job 用的是哪种 token；② 实跑一次验证；③ 用 `concurrency` 兜底 |
+| **N10** | **`ci.yml` 行号漂移** | 工作树 926 行 vs HEAD 913 行，净 +13（Archi 提出，我已复核 `git diff HEAD --stat` 确认 19 插入 / 6 删除） | 本报告所有 `ci.yml` 行号锚定 **HEAD 版**；与工作树版对照时 171 行之后需 +13。跨报告引用行号时务必注明版本，否则两报告会对不上 |
 
 ---
 
@@ -337,7 +354,9 @@ run: |
 | 全仓活 `#[ignore]` | Grep `^\s*#\[ignore\]` → 0 命中 | **本机实测** |
 | 打包资源清单 | `tauri.conf.json:37-48` + `.gitignore:35` + `build.rs` 全文无 `asd_executor` | **本机实测** |
 | 本地执行器模式 | `src-tauri/ahk_executor/asd_executor.exe` 存在（Glob 命中 7 处，含 src 与各 target） | **本机实测** |
-| 远端 tag | `GET /repos/.../tags` → 仅 `v0.1.0` → `0fbfce5`（2026-06-28，落后 362 提交） | **实测** |
+| 远端 tag | `GET /repos/.../tags` → 仅 `v0.1.0` → `0fbfce5`（2026-06-28）；`git rev-list --count 0fbfce5..HEAD` = **363** | **实测** |
+| `ci.yml` 工作树改动 | `git diff HEAD --stat` → 19 插入 / 6 删除（净 +13），文件 913 → **926** 行 | **本机实测** |
+| G3h 命令变更 | 工作树已改为 `cargo test -p asd-tauri --lib tests::watchdog_integration_tests -- --test-threads=1`（HEAD 版仍为 `-- --ignored`） | **本机实测**（工作树，**未过 CI**） |
 | 文档入库状态 | `git ls-files --error-unmatch` × 3 | **本机实测** |
 | release 产物缺失 | `ls asd-tauri/src-tauri/target/release/`（**浅层，未递归**） | **本机实测** |
 | restart_child 无重放 | `watchdog.rs:1279-1300` + 全仓 `active_hotkeys` grep | **本机实测**（"重启后确实失效"仍为推断） |
