@@ -34,18 +34,22 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "ahk_executor/executor.ahk",
-      "ahk_executor/ipc_client.ahk",
-      "ahk_executor/hotkey_hook.ahk",
-      "ahk_executor/sender.ahk",
-      "ahk_executor/joystick.ahk",
-      "ahk_executor/high_res_clock.ahk",
-      "ahk_executor/AutoHotkey64.exe",
-      "ahk_executor/asd_executor.bat",
-      "third-party/AutoHotkey-license.txt",
-      "third-party/THIRD-PARTY-NOTICES.md"
-    ],
+    "resources": {
+      "ahk_executor/executor.ahk": "ahk_executor/executor.ahk",
+      "ahk_executor/ipc_client.ahk": "ahk_executor/ipc_client.ahk",
+      "ahk_executor/hotkey_hook.ahk": "ahk_executor/hotkey_hook.ahk",
+      "ahk_executor/sender.ahk": "ahk_executor/sender.ahk",
+      "ahk_executor/joystick.ahk": "ahk_executor/joystick.ahk",
+      "ahk_executor/high_res_clock.ahk": "ahk_executor/high_res_clock.ahk",
+      "ahk_executor/AutoHotkey64.exe": "ahk_executor/AutoHotkey64.exe",
+      "ahk_executor/asd_executor.bat": "ahk_executor/asd_executor.bat",
+      "third-party/AutoHotkey-license.txt": "third-party/AutoHotkey-license.txt",
+      "third-party/THIRD-PARTY-NOTICES.md": "third-party/THIRD-PARTY-NOTICES.md",
+      "../../README.md": "README.md",
+      "../../docs/user-guide.md": "docs/user-guide.md",
+      "../../docs/troubleshooting.md": "docs/troubleshooting.md",
+      "../../LICENSE": "LICENSE"
+    },
     "publisher": "ASD Team",
     "windows": {
       "nsis": {
