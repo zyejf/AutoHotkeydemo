@@ -54,9 +54,26 @@ on:
         description: '构建发布安装包（NSIS exe + SHA256）并作为 artifact 上传，供发布与事后回滚取用（TD-074）。⚠️ 默认关闭：该构建路径在 CI 上**从未被真正跑通过**（e2e job 结构性不可达，内含的构建步骤一次都没执行），首次请手动勾选验证，绿过一次再考虑接自动触发'
         type: boolean
         default: false
+      publish_release:
+        description: '⚠️ 真实发版：创建 GitHub Release 并上传安装包（runner 用 GITHUB_TOKEN 经 API 建远端 tag，**不可逆**）。需同时勾选 build_release；首次执行**不要勾**（先把构建路径跑绿）'
+        type: boolean
+        default: false
+      release_tag:
+        description: 'Release tag。留空自动生成 build-<YYYYMMDD>-<sha7>。⚠️ 禁止填 v0.1.0（指向 2026-06-28 旧提交，落后 HEAD 363 个提交）'
+        type: string
+        required: false
+        default: ''
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # ⚠️ group 里叠加 `-${{ github.event_name }}` 是**实测驱动**的改动，不是洁癖：
+  #   实测最近 50 次运行，结论为 `cancelled` 的有 **4 次 push + 1 次 workflow_dispatch**
+  #   —— 即 `cancel-in-progress: true` 确实在取消 main 上**正在跑**的 run。
+  #   对 release job 这意味着：发布构建跑到一半时，任何人 push 一下 main 就会把它杀掉，
+  #   而发布是最不该被无关提交打断的东西。拆成 push / dispatch 两组后二者互不干扰。
+  #   仍按 `${{ github.ref }}` 分组 —— **不是**静态组名（静态会把所有分支的 CI 串行化，
+  #   那是回归）。group 表达式只允许 github / inputs / vars 三个上下文（GitHub 文档），
+  #   `event_name` 属 github 上下文，合法。
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
@@ -803,6 +820,20 @@ jobs:
     # 产出任何东西 —— 这正是想要的行为。只依赖 gates，不依赖其它辅助 job
     # （coverage / miri / fuzz / bench 等信号类 job 不参与判定）。
     needs: gates
+    # `gh release create` 要经 API 建远端 tag 并写 Release，缺 `contents: write` 必红，
+    # 且报错是**误导性的权限串** —— 本仓 TD-014 在 security-audit job 上踩过同型坑：
+    # 审计其实跑完了，最后一步写回 Checks API 才报权限错，看着像「action 配置坏了」。
+    permissions:
+      contents: write
+    # 静态组：让**任何两次发布执行不论 ref 都进同一组**。
+    # `cancel-in-progress: false` 是刻意的 —— 发布上传中途被 cancel 会留下
+    # 「Release 建了但资产不全」的半成品，排队比取消安全。
+    # ⚠️ 未验证：workflow 级 `cancel-in-progress: true` 与 job 级 `false` 同时存在时
+    #    谁生效、workflow 级取消是否会连带杀掉已声明 job 级 concurrency 的 job ——
+    #    GitHub 文档未明确、未实测（Archi §3.3）。首次实跑时 push 一下 main 观察一次。
+    concurrency:
+      group: release-publish-${{ github.repository }}
+      cancel-in-progress: false
     # 三重默认关闭：① 事件必须是手动 dispatch；② 必须勾选 build_release；
     # ③ **必须构建 main 分支，不允许选 tag**。
     # ⚠️ 第 ③ 条是硬性护栏，不是洁癖：远端存在 Release `v0.1.0`，其 tag 指向的提交
@@ -919,6 +950,59 @@ jobs:
 
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
+      # ---------------------------------------------------------------- 冒烟
+      # Archi §2 定的顺序：构建 → SHA256 → **冒烟** → 上传 artifact → 发 Release。
+      # 插在这里而不是上传之后：上传是唯一兜底动作（artifact 保 90 天），冒烟若排在
+      # 其后失败，artifact 已落袋，回滚素材不受影响；反过来则「冒烟红 ⇒ 连包都没有」。
+      #
+      # ⚠️ 这是**硬失败**，刻意不加 continue-on-error：一个永远绿的冒烟等于没有冒烟。
+      #    本仓已抓到过同型假守卫（CI 里 `cargo test -- --ignored` 在零条 `#[ignore]`
+      #    时恒绿）。判据全部取自「安装目录 + 注册表 + 进程表 + 应用日志文件」四类
+      #    磁盘/系统证据，不做 GUI 截图、不做像素判断。
+      #
+      # ⚠️ 首次人工观察前，**不要把「CI 能出包」当既有事实**：本 job 的 release 构建
+      #    路径从未在 CI 上真正跑通过（唯一含 `tauri build` 的 e2e job 被
+      #    `workflow_dispatch && inputs.run_e2e`（默认 false）结构性挡住）。这个 step
+      #    首次执行很可能红，而它红恰恰是有价值的信息 —— 「装上了但起不来」必须在
+      #    发布之前暴露，而不是等用户装上才发现。
+      #    ⇒ 首次手动跑这个 job 时，请把本 step 的输出当**首次观测数据**读，
+      #      不要拿它去反推「构建没问题」。
+      - name: 发布产物冒烟（静默安装 → 启动 → AHK 子进程 → IPC 认证）
+        shell: pwsh
+        run: |
+          $artDir = Join-Path $env:RUNNER_TEMP 'release-artifacts'
+          $installers = @(Get-ChildItem -Path $artDir -Filter *.exe -File -ErrorAction SilentlyContinue)
+          # 不静默取第一个：产物不止一个说明构建/收集环节出了问题，此时「猜一个跑」
+          # 等于把「装错了包」伪装成「冒烟通过」。
+          if ($installers.Count -eq 0) { throw "release-artifacts 下没有安装包: $artDir" }
+          if ($installers.Count -gt 1) {
+            throw "release-artifacts 下有 $($installers.Count) 个安装包，无法判定该冒烟哪一个: $($installers.Name -join ', ')"
+          }
+          $installer = $installers[0].FullName
+          Write-Host "冒烟目标: $installer"
+
+          # 刻意不设 $ErrorActionPreference='Stop'：PS7 下 native 命令写 stderr 可能被
+          # 升级成终止错误，从而吞掉真正的退出码。这里用显式 throw + exit $rc 控制。
+          $logDir = Join-Path $env:RUNNER_TEMP 'smoke-logs'
+          pwsh -NoProfile -File scripts/smoke-release-install.ps1 `
+            -InstallerPath $installer -LogCopyDir $logDir
+          $rc = $LASTEXITCODE
+
+          if ($rc -ne 0) {
+            # 失败时把应用日志打进 job 日志：runner 是临时环境，不导出就永久丢失，
+            # 而「哪条判据挂了 / 日志最后写了什么」是唯一的排障线索。
+            Write-Host '--- 冒烟失败：导出应用日志尾部 ---'
+            if (Test-Path $logDir) {
+              foreach ($f in (Get-ChildItem -Path $logDir -File)) {
+                Write-Host "### $($f.Name)"
+                Get-Content -LiteralPath $f.FullName -Tail 200 -Encoding utf8
+              }
+            } else {
+              Write-Host "（无日志可导出：$logDir 不存在 —— 失败发生在应用写日志之前）"
+            }
+          }
+          exit $rc
+
       # 命名带版本号，便于事后回滚时按版本取用。
       # retention-days 90：发布产物需要覆盖回滚窗口，不能按普通 CI 产物 30 天清理。
       - name: 上传安装包 + 校验和
@@ -930,3 +1014,58 @@ jobs:
           # 这里**不能**用 warn：本 job 的唯一目的就是产出安装包，
           # 找不到文件必须是硬失败，否则「跑绿了但没有包」会被当成发布成功。
           if-no-files-found: error
+
+      # 放在**最后一个**，顺序是：构建 → SHA256 → 冒烟 → 上传 artifact → 发 Release。
+      # 两条理由：① artifact 是唯一兜底（保留 90 天）。若发布排在上传之前，发布一失败
+      #   job 就中止 ⇒ 连 artifact 都没有；排在其后则「发布失败但产物已存档」，严格更优。
+      #   ② 发布是 job 内唯一从未跑过的步骤，未验证的步骤应最后跑，把已确定的先落袋。
+      - name: 发布 GitHub Release（需勾选 publish_release）
+        if: inputs.publish_release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sha   = '${{ github.sha }}'
+          $short = $sha.Substring(0, 7)
+
+          # 1) tag：留空自动生成；只认两种形态，其它一律拒（防手滑填分支名 / 旧 tag）
+          $tag = $env:REQUESTED_TAG.Trim()
+          if ($tag -eq '') {
+            $tag = "build-{0}-{1}" -f (Get-Date).ToUniversalTime().ToString('yyyyMMdd'), $short
+            Write-Host "自动生成 tag: $tag"
+          }
+          if ($tag -notmatch '^build-\d{8}-[0-9a-f]{7,40}$' -and $tag -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "release_tag 非法: '$tag'（允许 build-<YYYYMMDD>-<sha7> 或 v<X.Y.Z>）"
+          }
+          if ($tag -eq 'v0.1.0') { throw '禁止发布到 v0.1.0（指向 2026-06-28 旧提交）' }
+
+          # 2) 幂等闸门：已存在即硬失败，绝不覆盖
+          gh release view $tag --repo '${{ github.repository }}' 2>$null
+          if ($LASTEXITCODE -eq 0) { throw "Release '$tag' 已存在 —— 拒绝覆盖" }
+
+          # 3) 自撰说明（不用 --generate-notes：上一 Release 是 v0.1.0 / 2026-06-28，
+          #    它会吐出数百条提交；且需写清未签名 / 需联网 / 版本号不可信三件事）
+          $notes = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          $sum = Get-Content (Join-Path $env:RUNNER_TEMP 'release-artifacts' 'SHA256SUMS.txt') -Raw -Encoding utf8
+          @(
+            "## ASD 技能管理器 — $tag", ''
+            "- commit: ``$sha``（**溯源以此为准**；tauri.conf.json 版本长期停在 0.1.0，见 TD-078）"
+            '- 平台: Windows x64 / NSIS（installMode=currentUser）'
+            '- ⚠️ 未签名：SmartScreen「未知发布者」告警，需手动「更多信息 → 仍要运行」'
+            '- ⚠️ 首次安装需联网下载 WebView2；离线/内网装不上'
+            '- ℹ️ 历史 Release v0.1.0 无资产且指向 2026-06-28 旧提交，可用版本自本条起'
+            '', '### SHA256', '```', $sum.TrimEnd(), '```'
+          ) | Set-Content -Path $notes -Encoding utf8
+
+          # 4) 建 Release。--target 保证标定源码 == 本次构建 commit。
+          #    ⚠️ 刻意不加 --verify-tag：它要求 tag 事先存在，而本步正是靠 --target 新建，
+          #    加了自相矛盾（该行为按 CLI 语义推断，**未实证**）。
+          $files = @(Get-ChildItem (Join-Path $env:RUNNER_TEMP 'release-artifacts') -File | ForEach-Object { $_.FullName })
+          if ($files.Count -eq 0) { throw 'release-artifacts 为空，拒绝创建空 Release' }
+          gh release create $tag --repo '${{ github.repository }}' --target $sha `
+            --title "ASD 技能管理器 $tag" --notes-file $notes $files
+          if ($LASTEXITCODE -ne 0) { throw "gh release create 失败（exit=$LASTEXITCODE）" }
+          "已发布: https://github.com/${{ github.repository }}/releases/tag/$tag" |
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8
