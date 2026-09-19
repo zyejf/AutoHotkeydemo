@@ -163,3 +163,64 @@ describe('诊断页结构与失败兜底', () => {
     );
   });
 });
+
+// =================================================================
+// 执行器失败态的自助恢复（TD-082 / 阻断项 B4 的真实缺口）
+// =================================================================
+// ⚠️ 定性的订正：B4 原判「UI 零提示」并不成立 —— Rust 侧
+// `update_watchdog_state`(asd-application/src/state.rs:343) 轮询到状态变化就 emit
+// `executor_status`，前端 onExecutorStatus 会把导航栏圆点变红、文字改「失败」。
+// 判据里那个「grep getExecutorStatus/resetWatchdog 零命中」只证明了**拉模式命令没被调用**，
+// 推模式通道一直是通的。真正缺的是：① 进入 Failed 时只有 6px 圆点变色，没有 toast；
+// ② api.js 里的 resetWatchdog() 封装从未被 UI 调用，没有任何自助恢复入口。
+// 下面 4 条把这两条缺口钉住，并防「Rust 加状态变体 / 前端漏翻」的漂移。
+describe('执行器状态的自助恢复入口（TD-082 / B4）', () => {
+  // 与 Rust WatchdogStateEnum（asd-domain/src/config.rs:299 起）一一对应
+  const WATCHDOG_STATES = ['Idle', 'Starting', 'Running', 'Hung', 'Restarting', 'Recovering', 'Failed'];
+
+  test('EXEC_STATUS_MAP 覆盖 WatchdogStateEnum 全部变体（防状态名漂移）', () => {
+    const js = read(MAIN_JS);
+    const m = js.match(/var EXEC_STATUS_MAP = \{([^}]*)\}/);
+    assert.ok(m, 'main.js 中应存在 EXEC_STATUS_MAP');
+    const keys = [...m[1].matchAll(/(\w+)\s*:/g)].map((x) => x[1]);
+    assert.deepEqual(
+      keys.sort(),
+      [...WATCHDOG_STATES].sort(),
+      `EXEC_STATUS_MAP 的键必须与 Rust WatchdogStateEnum 一致：多一个键是已删的过期状态，` +
+      `少一个键会把英文原文直接显示给用户（当前前端=${keys.join(',')}）`
+    );
+  });
+
+  test('诊断页有状态/重启次数元素，且有一键重置入口', () => {
+    const html = read(INDEX_HTML);
+    for (const id of ['diagExecStatus', 'diagExecRestart']) {
+      assert.ok(html.includes(`id="${id}"`), `index.html 缺少 #${id}`);
+    }
+    assert.ok(/data-action="resetWatchdog"/.test(html), 'index.html 缺少「重置看门狗」按钮');
+  });
+
+  test('resetWatchdogDiag() 真的调用 api.resetWatchdog()（防按钮静默无效）', () => {
+    const body = functionSource(read(MAIN_JS), 'resetWatchdogDiag');
+    assert.ok(body, 'main.js 中应存在 resetWatchdogDiag()');
+    assert.ok(
+      /api\.resetWatchdog\s*\(/.test(body),
+      'resetWatchdogDiag() 必须调用 api.resetWatchdog() —— 该封装此前一直零调用，正是本条债的成因'
+    );
+  });
+
+  test('进入 Failed 有 toast + 日志，且只在状态跃迁时提示一次', () => {
+    const m = read(MAIN_JS).match(/api\.onExecutorStatus\(function\(data\) \{[\s\S]*?\n {2}\}\);/);
+    assert.ok(m, '未找到 onExecutorStatus 处理函数');
+    const body = m[0];
+    assert.ok(
+      /showToast\(/.test(body) && /Failed/.test(body),
+      'onExecutorStatus 必须在 Failed 时给 toast —— 仅 6px 圆点变色用户不会注意到'
+    );
+    assert.ok(/addLog\(/.test(body), 'onExecutorStatus 在 Failed 时应落一条 error 日志');
+    assert.ok(
+      /_lastExecStatus\s*!==\s*["']Failed["']/.test(body),
+      'Failed 提示必须由「上一次状态」守卫 —— 事件每次状态变化都推，不守卫会反复弹 toast'
+    );
+    assert.ok(/_lastExecStatus\s*=/.test(body), '必须在处理末尾更新 _lastExecStatus');
+  });
+});

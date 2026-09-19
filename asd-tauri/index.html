@@ -352,9 +352,17 @@
                 <span class="form-label">日志目录</span>
                 <div class="form-field"><span id="diagLogDir" style="word-break:break-all;font-family:'Cascadia Code','Consolas',monospace;font-size:11px;color:var(--text-secondary);">读取中…</span></div>
               </div>
+              <div class="form-row">
+                <span class="form-label">执行器状态</span>
+                <div class="form-field"><span id="diagExecStatus">读取中…</span><span id="diagExecRestart" style="font-size:11px;color:var(--text-secondary);margin-left:8px;"></span></div>
+              </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
                 <button class="btn btn-primary btn-sm" data-action="copyDiagnostics">📋 一键复制诊断信息</button>
                 <button class="btn btn-ghost btn-sm" data-action="refreshDiagnostics">🔄 刷新</button>
+                <button class="btn btn-ghost btn-sm" data-action="resetWatchdog">♻️ 重置看门狗</button>
+              </div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:6px;">
+                「重置看门狗」用于执行器卡在<strong>失败／挂起／恢复中</strong>时的自助恢复：终止旧子进程、清空重启计数与退避，把状态置为「重启中」，随后由看门狗自动重新拉起 AHK 子进程。其它状态下点击会被拒绝并提示当前状态，属于预期行为。
               </div>
               <div style="font-size:10px;color:var(--text-muted);margin-top:8px;">
                 复制内容包含应用版本、日志目录与当前时间，可直接粘贴到问题反馈中。日志文件位于上述目录，文件名形如 asd.YYYY-MM-DD.log（按天轮转，保留最近 7 份）。

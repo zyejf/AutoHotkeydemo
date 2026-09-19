@@ -745,13 +745,17 @@ function toggleAutoScroll() { _autoScroll = !_autoScroll; var btn = document.que
 // 用户报错时能一键拿到「版本 + 日志目录 + 时间」，直接粘进反馈，替代口头描述。
 // 纯前端：版本/目录分别来自 Tauri 内置的 app.getVersion() 与 path.appDataDir()，
 // 权限由 capabilities 的 core:default 覆盖，**没有新增 Rust 命令**。
-var _diagInfo = { version: '', logDir: '' };
+var _diagInfo = { version: '', logDir: '', execStatus: '', execRestart: null };
 
 function loadDiagnostics() {
   var vEl = document.getElementById('diagVersion');
   var dEl = document.getElementById('diagLogDir');
+  var sEl = document.getElementById('diagExecStatus');
+  var rEl = document.getElementById('diagExecRestart');
   if (vEl) vEl.textContent = '读取中…';
   if (dEl) dEl.textContent = '读取中…';
+  if (sEl) sEl.textContent = '读取中…';
+  if (rEl) rEl.textContent = '';
   hideDiagFallback();
   var pv = api.getAppVersion().then(function(v) {
     _diagInfo.version = v || '';
@@ -767,14 +771,60 @@ function loadDiagnostics() {
     _diagInfo.logDir = '';
     if (dEl) dEl.textContent = '读取失败: ' + errMsg(e, '未知错误');
   });
-  return Promise.all([pv, pd]);
+  // 拉一次当前快照：事件只推送「变化」，刚进页面时若状态没变过就拿不到值。
+  var ps = api.getExecutorStatus().then(renderExecutorStatus).catch(function(e) {
+    _diagInfo.execStatus = '';
+    if (sEl) sEl.textContent = '读取失败: ' + errMsg(e, '未知错误');
+  });
+  return Promise.all([pv, pd, ps]);
 }
 
 function buildDiagnosticText() {
   return 'ASD 技能管理器诊断信息\n'
     + '应用版本: ' + (_diagInfo.version || '读取失败') + '\n'
     + '日志目录: ' + (_diagInfo.logDir || '读取失败') + '\n'
+    + '执行器状态: ' + (EXEC_STATUS_MAP[_diagInfo.execStatus] || _diagInfo.execStatus || '读取失败') + '\n'
+    + ((typeof _diagInfo.execRestart === 'number' && _diagInfo.execRestart > 0)
+        ? ('重启次数: ' + _diagInfo.execRestart + '\n') : '')
     + '生成时间: ' + new Date().toLocaleString();
+}
+
+// ── 执行器状态（TD-082 / B4 的真实缺口）────────────────────────────────
+// ⚠️ 与「UI 零提示」相反：导航栏圆点其实一直在工作 —— Rust 的
+// `update_watchdog_state`(state.rs:343) 轮询到状态变化就 emit `executor_status`，
+// 前端 onExecutorStatus 会把圆点变红、文字改「失败」。**真正的缺口是另外两条**：
+//   ① 进入 Failed 时只有 6px 的圆点变色，**没有 toast / 日志**，用户不看导航栏就不知道；
+//   ② `resetWatchdog()` 在 api.js 里有封装，但 UI 从未调用 —— 没有任何自助恢复入口。
+// 这里补齐 ②（诊断页可刷新状态 + 一键重置），① 由下方 onExecutorStatus 补 toast。
+var EXEC_STATUS_MAP = { Idle: "就绪", Starting: "启动中", Running: "运行中", Hung: "挂起", Restarting: "重启中", Recovering: "恢复中", Failed: "失败" };
+// 上一次的状态：用于「只在刚变成 Failed 时提示一次」，避免每次事件都弹 toast。
+var _lastExecStatus = '';
+
+function renderExecutorStatus(s) {
+  if (!s) return;
+  _diagInfo.execStatus = s.status || '';
+  _diagInfo.execRestart = (typeof s.restartCount === 'number') ? s.restartCount : null;
+  var sEl = document.getElementById('diagExecStatus');
+  var rEl = document.getElementById('diagExecRestart');
+  if (sEl) {
+    sEl.textContent = EXEC_STATUS_MAP[s.status] || s.status || '未知';
+    sEl.style.color = (s.status === 'Failed') ? 'var(--danger)'
+                    : (s.status === 'Running') ? 'var(--success)' : '';
+  }
+  if (rEl) {
+    rEl.textContent = (typeof s.restartCount === 'number' && s.restartCount > 0)
+      ? ('重启次数: ' + s.restartCount) : '';
+  }
+}
+
+// 自助恢复：看门狗卡在 Failed（重启次数耗尽）时清空计数，把状态拉回就绪并重新拉起子进程。
+function resetWatchdogDiag() {
+  api.resetWatchdog().then(function() {
+    showToast('看门狗已重置，正在重新拉起执行器', 'success');
+    return loadDiagnostics();
+  }).catch(function(e) {
+    showToast('重置失败: ' + errMsg(e, '未知错误'), 'error');
+  });
 }
 
 function hideDiagFallback() {
@@ -1348,6 +1398,7 @@ function init() {
     else if (action === 'refreshGroupList') refreshGroupList();
     else if (action === 'copyDiagnostics') copyDiagnostics();
     else if (action === 'refreshDiagnostics') loadDiagnostics();
+    else if (action === 'resetWatchdog') resetWatchdogDiag();
   };
 
   document.getElementById('keyPickerOverlay').onclick = function(e) {
@@ -1410,10 +1461,17 @@ function init() {
   api.onExecutorStatus(function(data) {
     var statusDot = document.getElementById("statusDot"); var statusText = document.getElementById("statusText");
     if (statusDot && data.status) {
-      var statusMap = { Idle: "就绪", Starting: "启动中", Running: "运行中", Hung: "挂起", Restarting: "重启中", Recovering: "恢复中", Failed: "失败" };
-      statusText.textContent = statusMap[data.status] || data.status;
+      statusText.textContent = EXEC_STATUS_MAP[data.status] || data.status;
       statusDot.className = "nav-status-dot" + (data.status === "Running" ? "" : data.status === "Failed" ? " error" : " warning");
     }
+    renderExecutorStatus(data);
+    // 只在「刚变成 Failed」时提示一次：圆点变色容易被忽略，必须给一个明确的失败告知
+    // 与自助恢复指引（对应 TD-082；onIpcListenerFailed 已有同样的 addLog+showToast 模式）。
+    if (data.status === "Failed" && _lastExecStatus !== "Failed") {
+      addLog("执行器进入失败态（重启次数已耗尽），自动化功能不可用", "error");
+      showToast("执行器启动失败：可在「诊断信息」页点「重置看门狗」自助恢复", "error");
+    }
+    _lastExecStatus = data.status || _lastExecStatus;
   });
   api.onKeyRecordEvent(function(data) { onBridgeEvent({type: "keyRecordEvent", data: data}); });
   api.onKeySendEvent(function(data) { onBridgeEvent({type: "keySendEvent", data: data}); });

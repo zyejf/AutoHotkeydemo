@@ -10,7 +10,7 @@
 ## 📌 TL;DR（执行摘要）
 
 - **总体判定：合入 `main` 可 Go；对外公开分发安装包 No-Go。** 两个结论不冲突 —— 代码与单测质量处在同类项目上游水平，但**发布链路、合规、可运维、用户侧文档四个维度各自独立地不达标**。
-- **严重度分布**：🔴 阻断 **12** 项（去重后）／🟠 高 **6** 项／🟡 中 **10** 项／🟢 低 **5** 项。（**评估时快照**；当晚已闭环 B1/B2 → 当前阻断 **10** 项，见 §九）
+- **严重度分布**：🔴 阻断 **12** 项（去重后）／🟠 高 **6** 项／🟡 中 **10** 项／🟢 低 **5** 项。（**评估时快照**；当晚已闭环 **B1 / B2 / B4** → 当前阻断 **9** 项，见 §九。其中 B4 属**定性订正**：原判「UI 零提示」不成立，推模式一直是通的，真实缺口另两条已修）
   （「无 updater」经 Archi 自我更正后**由阻断降为中** —— 研究稿把 updater 标为 P2「按需评估」，且同行并列的另外 3 个插件都落地了，说明那是评估清单而非承诺清单。真正阻断的是**没有 GitHub Release 步骤**：无 updater 不是问题，「手动重新下载」这条路不通才是。）
 - **最硬的证据不是任何一条缺陷，而是"零执行痕迹"**：`target/release/` 下无 exe、无 bundle、无 NSIS 包（本机实测）；release job 从未执行；CI 上 E2E 53 个用例零执行。**这条链路从头到尾没有一丝真实运行过的痕迹。**
 - **放行成本远低于预期**：约 **3～5 人日**，且大部分不改代码逻辑。
@@ -74,7 +74,7 @@
 
 | # | 问题 | 证据 | 判定 | 为什么是阻断 |
 |---|---|---|---|---|
-| **B4** | **执行器进入 Failed 终态后 UI 零提示，且无自助恢复** | `system_cmd.rs:135` 有 `get_executor_status`、`api.js:38` 有 `getExecutorStatus()`、`api.js:43` 有 `resetWatchdog()`，但 `grep` `main.js`/`index.html` **零命中** | 实测 | 核心功能全失而界面一切正常；用户唯一的恢复手段是杀掉重开，而没人告诉他出事了 |
+| ~~**B4**~~ | ~~执行器进入 Failed 终态后 UI 零提示，且无自助恢复~~ → **定性已订正，两条真实缺口已修并闭环**（见 §9.1） | **订正依据**：`update_watchdog_state`（`asd-application/src/state.rs:343`）emit `executor_status`；`lib.rs:225-246` 每 tick 比对状态并在变化时推送；前端 `onExecutorStatus` 把圆点置 `.error`（`--danger`）并把文字改「失败」—— **推模式通道一直是通的**。原判据「在 `main.js`/`index.html` 里 grep 两个符号零命中」**只证明了拉模式命令没被调用** | 订正后实测 | ⚠️ **取证教训（本轮最重要的一条）**：把「某个符号没出现」当成「功能不存在」。**真实缺口只有两条**：① 进入 Failed 只有 6px 圆点变色、**无 toast 无日志**；② `resetWatchdog()` 封装**从未被 UI 调用**，无自助恢复入口。两条均已修，并有 4 条静态契约测试守护 + 阳性对照实测 |
 | **B5** | **AHK 子进程重启后热键不重注册** | `watchdog.rs:1279-1299` `restart_child` 只 kill+spawn；`active_hotkeys` 在 `state.rs:84` 无重放路径 | **推断**（无重放路径已实测；"重启后确实失效"未经端到端实测） | watchdog「重启成功」≠「功能恢复」—— 自动重启对最终用户几乎无实际价值 |
 | **B6** | **配置损坏时静默回退默认配置，且不自动尝试恢复备份** | `lib.rs:718-723` 只 `tracing::error!`，setup 期零 `emit` | 实测 | 用户视角就是"我的数据丢了"，且多半没备份可恢复 |
 | ~~**B7**~~ | ~~无 updater~~ → **降级，移出阻断清单**（见 §5.2）：研究稿把 updater 标为 **P2「按需评估」**，且同行并列的另外 3 个插件（global-shortcut / dialog / fs）**都已落地**，updater 是唯一未落地项 → 那一行是**评估清单而非承诺清单**。桌面工具靠手动下载升级很常见，**无 updater 本身不是阻断** | — | — | **真正阻断的是 B3**：无 updater 时"手动重新下载"是唯一升级路径，而这条路径的落点（GitHub Release）**不存在** |
@@ -302,6 +302,30 @@ Docu 初稿把 GPL 定为「高」并附条件"若法律确认触发则升阻断
 | 8 | `asd-tauri/package.json` 增 `"license": "GPL-2.0-only"` | **TD-080** | 文件已落盘 |
 | 9 | `tauri.conf.json` 增 `bundle.license = "GPL-2.0-only"` 与 `bundle.licenseFile = "../../LICENSE"` | **TD-080** | JSON 解析通过；字段语义按 `config.schema.json` 核实（`license` 为 SPDX 字符串、`licenseFile` 为路径，二者均指**本项目**） |
 | 10 | `THIRD-PARTY-NOTICES.md` 重写：新增「本软件自身」段、补 **PCRE（BSD）** 组件、改写 GPL 关系说明 | **TD-081** | 文件已落盘 |
+| 11 | 本地 `origin/main` 引用对齐 + **13 个提交推送到远端**（git 端点 502，走 Git Data API，13/13 hash 逐字节一致） | 备份风险 | 以 API 回读实证 `1aebcf9e`，非本地推断 |
+| 12 | `onExecutorStatus` 进入 Failed 时补 `addLog` + `showToast`，并用 `_lastExecStatus` 守卫只提示一次 | **TD-082 ①** | 阳性对照 + 契约测试 |
+| 13 | 诊断页新增「执行器状态 / 重启次数」两行与「♻️ 重置看门狗」按钮（`api.resetWatchdog()` 此前**零调用**） | **TD-082 ②** | `npm test` 52/52；`eslint --max-warnings 0` rc=0 |
+| 14 | `EXEC_STATUS_MAP` 与 Rust `WatchdogStateEnum` 7 变体的跨语言对拍测试（+4 条，`diagnostics_contract.test.js` 9→13） | **TD-082 守护** | 阳性对照：`Hung`→`HungX` 变红、还原回绿 |
+
+### 9.1 B4 的定性订正（本轮最有价值的一条反面教训）
+
+原判「**执行器进入 Failed 终态后 UI 零提示**」的依据是：`grep getExecutorStatus / resetWatchdog` 在
+`main.js` 与 `index.html` 里**零命中**。这个观察是**事实**，但推出的结论是**错的** —— 因为它默认了
+「状态只能靠这两个符号传达」，而实际生效的是**推模式事件通道**：
+
+```
+watchdog.set_state(Failed)            watchdog.rs:416
+  → lib.rs:225-246 轮询循环每 tick 比对 current != last_status
+    → AppState::update_watchdog_state()   state.rs:343
+      → emit "executor_status" {status, restartCount}
+        → main.js onExecutorStatus → 圆点 .error（--danger 红）+ 文字「失败」
+```
+
+**同类错误的第二次变体**。本项目此前反复记的一条规矩是「东西写了，但没接上」（本报告 §四列了 11 处）；
+而这一次是**它的镜像**：东西**早就接上了**，我却因为搜不到某个具体符号而判它没接上。
+两条合起来才是完整的表述：**判断"有没有守护"和判断"已守护"一样，都必须落到实证，不能落到符号搜索。**
+
+订正后 B4 的真实缺口只剩两条，均已修（见上表 12/13），并有 4 条静态契约测试钉住（上表 14）。
 
 **⚠️ 执行中发现并订正了成员建议**：`bundle.license` 是 **SPDX 标识符字符串**、声明的是**本项目自身**许可证，**不接受路径**；指向许可证文件的是 `bundle.licenseFile`，且同样针对本项目而非第三方。**第三方许可证应走 `bundle.resources`** —— 已按 `node_modules/@tauri-apps/cli/config.schema.json` 核实后执行。
 
@@ -313,7 +337,7 @@ Docu 初稿把 GPL 定为「高」并附条件"若法律确认触发则升阻断
 
 **🔁 遗留决策点（用户可一键改，不必重做）**：本次选的是 **`GPL-2.0-only`** —— 理由是与 vendored AutoHotkey **同版本、同条款**，组合作品（自研代码 + AHK 二进制）**不存在版本歧义**。若希望下游可自行升级到 GPLv3，改 `GPL-2.0-or-later` 只需动 3 处（`Cargo.toml` ×1、`package.json` ×1、`tauri.conf.json` ×1；`LICENSE` 文本相同不必换）。**代价**：`-only` 与 `GPL-3.0-only` 依赖硬不兼容。本次已实测依赖树 —— **零 GPL-3.0 / 零 AGPL**（`MPL-2.0` 有 6 个，其 §3.3 明示与 GPLv2 兼容；`LGPL-2.1-or-later` 有 2 个但均在 `MIT OR Apache-2.0 OR LGPL-2.1-or-later` 的或列中，可取 MIT），故**两种选择当前都可行**，选 `-only` 是出于与 AHK 对齐，不是被迫。
 
-**剩余阻断项：10 项**（原 12 项，**B1 与 B2 已闭环**：TD-080、TD-081 均转「已完成」）。
+**剩余阻断项：9 项**（原 12 项，**B1 / B2 / B4 已闭环**：TD-080、TD-081、TD-082 均转「已完成」）。
 ⚠️ **订正上一版**：此处曾写「11 项（TD-088 已闭环）」—— **是错的**。TD-088 是 **P1**，**从未进入 §二 的 12 项阻断清单**（§2.3 的 4 项文档阻断是 B8–B11，TD-088 不在其列），它闭环**不改变阻断数**；真正让 12→10 的是 B1/B2。
 
 ---
