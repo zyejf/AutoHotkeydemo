@@ -1504,7 +1504,12 @@ mod tests {
     #[test]
     fn retry_budget_matches_constant() {
         let retries = (1..=SPAWN_RETRY_MAX_ATTEMPTS)
-            .filter(|a| matches!(decide_spawn_retry(*a, true), SpawnRetryDecision::Retry { .. }))
+            .filter(|a| {
+                matches!(
+                    decide_spawn_retry(*a, true),
+                    SpawnRetryDecision::Retry { .. }
+                )
+            })
             .count();
         assert_eq!(
             retries,

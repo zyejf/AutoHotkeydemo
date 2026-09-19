@@ -21,10 +21,7 @@ fn unique_temp_dir(tag: &str) -> PathBuf {
     use std::sync::atomic::{AtomicU32, Ordering};
     static SEQ: AtomicU32 = AtomicU32::new(0);
     let n = SEQ.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "asd_td089_{tag}_{}_{n}",
-        std::process::id()
-    ));
+    let dir = std::env::temp_dir().join(format!("asd_td089_{tag}_{}_{n}", std::process::id()));
     fs::create_dir_all(&dir).expect("建临时目录失败");
     dir
 }
@@ -67,14 +64,8 @@ fn snapshot_distinguishes_missing_file_from_missing_dir() {
         s.contains("存在=true"),
         "目录应报存在=true（缺的是文件），实际: {s}"
     );
-    assert!(
-        s.contains("存在=false"),
-        "文件应报存在=false，实际: {s}"
-    );
-    assert!(
-        s.contains("目录共 0 项"),
-        "空目录应统计为 0 项，实际: {s}"
-    );
+    assert!(s.contains("存在=false"), "文件应报存在=false，实际: {s}");
+    assert!(s.contains("目录共 0 项"), "空目录应统计为 0 项，实际: {s}");
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -88,10 +79,7 @@ fn snapshot_reports_missing_dir_and_skips_listing() {
     let s = format_resource_snapshot(Some(&dir), &file);
 
     assert!(s.contains("存在=false"), "目录应报不存在，实际: {s}");
-    assert!(
-        !s.contains("目录共"),
-        "目录不存在时不应尝试列举，实际: {s}"
-    );
+    assert!(!s.contains("目录共"), "目录不存在时不应尝试列举，实际: {s}");
     let _ = fs::remove_dir_all(&base);
 }
 
@@ -111,7 +99,10 @@ fn snapshot_handles_unknown_parent_dir() {
         s.contains("父目录无法推导"),
         "应显式说明父目录无法推导，实际: {s}"
     );
-    assert!(s.contains("目标文件=AutoHotkey64.exe"), "应点名目标文件，实际: {s}");
+    assert!(
+        s.contains("目标文件=AutoHotkey64.exe"),
+        "应点名目标文件，实际: {s}"
+    );
 }
 
 /// 列举必须**有界**：超过上限只列出前 N 项，并明确标注已截断。

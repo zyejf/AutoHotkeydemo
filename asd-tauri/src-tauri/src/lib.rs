@@ -677,7 +677,10 @@ fn format_resource_snapshot(dir: Option<&std::path::Path>, file: &std::path::Pat
     match dir.filter(|d| !d.as_os_str().is_empty()) {
         Some(d) => {
             let dir_exists = d.exists();
-            w(&mut out, format_args!("资源目录={} 存在={dir_exists}", d.display()));
+            w(
+                &mut out,
+                format_args!("资源目录={} 存在={dir_exists}", d.display()),
+            );
             if dir_exists {
                 match std::fs::read_dir(d) {
                     Ok(entries) => {
@@ -692,7 +695,10 @@ fn format_resource_snapshot(dir: Option<&std::path::Path>, file: &std::path::Pat
                         let shown = names.len();
                         w(
                             &mut out,
-                            format_args!(" 目录共 {total} 项，前 {shown} 项=[{}]", names.join(", ")),
+                            format_args!(
+                                " 目录共 {total} 项，前 {shown} 项=[{}]",
+                                names.join(", ")
+                            ),
                         );
                         if total > shown {
                             w(
