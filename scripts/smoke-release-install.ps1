@@ -58,9 +58,15 @@
 #   · 判据的「判别性」（即：故意破坏时会不会真的变红）由两件事保证：
 #       ① `-SelfCheck` 双向对照：坏输入必须变红、好输入必须变绿，任一条不符即退出码 2；
 #       ② 真实日志的正 / 负样本复核（正：asd.2026-09-19.log 命中；负：更早的样本不命中）。
-#   · **C1–C5 的运行时路径（安装 → 启动 → 拉起 AHK → IPC 认证）从未跑过一次完整闭环。**
-#     下文出现的「实测」字样，来源是**人工一次性观测**（安装目录布局、主 exe 名、
-#     日志串出现次数），**不等于**本脚本已端到端跑绿 —— 这两件事不要混为一谈。
+#   · C1–C5 的运行时路径：⚠️ **2026-09-20 01:00 订正 —— 上面「从未跑过一次完整闭环」这句已被证伪**，
+#     保留痕迹如下：本机用真实 NSIS 包（target/debug/bundle/nsis/ASD - 技能管理器_0.1.0_x64-setup.exe）
+#     连跑 2 次，均 exit 0，C1/C2/C4/C5 = PASS（C3 仍 UNVERIFIED —— 跑通不会让它自动变绿）。
+#     **但这不能读成「发布链路已验证」**，三条限制照旧成立：
+#       ① 跑的是 2026-09-18 22:00 构建的包，**比当前源码旧** —— 物证：运行日志里 IPC 认证
+#          那行打的是 `ipc.rs:211`，而当前源码该串在 `ipc.rs:275`。换包后必须重跑，
+#          不能拿旧包的绿灯给新包背书；
+#       ② 只跑过 debug 包，**release 包从未产出过**；
+#       ③ 判据取自日志与进程表，**不覆盖 GUI 可操作性**（TD-083 那一类仍需人工点）。
 #   · 首次发布（workflow_dispatch + build_release）之前**必须人工观察本 step 的输出**。
 #     在那之前，不要把「CI 能出包」或「冒烟已通过」当成既有事实。
 # ═════════════════════════════════════════════════════════════════════════════
@@ -296,19 +302,30 @@ function Get-CriterionStates {
     $out = New-Object System.Collections.ArrayList
     $runStartText = [string](Get-Ev $Evidence 'RunStartText' '')
 
-    # ── C1 静默安装后主 exe 存在 ────────────────────────────────────────────
+    # ── C1 静默安装后主 exe 存在 + AHK 资源齐全 ─────────────────────────────
     $exitCode   = [int](Get-Ev $Evidence 'InstallExitCode' -1)
     $mainExe    = [string](Get-Ev $Evidence 'MainExePath' '')
     $mainExists = [bool](Get-Ev $Evidence 'MainExeExists' $false)
     $mainSize   = [long](Get-Ev $Evidence 'MainExeSize' 0)
+    $ahkRes     = [string](Get-Ev $Evidence 'AhkResourcePath' '')
+    $ahkResOk   = [bool](Get-Ev $Evidence 'AhkResourceExists' $false)
     if ($exitCode -ne 0) {
         $c1State = 'FAIL'; $c1Detail = "安装器退出码 $exitCode（期望 0）"
     }
     elseif (-not $mainExists) {
         $c1State = 'FAIL'; $c1Detail = "安装器退出 0，但 $mainExe 不存在 —— /D 未被采纳或包内资源缺失"
     }
+    elseif (-not $ahkResOk) {
+        # ⚠️ 这一条是**打包/安装层**的判据，不是运行时的。少了它，安装目录只落了主 exe
+        #    时 C1 照样 PASS，脚本会继续启动，然后在 C4/C5 报「拉不起 AHK / IPC 没认证」
+        #    —— 真正的原因（资源没打进包）被伪装成运行时缺陷，排障被引偏。
+        $c1State = 'FAIL'
+        $c1Detail = "安装器退出 0、$mainExe 已就位，但 $ahkRes 不存在 —— 包内 AHK 资源没落全。"
+        $c1Detail += ' 这是打包/安装层缺陷（资源清单见 tauri.conf.json:37-48），不是运行时故障；'
+        $c1Detail += ' 继续启动只会得到「拉起 AHK 失败」，把原因引偏到 IPC 认证上。'
+    }
     else {
-        $c1State = 'PASS'; $c1Detail = "$mainExe 已就位（$mainSize 字节），退出码 0"
+        $c1State = 'PASS'; $c1Detail = "$mainExe 已就位（$mainSize 字节）+ AHK 资源齐全，退出码 0"
     }
     $null = $out.Add([pscustomobject]@{ Id = 'C1'; Name = '静默安装'; State = $c1State; Detail = $c1Detail })
 
@@ -387,6 +404,57 @@ function Get-CriterionStates {
     $null = $out.Add([pscustomobject]@{ Id = 'C5'; Name = 'IPC 认证完成'; State = $c5State; Detail = $c5Detail })
 
     return $out.ToArray()
+}
+
+# ── 残留提示（纯函数）────────────────────────────────────────────────────
+# ⚠️ 为什么必须做成纯函数而不是内联 Write-Host：残留提示是「静默失败」的唯一出口，
+#    而静默失败恰恰是最容易悄悄退化的一类 —— 内联写死后**没有任何自检能覆盖它**，
+#    哪天被人顺手删掉、或把 -ErrorAction 改回 SilentlyContinue，谁都不会知道
+#    （本脚本的判据层就吃过这个亏：判据谓词写死时，变异后自检照样 exit 0）。
+#    做成纯函数后进入 -SelfCheck 的双向对照：返回值改成空串 ⇒ 自检必须变红（MR1/MR2）。
+#    固定前缀 `SMOKE_RESIDUE:` 是给 CI 输出 grep 用的**契约**，
+#    不要为了「更好读」改成中文自由文本 —— 改了就等于把 grep 的钩子拆了。
+function Get-ResidueNotice {
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Path,
+        [Parameter(Mandatory = $true)][ValidateSet('KeptForDiagnosis', 'CleanupFailed')][string]$Kind,
+        [AllowEmptyString()][string]$Reason = ''
+    )
+    # 空路径 ⇒ 空串：调用方统一 `if ($notice) { Write-Host ... }`，
+    # 这样「没有残留」就不会刷出一行空提示（噪声同样会让人忽略真正的告警）。
+    if ([string]::IsNullOrWhiteSpace($Path)) { return '' }
+    $tail = if ($Reason) { " —— $Reason" } else { '' }
+    switch ($Kind) {
+        'KeptForDiagnosis' { return "SMOKE_RESIDUE: 保留安装目录用于诊断（未清理）：$Path$tail" }
+        'CleanupFailed'    { return "SMOKE_RESIDUE: 清理失败，残留：$Path$tail" }
+    }
+    return ''
+}
+
+# ── 残留提示的**决策层**（纯函数）────────────────────────────────────────
+# ⚠️ 为什么在格式化函数之外还要单独一层：MR1/MR2 只能证明「Get-ResidueNotice 会拼出
+#    正确的话」，**证明不了「该说话的场合真的会说话」**。而泰莎发现的正是后者 ——
+#    C1 失败那条分支压根没调用它。这类缺陷属于「守卫存在但从未接入」（TD-058 的 B 类），
+#    是本项目踩过最多次的一类，所以决策必须单独成函数、单独被变异覆盖（MR3）。
+function Get-ResiduePlan {
+    param(
+        [bool]$C1Passed,
+        [bool]$KeepInstalled,
+        [bool]$CleanupOk,
+        [AllowEmptyString()][string]$Reason = ''
+    )
+    # C1 没过 ⇒ 目录是唯一物证，**保留**且必须说出来。
+    if (-not $C1Passed) {
+        return [pscustomobject]@{ Emit = $true;  Kind = 'KeptForDiagnosis'; Reason = 'C1 未通过，保留现场用于诊断' }
+    }
+    # -KeepInstalled 是用户显式要求留现场，已有自己的提示行，不再重复刷残留告警。
+    if ($KeepInstalled) {
+        return [pscustomobject]@{ Emit = $false; Kind = '';               Reason = '' }
+    }
+    if (-not $CleanupOk) {
+        return [pscustomobject]@{ Emit = $true;  Kind = 'CleanupFailed';    Reason = $Reason }
+    }
+    return [pscustomobject]@{ Emit = $false; Kind = ''; Reason = '' }
 }
 
 function Get-SmokeVerdict {
@@ -494,6 +562,60 @@ function Invoke-GuardSelfCheck {
             $broken += 'P3 正向失效：连当前宿主进程都找不到，StartTime 过滤逻辑坏了'
         }
 
+        # ── 残留提示：格式化层（MR1/MR2）+ 决策层（MR3）─────────────────────────
+        # ⚠️ 为什么分两层断言：只测格式化函数会漏掉「该说话的场合没说话」—— 那正是
+        #    泰莎 ⑥ 发现的缺陷形态（C1 失败 ⇒ 既不清理也不提示），属于「守卫写好了
+        #    但从未接入」。格式化层测「话说得对不对」，决策层测「该不该说」。
+        # MR1 正向：真有残留时必须拼出带契约前缀的话（前缀是给 CI grep 用的钩子）
+        $nKeep = Get-ResidueNotice -Path 'C:\Temp\asd-smoke-install-1' -Kind 'KeptForDiagnosis' -Reason 'C1 未通过'
+        if (-not $nKeep -or $nKeep -notmatch '^SMOKE_RESIDUE: ') {
+            $broken += 'MR1 正向失效：有残留却不产出 SMOKE_RESIDUE 提示（或丢了契约前缀）—— 静默失败会复发'
+        }
+        # MR2 正向：清理失败同样要说话
+        $nFail = Get-ResidueNotice -Path 'C:\Temp\asd-smoke-install-2' -Kind 'CleanupFailed' -Reason '拒绝访问'
+        if (-not $nFail -or $nFail -notmatch '^SMOKE_RESIDUE: ') {
+            $broken += 'MR2 正向失效：清理失败不产出 SMOKE_RESIDUE 提示 —— 「删不掉」会再次静默'
+        }
+        # MR2 反向：空路径不许刷噪声（告警刷多了等于没有告警）
+        if ((Get-ResidueNotice -Path '' -Kind 'CleanupFailed' -Reason 'x') -ne '') {
+            $broken += 'MR2 噪声：空路径仍产出提示 —— 假告警会淹没真告警'
+        }
+        # MR3 决策层负向：C1 未通过 ⇒ 必须发 KeptForDiagnosis
+        #    （变异点：把这条 `if (-not $C1Passed)` 分支删掉，本条必须立刻变红）
+        $pC1Fail = Get-ResiduePlan -C1Passed $false -KeepInstalled $false -CleanupOk $true
+        if (-not $pC1Fail.Emit -or $pC1Fail.Kind -ne 'KeptForDiagnosis') {
+            $broken += 'MR3 负向失效：C1 未通过时应产出 KeptForDiagnosis，实际没有 —— 「装失败后静默留下目录」会复发'
+        }
+        # MR3 决策层正向：一切正常时**不要**刷残留告警
+        $pOk = Get-ResiduePlan -C1Passed $true -KeepInstalled $false -CleanupOk $true
+        if ($pOk.Emit) {
+            $broken += 'MR3 正向失效：清理成功却仍报残留 —— 假告警会淹没真告警'
+        }
+
+        # ── MR4 接线层（文本级）—— 本条是泰莎提出的，理由成立，采纳 ──────────────
+        # ⚠️ 上面 MR1–MR3 都只断言**纯函数的返回值**，证明不了「它真的被调用了」。
+        #    这是会真实发生的失效：本轮就出现过 `Get-ResidueNotice` 定义就位、
+        #    **零调用点**的状态 —— 那时 MR1–MR3 会全部变绿，而它要守的静默失败
+        #    **一点没被守住**。「抽了纯函数却没接线」属于「守卫存在但从未接入」。
+        #    -SelfCheck 在 `if ($SelfCheck) { exit }` 处就返回、结构上够不着主流程的
+        #    调用点，所以只能做文本级断言。**误报会逼人看一眼，漏报不会** —— 这个
+        #    方向的取舍是对的。代价：格式敏感，改写法需同步改本断言。
+        # ⚠️ 为什么锚点写成 `Get-ResidueNotice -Path $InstallDir` 而不是函数名：
+        #    ① 注释里也出现函数名，只匹配函数名会把注释算成调用点 ⇒ 断言恒绿；
+        #    ② 自检自身也调用该函数（喂的是字面量路径），只有主流程两处传 `$InstallDir`
+        #       —— 用它做锚点才能把「自检里的调用」和「主流程的接线」区分开。
+        $selfPath = $PSCommandPath
+        if ($selfPath -and (Test-Path -LiteralPath $selfPath)) {
+            $wired = @(Select-String -LiteralPath $selfPath -Pattern 'Get-ResidueNotice\s+-Path\s+\$InstallDir')
+            if ($wired.Count -lt 2) {
+                $broken += "MR4 接线失效：主流程里 `Get-ResidueNotice -Path `$InstallDir` 的调用点只有 $($wired.Count) 处（期望 ≥2：C1 失败 + 清理失败）—— 函数还在但没人调用 ⇒ 残留提示永远不会打印，静默失败照旧"
+            }
+        }
+        else {
+            # 拿不到自身路径时**不许**默认通过 —— 那正是「不会失败的检查」。
+            $broken += 'MR4 无法自检：拿不到脚本自身路径（$PSCommandPath 为空或文件不在），接线断言**未执行**，不要当成通过'
+        }
+
         # ── C1–C5 的判据组装：坏证据包必须变红 / 好证据包必须变绿 ────────────────
         # ⚠️ 这一段补的是**覆盖缺口**：在此之前 -SelfCheck 只喂上面 3 个辅助函数，
         #    主流程的判据组装完全没被覆盖 —— 实测把 `if ($c5.Found)` 改成 `if ($true)`，
@@ -503,6 +625,8 @@ function Invoke-GuardSelfCheck {
             MainExePath     = 'X:\nope\asd-tauri.exe'
             MainExeExists   = $false
             MainExeSize     = 0
+            AhkResourcePath   = 'X:\nope\ahk_executor\AutoHotkey64.exe'
+            AhkResourceExists = $false
             MainProcFound   = $false
             MainProcName    = 'asd-tauri'
             MainProcId      = 0
@@ -532,6 +656,8 @@ function Invoke-GuardSelfCheck {
             MainExePath     = 'C:\Temp\asd-smoke\asd-tauri.exe'
             MainExeExists   = $true
             MainExeSize     = 123456
+            AhkResourcePath   = 'C:\Temp\asd-smoke\ahk_executor\AutoHotkey64.exe'
+            AhkResourceExists = $true
             MainProcFound   = $true
             MainProcName    = 'asd-tauri'
             MainProcId      = 4242
@@ -574,6 +700,22 @@ function Invoke-GuardSelfCheck {
             if ($g.State -ne 'PASS') {
                 $broken += "M$id 正向失效：喂好证据包时 $id 应为 PASS，实际 $($g.State) —— 该判据恒红，同样没用"
             }
+        }
+
+        # ── C1 的 AHK 资源维度必须**单独隔离**测 ────────────────────────────
+        # ⚠️ 为什么不能只靠上面那个「全坏包」：全坏包里 InstallExitCode=1、MainExeExists=$false，
+        #    C1 在第一个分支就已经 FAIL —— 于是「AHK 资源检查」这一条无论怎么写都改变不了 C1
+        #    的结果，把它改成 `-or $true` 也照样绿（**变异不生效 = 等于没验**）。
+        #    必须构造「其余全好、只缺 AHK 资源」的包，才能把这一条单独顶到台前。
+        $packAhkMissing = @{}
+        foreach ($k in $goodPack.Keys) { $packAhkMissing[$k] = $goodPack[$k] }
+        $packAhkMissing['AhkResourceExists'] = $false
+        $c1Ahk = Get-StateOf @(Get-CriterionStates -Evidence $packAhkMissing) 'C1'
+        if ($null -eq $c1Ahk) {
+            $broken += 'MC1r 缺失：只缺 AHK 资源的证据包没返回 C1'
+        }
+        elseif ($c1Ahk.State -ne 'FAIL') {
+            $broken += "MC1r 负向失效：主 exe 在、AHK 资源缺失时 C1 应为 FAIL，实际 $($c1Ahk.State) —— 打包层缺陷被放行到运行时，会伪装成 IPC 认证失败"
         }
 
         # C3 单独处理：它的坏包按**设计**是 UNVERIFIED（「拿不到稳定判据」是刻意的，
@@ -725,6 +867,11 @@ $logDir     = $appDataDir            # logging.rs:28-34 → 就在 app_data_dir 
 $configPath = Join-Path $appDataDir 'config.json'
 $exePath    = Join-Path $InstallDir $MainExeName
 $mainProcName = [System.IO.Path]::GetFileNameWithoutExtension($MainExeName)
+# AHK 可执行资源：打包态**唯一**的一个（tauri.conf.json:44）。
+# ⚠️ 与 C4 的进程名判定有意不对称：C4 同时接受 asd_executor.exe / AutoHotkey64.exe（进程表里
+#    出现哪个都算拉起成功），而 C1 只认打包清单里真正存在的那一个 —— C1 问的是「包落全了吗」，
+#    不是「进程起来了吗」。将来打包清单变了（例如把 asd_executor.exe 也打进去），这里要跟着改。
+$ahkResPath = Join-Path (Join-Path $InstallDir 'ahk_executor') 'AutoHotkey64.exe'
 
 Write-Host '══════ ASD 发布产物冒烟测试 ══════' -ForegroundColor Cyan
 Write-Host "安装包     : $installerFull"
@@ -753,6 +900,8 @@ $ev = @{
     MainExePath         = $exePath
     MainExeExists       = $false
     MainExeSize         = 0
+    AhkResourcePath     = $ahkResPath
+    AhkResourceExists   = $false
     MainProcFound       = $false
     MainProcName        = $mainProcName
     MainProcId          = 0
@@ -807,6 +956,11 @@ try {
         $ev['MainExeExists'] = $true
         $ev['MainExeSize']   = [long](Get-Item -LiteralPath $exePath).Length
     }
+    # AHK 资源必须和主 exe 一起验：只查主 exe 的话，「装完资源不全」会在 C1 假绿，
+    # 一路带到 C4/C5 才炸，把打包缺陷报成运行时故障。
+    if (Test-Path -LiteralPath $ahkResPath -PathType Leaf) {
+        $ev['AhkResourceExists'] = $true
+    }
 
     # 运行时证据还没有，先只判 C1。⚠️ 判定仍走纯函数，不在这里写 if/else ——
     #    主流程里每多一个判定谓词，-SelfCheck 就少覆盖一处。
@@ -819,6 +973,16 @@ try {
     if (-not $script:InstalledByUs) {
         Write-Host ''
         Write-Host '✗ C1 未通过，后续判据无从谈起，终止。' -ForegroundColor Red
+        # ⚠️ 刻意**不清理** $InstallDir：装失败的目录是唯一能看出「为什么失败」的物证
+        #    （ahk_executor 在不在、uninstall.exe 在不在、装到哪一步停的）。自动删掉它
+        #    等于销毁取证材料。但**必须说出来** —— 静默留下目录与静默删除是同一种病：
+        #    前者让你下次撞上「目录被占」却毫无线索（泰莎 ⑥ 发现的就是这条：C1 失败
+        #    ⇒ finally 整个不清理 ⇒ 目录留在 %TEMP% 而输出里一个字都没有）。
+        $plan = Get-ResiduePlan -C1Passed $false -KeepInstalled $KeepInstalled -CleanupOk $true
+        if ($plan.Emit) {
+            $notice = Get-ResidueNotice -Path $InstallDir -Kind $plan.Kind -Reason $plan.Reason
+            if ($notice) { Write-Host $notice -ForegroundColor Yellow }
+        }
         exit 1
     }
 
@@ -908,9 +1072,37 @@ finally {
         if ($script:InstalledByUs) {
             $uninst = Join-Path $InstallDir 'uninstall.exe'
             if (Test-Path -LiteralPath $uninst) {
-                Start-Process -FilePath $uninst -ArgumentList '/S' -Wait -ErrorAction SilentlyContinue | Out-Null
+                # ⚠️ `_?=$InstallDir` 不能省。NSIS 卸载器默认会把自身复制到
+                #    %TEMP%\~nsu1.tmp\Un.exe 再执行，**原进程立即退出** —— 于是
+                #    Start-Process -Wait 提前返回，紧接着的 Remove-Item -Recurse 会撞上
+                #    仍在删文件的卸载器（实测留下 ~nsu1.tmp\Un.exe 与删不干净的安装目录，
+                #    也就是下面 :792 那条「清理旧安装目录失败」告警的来源）。
+                #    `_?=<dir>` 让它就地卸载、不自我复制，-Wait 才真的是「等它做完」。
+                #    对照：安装器内部的覆盖安装路径也是这么调的
+                #    （asd-tauri/target/debug/nsis/x64/installer.nsi:350 `_?=$4`）——
+                #    只有本脚本自己调卸载器时漏了这个参数。
+                Start-Process -FilePath $uninst -ArgumentList @('/S', "_?=$InstallDir") -Wait -ErrorAction SilentlyContinue | Out-Null
             }
-            Remove-Item -LiteralPath $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
+            # ⚠️ 这里**不能**用 `-ErrorAction SilentlyContinue`：清理失败时脚本照样 exit 0，
+            #    于是「目录没删掉」这件事**完全不留痕**（实测 %TEMP% 下确实留下过
+            #    asd-smoke-install-* 残留目录，而没有任何输出提示过它）。
+            #    清理失败**不改变判据结论**（它衡量的是打包质量，不是安装目录卫生），
+            #    但必须显式说出来 —— 否则下次排查「为什么安装目录被占」时毫无线索。
+            $cleanOk  = $false
+            $cleanMsg = ''
+            try {
+                Remove-Item -LiteralPath $InstallDir -Recurse -Force -ErrorAction Stop
+                $cleanOk = $true
+            }
+            catch {
+                $cleanOk  = $false
+                $cleanMsg = $_.Exception.Message
+            }
+            $plan = Get-ResiduePlan -C1Passed $true -KeepInstalled $false -CleanupOk $cleanOk -Reason $cleanMsg
+            if ($plan.Emit) {
+                $notice = Get-ResidueNotice -Path $InstallDir -Kind $plan.Kind -Reason $plan.Reason
+                if ($notice) { Write-Host $notice -ForegroundColor Yellow }
+            }
         }
     }
     else {
