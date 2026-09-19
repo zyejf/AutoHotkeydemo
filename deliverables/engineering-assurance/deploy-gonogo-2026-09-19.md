@@ -195,7 +195,7 @@ run: |
 | B3 | 版本号已确定 | ✅ | `tauri.conf.json:4` = `0.1.0` |
 | B4 | 安装包随附第三方许可证与源码说明 | ✅ | 上游报告 §九 表 3–5，`bundle.resources` 已含 `AutoHotkey-license.txt` + `THIRD-PARTY-NOTICES.md`（**B2 已闭环**） |
 | B5 | 本项目自身许可证已声明 | ✅ | GPL-2.0-only，落 `LICENSE` + `Cargo.toml` ×5 + `package.json` + `bundle.license/licenseFile`（**B1 已闭环**） |
-| B6 | **打包布局下的执行器启动路径已实测** | ❌ **新发现 N6** | `bundle.resources`（`tauri.conf.json:37-48`）**不含 `asd_executor.exe`**；`.gitignore:35` `*.exe` 将其排除在库外；`build.rs` 亦不生成它。⇒ 安装包内 `resolve_ahk_executor_path`（`lib.rs:634-661`）必然回落**便携模式**（`AutoHotkey64.exe` + `executor.ahk`）。而本地 `src-tauri/ahk_executor/asd_executor.exe` 存在 → 本地走**编译模式**（`lib.rs:640`）。**两者不是同一条代码路径，且 shipped 的这条从未在打包布局下端到端跑过** |
+| B6 | **打包布局下的执行器启动路径已实测** | ✅ **已实测**（原判 ❌，见 N6 的订正） | `bundle.resources`（`tauri.conf.json:37-48`）**不含 `asd_executor.exe`**；`.gitignore:35` `*.exe` 将其排除在库外；`build.rs` 亦不生成它。⇒ 安装包内 `resolve_ahk_executor_path`（`lib.rs:634-661`）必然回落**便携模式**（`AutoHotkey64.exe` + `executor.ahk`）。而本地 `src-tauri/ahk_executor/asd_executor.exe` 存在 → 本地走**编译模式**（`lib.rs:640`）。**两者不是同一条代码路径**。⚠️ **2026-09-20 03:57 订正**：shipped 的这条**已**实测通过 —— ×10 实验（见 F4）用干净重建的 release 包在固定安装目录连跑 **10/10 exit 0**，C4 每轮命中 `AutoHotkey64#<PID>` ⇒ **便携模式这条 shipped 路径真跑通了 10 次**，「从未执行过」不再成立。**但两条路径不一致的事实不变**：`asd_executor.exe` 依然不在包里，编译模式在打包布局下依旧不可达 |
 | B7 | 便携模式参数接线正确（静态） | ✅ | `watchdog.rs:314-319` 对 `AutoHotkey64.exe` 正确追加 `executor.ahk` 为参数；`executor.ahk` 已在 `bundle.resources:38`。⇒ **不是"必然坏"，是"接线看着对但没跑过"** |
 
 ### C. 分发与回滚落点
@@ -237,19 +237,19 @@ run: |
 | F1 | E2E 53 个用例在 CI 上执行过 | ❌ | 本次 run E2E `skipped`；`ci.yml:568` 结构性不可达 → **B12 未修** |
 | F2 | 发布产物冒烟（装→启→执行一个连招） | ❌ | 无任何产物（B2），无从冒烟 → **B13 未修** |
 | F3 | 启动路径自动化验证 | ❌ | 上游：`lib.rs` 覆盖率仅 22.84%，启动路径无自动化验证 |
-| **F4** | **已有冒烟绿灯能否为「release 包可用」背书** | ⚠️ **不能** | 冒烟侧已实跑 C1/C2/C4/C5 全绿（脚本 `scripts/smoke-release-install.ps1`，2026-09-20 落盘），**但载体是 9/20 01:47 构建的包（4,632,300 字节），早于 `0b2f4f9`（02:10）**。⇒ 那是**旧产物的绿灯**，不构成对当前 HEAD release 包的验证。同源问题也适用于 TD-089 快照的真启动验证（载体为 `target/debug/asd-tauri.exe`）。**别把冒烟绿灯当成 release 已验证** |
+| **F4** | **已有冒烟绿灯能否为「release 包可用」背书** | ⚠️ **部分能** —— 只到「能装／能起／AHK 能跑通」这一层 | **2026-09-20 03:52–03:57 ×10 实验**：干净重建的 release 包（**3,691,588 字节 / mtime 2026-09-20 03:48:10 / sha256 `098a6d2e553377b79e067fd89e1f76f3cdfe29e060166585a9c352d6587d298b`**）在**固定安装目录**连跑 **10/10 `exit 0`**，C1/C2/C4/C5 全 PASS、C3 仍 UNVERIFIED；跑前跑后 sha256 一致（载体未被换），每轮 `preItems=-1`（目录跑前不存在＝干净）。⇒ **可为「该包能装、能起、便携模式 AHK 能跑通」背书**（B6 因此由 ❌ 改 ✅）。⚠️ 三条边界照旧：① 判据只覆盖**日志 + 进程表**，不覆盖 GUI 可操作性；② 这是**本机**跑的，CI 上的 release job 仍未跑通；③ 此前那 **3/3** 用的是 02:52 的包（已不在盘上、**产物不可复验**），**不与本次 10/10 合并计算**。另：**统计效力有限** —— 若真实失败率仍是当初观测到的 1/4，10 次全过的概率为 5.6%，故本条只能写成「未复现」，不能写成「已证明修复」 |
 
 ### 检查清单小结
 
 | 类别 | ✅ | ❌ | ⚠️ | ➖ |
 |---|---|---|---|---|
 | A 代码与门禁 | 6 | 3 | 1 | 1 |
-| B 构建与产物 | 4 | 3 | 0 | 0 |
+| B 构建与产物 | 5 | 2 | 0 | 0 |
 | C 分发与回滚落点 | 0 | 2 | 0 | 1 |
 | D 可运维与故障恢复 | 4 | 2 | 0 | 0 |
 | E 用户侧文档 | 6 | 0 | 1 | 0 |
 | F 端到端与发布验证 | 0 | 3 | 1 | 0 |
-| **合计** | **20** | **13** | **3** | **2** |
+| **合计** | **21** | **12** | **3** | **2** |
 
 > ⚠️ **F4 是本报告里最容易被误读的一条，务必连同 §六 N6 一起读**：本轮确实产生了冒烟绿灯，但**绿灯属于一个早于评估对象的旧产物**。这与 N7（G3h 空转绿灯）是同一类失效的两个变体 —— 一个是「守的东西没变」，一个是「验的东西不是要发的那个」。判定放行动作时，两者都不能计入有效证据。
 
@@ -335,7 +335,7 @@ run: |
 | **N3** | **「Security audit」不是本仓门禁** | `html_url` 为 `/runs/`（外部 check run），**0 step**、耗时 **1 秒**，两次运行均 success | 不应计入"本仓质量门全绿"的证据。真阻断的是「依赖安全审计（TD-014）」（8 步） |
 | **N4** | ~~**用户侧三件套未入库**~~ → **✅ 已解除** | 初查 `git ls-files` 三条 `tracked = NO`；复查时提交 **`93d88d6`** 已将其入库，`git cat-file -e HEAD:<path>` 三条全部 YES | 报告落盘后 Docu 完成入库，新 HEAD 的 CI（run 35447863126）已跑绿。**B8/B9/B10/B11 现已在发布候选 commit 内**。保留此条是因为它完整记录了"内容就绪 ≠ 已入库"这个差点被误判为已解决的时间窗 |
 | **N5** | **工作区存在进行中的改动，且范围在扩大** | 初查 3 处 `M`：`ipc.rs`（+117/−6，Cody 的 TD-071 DACL）、`Cargo.toml`（+7）、`Cargo.lock`（+1）。**复查时已扩到 9 处**，新增：`.github/workflows/ci.yml`、`asd-tauri/docs/test-map.md`、`scripts/check-test-map.py`、`asd-tauri/src-tauri/src/tests/watchdog_integration_tests.rs`、`docs/guard-effectiveness-checklist.md`、`docs/tech-debt-register.md` | CI 绿只代表**已提交的 HEAD**（`93d88d6`）。**这 9 处改动一个都没被 CI 验证过**。⚠️ 其中 `ci.yml` 与 `check-test-map.py` 是**闸门自身的定义** —— 改闸门的同时用旧闸门的结果下 Go/No-Go 结论是无效的。发布前必须先把工作区归宿定死：提交并等一轮新 CI，或明确剥离后再发 |
-| **N6** | **打包布局的执行器路径 ≠ 本地开发路径**（Archi 提出，我已独立复核并全部证实） | ① `tauri.conf.json:37-48` `bundle.resources` 无 `asd_executor.exe`；② `.gitignore:35` `*.exe` 排除；③ `build.rs` 全文无 `asd_executor`（不生成）；④ 本地 `src-tauri/ahk_executor/asd_executor.exe` **存在** → 本地走 `lib.rs:640` 编译模式；⑤ 安装包内该文件不存在 → 走 `lib.rs:653` 便携模式 | **本地测过的执行器启动路径，和用户装到的不是同一条**。CI 全新 clone 同样拿不到该文件 ⇒ CI 侧也是便携模式，但 CI 从不启动应用，所以**便携模式在打包布局下从未被端到端验证过**。这是 B13 的直接加重项 |
+| **N6** | **打包布局的执行器路径 ≠ 本地开发路径**（Archi 提出，我已独立复核并全部证实） | ① `tauri.conf.json:37-48` `bundle.resources` 无 `asd_executor.exe`；② `.gitignore:35` `*.exe` 排除；③ `build.rs` 全文无 `asd_executor`（不生成）；④ 本地 `src-tauri/ahk_executor/asd_executor.exe` **存在** → 本地走 `lib.rs:640` 编译模式；⑤ 安装包内该文件不存在 → 走 `lib.rs:653` 便携模式 | **本地测过的执行器启动路径，和用户装到的不是同一条**。CI 全新 clone 同样拿不到该文件 ⇒ CI 侧也是便携模式，但 CI 从不启动应用，所以**便携模式在打包布局下从未被端到端验证过**。⚠️ **2026-09-20 03:57 部分解除**：×10 实验（F4）用干净重建的 release 包在固定目录连跑 **10/10 exit 0**、C4 每轮命中 `AutoHotkey64#<PID>` ⇒ 便携模式已端到端跑通 10 次，**B6 相应由 ❌ 改 ✅**。本条不再是「零执行」，但**编译模式在打包布局下仍不可达**这一点未变（`asd_executor.exe` 依旧不在包里） |
 | **N7** | **G3h 是永真空闸门**（Archi 提出，我用 CI 日志坐实） | job 105906876013 日志：`running 0 tests` → `test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; **256 filtered out**`；全仓 grep `^\s*#\[ignore\]` **0 命中** | 摘 `#[ignore]`（`721159a`）时未同步改这道门的命令。绿灯不携带任何信息；**watchdog 进程生命周期路径当前无任何有效守护** |
 | **N8** | **远端 tag `v0.1.0` 已存在且严重落后** | `GET /repos/.../tags` → 全仓仅 **1** 个 tag：`v0.1.0` → `0fbfce52e3c0d3d299e49916091321b992d7ceb8`，日期 **2026-06-28**，较 HEAD `93d88d6` **落后 363 个提交** | ⚠️ **对 Archi 表述的一处修正**：`ci.yml:22-24` 的 `on.push` **只有 `branches: [main, master]`，并无 `tags:` 过滤器** —— 不是"待办失效"，而是 `ci.yml:765-770` 明确记录了**刻意不接 tag 触发**的决策。但这不改变事实本身：**`v0.1.0` 指向的是 3 个月前、落后 362 个提交的代码**。任何人若按"打了 v0.1.0 就算发过版"来理解，会严重误判。将来若要接 tag 自动发版，必须打**新** tag（如 `v0.1.1`） |
 | **N9** | **接 tag 自动发版存在二次触发风险 —— 且风险取决于用哪个 token**（Archi 提出为「未验证」，我已查证到官方规则） | GitHub Docs（Events that trigger workflows / Triggering a workflow）原文：「**When you use the repository's `GITHUB_TOKEN` to perform tasks, events triggered by the `GITHUB_TOKEN` will not create a new workflow run**」；并明确「**For all other events** … if a workflow run pushes code using the `GITHUB_TOKEN`, a new workflow will not run even when the repository contains a workflow configured to run on `push` events」；反之「use a **GitHub App installation access token or a personal access token** instead of `GITHUB_TOKEN` to trigger events that require a token」 | **结论：用 `secrets.GITHUB_TOKEN` → 建的 tag 不会二次触发；用 PAT / OAuth token / App token → 会触发。** ⚠️ 本环境 `gh auth token` 取到的是 **`gho_` 前缀的 OAuth 用户 token**（非 `GITHUB_TOKEN`），故**人工手动 `gh release create` 走的是"会触发"那条路**。⇒ 接 tag 自动发版前必须：① 明确 release job 用的是哪种 token；② 实跑一次验证；③ 用 `concurrency` 兜底 |
@@ -368,6 +368,9 @@ run: |
 | G3h 命令变更 | 工作树已改为 `cargo test -p asd-tauri --lib tests::watchdog_integration_tests -- --test-threads=1`（HEAD 版仍为 `-- --ignored`） | **本机实测**（工作树，**未过 CI**） |
 | 文档入库状态 | `git ls-files --error-unmatch` × 3 | **本机实测** |
 | release 产物缺失 | `ls asd-tauri/src-tauri/target/release/`（**浅层，未递归**） | **本机实测** |
+| ×10 固定目录冒烟（10/10 exit 0） | `scripts/smoke-release-install.ps1` ×10，载体 sha256 `098a6d2e…`（3,691,588 B / mtime 03:48:10），跑前跑后 sha256 一致 | **本机实测**（2026-09-20 03:52–03:57） |
+| 载体未被换包 | 驱动脚本跑前/跑后各算一次 sha256 | **本机实测** |
+| 每轮目录干净 | 每轮 `preItems=-1`（跑前目录不存在）、`postItems=-1`（跑后已清理） | **本机实测** |
 | restart_child 无重放 | `watchdog.rs:1279-1300` + 全仓 `active_hotkeys` grep | **本机实测**（"重启后确实失效"仍为推断） |
 | 阻断项编号 B1–B13 | `production-readiness-2026-09-19.md` | 沿用上游，**未自造** |
 
