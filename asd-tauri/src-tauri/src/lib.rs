@@ -502,7 +502,12 @@ fn setup_ipc_and_watchdog(
         let exe_str = exe_path.to_string_lossy().to_string();
         let mut wd = tokio::task::block_in_place(|| watchdog.blocking_lock());
         if let Err(e) = wd.spawn_child(&exe_str, auth_token) {
-            tracing::error!("启动 AHK 子进程失败: {e}");
+            // TD-089：带上两级快照。否则 `os error 3`（目录分量缺失）与
+            // `os error 2`（文件缺失）在日志里无法区分，排障方向会被带偏。
+            tracing::error!(
+                "启动 AHK 子进程失败: {e}。{}",
+                format_resource_snapshot(exe_path.parent(), exe_path)
+            );
         }
     }
 
@@ -621,6 +626,88 @@ fn setup_window_close_handler(
     });
 }
 
+/// 资源快照里最多列举的目录条目数。
+///
+/// **有界且非递归**：列举发生在启动失败路径上，打包资源目录可能有几百个文件，
+/// 为排障把启动拖慢不值得；递归更是会把整个安装目录扫一遍。
+const RESOURCE_SNAPSHOT_MAX_ENTRIES: usize = 20;
+
+/// 把「资源目录 + 目标文件」两级存在性快照格式化成一行文本（TD-089）。
+///
+/// # 为什么必须是两级
+///
+/// Windows 上 `CreateProcessW` 的 `lpApplicationName` 传完整路径时，两类缺失的
+/// 报错**不同**：路径中的**目录分量**缺失报 `os error 3`，**文件**缺失报
+/// `os error 2`。但两者在日志里长得几乎一样，只看错误码无法区分
+/// 「这一个文件没打进包」和「整个目录都没打进包」—— 而后者的排查方向完全不同
+/// （前者查单个资源声明，后者查打包配置）。
+///
+/// 所以快照同时给出目录与文件各自的存在性，并在**目录存在**时列举其内容，
+/// 让「缺的是文件还是目录」一眼可判。
+///
+/// # 为什么是纯函数
+///
+/// 只依赖传入的两个路径与文件系统，不依赖 `tauri` / 全局状态 / 当前工作目录，
+/// 因此可单测。这是 TD-089 的验收要求：**诊断信息本身要有测试守护**，
+/// 否则它会和它要诊断的对象一起腐烂 —— 本项目 §四记录的失效模式
+/// 「东西写了但没接上」在诊断代码上同样成立。
+///
+/// `dir` 传 `None` 表示无法从目标路径推导出父目录（例如路径是纯文件名），
+/// 此时只输出文件一级，不臆造目录信息。
+#[must_use]
+fn format_resource_snapshot(dir: Option<&std::path::Path>, file: &std::path::Path) -> String {
+    let mut out = String::from("[AHK 资源快照] ");
+    // 用 `write!` 而不是 `push_str(&format!(..))`：后者会多一次 String 分配，
+    // 被 `clippy::format_push_string` 拦（本 crate 的 pedantic 是 `-D warnings`）。
+    // 写入 `String` 不会失败，故 `let _ =` 是安全的，不是吞错。
+    let w = |out: &mut String, s: std::fmt::Arguments| {
+        let _ = std::fmt::Write::write_fmt(out, s);
+    };
+    // ⚠️ 空路径也按「无法推导」处理：`Path::new("AutoHotkey64.exe").parent()` 返回的是
+    // `Some("")` 而不是 `None`（裸文件名的父目录是空路径）。若不加 `is_empty()` 判断，
+    // 会输出「资源目录= 存在=false」—— 那既不是「目录不存在」，也不指向任何东西，
+    // 是比不输出更糟的误导。此分支由 `snapshot_handles_unknown_parent_dir` 守护。
+    match dir.filter(|d| !d.as_os_str().is_empty()) {
+        Some(d) => {
+            let dir_exists = d.exists();
+            w(&mut out, format_args!("资源目录={} 存在={dir_exists}", d.display()));
+            if dir_exists {
+                match std::fs::read_dir(d) {
+                    Ok(entries) => {
+                        let mut names: Vec<String> = Vec::new();
+                        let mut total: usize = 0;
+                        for entry in entries.flatten() {
+                            total += 1;
+                            if names.len() < RESOURCE_SNAPSHOT_MAX_ENTRIES {
+                                names.push(entry.file_name().to_string_lossy().into_owned());
+                            }
+                        }
+                        let shown = names.len();
+                        w(
+                            &mut out,
+                            format_args!(" 目录共 {total} 项，前 {shown} 项=[{}]", names.join(", ")),
+                        );
+                        if total > shown {
+                            w(
+                                &mut out,
+                                format_args!("…(已截断，上限 {RESOURCE_SNAPSHOT_MAX_ENTRIES})"),
+                            );
+                        }
+                    }
+                    Err(e) => w(&mut out, format_args!(" 目录列举失败={e}")),
+                }
+            }
+            out.push_str("; ");
+        }
+        None => out.push_str("资源目录=<父目录无法推导>; "),
+    }
+    w(
+        &mut out,
+        format_args!("目标文件={} 存在={}", file.display(), file.exists()),
+    );
+    out
+}
+
 /// 解析 AHK 执行器路径：优先编译模式的 `asd_executor.exe`，回退便携模式的
 /// `AutoHotkey64.exe`（两者都在 Resource 目录下）。
 ///
@@ -631,6 +718,13 @@ fn setup_window_close_handler(
 /// 「资源缺失」伪装成「启动子进程失败: … (program=AutoHotkey64.exe)」，把排障引向
 /// 错误的方向（去查子进程启动，而不是查打包资源缺失）。
 /// 现在解析失败一律返回 `None`，由调用方当作**启动失败**上报，让问题在启动期就可见。
+///
+/// # TD-089：两个分支的 `exists()` 校验必须对称
+///
+/// 便携模式分支原先**不带** `Path::exists()` 校验（编译模式分支带），于是资源缺失时
+/// 照样返回一个不存在的路径，spawn 时报 `os error 3`，把「打包资源缺失」伪装成
+/// 「启动子进程失败」—— 与上面「为什么返回 `Option`」要避免的伪装**完全同型**。
+/// 现已补齐校验与两级快照，见 [`format_resource_snapshot`]。
 fn resolve_ahk_executor_path(app: &tauri::App) -> Option<std::path::PathBuf> {
     if let Ok(p) = app.path().resolve(
         "ahk_executor/asd_executor.exe",
@@ -644,20 +738,31 @@ fn resolve_ahk_executor_path(app: &tauri::App) -> Option<std::path::PathBuf> {
     } else {
         tracing::warn!("无法解析 asd_executor.exe 路径，尝试便携模式");
     }
-    app.path()
-        .resolve(
-            "ahk_executor/AutoHotkey64.exe",
-            tauri::path::BaseDirectory::Resource,
-        )
-        .map(|p| {
-            tracing::info!("使用便携模式 AHK 子进程: {:?}", p);
-            p
-        })
-        .map_err(|e| {
+    let portable = app.path().resolve(
+        "ahk_executor/AutoHotkey64.exe",
+        tauri::path::BaseDirectory::Resource,
+    );
+    match portable {
+        Ok(p) => {
+            if p.exists() {
+                tracing::info!("使用便携模式 AHK 子进程: {:?}", p);
+            } else {
+                // ⚠️ 这里**刻意仍然返回 `Some(p)`，不改成 `None`**。改成 `None` 会让
+                // 应用在没有 AHK 的情况下静默继续运行（调用方只是记一条错误日志），
+                // 比现在更难发现 —— 那是把「启动时就炸」换成「运行时静默失灵」。
+                // 本次只补诊断信息，返回语义保持不变：让失败在 spawn 处带着快照爆出来。
+                tracing::error!(
+                    "便携模式 AutoHotkey64.exe 已解析出路径但文件不存在 —— 打包资源可能缺失。{}",
+                    format_resource_snapshot(p.parent(), &p)
+                );
+            }
+            Some(p)
+        }
+        Err(e) => {
             tracing::error!("无法解析 AutoHotkey64.exe 路径: {e}");
-            e
-        })
-        .ok()
+            None
+        }
+    }
 }
 
 /// 单实例保护（T5-09）暂缓说明：

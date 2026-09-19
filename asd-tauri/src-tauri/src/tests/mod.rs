@@ -1,4 +1,7 @@
 #[cfg(test)]
+mod ahk_executor_path_tests;
+
+#[cfg(test)]
 mod bridge_tests;
 
 #[cfg(test)]
