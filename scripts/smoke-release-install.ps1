@@ -333,7 +333,7 @@ function Get-CriterionStates {
         $ahkTrace   = [string](Get-Ev $Evidence 'AhkResourceTrace' '')
         $ahkPaths   = [string](Get-Ev $Evidence 'AhkResourcePathTrace' '')
         $c1State = 'FAIL'
-        $c1Detail = "安装器退出 0、$mainExe 已就位，但 $ahkRes 在 5 次采样里没有做到「次次都在」（轨迹 $ahkTrace）。"
+        $c1Detail = "安装器退出 0、$mainExe 已就位，但 $ahkRes 在采样窗口内没有做到「次次都在」（5 次 × 8ms，观测窗口 ≈32ms；轨迹 $ahkTrace）。"
         if ($ahkVerdict -eq 'Vanished') {
             $c1Detail += ' 归因：**资源曾就位、之后消失** —— 有东西在删安装目录（清理器 / 竞态），'
             $c1Detail += '**不是**「资源没打进包」。先查谁在删，别去改 tauri.conf.json 的资源清单。'
@@ -343,8 +343,8 @@ function Get-CriterionStates {
             $c1Detail += '既不是打包缺失也不是被删。慢盘上会假红，属**已知取舍**（见 TD-089）。'
         }
         elseif ($ahkDirOk) {
-            $c1Detail += ' 归因：**ahk_executor 目录在、但这个文件不在** —— 打包清单少列了它'
-            $c1Detail += '（资源清单见 tauri.conf.json:37-48），属打包/安装层缺陷。'
+            $c1Detail += ' 归因：**ahk_executor 目录在、但这个文件不在** —— 该文件没落盘，或落盘后被移走；'
+            $c1Detail += '若这是干净安装（期间无外部动作），则指向打包清单少列了它（资源清单见 tauri.conf.json:37-48），属打包/安装层缺陷。'
             $c1Detail += " 目录/文件逐次存在性：$ahkPaths"
         }
         else {
