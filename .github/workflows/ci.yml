@@ -993,7 +993,12 @@ jobs:
 
       # 正式配置（不带 --debug、不带 --config）：bundle.targets 已是 ['nsis']，
       # 无需再传 --bundles。产物落在
-      # asd-tauri/src-tauri/target/release/bundle/nsis/ 下。
+      # asd-tauri/target/release/bundle/nsis/ 下。
+      # ⚠️ 是 **asd-tauri/target**，不是 asd-tauri/src-tauri/target —— `asd-tauri/Cargo.toml`
+      #   是 workspace 根且 `members` 含 "src-tauri"，故 cargo 的 target 目录上移到
+      #   workspace 根。⚠️ `asd-tauri/src-tauri/target/` 在本机**确实存在**，但那是
+      #   workspace 引入**之前**的遗留树（2026-05-31 / 06-28），里面没有 bundle/。
+      #   本路径写错过一次，代价是 run 35466724544 第 10 步硬失败（构建其实成功了）。
       - name: 构建 NSIS 安装包
         working-directory: asd-tauri
         run: npm run tauri build
@@ -1009,7 +1014,8 @@ jobs:
           $version = [string]$conf.version
           Write-Host "版本: $version"
 
-          $bundleDir = Join-Path 'asd-tauri' 'src-tauri' 'target' 'release' 'bundle' 'nsis'
+          # ⚠️ asd-tauri/target（workspace 根），不是 asd-tauri/src-tauri/target。
+          $bundleDir = Join-Path 'asd-tauri' 'target' 'release' 'bundle' 'nsis'
           $installers = @(Get-ChildItem -Path $bundleDir -Filter *.exe -ErrorAction SilentlyContinue)
           # 构建返回 0 但没产出安装包，是本 job 最危险的静默失败（上传空 artifact
           # 后「有产物」的假象会一直骗到真正需要回滚的那天）。这里硬失败。
