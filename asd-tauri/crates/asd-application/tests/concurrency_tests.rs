@@ -21,8 +21,17 @@
 use asd_application::state::AppState;
 use asd_test_harness::*;
 use indexmap::IndexMap;
-use std::sync::{Arc, Barrier};
-use std::thread;
+use std::sync::{mpsc, Arc, Barrier};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
+
+/// 并发用例的超时护栏。
+///
+/// `JoinHandle::join()` 在发生死锁时会**永久挂起** —— 测试进程既不失败也不退出，
+/// 只能靠 CI job 的整体超时兜底。那既慢，又完全无法归因（日志里只有「作业超时」，
+/// 看不出是哪把锁、哪个顺序）。这里让主线程在 `recv_timeout` 上等待，超时即 panic
+/// 并明确指出「疑似死锁」，把静默挂起变成**可见的失败**。
+const CONCURRENCY_TIMEOUT: Duration = Duration::from_secs(30);
 
 // =================================================================
 // 辅助函数
@@ -107,6 +116,42 @@ fn assert_memory_consistent(state: &AppState, expected_group_count: usize) {
     }
 }
 
+/// 带超时地等待**单个**工作线程结束（超时即 panic，见 [`CONCURRENCY_TIMEOUT`]）。
+fn join_with_timeout<T: Send + 'static>(
+    handle: JoinHandle<T>,
+    timeout: Duration,
+    what: &str,
+) -> thread::Result<T> {
+    join_all_with_timeout(vec![handle], timeout, what)
+        .pop()
+        .expect("join_all_with_timeout 应恰好返回一个结果")
+}
+
+/// 带超时地等待**一组**工作线程结束（超时即 panic，见 [`CONCURRENCY_TIMEOUT`]）。
+///
+/// 实现：把 `join()` 全部放进一个代理线程，主线程用 `recv_timeout` 等待结果。
+/// 超时后无法强行杀掉卡住的线程，但 panic 会让测试**立刻失败**并给出可归因的信息，
+/// 而不是让整个 CI job 静默挂到超时。
+fn join_all_with_timeout<T: Send + 'static>(
+    handles: Vec<JoinHandle<T>>,
+    timeout: Duration,
+    what: &str,
+) -> Vec<thread::Result<T>> {
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let results: Vec<thread::Result<T>> = handles.into_iter().map(JoinHandle::join).collect();
+        let _ = tx.send(results);
+    });
+    match rx.recv_timeout(timeout) {
+        Ok(results) => results,
+        // 两类错误都算超时：Timeout 是等太久，Disconnected 是代理线程已死（通常也是卡死被杀）
+        Err(e) => panic!(
+            "{what} 在 {timeout:?} 内未结束 —— **疑似死锁**（并发护栏超时，recv 错误：{e:?}）。\
+             请检查各处取锁顺序是否一致：AppState 内应为 config_state → active_hotkeys"
+        ),
+    }
+}
+
 /// 验证磁盘配置文件存在、可读且可解析为有效 `Config`。
 fn assert_disk_valid(path: &std::path::Path) {
     let content = std::fs::read_to_string(path).expect("配置文件应存在且可读");
@@ -149,8 +194,12 @@ fn test_concurrent_save_config_different_groups() {
 
     let mut all_ok = true;
     let mut success_count = 0;
-    for h in handles {
-        match h.join() {
+    for h in join_all_with_timeout(
+        handles,
+        CONCURRENCY_TIMEOUT,
+        "并发 save_config_atomic（修改不同分组）",
+    ) {
+        match h {
             Ok(Ok(())) => success_count += 1,
             Ok(Err(e)) => {
                 eprintln!("线程 save_config_atomic 失败: {e}");
@@ -231,8 +280,12 @@ fn test_concurrent_delete_group_different_groups() {
 
     let mut all_ok = true;
     let mut success_count = 0;
-    for h in handles {
-        match h.join() {
+    for h in join_all_with_timeout(
+        handles,
+        CONCURRENCY_TIMEOUT,
+        "并发 delete_group_atomic（删除不同分组）",
+    ) {
+        match h {
             Ok(Ok(_was_active)) => success_count += 1,
             Ok(Err(e)) => {
                 eprintln!("线程 delete_group_atomic 失败: {e}");
@@ -315,8 +368,8 @@ fn test_concurrent_save_and_delete_same_group() {
             state_b.delete_group_atomic("1").map_err(|e| e.to_string())
         });
 
-        let result_a = handle_a.join();
-        let result_b = handle_b.join();
+        let result_a = join_with_timeout(handle_a, CONCURRENCY_TIMEOUT, "并发 save（线程 A）");
+        let result_b = join_with_timeout(handle_b, CONCURRENCY_TIMEOUT, "并发 delete（线程 B）");
 
         // 两个线程都不应 panic
         assert!(
@@ -430,8 +483,12 @@ fn test_concurrent_sync_config_changes() {
 
     let mut all_ok = true;
     let mut success_count = 0;
-    for h in handles {
-        match h.join() {
+    for h in join_all_with_timeout(
+        handles,
+        CONCURRENCY_TIMEOUT,
+        "并发 save_config_atomic（IPC 同步）",
+    ) {
+        match h {
             Ok(Ok(())) => success_count += 1,
             Ok(Err(e)) => {
                 eprintln!("线程 save_config_atomic 失败: {e}");

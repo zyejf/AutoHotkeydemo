@@ -412,7 +412,7 @@ impl AppState {
 
         let config_path = self.get_config_path();
 
-        let (old_config, old_groups, old_version, new_hotkey_map, new_groups) = {
+        let (old_config, old_groups, old_version, new_groups) = {
             let mut guard = self.config_state.write();
             new_config.last_modified = Some(chrono::Local::now().to_rfc3339());
             let old_config = guard.config.clone();
@@ -436,19 +436,21 @@ impl AppState {
             guard.config.clone_from(&new_config);
             guard.groups.clone_from(&new_groups);
             guard.version += 1;
-            (
-                old_config,
-                old_groups,
-                old_version,
-                new_hotkey_map,
-                new_groups,
-            )
-        };
 
-        {
-            let mut registry = self.active_hotkeys.write();
-            *registry = new_hotkey_map;
-        }
+            // active_hotkeys 的更新放在**同一个写锁临界区**内，与 config 一并生效。
+            //
+            // 原实现先释放 config_state 锁、再单独取 active_hotkeys 锁 —— 两锁之间留有
+            // 窗口，期间其它线程可以读到「新 config + 旧 active_hotkeys」的不一致组合
+            //（例如刚导入的配置里热键已变，但注册表中仍是旧映射）。
+            // 锁序与 `set_group_active` / `toggle_group_active` 保持一致：
+            // **config_state → active_hotkeys**（顺序颠倒即死锁）。
+            {
+                let mut registry = self.active_hotkeys.write();
+                *registry = new_hotkey_map;
+            }
+
+            (old_config, old_groups, old_version, new_groups)
+        };
 
         if let Some(path) = config_path {
             if let Err(e) = ConfigRepository::save_to_path(&new_config, &path) {

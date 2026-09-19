@@ -50,6 +50,10 @@ on:
         type: string
         required: false
         default: ''
+      build_release:
+        description: '构建发布安装包（NSIS exe + SHA256）并作为 artifact 上传，供发布与事后回滚取用（TD-074）。⚠️ 默认关闭：该构建路径在 CI 上**从未被真正跑通过**（e2e job 结构性不可达，内含的构建步骤一次都没执行），首次请手动勾选验证，绿过一次再考虑接自动触发'
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -739,3 +743,171 @@ jobs:
           name: e2e-reports
           path: asd-tauri/e2e/reports
           if-no-files-found: warn
+
+  # ============================================================ 发布（TD-074）
+  # 本 job 是**唯一产出可交付安装包**的 job —— 其余 9 个 job 全是校验类，
+  # 事故响应流程里的「回滚」在物理上没有产物可退（TD-074，P0）。
+  #
+  # 触发：**仅手动 workflow_dispatch**，且必须显式勾选 `build_release`（默认 false）。
+  #   为什么不接 push / PR / tag 自动触发：
+  #   ① 这条构建路径在 CI 上**从未被验证过** —— 唯一含 `tauri build` 的 e2e job
+  #      被 `workflow_dispatch && inputs.run_e2e`（默认 false）挡住，结构性不可达，
+  #      它里面的构建步骤一次都没执行过。「已知红的门禁比没门禁更糟」。
+  #   ② 回滚并不需要 tag 触发：workflow_dispatch 支持在 UI 里**任选 ref**
+  #      （分支 / tag / commit SHA），要重出某个历史版本直接选那个 ref 即可 ——
+  #      这正是回滚场景需要的能力，而它天然不产生任何自动红灯。
+  #   待本 job 手动跑绿一次后，再按需在 `on.push` 下加 `tags: ['v*']` 接自动发布。
+  #
+  # ⚠️⚠️ 跑这个 job 之前要知道的事（四条，缺一条都会让人误判）⚠️⚠️
+  #
+  #   [1] 产物**未做代码签名 / 未接 updater**（无证书、无密钥、无更新通道）。
+  #       Windows SmartScreen 会对首次运行的安装包弹「未知发布者」告警，
+  #       用户需手动「更多信息 → 仍要运行」。内网 / 受控分发场景可接受；
+  #       对外分发前必须先补签名（EV 证书 + tauri.conf.json 的 bundle.windows.
+  #       certificateThumbprint），否则告警会被当成恶意软件。
+  #
+  #   [2] 构建机**不需要** WebView2 —— tauri.conf.json 的
+  #       bundle.windows.webviewInstallMode 是 `downloadBootstrapper`（silent），
+  #       WebView2 运行时不进安装包，由安装器在**用户机器上联网下载**。
+  #       ⇒ 代价转移到了终端：**离线 / 内网隔离环境装不上**。
+  #       若目标环境不能联网，须改用 `offlineInstaller`（包体积 +约 130MB）
+  #       或 `embedBootstrapper`。这是发布策略问题，不是 CI 问题。
+  #
+  #   [3] Tauri 的 NSIS bundler **首次构建会联网拉 NSIS 工具链**
+  #       （缓存于 `%LOCALAPPDATA%\tauri`，后续构建命中缓存）。
+  #       ⇒ 这是本 job 引入的**新增外部依赖**：网络受限或上游下载源故障时，
+  #       job 会红在 bundler 而不是我们的代码上，排查时先看这一步。
+  #
+  #   [4] 本 job 走的是 **release 模式**（无 `--debug`），与 e2e job 那条
+  #       `npm run tauri build -- --debug` **不是同一条命令**：release 有优化 / LTO，
+  #       可能暴露 debug 从未暴露的问题。而 e2e 那条路径本身也从未真正执行过
+  #       （见上面触发段的 ①）。⇒ **本 job 的构建路径首次执行不保证一次绿，
+  #       必须人工观察首次结果**；在首次手动跑绿之前，不要把「CI 能出包」当成既有事实。
+  release:
+    name: 发布构建（NSIS 安装包，仅手动触发）
+    runs-on: windows-latest
+    # 发布产物是拿去给用户装的，必须建立在四闸门绿之上。若 gates 红，本 job 本就不该
+    # 产出任何东西 —— 这正是想要的行为。只依赖 gates，不依赖其它辅助 job
+    # （coverage / miri / fuzz / bench 等信号类 job 不参与判定）。
+    needs: gates
+    # 双重默认关闭：事件必须是手动 dispatch，且必须勾选 build_release。
+    if: github.event_name == 'workflow_dispatch' && inputs.build_release
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: asd-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: asd-tauri/package-lock.json
+
+      # 前端产物（vite build → asd-tauri/dist）由 tauri.conf.json 的
+      # build.beforeBuildCommand 自动触发，无需单独跑 npm run build。
+      - name: 安装前端依赖
+        working-directory: asd-tauri
+        run: npm ci
+
+      # ⚠️ 必须复用 gates / bench / e2e 三个 job 的同款前置，缺了构建必红：
+      #    src-tauri 的 build.rs 需要 ahk_executor/AutoHotkey64.exe，而该文件被
+      #    .gitignore 的 `*.exe` 排除，全新 clone 里不存在 —— 报错
+      #    `resource path ahk_executor\AutoHotkey64.exe doesn't exist`。
+      #    本地不明显是因为 build.rs 有缓存指纹、不会重跑。
+      - name: 安装 AutoHotkey v2
+        id: ahk
+        # 该 action 没有 `v2` 浮动标签，只能写 v2.1.0 这类具体标签。
+        uses: holy-tao/install-autohotkey@v2.1.0
+        with:
+          version: '2.0.26'
+          destination: ${{ runner.temp }}
+
+      - name: 准备 ahk_executor 的 AHK 运行时资源
+        shell: pwsh
+        env:
+          AHK_EXE: ${{ steps.ahk.outputs.ahk64 }}
+        run: |
+          $dst = Join-Path 'asd-tauri' 'src-tauri' 'ahk_executor' 'AutoHotkey64.exe'
+          if (-not (Test-Path $dst)) {
+            Copy-Item $env:AHK_EXE $dst
+            Write-Host "已放置 AHK 运行时: $dst"
+          } else {
+            Write-Host "AHK 运行时已存在，跳过: $dst"
+          }
+
+      # 正式配置（不带 --debug、不带 --config）：bundle.targets 已是 ['nsis']，
+      # 无需再传 --bundles。产物落在
+      # asd-tauri/src-tauri/target/release/bundle/nsis/ 下。
+      - name: 构建 NSIS 安装包
+        working-directory: asd-tauri
+        run: npm run tauri build
+
+      # 校验和与产物名必须**从磁盘实际产物推导**，不硬编码文件名 ——
+      # productName 是「ASD - 技能管理器」（含空格与中文），NSIS 产物名由它
+      # 拼出，硬编码会在改名时静默失效（上传一个不存在的路径 = 空 artifact）。
+      - name: 收集产物并生成 SHA256
+        id: meta
+        shell: pwsh
+        run: |
+          $conf = Get-Content 'asd-tauri/src-tauri/tauri.conf.json' -Raw -Encoding utf8 | ConvertFrom-Json
+          $version = [string]$conf.version
+          Write-Host "版本: $version"
+
+          $bundleDir = Join-Path 'asd-tauri' 'src-tauri' 'target' 'release' 'bundle' 'nsis'
+          $installers = @(Get-ChildItem -Path $bundleDir -Filter *.exe -ErrorAction SilentlyContinue)
+          # 构建返回 0 但没产出安装包，是本 job 最危险的静默失败（上传空 artifact
+          # 后「有产物」的假象会一直骗到真正需要回滚的那天）。这里硬失败。
+          if ($installers.Count -eq 0) {
+            throw "未在 $bundleDir 找到任何安装包 —— 构建未产出 NSIS 产物"
+          }
+
+          $outDir = Join-Path $env:RUNNER_TEMP 'release-artifacts'
+          New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+
+          $lines = @()
+          foreach ($f in $installers) {
+            Copy-Item $f.FullName $outDir -Force
+            $hash = (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower()
+            $lines += "$hash  $($f.Name)"
+            Write-Host "SHA256 $hash  $($f.Name)"
+          }
+          # ⚠️ 显式写**不带 BOM** 的 UTF-8：Windows PowerShell 的
+          # `Out-File -Encoding utf8` 会写 BOM，行首 BOM 会让
+          # `sha256sum -c` / `certutil -hashfile` 一类校验工具读不出第一行。
+          $sumFile = Join-Path $outDir 'SHA256SUMS.txt'
+          [System.IO.File]::WriteAllLines($sumFile, [string[]]$lines, (New-Object System.Text.UTF8Encoding($false)))
+
+          # 汇总进 job 摘要，便于人工核对「这次发布的到底是哪个版本、哪个哈希」
+          $summary = @(
+            '### 发布构建产物（未签名）',
+            '',
+            "- 版本: ``$version``",
+            '- 平台: Windows x64 / NSIS（installMode=currentUser）',
+            '- ⚠️ 未签名：首次运行会有 SmartScreen「未知发布者」告警',
+            '',
+            '| 文件 | SHA256 |',
+            '| --- | --- |'
+          )
+          foreach ($line in $lines) {
+            $parts = $line -split '  ', 2
+            $summary += "| $($parts[1]) | $($parts[0]) |"
+          }
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ($summary -join "`n") -Encoding utf8
+
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      # 命名带版本号，便于事后回滚时按版本取用。
+      # retention-days 90：发布产物需要覆盖回滚窗口，不能按普通 CI 产物 30 天清理。
+      - name: 上传安装包 + 校验和
+        uses: actions/upload-artifact@v4
+        with:
+          name: ASD-SkillManager-v${{ steps.meta.outputs.version }}-windows-x64
+          path: ${{ runner.temp }}/release-artifacts/*
+          retention-days: 90
+          # 这里**不能**用 warn：本 job 的唯一目的就是产出安装包，
+          # 找不到文件必须是硬失败，否则「跑绿了但没有包」会被当成发布成功。
+          if-no-files-found: error

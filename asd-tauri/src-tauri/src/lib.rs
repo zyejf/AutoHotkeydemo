@@ -12,7 +12,7 @@ use asd_domain::config::{Config, WatchdogStateEnum};
 use asd_domain::models::SkillGroup;
 use asd_ipc_protocol::{IpcCommand, IpcMessage};
 use bridge::{IpcBridge, TauriEventBridge, WatchdogBridge};
-use infrastructure::ipc::{IpcManager, IpcOutboundReceiver, IPC_PIPE_NAME};
+use infrastructure::ipc::{ipc_pipe_name, IpcManager, IpcOutboundReceiver};
 use infrastructure::watchdog::{register_panic_hook, ProcessWatchdog, WatchdogRunner};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -130,12 +130,20 @@ fn spawn_ipc_listener(
 ///
 /// 前置条件：IpcManager 必须在调用前初始化（包装在 `Some()` 中），
 /// 否则 `accept_loop` 不会启动且不会重试。
-fn spawn_ipc_accept_loop(ipc_manager: IpcManagerArc) {
+fn spawn_ipc_accept_loop(ipc_manager: IpcManagerArc, app_handle: tauri::AppHandle) {
+    let pipe_name = ipc_pipe_name().to_string();
     tauri::async_runtime::spawn(async move {
-        let listener = match infrastructure::ipc::create_listener(IPC_PIPE_NAME) {
+        let listener = match infrastructure::ipc::create_listener(&pipe_name) {
             Ok(l) => l,
             Err(e) => {
-                tracing::error!("创建 IPC 监听器失败: {e}");
+                // 建不起监听端 == AHK 永远连不上 == 功能不可用。按 `create_listener`
+                // 自己的文档当作启动失败处理：记 error + 发事件给前端弹提示，
+                // 不再「只记一条日志就 return」让用户毫无感知。
+                tracing::error!("创建 IPC 监听器失败（管道名 `{pipe_name}`）: {e}");
+                let _ = app_handle.emit(
+                    "ipc:listener-failed",
+                    format!("IPC 管道 `{pipe_name}` 创建失败：{e}"),
+                );
                 return;
             }
         };
@@ -199,6 +207,8 @@ fn spawn_watchdog(
     // 提前创建 shutting_down Arc，保存引用供 perform_graceful_shutdown 使用
     let shutting_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let shutting_down_clone = shutting_down.clone();
+    // 状态同步循环专用的克隆：让它在关机时能自行退出（见下方 loop 内的 break）
+    let status_sync_shutting_down = shutting_down.clone();
 
     tauri::async_runtime::spawn(async move {
         let mut runner = WatchdogRunner::from_arc(watchdog.clone());
@@ -214,6 +224,12 @@ fn spawn_watchdog(
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
             loop {
                 interval.tick().await;
+                // 关机后自行退出：原实现是**无退出条件的 loop**，关机后仍每秒抢一次
+                // watchdog 锁，与 graceful_shutdown_watchdog 争抢同一把锁直到进程退出。
+                if status_sync_shutting_down.load(std::sync::atomic::Ordering::SeqCst) {
+                    tracing::debug!("watchdog 状态同步循环：检测到关机标志，退出");
+                    break;
+                }
                 let wd_guard = wd_clone.lock().await;
                 let current = wd_guard.state();
                 let restart_count = wd_guard.restart_count();
@@ -480,7 +496,7 @@ fn setup_ipc_and_watchdog(
     }
 
     spawn_ipc_listener(outbound_rx, app_state.clone(), app_handle.clone());
-    spawn_ipc_accept_loop(ipc_manager_arc.clone());
+    spawn_ipc_accept_loop(ipc_manager_arc.clone(), app_handle.clone());
 
     {
         let exe_str = exe_path.to_string_lossy().to_string();
@@ -605,14 +621,24 @@ fn setup_window_close_handler(
     });
 }
 
-fn resolve_ahk_executor_path(app: &tauri::App) -> std::path::PathBuf {
+/// 解析 AHK 执行器路径：优先编译模式的 `asd_executor.exe`，回退便携模式的
+/// `AutoHotkey64.exe`（两者都在 Resource 目录下）。
+///
+/// # 为什么返回 `Option` 而不是兜底一个路径
+///
+/// 早期实现在两者都解析失败时返回 `PathBuf::from("AutoHotkey64.exe")` —— 那是一个
+/// **依赖进程当前工作目录的裸相对路径**，在打包应用里基本必然解析失败，而且会把
+/// 「资源缺失」伪装成「启动子进程失败: … (program=AutoHotkey64.exe)」，把排障引向
+/// 错误的方向（去查子进程启动，而不是查打包资源缺失）。
+/// 现在解析失败一律返回 `None`，由调用方当作**启动失败**上报，让问题在启动期就可见。
+fn resolve_ahk_executor_path(app: &tauri::App) -> Option<std::path::PathBuf> {
     if let Ok(p) = app.path().resolve(
         "ahk_executor/asd_executor.exe",
         tauri::path::BaseDirectory::Resource,
     ) {
         if p.exists() {
             tracing::info!("使用编译模式 AHK 子进程: {:?}", p);
-            return p;
+            return Some(p);
         }
         tracing::warn!("asd_executor.exe 不存在，尝试便携模式");
     } else {
@@ -623,10 +649,15 @@ fn resolve_ahk_executor_path(app: &tauri::App) -> std::path::PathBuf {
             "ahk_executor/AutoHotkey64.exe",
             tauri::path::BaseDirectory::Resource,
         )
-        .unwrap_or_else(|e| {
-            tracing::error!("无法解析 AutoHotkey64.exe 路径: {e}");
-            std::path::PathBuf::from("AutoHotkey64.exe")
+        .map(|p| {
+            tracing::info!("使用便携模式 AHK 子进程: {:?}", p);
+            p
         })
+        .map_err(|e| {
+            tracing::error!("无法解析 AutoHotkey64.exe 路径: {e}");
+            e
+        })
+        .ok()
 }
 
 /// 单实例保护（T5-09）暂缓说明：
@@ -691,7 +722,7 @@ pub fn run() {
                 }
             };
 
-            let (ipc_manager, outbound_rx) = IpcManager::new(IPC_PIPE_NAME);
+            let (ipc_manager, outbound_rx) = IpcManager::new(ipc_pipe_name());
             let auth_token = ipc_manager.auth_token().to_string();
             let outbound_sender = ipc_manager.outbound_sender();
             let ipc_manager_arc: IpcManagerArc =
@@ -711,7 +742,11 @@ pub fn run() {
                 watchdog_bridge,
             )?;
 
-            let exe_path = resolve_ahk_executor_path(app);
+            let exe_path = resolve_ahk_executor_path(app).ok_or_else(|| {
+                "未找到 AHK 执行器：`ahk_executor/asd_executor.exe`（编译模式）与 "
+                    .to_owned()
+                    + "`ahk_executor/AutoHotkey64.exe`（便携模式）均无法解析 —— 请检查打包资源是否齐全"
+            })?;
 
             let runner_shutting_down = setup_ipc_and_watchdog(
                 &app_state,
@@ -796,6 +831,14 @@ pub fn run() {
 
 #[cfg(test)]
 mod shutdown_tests {
+    // ⚠️ 复核结论存档（2026-09-19，审查发现 #20）：审查曾判「关机编排零覆盖，只测了
+    // `infrastructure/shutdown.rs` 抽出的纯函数」—— **该判定不成立**。本模块 6 条里有
+    // 3 条就是真实关机编排：`test_run_shutdown_sequence_order`（断言「标记 IPC 关闭 →
+    // 设置 runner 停止标志 → watchdog 优雅关机」顺序）与 2 条 `perform_graceful_shutdown`
+    // （guard 提前返回 / 二次调用拦截，用真实 `IpcManager` + 真实 `ProcessWatchdog`）。
+    // 工程督导 2026-09-19 裁决：**不要**为 #20 再补用例（属自我重复）。本模块的保留价值
+    // 是**契约冻结** —— 顺序与二次拦截一旦被改反，这里立刻变红，而不是为凑 #20 而存在。
+    // 详见 `docs/test-map.md` 的 `src-tauri/src/lib.rs` 明细行。
     use super::*;
     use asd_test_harness::{make_test_state, unique_pipe_name};
     use std::sync::atomic::AtomicBool;

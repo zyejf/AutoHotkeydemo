@@ -5,13 +5,14 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
-use windows::Win32::Foundation::{HANDLE, HWND, LPARAM};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM};
 use windows::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject, JOBOBJECTINFOCLASS,
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 use windows::Win32::System::Threading::{
-    OpenProcess, CREATE_NO_WINDOW, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+    OpenProcess, QueryFullProcessImageNameW, TerminateProcess, CREATE_NO_WINDOW,
+    PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowThreadProcessId, PostMessageW, WM_CLOSE, WNDENUMPROC,
@@ -38,6 +39,17 @@ pub const BACKOFF_DURATIONS: [Duration; 10] = [
 const SHUTDOWN_IPC_TIMEOUT: Duration = Duration::from_secs(2);
 const SHUTDOWN_WM_CLOSE_TIMEOUT: Duration = Duration::from_secs(3);
 const STABLE_HEARTBEAT_THRESHOLD: u32 = 5;
+
+/// Phase 3 强制 kill 之后的**有界**等待上限。
+///
+/// 不能无限等：`Child::wait()` 底层是 `WaitForSingleObject`，没有超时版本，
+/// 子进程若因任何原因不退出就会把 tokio 工作线程**无限期**占住。
+/// 超过此上限就放弃等待并告警 —— 此时进程已被 kill，会自行退出，
+/// 不值得为「确认它退出了」而把调用方一起挂死。
+const KILL_REAP_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Phase 3 等待子进程退出时的轮询间隔（`try_wait` 是非阻塞的）。
+const KILL_REAP_POLL_MS: u64 = 50;
 
 pub struct ProcessWatchdog {
     state: WatchdogStateEnum,
@@ -282,9 +294,22 @@ impl ProcessWatchdog {
         let (program, args) = if exe_path.ends_with("asd_executor.exe") {
             (exe_path.to_string(), Vec::new())
         } else if exe_path.ends_with("asd_executor.bat") {
+            // Windows 的 cmd.exe 对「含空格且带引号」的参数有著名的**引号剥离**行为，
+            // 理论上构成命令注入面（本函数接受任意 `&str`）。用两个开关把它收敛掉：
+            //   `/D` 跳过 AutoRun（注册表/环境变量里挂的自动执行命令），
+            //   `/S` 让 /C 后的字符串按最外层引号原样取用、不再二次解析引号。
+            // 注意：`exe_path` 必须来自受控的 Resource 目录（见 `resolve_ahk_executor_path`），
+            // **不接受外部输入** —— 若将来改成可外部指定，这里必须改为参数白名单校验。
+            //
+            // 不能直接 `Command::new(exe_path)`：CreateProcess 无法直接执行 .bat，仍需 cmd。
             (
                 "cmd".to_string(),
-                vec!["/C".to_string(), exe_path.to_string()],
+                vec![
+                    "/D".to_string(),
+                    "/S".to_string(),
+                    "/C".to_string(),
+                    format!("\"{}\"", exe_path),
+                ],
             )
         } else if exe_path.ends_with("AutoHotkey64.exe") {
             let script_path = std::path::Path::new(exe_path)
@@ -302,10 +327,20 @@ impl ProcessWatchdog {
             cmd.args(&args);
         }
         cmd.env("ASD_AUTH_TOKEN", auth_token);
+        // 把本会话的 IPC 管道名传给 AHK 子进程（两侧必须一致，见 `ipc_pipe_name`）。
+        // 用 `ipc_pipe_name()` 而不是新增参数：它是本进程的确定性单例，
+        // 重启路径（`restart_child`）无需再透传一次。
+        cmd.env(
+            crate::infrastructure::ipc::IPC_PIPE_NAME_ENV_VAR,
+            crate::infrastructure::ipc::ipc_pipe_name(),
+        );
 
         let child = cmd
             .spawn()
             .map_err(|e| format!("启动子进程失败: {e} (program={program}, args={args:?})"))?;
+
+        // 登记 PID，供后续 cleanup_stale_executor_processes 精确终止（见该函数文档）。
+        register_spawned_child(child.id(), &program);
 
         self.attach_child(child)
     }
@@ -543,9 +578,47 @@ pub async fn graceful_shutdown_watchdog(
     }
 
     tracing::warn!("Watchdog: Phase 3 - 强制终止进程 PID={pid}");
-    let mut guard = watchdog.lock().await;
-    guard.kill_and_reap();
-    guard.cleanup();
+
+    // 把 child **取走**，kill + reap 全部在锁外执行。
+    //
+    // 原实现是「持 watchdog 锁执行 kill_and_reap()」，而 kill_and_reap 内含同步阻塞的
+    // `Child::wait()`（无超时）。子进程若未及时退出，当前 tokio 工作线程被无限期阻塞
+    // 且 watchdog 锁不释放 → WatchdogRunner::run、状态同步循环、
+    // get_executor_status / reset_watchdog 全部挂起。这与本函数自己的文档
+    //（「锁内仅做状态快照，轮询在锁外执行」）直接矛盾。
+    //
+    // 现在：① 短暂加锁取走 child → ② 锁外 kill + **有界**轮询 try_wait
+    //      → ③ 再短暂加锁 cleanup。
+    let taken_child = { watchdog.lock().await.child.take() };
+    if let Some(mut cell) = taken_child {
+        let killed = cell.with_mut(|c| c.kill().is_ok());
+        if !killed {
+            tracing::warn!("Watchdog: Phase 3 - kill 失败（进程可能已退出）PID={pid}");
+        }
+
+        let start = std::time::Instant::now();
+        let mut reaped = false;
+        loop {
+            // try_wait 是非阻塞的（WaitForSingleObject 超时为 0），可在 async 里直接调用
+            if cell.with_mut(|c| matches!(c.try_wait(), Ok(Some(_)))) {
+                reaped = true;
+                break;
+            }
+            if start.elapsed() >= KILL_REAP_TIMEOUT {
+                tracing::warn!(
+                    "Watchdog: Phase 3 - 进程在 {:?} 内未退出，放弃等待（已 kill，不持锁）PID={pid}",
+                    KILL_REAP_TIMEOUT
+                );
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(KILL_REAP_POLL_MS)).await;
+        }
+        if reaped {
+            tracing::info!("Watchdog: Phase 3 - 进程已退出 PID={pid}");
+        }
+    }
+
+    watchdog.lock().await.cleanup();
     Ok(())
 }
 
@@ -788,53 +861,206 @@ impl<T> Drop for RawBoxGuard<T> {
 
 /// 仅清理项目专用子进程的映像名列表。
 ///
-/// R1 安全约束：不得包含 `AutoHotkey64.exe` 等通用进程名，否则 `taskkill /F /IM`
+/// R1 安全约束：不得包含 `AutoHotkey64.exe` 等通用进程名，否则按映像名清理
 /// 会误杀用户系统中所有 `AutoHotkey` 进程（包括用户自行运行的脚本），属于严重副作用。
 /// 如需清理 AHK 子进程，应通过 `JobObject` 或子进程句柄精确管理。
+///
+/// ⚠️ 本常量只在 [`is_terminable_image_name`] 中作为**按 PID 终止**的复核白名单
+/// 使用 —— 终止对象必须同时出现在 [`SPAWNED_CHILDREN`] 登记表里（即本进程自己
+/// 派生过的），不存在「按名误杀同名进程」的面。**绝不可**拿它去拼 `taskkill`
+/// 的 `/IM` 参数：那是本文件曾经踩过的坑，见 [`cleanup_stale_executor_processes`]。
 const STALE_PROCESS_NAMES: &[&str] = &["asd_executor.exe"];
 
-/// 清理遗留的 `asd_executor.exe` 进程。
+/// 便携模式下本进程**直接**派生的映像名（`AutoHotkey64.exe` 由 .bat 再派生一层时
+/// 不在此列，见 [`cleanup_stale_executor_processes`] 的遗留说明）。
+///
+/// 可以出现 `AutoHotkey64.exe` 的理由同 [`STALE_PROCESS_NAMES`]：这里是按 PID 终止，
+/// 只命中自己派生过的那一个进程；而 `STALE_PROCESS_NAMES` 是按名清理的名单，
+/// 两者语义不同，切勿合并。
+const PORTABLE_IMAGE_NAMES: &[&str] = &["autohotkey64.exe", "cmd.exe"];
+
+/// 本进程自己派生过的子进程登记表（PID + 期望映像文件名）。
+///
+/// # 为什么取代按映像名的 `taskkill`
+///
+/// `taskkill /F /IM asd_executor.exe` 终止的是**全系统**所有同名进程。实测阳性对照
+/// （另起两个与本进程毫无关系的同名进程，两者全部被杀）表明其后果是：
+///   ① 第二个 ASD 实例会杀掉第一个实例的执行器；
+///   ② 用户手工启动的调试执行器被顺手杀掉；
+///   ③ 便携模式子进程实际是 `AutoHotkey64.exe`，不在 `STALE_PROCESS_NAMES` 里
+///      （红线 1 禁止把它加进去），孤儿**根本清理不到**。
+/// 按 PID 清理只可能终止本进程自己派生过的那一个，①②③ 一并解决。
+///
+/// # 为什么还要记 `image_name`
+///
+/// 防 **PID 复用**：子进程退出后其 PID 可能被系统分配给无关进程，仅凭 PID 终止
+/// 会误杀。终止前用 `QueryFullProcessImageNameW` 复核映像文件名，对不上就放过 ——
+/// 宁可留下孤儿，也不误杀无关进程。
+static SPAWNED_CHILDREN: std::sync::Mutex<Vec<SpawnedChild>> = std::sync::Mutex::new(Vec::new());
+
+/// 登记表上限。重启次数本身有 `MAX_RESTART_ATTEMPTS` 封顶，这里再兜一层，
+/// 防止任何意外路径下登记表无界增长。
+const MAX_TRACKED_CHILDREN: usize = 64;
+
+#[derive(Debug, Clone)]
+struct SpawnedChild {
+    pid: u32,
+    /// 期望的映像文件名（已小写），用于终止前复核。
+    image_name: String,
+}
+
+/// 从被执行的 `program` 推导其映像文件名（小写，不含目录）。
+///
+/// `cmd` 这类不带扩展名的 program，实际进程映像名是 `cmd.exe`，故补后缀。
+fn expected_image_name(program: &str) -> String {
+    let file = std::path::Path::new(program)
+        .file_name()
+        .map_or_else(|| program.to_string(), |s| s.to_string_lossy().to_string());
+    if !file.is_empty() && std::path::Path::new(&file).extension().is_none() {
+        return format!("{file}.exe").to_lowercase();
+    }
+    file.to_lowercase()
+}
+
+/// 把一个由本进程派生的子进程登记进 [`SPAWNED_CHILDREN`]。
+fn register_spawned_child(pid: u32, program: &str) {
+    let image_name = expected_image_name(program);
+    match SPAWNED_CHILDREN.lock() {
+        Ok(mut guard) => {
+            guard.retain(|c| c.pid != pid);
+            guard.push(SpawnedChild { pid, image_name });
+            if guard.len() > MAX_TRACKED_CHILDREN {
+                let overflow = guard.len() - MAX_TRACKED_CHILDREN;
+                guard.drain(..overflow);
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Watchdog: 子进程登记表加锁失败，PID={pid} 未登记: {e}");
+        }
+    }
+}
+
+/// 是否允许终止该登记表项：排除自身进程，且映像名在白名单内。
+#[must_use]
+fn is_terminable_child(child: &SpawnedChild) -> bool {
+    // 自身进程必须排除：本函数被 panic hook 调用，而 panic 可能发生在任何线程；
+    // 若登记表因任何原因混入自身 PID，终止自己会把整个进程带走。
+    child.pid != std::process::id() && is_terminable_image_name(&child.image_name)
+}
+
+#[must_use]
+fn is_terminable_image_name(name: &str) -> bool {
+    STALE_PROCESS_NAMES.contains(&name) || PORTABLE_IMAGE_NAMES.contains(&name)
+}
+
+/// 读取进程句柄对应的映像文件名（小写，不含目录）。
+fn process_image_file_name(handle: HANDLE) -> Option<String> {
+    // SAFETY: `buf` 是本函数栈上的可写缓冲区，`size` 初值等于其容量；
+    // `QueryFullProcessImageNameW` 只写入 `buf` 并把实际长度回填进 `size`，
+    // 之后按 `size` 切片，不会越界读。
+    unsafe {
+        const BUF_LEN: usize = 1024;
+        let mut buf = [0u16; BUF_LEN];
+        // 不写 `BUF_LEN as u32`（`clippy::cast_possible_truncation`）；下方按 `size`
+        // 切片时还会再 `min(BUF_LEN)` 夹一次，因此这里的兜底值不会造成越界。
+        let mut size: u32 = u32::try_from(BUF_LEN).unwrap_or(u32::MAX);
+        let ok = QueryFullProcessImageNameW(
+            handle,
+            PROCESS_NAME_WIN32,
+            windows::core::PWSTR(buf.as_mut_ptr()),
+            &raw mut size,
+        );
+        if ok.is_err() {
+            return None;
+        }
+        let len = usize::try_from(size).unwrap_or(BUF_LEN).min(BUF_LEN);
+        let full = String::from_utf16_lossy(&buf[..len]);
+        std::path::Path::new(&full)
+            .file_name()
+            .map(|f| f.to_string_lossy().to_lowercase())
+    }
+}
+
+/// 终止登记表里的单个子进程，返回是否真的执行了终止。
+///
+/// 不终止的三种情况：PID 是自身、映像名不在白名单、进程已退出或映像名与
+/// 登记表不符（PID 被系统复用）。**任何**不终止的情况都会让该项从登记表里
+/// 移除，避免登记表无界增长。
+fn terminate_spawned_child(child: &SpawnedChild) -> bool {
+    if !is_terminable_child(child) {
+        return false;
+    }
+    // SAFETY: 三个调用都是同步内核调用；句柄在本函数内开、闭，不逃逸，
+    // 且句柄值来自本次 `OpenProcess` 的返回值，非伪造。
+    unsafe {
+        let Ok(handle) = OpenProcess(
+            PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
+            false,
+            child.pid,
+        ) else {
+            return false; // 进程已退出或不可访问 —— 视为无需清理
+        };
+
+        let terminated = match process_image_file_name(handle) {
+            Some(actual) if actual == child.image_name => match TerminateProcess(handle, 1) {
+                Ok(()) => true,
+                Err(e) => {
+                    tracing::warn!("Watchdog: 终止 PID={} 失败: {e}", child.pid);
+                    false
+                }
+            },
+            Some(actual) => {
+                tracing::warn!(
+                    "Watchdog: PID={} 的映像名是 `{actual}`，与登记的 `{}` 不符 \
+                     （PID 可能已被系统复用），跳过终止",
+                    child.pid,
+                    child.image_name
+                );
+                false
+            }
+            None => false,
+        };
+        let _ = CloseHandle(handle);
+        terminated
+    }
+}
+
+/// 清理本进程此前派生、但已不再被跟踪的 AHK 子进程。
 ///
 /// 在启动新子进程前调用，防止 `JobObject` 失败导致的僵尸进程堆积。
-/// 使用 `taskkill /F /IM` 按映像名终止，主进程（asd-tauri.exe）不受影响。
-/// 如果没有遗留进程，taskkill 返回非零退出码，此时静默忽略。
+/// 只终止 [`SPAWNED_CHILDREN`] 里登记的、映像名复核通过的 PID，
+/// **不会**触及其它实例或用户手工启动的同名进程。
 ///
 /// # I36 补偿机制
 ///
 /// 当 `JobObject` 创建或分配失败时，子进程不会随主进程退出而自动终止。
-/// 此函数作为补偿，在每次 `spawn_child` 前清理可能遗留的项目专用执行器进程。
+/// 此函数作为补偿，在每次 `spawn_child` 前清理本进程留下的执行器进程。
 ///
-/// # R1 安全约束
+/// # 遗留
 ///
-/// `STALE_PROCESS_NAMES` 只包含项目专用的 `asd_executor.exe`，绝不包含
-/// `AutoHotkey64.exe` 等通用进程名，避免误杀用户其他 AHK 脚本。
+/// 便携模式走 `.bat` 时，真正跑脚本的 `AutoHotkey64.exe` 是 `cmd.exe` 的
+/// **孙进程**，我们拿不到它的 PID，因此登记表只覆盖直接子进程。该场景仍依赖
+/// `JobObject`（若分配成功则孙进程一并纳入）。要彻底覆盖需改用
+/// `QueryInformationJobObject` 枚举作业内进程 —— 改动面较大，暂不实施。
 pub fn cleanup_stale_executor_processes() {
-    let mut killed_count = 0u32;
-    for name in STALE_PROCESS_NAMES {
-        // taskkill /F /IM <name> 强制按映像名终止
-        // 退出码 0 = 成功终止，128 = 进程未找到（预期情况）
-        let output = Command::new("taskkill")
-            .args(["/F", "/IM", name])
-            .creation_flags(CREATE_NO_WINDOW.0)
-            .output();
+    let tracked: Vec<SpawnedChild> = match SPAWNED_CHILDREN.lock() {
+        // 一次性取空：无论终止成功与否都不再保留，避免登记表无界增长。
+        Ok(mut guard) => std::mem::take(&mut *guard),
+        Err(e) => {
+            tracing::warn!("Watchdog: 子进程登记表加锁失败，跳过本次清理: {e}");
+            return;
+        }
+    };
 
-        match output {
-            Ok(out) if out.status.success() => {
-                tracing::info!("已清理遗留进程: {name}");
-                killed_count += 1;
-            }
-            Ok(_) => {
-                // 进程未找到或已退出，属于正常情况
-                tracing::debug!("无遗留 {name} 进程需要清理");
-            }
-            Err(e) => {
-                tracing::warn!("清理遗留进程 {name} 失败: {e}");
-            }
+    let mut killed_count = 0u32;
+    for child in &tracked {
+        if terminate_spawned_child(child) {
+            killed_count += 1;
         }
     }
 
     if killed_count > 0 {
-        tracing::info!("共清理 {killed_count} 个遗留子进程");
+        tracing::info!("Watchdog: 已按 PID 清理 {killed_count} 个本进程派生的遗留子进程");
     }
 }
 
@@ -1046,7 +1272,7 @@ impl WatchdogRunner {
 
     /// 在 `spawn_blocking` 阻塞线程中执行子进程重启（T5-04）。
     ///
-    /// `spawn_child` 内部会调用 `cleanup_stale_executor_processes`（同步 `taskkill`）
+    /// `spawn_child` 内部会调用 `cleanup_stale_executor_processes`（同步进程终止）
     /// 与 `std::process::Command::spawn`（同步 `CreateProcess`），均为阻塞系统调用。
     /// 若在 async 循环中持锁执行会阻塞异步运行时工作线程，故迁入 `spawn_blocking`。
     /// 在阻塞线程内使用 `blocking_lock` 获取 tokio 互斥锁（非异步上下文，安全）。
@@ -1519,6 +1745,147 @@ mod tests {
         assert!(
             STALE_PROCESS_NAMES.contains(&"asd_executor.exe"),
             "STALE_PROCESS_NAMES 必须包含项目专用执行器 asd_executor.exe"
+        );
+    }
+
+    // =================================================================
+    // 发现 #5：清理作用域必须是「本进程派生的 PID」，不是「全系统同名进程」
+    // =================================================================
+
+    /// 临时目录里造一个名为 `asd_executor.exe` 的常驻进程（`cmd.exe` 的副本），
+    /// 用于验证清理逻辑的**作用域**。返回 `(子进程, 待清理目录)`。
+    fn spawn_fake_executor(tag: &str) -> Option<(Child, std::path::PathBuf)> {
+        let dir = std::env::temp_dir().join(format!("asd_wd_test_{}_{}", std::process::id(), tag));
+        let _ = std::fs::create_dir_all(&dir);
+        let exe = dir.join("asd_executor.exe");
+        let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+        std::fs::copy(
+            std::path::Path::new(&system_root)
+                .join("System32")
+                .join("cmd.exe"),
+            &exe,
+        )
+        .ok()?;
+        let child = Command::new(&exe)
+            .args(["/D", "/S", "/C", "ping -n 30 127.0.0.1 >nul"])
+            .creation_flags(CREATE_NO_WINDOW.0)
+            .spawn()
+            .ok()?;
+        Some((child, dir))
+    }
+
+    /// 阳性对照（核心）：**未由本进程派生**的同名进程必须存活。
+    ///
+    /// 旧实现按映像名 `taskkill` 会把它杀掉（实测：另起两个与本进程无关的同名
+    /// 进程，`taskkill /F /IM asd_executor.exe` 把两者全部终止）。新实现只按
+    /// PID 清理登记表内的进程，因此本用例中的进程**必须**存活。
+    #[test]
+    fn test_cleanup_does_not_kill_unregistered_same_name_process() {
+        let Some((mut child, dir)) = spawn_fake_executor("unregistered") else {
+            eprintln!("跳过：无法创建同名测试进程（环境限制），不视为通过");
+            return;
+        };
+        cleanup_stale_executor_processes();
+        let still_running = child.try_wait().ok().flatten().is_none();
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            still_running,
+            "未登记的同名进程必须存活 —— 按映像名全局 taskkill 正是本次要修掉的缺陷"
+        );
+    }
+
+    /// 反向对照：登记过的子进程必须被终止（证明清理能力本身没有失效）。
+    ///
+    /// 直接调 `terminate_spawned_child` 而非 `cleanup_stale_executor_processes`，
+    /// 以避开全局登记表在并行测试间的相互干扰。
+    #[test]
+    fn test_terminate_registered_child_kills_it() {
+        let Some((mut child, dir)) = spawn_fake_executor("registered") else {
+            eprintln!("跳过：无法创建同名测试进程（环境限制），不视为通过");
+            return;
+        };
+        let tracked = SpawnedChild {
+            pid: child.id(),
+            image_name: expected_image_name(&dir.join("asd_executor.exe").to_string_lossy()),
+        };
+        let terminated = terminate_spawned_child(&tracked);
+        let mut exited = false;
+        for _ in 0..20 {
+            if child.try_wait().ok().flatten().is_some() {
+                exited = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(terminated, "登记过的子进程应被判定为可终止");
+        assert!(
+            exited,
+            "登记过的子进程必须真的被终止（清理能力失效的反向对照）"
+        );
+    }
+
+    /// 自身 PID 绝不可进入终止范围：`cleanup_stale_executor_processes` 会被 panic
+    /// hook 在任意线程调用，误杀自身等于把整个进程带走。
+    #[test]
+    fn test_is_terminable_child_excludes_self_pid() {
+        let me = SpawnedChild {
+            pid: std::process::id(),
+            image_name: "asd_executor.exe".to_string(),
+        };
+        assert!(!is_terminable_child(&me), "自身 PID 必须被排除");
+        let other = SpawnedChild {
+            pid: std::process::id() + 1,
+            image_name: "asd_executor.exe".to_string(),
+        };
+        assert!(is_terminable_child(&other), "他进程 PID 应可终止");
+        let unknown = SpawnedChild {
+            pid: std::process::id() + 1,
+            image_name: "notepad.exe".to_string(),
+        };
+        assert!(!is_terminable_child(&unknown), "白名单外的映像名不得终止");
+    }
+
+    /// 清理后登记表必须清空（防止无界增长）。
+    #[test]
+    fn test_cleanup_drains_registry() {
+        register_spawned_child(u32::MAX - 1, "asd_executor.exe");
+        cleanup_stale_executor_processes();
+        let len = SPAWNED_CHILDREN.lock().map_or(usize::MAX, |g| g.len());
+        assert_eq!(len, 0, "清理后登记表必须为空");
+    }
+
+    /// `expected_image_name`：编译模式 / 便携模式 / `cmd` 三种形态。
+    #[test]
+    fn test_expected_image_name_variants() {
+        assert_eq!(expected_image_name("cmd"), "cmd.exe");
+        assert_eq!(
+            expected_image_name("C:\\res\\asd_executor.exe"),
+            "asd_executor.exe"
+        );
+        assert_eq!(
+            expected_image_name("C:\\res\\AutoHotkey64.exe"),
+            "autohotkey64.exe"
+        );
+    }
+
+    /// 静态守护：本文件不得再出现按映像名的 `taskkill`（发现 #5 的回归防护）。
+    ///
+    /// 与 `STALE_PROCESS_NAMES` 的两条测试互补：那两条只约束**常量内容**，
+    /// 这条直接约束**调用方式** —— 即使有人绕开常量手写参数也会红。
+    #[test]
+    fn test_no_image_name_based_taskkill_in_source() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/infrastructure/watchdog.rs");
+        let src = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("无法读取 {}: {e}", path.display()));
+        assert!(
+            !src.contains("\"/IM\""),
+            "清理子进程不得使用按映像名的 taskkill（全系统杀伤），发现 #5 的回归"
         );
     }
 

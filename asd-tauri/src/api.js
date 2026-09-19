@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { getVersion } from '@tauri-apps/api/app';
+import { appDataDir } from '@tauri-apps/api/path';
 
 export async function getGroups() {
   return invoke('get_groups');
@@ -162,4 +164,23 @@ export function onKeyRecordEvent(callback) {
 
 export function onKeySendEvent(callback) {
   return listen('key_send_event', (event) => callback(event.payload));
+}
+
+// IPC 监听端创建失败（管道名被占用等）—— 此时 AHK 永远连不上，必须让用户看见。
+export function onIpcListenerFailed(callback) {
+  return listen('ipc:listener-failed', (event) => callback(event.payload));
+}
+
+// ── 诊断信息（TD-076：运行时遥测缺位的低成本先行项）───────────────────────
+// 这两个都不走自定义 command，直接用 Tauri 内置能力，因此**不需要新增 Rust 命令**：
+//   getVersion()  -> plugin:app|version            （权限 core:app:allow-version）
+//   appDataDir()  -> plugin:path|resolve_directory （权限 core:path:allow-resolve-directory）
+// 二者都已被 capabilities/default.json 里的 `core:default` 覆盖，无需改 capabilities。
+// 日志落点与 Rust 侧 logging.rs 一致：app_data_dir 下的 asd.YYYY-MM-DD.log（保留 7 份）。
+export async function getAppVersion() {
+  return getVersion();
+}
+
+export async function getLogDirPath() {
+  return appDataDir();
 }

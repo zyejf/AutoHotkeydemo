@@ -1879,21 +1879,166 @@ def diff_set(baseline: list[str] | None, current: list[str]):
 # ---------------------------------------------------------------- main
 
 
+# ---------------------------------------------------------------- C14 安全红线静态契约
+# 2026-09-19 全面工程审查（`deliverables/engineering-assurance/code-review-full-system-2026-09-19.md`）
+# 发现：5 条硬红线里**只有 2 条**有机器守护（清理名单单测 watchdog.rs:1508 / C4 空占位目录），
+# 另外 3 条只写在 `AGENTS.md` 与代码注释里 —— **注释不会在有人改反时变红**。
+#
+# 本检把其中**判据 crisp、静态扫描能可靠判定**的两条升级为机器守护：
+#   R3  WebView2 的 AHK↔JS 通信禁 sync 代理（`AddHostObjectToScript` / 同步 proxy），
+#       必须 postMessage —— 同步代理会把 AHK 主线程与 WebView 绑死，直接死锁。
+#   R5  纯逻辑 crate（asd-domain / asd-ipc-protocol / asd-application）禁引入
+#       tauri / tokio / interprocess / windows —— 直接依赖（Cargo.toml 文本扫描）
+#       与**传递闭包**（`cargo tree`）两层都查。
+#
+# ⚠️ 刻意**不纳入**红线 4（全局锁顺序 ipc_manager → watchdog）：
+#   锁顺序是跨函数、跨 await 点的**动态**性质，正则扫不出可靠结论；写一条弱正则会造出
+#   **「假守护」**（看着在守，实则大量漏报与误报），比不守更危险 —— 这与本项目
+#   2026-09-19 一天三次把「其实已有守护」误判为「没有守护」是同一类陷阱。
+#   红线 4 改由人工评审 + 登记技术债，待有可靠手段（如 lock-order 运行时探针）再落地。
+#
+# 与 C3–C13 的其它硬失败项同类：**硬失败、不做棘轮** —— 守的是规则不是存量债。
+
+C14_WV2_MANAGER = "presentation/webview2_manager.ahk"
+C14_WV2_FORBIDDEN = ("AddHostObjectToScript",)
+# ⚠️ 名单必须覆盖 AGENTS.md:245 与 AGENTS.md:1393 的**全部三个**纯逻辑 crate。
+# 2026-09-19 第二轮修复：原名单只有 asd-domain / asd-ipc-protocol，**漏了
+# asd-application** —— 阳性对照实测：往 `asd-application/Cargo.toml` 注入 `tokio = "1"`
+# 时 C14 **照常 PASS**（放行），而同样注入 asd-domain 会 FAIL。即红线 5 有 1/3 面裸奔。
+C14_PURE_CRATES = ("asd-domain", "asd-ipc-protocol", "asd-application")
+C14_FORBIDDEN_DEPS = ("tauri", "tokio", "interprocess", "windows")
+C14_DEP_SECTIONS = ("[dependencies]", "[dev-dependencies]", "[build-dependencies]")
+C14_CARGO_TREE_TIMEOUT = 180
+
+
+def check_c14(repo_root: Path) -> dict:
+    """C14 安全红线静态契约（2026-09-19 新增）。
+
+    判据（打击面刻意收窄，宁可漏报也不误报）：
+      R3 只扫 `presentation/webview2_manager.ahk` 的**生产**代码；注释行（`;` 开头）跳过。
+         归档测试与第三方 lib（`lib/ahk2_lib/`）中的同类调用不查 —— 它们不是生产路径。
+      R5 分两层：① 直接依赖 —— 只扫三个纯逻辑 crate 的 Cargo.toml，且只在依赖分区
+         （`[dependencies]` / `[dev-dependencies]` / `[build-dependencies]`）内匹配
+         `^<name>\\s*=`，避免把 `windows-sys = ...` 误判成 `windows`（`-` 不是 `=`，匹配不上）；
+         ② 传递闭包 —— `cargo tree -p <crate>` 的精确包名集合。
+      Cargo.toml / webview2_manager.ahk 不存在 → **按失败处理**，不静默放过（与 C8/C11/C12 同口径）。
+    """
+    findings: list[str] = []
+    checked = 0
+
+    # ---- R3：WebView2 禁 sync 代理 ----
+    wv2 = repo_root / C14_WV2_MANAGER
+    if not wv2.exists():
+        findings.append(f"`{C14_WV2_MANAGER}` 不存在（C14 R3 无法校验，按失败处理）")
+    else:
+        checked += 1
+        try:
+            text = read_text(wv2)
+        except Exception as e:
+            findings.append(f"`{C14_WV2_MANAGER}` 读取失败：{e}（C14 R3 无法校验，按失败处理）")
+            text = ""
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if line.lstrip().startswith(";"):
+                continue
+            for bad in C14_WV2_FORBIDDEN:
+                if bad in line:
+                    findings.append(
+                        f"`{C14_WV2_MANAGER}:{lineno}` 出现 `{bad}` —— "
+                        f"AHK↔JS 通信**禁止 sync 代理**：同步调用会把 AHK 主线程与 WebView 绑死导致死锁，"
+                        f"必须改用 `PostWebMessageAsJson` + `add_WebMessageReceived`（安全红线 3）。"
+                    )
+
+    # ---- R5：纯逻辑 crate 禁依赖 ----
+    for crate in C14_PURE_CRATES:
+        cargo = repo_root / "asd-tauri" / "crates" / crate / "Cargo.toml"
+        rel_cargo = f"asd-tauri/crates/{crate}/Cargo.toml"
+        if not cargo.exists():
+            findings.append(f"`{rel_cargo}` 不存在（C14 R5 无法校验，按失败处理）")
+            continue
+        checked += 1
+        try:
+            text = read_text(cargo)
+        except Exception as e:
+            findings.append(f"`{rel_cargo}` 读取失败：{e}（C14 R5 无法校验，按失败处理）")
+            continue
+        section = None
+        for lineno, line in enumerate(text.splitlines(), 1):
+            s = line.strip()
+            if s.startswith("[") and s.endswith("]"):
+                section = s
+                continue
+            if section not in C14_DEP_SECTIONS:
+                continue
+            for bad in C14_FORBIDDEN_DEPS:
+                if re.match(rf"^{re.escape(bad)}\s*=", s):
+                    findings.append(
+                        f"`{rel_cargo}:{lineno}` 在 `{section}` 引入禁依赖 `{bad}` —— "
+                        f"纯逻辑 crate **禁止**依赖 tauri / tokio / interprocess / windows："
+                        f"一旦引入就把领域逻辑钉死在 Tauri 运行时与 Windows 平台上，"
+                        f"`cargo test` 也将无法在纯逻辑层独立跑（安全红线 5）。"
+                    )
+
+    # ---- R5b：传递闭包（`cargo tree`）----
+    # 为什么还要这一层：上面只扫**直接**依赖。红线 5 的权威口径（AGENTS.md:1393 与
+    # 本次审查的核实方式）是「**引入**以下依赖」—— 经中间 crate 间接引入同样会把领域
+    # 逻辑钉死在 Tauri 运行时 / Windows 上。阳性对照实测：往 `asd-domain` 注入
+    # `hyper = "1"`（hyper **不在**禁名单、但传递依赖 tokio），上面的文本扫描 **PASS 放行**，
+    # 加上下面的 `cargo tree` 才变红。
+    # ⚠️ 用**精确包名**比对（`{p}` 的第一个 token），不能子串匹配：
+    #   `asd-application` 的 dev 链里有 `windows-sys` / `windows-link`（tempfile → …），
+    #   子串匹配会把它们误判成禁依赖 `windows` —— 那是本项目已三次踩过的「假守护」陷阱。
+    for crate in C14_PURE_CRATES:
+        checked += 1
+        proc = subprocess.run(
+            ["cargo", "tree", "-p", crate, "-e", "normal,build,dev",
+             "--prefix", "none", "--format", "{p}"],
+            cwd=str(repo_root / "asd-tauri"),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=C14_CARGO_TREE_TIMEOUT,
+        )
+        if proc.returncode != 0:
+            findings.append(
+                f"`cargo tree -p {crate}` 执行失败（退出码 {proc.returncode}）—— "
+                f"C14 R5b 无法校验传递闭包，按失败处理（不静默放过）。"
+                f"输出尾部：{(proc.stderr or proc.stdout).strip()[-300:]}"
+            )
+            continue
+        names: set[str] = set()
+        for line in proc.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            names.add(line.split()[0])
+        for bad in C14_FORBIDDEN_DEPS:
+            if bad in names:
+                findings.append(
+                    f"`cargo tree -p {crate}` 的**传递闭包**含禁依赖 `{bad}` —— "
+                    f"纯逻辑 crate 禁止（含间接）引入 tauri / tokio / interprocess / windows："
+                    f"即使不是直接依赖，也会把领域逻辑钉死在 Tauri 运行时与 Windows 平台上，"
+                    f"`cargo test` 无法在纯逻辑层独立跑（安全红线 5）。"
+                )
+
+    return {"findings": findings, "checked": checked}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="技术债度量检查（C1–C13：C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写基线数字 / "
+        description="技术债度量检查（C1–C14：C1 孤儿 / C2 未接入 / C3 文档漂移 / C3b 硬写基线数字 / "
                     "C4 占位目录守卫 / C5 冗余 lock / C6 vendored 引擎纯净性 / C7 布尔契约同步 / "
-                    "C8 IPC 契约 / C9 评分自洽 / C10 门禁档位 / C11 打包资源 / C12 调试端口 / C13 台账结构自洽）"
+                    "C8 IPC 契约 / C9 评分自洽 / C10 门禁档位 / C11 打包资源 / C12 调试端口 / C13 台账结构自洽 / C14 安全红线静态契约）"
     )
     ap.add_argument("--update-baseline", action="store_true", help="把当前结果冻结为新基线")
     ap.add_argument("--show", action="store_true", help="只打印当前结果，不与基线比对")
-    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12", "c13"], help="只跑某一检")
+    ap.add_argument("--only", choices=["c1", "c2", "c3", "c3b", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12", "c13", "c14"], help="只跑某一检")
     args = ap.parse_args()
 
     print("=" * 60)
-    print("技术债度量检查（C1–C13：C1 孤儿文件 / C2 测试未接入 / C3 文档漂移 / C3b 硬写基线数字 / "
+    print("技术债度量检查（C1–C14：C1 孤儿文件 / C2 测试未接入 / C3 文档漂移 / C3b 硬写基线数字 / "
           "C4 占位目录守卫 / C5 冗余 lock / C6 vendored 引擎纯净性 / C7 布尔契约同步 / "
-          "C8 IPC 契约 / C9 评分自洽 / C10 门禁档位 / C11 打包资源 / C12 调试端口 / C13 台账结构自洽）")
+          "C8 IPC 契约 / C9 评分自洽 / C10 门禁档位 / C11 打包资源 / C12 调试端口 / C13 台账结构自洽 / C14 安全红线静态契约）")
     print("=" * 60)
 
     cur = {
@@ -1911,13 +2056,14 @@ def main() -> int:
         "c11": check_c11(REPO_ROOT),
         "c12": check_c12(REPO_ROOT),
         "c13": check_c13(REPO_ROOT),
+        "c14": check_c14(REPO_ROOT),
     }
 
     if args.update_baseline:
         save_baseline(cur)
         return 0
 
-    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12", "c13"}
+    want = {args.only} if args.only else {"c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12", "c13", "c14"}
 
     # ---------- C3：硬失败，不做棘轮 ----------
     c3_errors = list(cur["c3"]["findings"])
@@ -2144,6 +2290,26 @@ def main() -> int:
     if "c13" in want and c13_findings:
         errors.append(
             f"技术债台账结构不自洽 {len(c13_findings)} 处（统计行/状态词/到期日/档位格）（C13）"
+        )
+
+    # ---------- C14：硬失败，安全红线静态契约 ----------
+    c14_findings = list(cur["c14"]["findings"])
+    if "c14" in want:
+        print(f"\n[C14] 安全红线静态契约（R3 WebView2 禁 sync 代理 / R5 纯逻辑 crate 禁依赖）："
+              f"核对 {cur['c14']['checked']} 个")
+        if c14_findings:
+            for f in c14_findings[:20]:
+                print(f"       - {f}")
+            if len(c14_findings) > 20:
+                print(f"       … 另有 {len(c14_findings) - 20} 处")
+        else:
+            print("       通过：无 sync 代理、3 个纯逻辑 crate 的直接依赖与传递闭包均无禁依赖"
+                  "（红线 4 锁顺序为动态性质，静态不可靠判定，不在此检 —— 见函数注释）")
+
+    if "c14" in want and c14_findings:
+        errors.append(
+            f"安全红线静态契约被破坏 {len(c14_findings)} 处"
+            f"（C14：WebView2 sync 代理 / 纯逻辑 crate 禁依赖）"
         )
 
     if errors:

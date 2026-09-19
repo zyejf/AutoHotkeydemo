@@ -36,6 +36,10 @@
           <div class="nav-item" data-page="keytest">
             <span class="icon">🧪</span> 按键测试
           </div>
+          <div class="nav-divider"></div>
+          <div class="nav-item" data-page="diagnostics">
+            <span class="icon">🩺</span> 诊断信息
+          </div>
         </div>
         <div class="nav-footer">
           <div class="nav-status">
@@ -138,7 +142,7 @@
             <div id="holdSection" style="display:none;margin-top:12px;">
               <div class="section-label">长按键 <span class="enhance-badge">增强模式专属</span></div>
               <div class="form-row"><span class="form-label">长按键</span><div class="form-field" id="holdKeysContainer"></div></div>
-              <div class="form-row"><span class="form-label">长按模式</span><div class="form-field"><select class="input" id="holdModeSelect" style="width:160px;" onchange="pushUndoState();editorConfig.holdMode=this.value;renderHoldDetail();updatePreview();">
+              <div class="form-row"><span class="form-label">长按模式</span><div class="form-field"><select class="input" id="holdModeSelect" style="width:160px;">
                 <option value="continuous">持续按住</option>
                 <option value="periodic">周期按压</option>
                 <option value="sequence">序列触发</option>
@@ -337,6 +341,29 @@
             </div>
           </div>
 
+          <div class="page" id="page-diagnostics">
+            <div class="section-label">诊断信息</div>
+            <div class="card">
+              <div class="form-row">
+                <span class="form-label">应用版本</span>
+                <div class="form-field"><span id="diagVersion">读取中…</span></div>
+              </div>
+              <div class="form-row">
+                <span class="form-label">日志目录</span>
+                <div class="form-field"><span id="diagLogDir" style="word-break:break-all;font-family:'Cascadia Code','Consolas',monospace;font-size:11px;color:var(--text-secondary);">读取中…</span></div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                <button class="btn btn-primary btn-sm" data-action="copyDiagnostics">📋 一键复制诊断信息</button>
+                <button class="btn btn-ghost btn-sm" data-action="refreshDiagnostics">🔄 刷新</button>
+              </div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:8px;">
+                复制内容包含应用版本、日志目录与当前时间，可直接粘贴到问题反馈中。日志文件位于上述目录，文件名形如 asd.YYYY-MM-DD.log（按天轮转，保留最近 7 份）。
+              </div>
+              <div id="diagFallbackHint" style="display:none;font-size:11px;color:var(--warning);margin-top:8px;">自动复制失败（剪贴板不可用），请手动全选下方内容并按 Ctrl+C 复制。</div>
+              <textarea id="diagFallbackText" class="input" readonly style="display:none;width:100%;height:120px;margin-top:6px;font-family:'Cascadia Code','Consolas',monospace;font-size:11px;resize:vertical;"></textarea>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
@@ -344,7 +371,7 @@
     <div class="overlay" id="keyPickerOverlay">
       <div class="picker-panel glass">
         <div class="picker-header"><span class="picker-title">选择按键</span><button class="picker-close" data-action="closeKeyPicker">×</button></div>
-        <div style="margin-bottom:10px;"><input class="input" id="keySearch" placeholder="搜索按键..." oninput="filterKeys()"></div>
+        <div style="margin-bottom:10px;"><input class="input" id="keySearch" placeholder="搜索按键..."></div>
         <div class="picker-grid" id="keyGrid"></div>
       </div>
     </div>

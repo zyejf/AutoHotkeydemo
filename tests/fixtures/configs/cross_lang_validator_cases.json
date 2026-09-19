@@ -1,0 +1,166 @@
+{
+  "schema": "asd-cross-lang-validator-cases/1",
+  "purpose": "跨语言校验对拍装置（TD-067）的样本集。同一份 config 分别喂给 Rust asd-domain::ConfigValidator::validate_config 与 AHK infrastructure/ConfigValidator.Validate，比对「是否判定为非法（存在 ERROR）」。",
+  "min_cases": 17,
+  "min_cases_policy": "棘轮基线（历史最高用例条数），由 cross_lang_validator_parity.rs::fixture_self_check 读取并与 cases 数组实际条数比对，只增不减。新增用例 → 把本值上调到新的条数；删除用例 → 必须同步下调本值并在 commit message 写明删除理由（本装置的显式出口，对应 G3f 的 --allow-scope-shrink）。缺字段会被判为守护失效而直接失败。",
+  "how_to_regenerate_ahk_column": "运行 tools/ahk-probes/p_cross_lang_validator.ahk（AutoHotkey v2），它按本文件逐例输出 `id<TAB>errors<TAB>warnings`；把 errors>0 换算成 ahk_has_error 写回本文件。",
+  "cases": [
+    {
+      "id": "c01_valid_periodic",
+      "desc": "合法 periodic：2 键 2 间隔，控制热键齐全",
+      "config": {
+        "CONTROL_HOTKEYS": { "emergency": "^!F12", "releaseAllHolds": "^!F11", "showStatus": "^!F10", "toggleAll": "^!F9", "toggleHoldMode": "^!F8" },
+        "GroupSettings": { "1": { "hotkey": "F1", "mode": "periodic", "keys": ["1", "2"], "intervals": [50, 60] } }
+      },
+      "expect": { "rust_has_error": false, "ahk_has_error": false }
+    },
+    {
+      "id": "c02_empty_hotkey",
+      "desc": "热键为空串 —— 两侧都是「空热键非法」",
+      "config": {
+        "CONTROL_HOTKEYS": { "emergency": "^!F12", "releaseAllHolds": "^!F11", "showStatus": "^!F10", "toggleAll": "^!F9", "toggleHoldMode": "^!F8" },
+        "GroupSettings": { "1": { "hotkey": "", "mode": "periodic", "keys": ["1"], "intervals": [50] } }
+      },
+      "expect": { "rust_has_error": true, "ahk_has_error": true }
+    },
+    {
+      "id": "c03_unknown_mode",
+      "desc": "未知模式 quantum —— 两侧都判非法（文案不同，但结论一致）",
+      "config": {
+        "CONTROL_HOTKEYS": { "emergency": "^!F12", "releaseAllHolds": "^!F11", "showStatus": "^!F10", "toggleAll": "^!F9", "toggleHoldMode": "^!F8" },
+        "GroupSettings": { "1": { "hotkey": "F1", "mode": "quantum", "keys": ["1"], "intervals": [50] } }
+      },
+      "expect": { "rust_has_error": true, "ahk_has_error": true }
+    },
+    {
+      "id": "c04_empty_keys_periodic",
+      "desc": "periodic 按键数组为空 —— 两侧都判非法",
+      "config": {
+        "CONTROL_HOTKEYS": { "emergency": "^!F12", "releaseAllHolds": "^!F11", "showStatus": "^!F10", "toggleAll": "^!F9", "toggleHoldMode": "^!F8" },
+        "GroupSettings": { "1": { "hotkey": "F1", "mode": "periodic", "keys": [], "intervals": [50] } }
+      },
+      "expect": { "rust_has_error": true, "ahk_has_error": true }
+    },
+    {
+      "id": "c05_zero_interval",
+      "desc": "intervals 含 0 —— 两侧都判非法（Rust 有「不能为 0」，AHK 有「最小 10ms」，理由不同结论同）",
+      "config": {
+        "CONTROL_HOTKEYS": { "emergency": "^!F12", "releaseAllHolds": "^!F11", "showStatus": "^!F10", "toggleAll": "^!F9", "toggleHoldMode": "^!F8" },
+        "GroupSettings": { "1": { "hotkey": "F1", "mode": "periodic", "keys": ["1"], "intervals": [0] } }
+      },
+      "expect": { "rust_has_error": true, "ahk_has_error": true }
+    },
+    {
+      "id": "c06_hybrid_valid",
+      "desc": "合法 hybrid：1 个 periodic 子组",
+      "config": {
+        "CONTROL_HOTKEYS": { "emergency": "^!F12", "releaseAllHolds": "^!F11", "showStatus": "^!F10", "toggleAll": "^!F9", "toggleHoldMode": "^!F8" },
+        "GroupSettings": { "1": { "hotkey": "F1", "mode": "hybrid", "groups": [ { "type": "periodic", "pressKeys": ["1"], "intervals": [50] } ] } }
+      },
+      "expect": { "rust_has_error": false, "ahk_has_error": false }
+    },
+    {
+      "id": "c07_long_interval_warning_only",
+      "desc": "intervals=70000ms（70s，可疑但在 24h 硬上界内）—— 两侧都只告警不拦截",
+      "config": {
+        "CONTROL_HOTKEYS": { "emergency": "^!F12", "releaseAllHolds": "^!F11", "showStatus": "^!F10", "toggleAll": "^!F9", "toggleHoldMode": "^!F8" },
+        "GroupSettings": { "1": { "hotkey": "F1", "mode": "periodic", "keys": ["1"], "intervals": [70000] } }
+      },
+      "expect": { "rust_has_error": false, "ahk_has_error": false }
+    },
+    {
+      "id": "c08_keys_intervals_mismatch",
+      "desc": "按键 2 个 / 间隔 1 个 —— 两侧都只告警不拦截",
+      "config": {
+        "CONTROL_HOTKEYS": { "emergency": "^!F12", "releaseAllHolds": "^!F11", "showStatus": "^!F10", "toggleAll": "^!F9", "toggleHoldMode": "^!F8" },
+        "GroupSettings": { "1": { "hotkey": "F1", "mode": "periodic", "keys": ["1", "2"], "intervals": [50] } }
+      },
+      "expect": { "rust_has_error": false, "ahk_has_error": false }
+    },
+    {
+      "id": "c09_duplicate_hotkeys",
+      "desc": "【已知分歧】两个分组同热键 F1。Rust 在 validate() 内查重 → ERROR；AHK 的查重只在 ValidateGroupHotkeys 入口（Validate() 不调用）→ 无 ERROR",
+      "config": {
+        "CONTROL_HOTKEYS": { "emergency": "^!F12", "releaseAllHolds": "^!F11", "showStatus": "^!F10", "toggleAll": "^!F9", "toggleHoldMode": "^!F8" },
+        "GroupSettings": {
+          "1": { "hotkey": "F1", "mode": "periodic", "keys": ["1"], "intervals": [50] },
+          "2": { "hotkey": "F1", "mode": "periodic", "keys": ["2"], "intervals": [60] }
+        }
+      },
+      "expect": { "rust_has_error": true, "ahk_has_error": false }
+    },
+    {
+      "id": "c10_control_hotkey_empty",
+      "desc": "【已知分歧】控制热键 emergency 为空串。Rust 判 ERROR；AHK 判 WARNING（值为空）→ 无 ERROR",
+      "config": {
+        "CONTROL_HOTKEYS": { "emergency": "", "releaseAllHolds": "^!F11", "showStatus": "^!F10", "toggleAll": "^!F9", "toggleHoldMode": "^!F8" },
+        "GroupSettings": { "1": { "hotkey": "F1", "mode": "periodic", "keys": ["1"], "intervals": [50] } }
+      },
+      "expect": { "rust_has_error": true, "ahk_has_error": false }
+    },
+    {
+      "id": "c11_interval_below_10ms",
+      "desc": "【已知分歧】intervals 含 5ms。AHK 有「最小 10ms」硬规则 → ERROR；Rust 只禁 0 → 合法",
+      "config": {
+        "CONTROL_HOTKEYS": { "emergency": "^!F12", "releaseAllHolds": "^!F11", "showStatus": "^!F10", "toggleAll": "^!F9", "toggleHoldMode": "^!F8" },
+        "GroupSettings": { "1": { "hotkey": "F1", "mode": "periodic", "keys": ["1", "2"], "intervals": [50, 5] } }
+      },
+      "expect": { "rust_has_error": false, "ahk_has_error": true }
+    },
+    {
+      "id": "c12_interval_over_24h",
+      "desc": "【已知分歧】intervals=90000000ms（>24h 硬上界）。AHK → ERROR；Rust 无上界（只 WARNING）→ 合法",
+      "config": {
+        "CONTROL_HOTKEYS": { "emergency": "^!F12", "releaseAllHolds": "^!F11", "showStatus": "^!F10", "toggleAll": "^!F9", "toggleHoldMode": "^!F8" },
+        "GroupSettings": { "1": { "hotkey": "F1", "mode": "periodic", "keys": ["1"], "intervals": [90000000] } }
+      },
+      "expect": { "rust_has_error": false, "ahk_has_error": true }
+    },
+    {
+      "id": "c13_hotkey_volume_up",
+      "desc": "【已知分歧】热键 Volume_Up。Rust 白名单含下划线键名 → 合法；AHK 正则 [A-Z][a-zA-Z0-9]+ 不含下划线 → ERROR",
+      "config": {
+        "CONTROL_HOTKEYS": { "emergency": "^!F12", "releaseAllHolds": "^!F11", "showStatus": "^!F10", "toggleAll": "^!F9", "toggleHoldMode": "^!F8" },
+        "GroupSettings": { "1": { "hotkey": "Volume_Up", "mode": "periodic", "keys": ["1"], "intervals": [50] } }
+      },
+      "expect": { "rust_has_error": false, "ahk_has_error": true }
+    },
+    {
+      "id": "c14_hold_settings_checkinterval_5",
+      "desc": "【已知分歧】HoldSettings.checkInterval=5。AHK 要求 10-1000 → ERROR；Rust 只判 != 0 → 合法",
+      "config": {
+        "CONTROL_HOTKEYS": { "emergency": "^!F12", "releaseAllHolds": "^!F11", "showStatus": "^!F10", "toggleAll": "^!F9", "toggleHoldMode": "^!F8" },
+        "HoldSettings": { "allowOverlap": false, "checkInterval": 5, "debounceDelay": 50, "pressSpeed": 20, "releaseOnEmergency": true },
+        "GroupSettings": { "1": { "hotkey": "F1", "mode": "periodic", "keys": ["1"], "intervals": [50] } }
+      },
+      "expect": { "rust_has_error": false, "ahk_has_error": true }
+    },
+    {
+      "id": "c15_joystick_hold_short_duration",
+      "desc": "【已知分歧】joystick_hold 的 holdDuration=10ms。AHK 要求最小 50ms → ERROR；Rust 只 WARNING（未设置）→ 合法",
+      "config": {
+        "CONTROL_HOTKEYS": { "emergency": "^!F12", "releaseAllHolds": "^!F11", "showStatus": "^!F10", "toggleAll": "^!F9", "toggleHoldMode": "^!F8" },
+        "GroupSettings": { "1": { "hotkey": "F1", "mode": "joystick_hold", "joyKeys": ["Joy1"], "holdDuration": 10 } }
+      },
+      "expect": { "rust_has_error": false, "ahk_has_error": true }
+    },
+    {
+      "id": "c16_hold_zero_duration",
+      "desc": "hold 模式 holdDuration=0（语义：无限保持）—— 两侧都认可为合法",
+      "config": {
+        "CONTROL_HOTKEYS": { "emergency": "^!F12", "releaseAllHolds": "^!F11", "showStatus": "^!F10", "toggleAll": "^!F9", "toggleHoldMode": "^!F8" },
+        "GroupSettings": { "1": { "hotkey": "F1", "mode": "hold", "holdKeys": ["1"], "holdDuration": 0 } }
+      },
+      "expect": { "rust_has_error": false, "ahk_has_error": false }
+    },
+    {
+      "id": "c17_hotkey_len20_alnum_both_legal",
+      "desc": "20 字符热键（落在「16~255」带内，且全为字母数字、以 F1 开头）。实测结论：两侧都判合法，本带内不存在分歧。Rust 侧：长度阈值是 MAX_REASONABLE_HOTKEY_LEN=256，20 字符连长度规则都不触发（不是「只 WARNING」—— 256 以内没有任何长度相关输出），仅因不在 VALID_HOTKEY_KEYS 白名单出一条 WARNING → 无 ERROR。AHK 侧：主入口 Validate 走 _IsValidHotkeyFormat 正则 ^[!^+~*<>#]*([A-Z][a-zA-Z0-9]+|...)$，本串命中 [A-Z][a-zA-Z0-9]+ → 合法 → 无 ERROR。⚠️ AHK 的 StrLen(hotkey)>15 → ERROR 只存在于**另一个入口** ValidateGroupHotkeys（config_validator.ahk:82），本装置的 AHK 口径是 ConfigValidator.Validate（探针实跑口径），该规则在此不可达，故不构成分歧；本用例只固化「主入口口径下热键长度不分裂」这一事实。",
+      "config": {
+        "CONTROL_HOTKEYS": { "emergency": "^!F12", "releaseAllHolds": "^!F11", "showStatus": "^!F10", "toggleAll": "^!F9", "toggleHoldMode": "^!F8" },
+        "GroupSettings": { "1": { "hotkey": "F1xxxxxxxxxxxxxxxxxx", "mode": "periodic", "keys": ["1"], "intervals": [50] } }
+      },
+      "expect": { "rust_has_error": false, "ahk_has_error": false }
+    }
+  ]
+}

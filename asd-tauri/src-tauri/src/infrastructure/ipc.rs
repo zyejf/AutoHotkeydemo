@@ -28,12 +28,60 @@ const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 /// 会在超时前被清理，导致收到 `ChannelClosed` 而非 `Timeout` 错误。
 pub const PENDING_CLEANUP_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// IPC named pipe 名称（不含 `\\.\pipe\` 前缀），全项目唯一权威定义。
+/// IPC named pipe 的**基础名**（不含 `\\.\pipe\` 前缀，也不含每会话后缀）。
+///
+/// 只作为 [`ipc_pipe_name`] 的前缀与 AHK 侧的回退值使用；**不要**直接拿它去
+/// 建监听端，否则又回到「固定管道名」的老问题（见 [`ipc_pipe_name`]）。
 ///
 /// T5-12：从 `lib.rs` 收敛到此，避免 Rust 侧多处硬编码；AHK 执行器
-/// `ahk_executor/ipc_client.ahk` 中的 `PIPE_NAME := "\\.\pipe\asd_ipc"`
-/// 后缀必须与此一致，一致性由 `test_ipc_pipe_name_matches_ahk_client` 守护。
-pub const IPC_PIPE_NAME: &str = "asd_ipc";
+/// `ahk_executor/ipc_client.ahk` 的 `DEFAULT_PIPE_NAME` 后缀必须与此一致，
+/// 一致性由 `test_ipc_pipe_name_matches_ahk_client` 守护。
+pub const IPC_PIPE_NAME_BASE: &str = "asd_ipc";
+
+/// 把每会话唯一的管道名传给 AHK 子进程所用的环境变量名。
+///
+/// AHK 侧 `ipc_client.ahk` 用 `EnvGet` 读同名变量；两侧名称由
+/// `test_ipc_pipe_name_matches_ahk_client` 守护一致。
+pub const IPC_PIPE_NAME_ENV_VAR: &str = "ASD_IPC_PIPE_NAME";
+
+/// 本进程本次会话的管道名缓存（惰性生成一次，之后不再变）。
+static PIPE_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// 本进程本次会话使用的 IPC 管道名（不含 `\\.\pipe\` 前缀）。
+///
+/// # 为什么不再用固定名 `asd_ipc`
+///
+/// 固定名意味着**任何同权本地进程都可以抢先创建同名管道**（squatting）：
+/// Rust 侧 `create_listener` 会静默失败（只记一条 `error!` 就 return），
+/// IPC 永久不可用且用户无感知；更坏的情况是 AHK 连到冒充者，把
+/// `ASD_AUTH_TOKEN` 与全部按键指令交给对方。
+/// 加上 `<pid>_<随机>` 后缀后，抢注者必须**猜中**该名字 —— 而名字在每个
+/// 进程启动时才生成，抢注窗口收敛到「生成之后、建监听端之前」的极短区间，
+/// 且一旦撞名，`create_listener` 会返回错误（可被当作启动失败上报），
+/// 不再是静默降级。
+///
+/// # 遗留：未显式设置 DACL
+///
+/// `interprocess` 2.4.2 的 `ListenerOptions` 没有暴露安全描述符（DACL）设置
+/// 入口，要限定「仅当前用户可连接」得绕过该库直接调 `CreateNamedPipeW`。
+/// 当前缓解手段是随机名 + 认证 token（`ASD_AUTH_TOKEN`）：连上来的进程
+/// 仍必须在首条消息里回传正确 token 才被接受。DACL 收紧作为独立技术债，
+/// 需评估是否替换/包装 `interprocess` 的监听端创建。
+#[must_use]
+pub fn ipc_pipe_name() -> &'static str {
+    PIPE_NAME.get_or_init(|| {
+        let mut buf = [0u8; 4];
+        let rand = if getrandom::getrandom(&mut buf).is_ok() {
+            u32::from_ne_bytes(buf)
+        } else {
+            // 随机源不可用时退化为「单调递增计数」：不加密学强度，
+            // 但至少不会与上一次运行撞名（AUTH_FALLBACK_COUNTER 同理）。
+            tracing::warn!("getrandom 不可用，管道名随机段退化为计数器");
+            AUTH_FALLBACK_COUNTER.fetch_add(1, Ordering::Relaxed)
+        };
+        format!("{IPC_PIPE_NAME_BASE}_{}_{rand:08x}", std::process::id())
+    })
+}
 
 static AUTH_FALLBACK_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -720,7 +768,7 @@ impl IpcManager {
                                 }
                             };
                             for msg in messages {
-                                let _ = self.outbound_tx.send(msg).await;
+                                self.forward_to_outbound(msg); // T6-06：热键是高频消息，通道满时丢弃而非阻塞监听循环
                             }
                         }
                         MessageKind::Forward => {
@@ -738,7 +786,7 @@ impl IpcManager {
                         }
                     };
                     for msg in messages {
-                        let _ = self.outbound_tx.send(msg).await;
+                        self.forward_to_outbound(msg); // T6-06：热键是高频消息，通道满时丢弃而非阻塞监听循环
                     }
                     self.cleanup_stale_pending(PENDING_CLEANUP_MAX_AGE).await;
                 }
@@ -1487,20 +1535,45 @@ mod tests {
 
     // ---- T5-12: 管道名单一权威 + 跨语言一致守护 测试 ----
 
-    /// 验证 `IPC_PIPE_NAME` 单一权威常量存在且值为 "`asd_ipc`"。
+    /// 验证 `IPC_PIPE_NAME_BASE` 单一权威常量存在且值为 "`asd_ipc`"。
     ///
     /// 该测试原位于 `lib.rs` 的 `pipe_name_tests` 模块，随常量收敛到 `ipc.rs`
     /// 后一并迁移至此，保证权威定义与测试同处一文件。
     #[test]
     fn test_ipc_pipe_name_constant_value() {
-        assert_eq!(IPC_PIPE_NAME, "asd_ipc");
+        assert_eq!(IPC_PIPE_NAME_BASE, "asd_ipc");
     }
 
-    /// 验证 AHK 执行器 `ipc_client.ahk` 的 `PIPE_NAME := "\\.\pipe\asd_ipc"`
-    /// 后缀与 Rust 常量 `IPC_PIPE_NAME` 一致（T5-12 跨语言单一权威守护）。
+    /// 验证每会话管道名**带**随机后缀、且同进程内稳定（发现 #6 的核心防护）。
     ///
-    /// 若 AHK 侧管道名被改动而 Rust 侧未同步，本测试会在 CI 中失败，
-    /// 防止 Rust 与 AHK 之间的 named pipe 名称漂移导致 IPC 无法连通。
+    /// 阳性对照：若把 `ipc_pipe_name()` 改回返回固定的 `IPC_PIPE_NAME_BASE`，
+    /// 本测试应立即失败 —— 防止「改回固定名」的回归。
+    #[test]
+    fn test_ipc_pipe_name_is_per_session_and_stable() {
+        let first = ipc_pipe_name();
+        assert!(
+            first.starts_with(IPC_PIPE_NAME_BASE),
+            "管道名必须以基础名开头: {first}"
+        );
+        assert_ne!(
+            first, IPC_PIPE_NAME_BASE,
+            "管道名不得等于固定基础名 —— 那正是可被抢注的老问题"
+        );
+        assert_eq!(first, ipc_pipe_name(), "同进程内管道名必须稳定");
+        assert!(
+            first.contains(&format!("_{}_", std::process::id())),
+            "管道名应包含当前进程 PID: {first}"
+        );
+    }
+
+    /// 验证 AHK 执行器 `ipc_client.ahk` 的管道名与 Rust 侧一致（T5-12 跨语言
+    /// 单一权威守护），覆盖两条路径：
+    ///
+    /// 1. **回退路径**：AHK `DEFAULT_PIPE_NAME` 的后缀必须等于 `IPC_PIPE_NAME_BASE`；
+    /// 2. **动态路径**：AHK 必须读与 `IPC_PIPE_NAME_ENV_VAR` **同名**的环境变量
+    ///    （Rust 侧把它注入子进程，两侧变量名漂移即 IPC 连不上）。
+    ///
+    /// 若任一侧改名而另一侧未同步，本测试会在 CI 中失败。
     #[test]
     fn test_ipc_pipe_name_matches_ahk_client() {
         let ahk_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1509,16 +1582,46 @@ mod tests {
         let content = std::fs::read_to_string(&ahk_path)
             .unwrap_or_else(|e| panic!("无法读取 AHK 客户端文件 {}: {e}", ahk_path.display()));
 
-        let re = regex::Regex::new(r#"PIPE_NAME\s*:=\s*"[^"]*\\pipe\\([A-Za-z0-9_]+)""#)
+        // 1) 回退基础名
+        let re = regex::Regex::new(r#"DEFAULT_PIPE_NAME\s*:=\s*"[^"]*\\pipe\\([A-Za-z0-9_]+)""#)
             .expect("IPC 管道名正则表达式应为合法");
-        let caps = re
-            .captures(&content)
-            .unwrap_or_else(|| panic!("AHK 客户端 {} 中未找到 PIPE_NAME 定义", ahk_path.display()));
-
+        let caps = re.captures(&content).unwrap_or_else(|| {
+            panic!(
+                "AHK 客户端 {} 中未找到 DEFAULT_PIPE_NAME 定义",
+                ahk_path.display()
+            )
+        });
         assert_eq!(
-            &caps[1], IPC_PIPE_NAME,
-            "AHK 侧管道名后缀必须与 Rust 常量 IPC_PIPE_NAME 一致（Rust={IPC_PIPE_NAME}，AHK={}）",
+            &caps[1], IPC_PIPE_NAME_BASE,
+            "AHK 侧回退管道名后缀必须与 Rust 常量 IPC_PIPE_NAME_BASE 一致（Rust={IPC_PIPE_NAME_BASE}，AHK={}）",
             &caps[1]
         );
+
+        // 2) 环境变量名
+        let expected_env_read = format!("EnvGet(\"{IPC_PIPE_NAME_ENV_VAR}\")");
+        assert!(
+            content.contains(&expected_env_read),
+            "AHK 客户端必须用 `{expected_env_read}` 读取管道名，与 Rust 侧注入的 \
+             `IPC_PIPE_NAME_ENV_VAR` 保持一致"
+        );
+    }
+
+    /// 阳性对照：管道名已被占用时 `create_listener` 必须返回 `Err`。
+    ///
+    /// 这是「抢注（squatting）可被检出」的证据 —— 老实现撞名后只记日志就 return，
+    /// 静默降级为 IPC 永久不可用；现在调用方可以把它当成启动失败上报。
+    ///
+    /// 用 `#[tokio::test]`：`create_tokio()` 需要在 Tokio 运行时内注册 IO 驱动。
+    #[tokio::test]
+    async fn test_create_listener_reports_name_conflict() {
+        let name = asd_test_harness::unique_pipe_name("conflict");
+        let first = create_listener(&name);
+        assert!(first.is_ok(), "首次创建监听端应成功: {name}");
+        let second = create_listener(&name);
+        assert!(
+            second.is_err(),
+            "同名管道已被占用时 create_listener 必须返回 Err —— 否则抢注会静默降级"
+        );
+        drop(first);
     }
 }

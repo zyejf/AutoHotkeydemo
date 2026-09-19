@@ -19,7 +19,15 @@ use tokio::sync::Mutex;
 /// - `block_in_place` 将当前工作线程转为阻塞模式，允许其他工作线程继续执行
 /// - `tauri::async_runtime::block_on` 使用 Tauri 全局异步运行时执行，
 ///   不依赖调用线程是否已处于 `Handle::current()` 可用的运行时上下文
-/// - 临界区极短（仅 `lock().await` + `send_command().await`），不会长时间阻塞
+/// - ⚠️ 临界区**并非**任意短，不要照旧注释想当然：`IpcManager::send()` 会持有
+///   `send_half` 锁完成 `write_all`（最多 `SEND_TIMEOUT`）**加** `flush`
+///   （最多 `SEND_TIMEOUT`），最坏约 2 × `SEND_TIMEOUT`（当前 2s → **4s**）。
+///   也就是说这里的 `block_on` 最坏会占用一个 tokio 工作线程同样长的时间。
+///   仍可接受的原因：只有 AHK 侧停止读取、管道写满的**异常**路径才会走到这个上界，
+///   而那条路径本来就要按「管道不可靠」处理（见 `IpcManager::send` 的 T6-05 注释）。
+///   真正消除需把 `send_half` 改成「单写者任务 + mpsc 队列」，让 I/O 不发生在持锁期间
+///   —— 属结构性改动；刻意**不做**「调小 `SEND_TIMEOUT`」这种省事改法，
+///   那会在 AHK 偶发繁忙时制造误超时 → 误判管道不可靠 → 不必要的重连。
 /// - 不在 `block_on` 内再次获取同一锁，无死锁风险
 ///
 /// **已知风险**：如果未来在 `block_on` 内引入需要同一工作线程的操作，

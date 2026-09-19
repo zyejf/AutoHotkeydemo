@@ -16,8 +16,26 @@
 ; 常量
 ; =================================================================
 
+; 解析实际使用的 IPC 管道名。
+;
+; 优先取 Rust 主进程注入的环境变量（每会话唯一，防止同名管道被抢先创建 ——
+; 见 Rust 侧 `ipc_pipe_name`）。取不到（例如手工直接跑脚本做调试）则回退到
+; 固定基础名，该基础名必须与 Rust 侧 `IPC_PIPE_NAME_BASE` 一致。
+IpcResolvePipeName() {
+    try {
+        v := EnvGet("ASD_IPC_PIPE_NAME")
+        if v != ""
+            return "\\.\pipe\" v
+    }
+    return "\\.\pipe\asd_ipc"
+}
+
 class IPCConst {
-    static PIPE_NAME := "\\.\pipe\asd_ipc"
+    ; 固定基础名（回退值）。与 Rust 侧 `IPC_PIPE_NAME_BASE` 的一致性由
+    ; `test_ipc_pipe_name_matches_ahk_client` 守护。
+    static DEFAULT_PIPE_NAME := "\\.\pipe\asd_ipc"
+    ; 实际使用的管道名
+    static PIPE_NAME := IpcResolvePipeName()
     static MAX_MSG_SIZE := 65536       ; 64KB
     static READ_BUF_SIZE := 4096
     static HEARTBEAT_TIMEOUT_MS := 5000
@@ -66,7 +84,7 @@ class MiniJson {
     static _StringifyMap(m) {
         parts := []
         for k, v in m {
-            keyStr := '"' k '"'
+            keyStr := '"' MiniJson._EscapeString(k) '"'
             valStr := MiniJson.Stringify(v)
             parts.Push(keyStr ':' valStr)
         }
@@ -97,7 +115,7 @@ class MiniJson {
     static _StringifyObject(obj) {
         parts := []
         for k in ObjOwnProps(obj) {
-            keyStr := '"' k '"'
+            keyStr := '"' MiniJson._EscapeString(k) '"'
             valStr := MiniJson.Stringify(obj.%k%)
             parts.Push(keyStr ':' valStr)
         }
@@ -109,6 +127,20 @@ class MiniJson {
         }
         result .= '}'
         return result
+    }
+
+    ; 键名与值**共用**的转义。
+    ; 此前键名完全未转义（`keyStr := '"' k '"'`），而值走 _StringifyScalar 有转义 ——
+    ; 只要键名含 " / \ / 换行，就会产出**非法 JSON**，Rust 侧 serde_json 解析失败
+    ; → IpcError::JsonError → 消息错位 / 连接断裂重连。
+    ; 热键名、分组名等用户可控字段会作为键名经过这里，故键与值必须走同一条转义。
+    static _EscapeString(s) {
+        escaped := StrReplace(s, "\", "\\")
+        escaped := StrReplace(escaped, '"', '\"')
+        escaped := StrReplace(escaped, "`n", "\n")
+        escaped := StrReplace(escaped, "`r", "\r")
+        escaped := StrReplace(escaped, "`t", "\t")
+        return escaped
     }
 
     static _StringifyScalar(val) {
@@ -126,12 +158,7 @@ class MiniJson {
             return String(val)
         if val is Float
             return String(val)
-        escaped := StrReplace(val, "\", "\\")
-        escaped := StrReplace(escaped, '"', '\"')
-        escaped := StrReplace(escaped, "`n", "\n")
-        escaped := StrReplace(escaped, "`r", "\r")
-        escaped := StrReplace(escaped, "`t", "\t")
-        return '"' escaped '"'
+        return '"' MiniJson._EscapeString(val) '"'
     }
 }
 

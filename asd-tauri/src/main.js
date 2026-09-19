@@ -466,10 +466,11 @@ function switchPage(page) {
   var pageEl = document.getElementById('page-' + page); var navEl = document.querySelector('.nav-item[data-page="'+page+'"]');
   if (!pageEl || !navEl) return;
   pageEl.classList.add('active'); navEl.classList.add('active');
-  var titles = {dashboard:'📊 仪表盘',editor:'✏️ 分组编辑',settings:'⚙️ 全局设置',debug:'🐛 调试监控',backup:'💾 备份管理',keytest:'🧪 按键测试'};
+  var titles = {dashboard:'📊 仪表盘',editor:'✏️ 分组编辑',settings:'⚙️ 全局设置',debug:'🐛 调试监控',backup:'💾 备份管理',keytest:'🧪 按键测试',diagnostics:'🩺 诊断信息'};
   document.getElementById('pageTitle').textContent = titles[page] || page;
   if (page === 'settings') { loadBackupList(); loadSettingsFromTauri(); }
   if (page === 'keytest') refreshGroupList();
+  if (page === 'diagnostics') loadDiagnostics();
 }
 
 function renderDashboard() {
@@ -740,6 +741,94 @@ function addLog(msg, level) {
 function clearLogs() { document.getElementById("logContainer").innerHTML = ''; }
 function toggleAutoScroll() { _autoScroll = !_autoScroll; var btn = document.querySelector('[data-action="toggleAutoScroll"]'); if (btn) btn.textContent = "自动滚动: " + (_autoScroll ? "开" : "关"); showToast("自动滚动已" + (_autoScroll ? "开启" : "关闭"), "success"); }
 
+// ── 诊断信息（TD-076：运行时遥测缺位的低成本先行项）──────────────────────
+// 用户报错时能一键拿到「版本 + 日志目录 + 时间」，直接粘进反馈，替代口头描述。
+// 纯前端：版本/目录分别来自 Tauri 内置的 app.getVersion() 与 path.appDataDir()，
+// 权限由 capabilities 的 core:default 覆盖，**没有新增 Rust 命令**。
+var _diagInfo = { version: '', logDir: '' };
+
+function loadDiagnostics() {
+  var vEl = document.getElementById('diagVersion');
+  var dEl = document.getElementById('diagLogDir');
+  if (vEl) vEl.textContent = '读取中…';
+  if (dEl) dEl.textContent = '读取中…';
+  hideDiagFallback();
+  var pv = api.getAppVersion().then(function(v) {
+    _diagInfo.version = v || '';
+    if (vEl) vEl.textContent = _diagInfo.version || '未知';
+  }).catch(function(e) {
+    _diagInfo.version = '';
+    if (vEl) vEl.textContent = '读取失败: ' + errMsg(e, '未知错误');
+  });
+  var pd = api.getLogDirPath().then(function(p) {
+    _diagInfo.logDir = p || '';
+    if (dEl) dEl.textContent = _diagInfo.logDir || '未知';
+  }).catch(function(e) {
+    _diagInfo.logDir = '';
+    if (dEl) dEl.textContent = '读取失败: ' + errMsg(e, '未知错误');
+  });
+  return Promise.all([pv, pd]);
+}
+
+function buildDiagnosticText() {
+  return 'ASD 技能管理器诊断信息\n'
+    + '应用版本: ' + (_diagInfo.version || '读取失败') + '\n'
+    + '日志目录: ' + (_diagInfo.logDir || '读取失败') + '\n'
+    + '生成时间: ' + new Date().toLocaleString();
+}
+
+function hideDiagFallback() {
+  var hint = document.getElementById('diagFallbackHint');
+  var ta = document.getElementById('diagFallbackText');
+  if (hint) hint.style.display = 'none';
+  if (ta) { ta.style.display = 'none'; ta.value = ''; }
+}
+
+// 剪贴板不可用时的兜底：把文本摊在页面上让用户手动复制 —— 绝不静默失败。
+function showDiagFallback(text) {
+  var hint = document.getElementById('diagFallbackHint');
+  var ta = document.getElementById('diagFallbackText');
+  if (!hint || !ta) { showToast('复制失败，且页面缺少手动复制区域', 'error'); return; }
+  hint.style.display = 'block';
+  ta.style.display = 'block';
+  ta.value = text;
+  ta.focus();
+  ta.select();
+  showToast('自动复制失败，请手动复制下方内容', 'error');
+}
+
+// navigator.clipboard 在非安全上下文不可用时的退路（textarea + execCommand）。
+function legacyCopyText(text) {
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.top = '-1000px';
+  document.body.appendChild(ta);
+  ta.select();
+  var ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  document.body.removeChild(ta);
+  return ok;
+}
+
+function copyDiagnostics() {
+  var ready = (_diagInfo.version && _diagInfo.logDir) ? Promise.resolve() : loadDiagnostics();
+  ready.then(function() {
+    var text = buildDiagnosticText();
+    var done = function() { showToast('诊断信息已复制，可直接粘贴到反馈中', 'success'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(function() {
+        if (legacyCopyText(text)) done(); else showDiagFallback(text);
+      });
+    } else if (legacyCopyText(text)) {
+      done();
+    } else {
+      showDiagFallback(text);
+    }
+  });
+}
+
 function showToast(msg, type) {
   var c = document.getElementById("toastContainer"); while (c.children.length >= 5) c.removeChild(c.firstChild);
   var t = document.createElement("div"); t.className = "toast" + (type ? " " + type : ""); t.textContent = msg; c.appendChild(t);
@@ -904,7 +993,9 @@ function renderHoldDetail() {
   var section = document.getElementById('holdDetailSection'); if (!section) return;
   var html = '';
   if (editorConfig.holdMode === "periodic") {
-    html += '<div class="form-row"><span class="form-label">按压节律</span><div class="form-field"><span style="font-size:11px;color:var(--text-secondary);">按下 <input class="input" type="number" value="'+editorConfig.holdPattern[0]+'" style="width:60px;text-align:center;" onchange="pushUndoState();editorConfig.holdPattern[0]=parseInt(this.value)||500;"> ms，释放 <input class="input" type="number" value="'+editorConfig.holdPattern[1]+'" style="width:60px;text-align:center;" onchange="pushUndoState();editorConfig.holdPattern[1]=parseInt(this.value)||200;"> ms</span></div></div>';
+    // 内联 onchange 属性在 CSP `script-src 'self'` 下会被拦截（且 module 作用域里的
+    // 函数本来就取不到），改用 id + addEventListener（见 bindHoldPatternInputs）。
+    html += '<div class="form-row"><span class="form-label">按压节律</span><div class="form-field"><span style="font-size:11px;color:var(--text-secondary);">按下 <input class="input" id="holdPatternPress" type="number" value="'+editorConfig.holdPattern[0]+'" style="width:60px;text-align:center;"> ms，释放 <input class="input" id="holdPatternRelease" type="number" value="'+editorConfig.holdPattern[1]+'" style="width:60px;text-align:center;"> ms</span></div></div>';
   } else if (editorConfig.holdMode === "sequence") {
     html += '<div class="form-row"><span class="form-label">触发序列</span><div class="form-field"><span style="font-size:11px;color:var(--text-secondary);">1=按下, 0=释放</span></div></div>';
     for (var i = 0; i < editorConfig.holdTriggers.length; i++) {
@@ -912,6 +1003,15 @@ function renderHoldDetail() {
     }
   }
   section.innerHTML = html;
+  bindHoldPatternInputs();
+}
+
+// 按压节律两个输入框的绑定。它们由 renderHoldDetail 动态生成，故每次渲染后重新绑定。
+function bindHoldPatternInputs() {
+  var press = document.getElementById('holdPatternPress');
+  var release = document.getElementById('holdPatternRelease');
+  if (press) press.addEventListener('change', function() { pushUndoState(); editorConfig.holdPattern[0] = parseInt(this.value) || 500; });
+  if (release) release.addEventListener('change', function() { pushUndoState(); editorConfig.holdPattern[1] = parseInt(this.value) || 200; });
 }
 
 function updatePreview() {
@@ -1139,6 +1239,12 @@ function initKeyTestPage() {
 
 function init() {
   applyTheme();
+  // 原先写在 index.html 上的内联 onchange/oninput 已被移除：它们在 module 作用域下
+  // 取不到函数（本来就抛 ReferenceError），且 CSP `script-src 'self'` 会拦截内联处理器。
+  var holdModeSel = document.getElementById("holdModeSelect");
+  if (holdModeSel) holdModeSel.addEventListener("change", function() { pushUndoState(); editorConfig.holdMode = this.value; renderHoldDetail(); updatePreview(); });
+  var keySearchEl = document.getElementById("keySearch");
+  if (keySearchEl) keySearchEl.addEventListener("input", filterKeys);
   var langSel = document.getElementById("langSelect"); if (langSel) { langSel.value = _currentLang; langSel.addEventListener("change", function() { switchLang(this.value); }); }
   applyTranslations(); renderKeyGrid(); pickModeByValue(currentMode);
   renderDashboard(); renderBackupList(); initKeyTestPage();
@@ -1240,6 +1346,8 @@ function init() {
     else if (action === 'startValidation') startValidation();
     else if (action === 'stopValidation') stopValidation();
     else if (action === 'refreshGroupList') refreshGroupList();
+    else if (action === 'copyDiagnostics') copyDiagnostics();
+    else if (action === 'refreshDiagnostics') loadDiagnostics();
   };
 
   document.getElementById('keyPickerOverlay').onclick = function(e) {
@@ -1309,6 +1417,11 @@ function init() {
   });
   api.onKeyRecordEvent(function(data) { onBridgeEvent({type: "keyRecordEvent", data: data}); });
   api.onKeySendEvent(function(data) { onBridgeEvent({type: "keySendEvent", data: data}); });
+  // IPC 监听端建不起来时 AHK 子进程永远连不上，必须弹提示，不能静默降级。
+  api.onIpcListenerFailed(function(msg) {
+    addLog("IPC 不可用: " + (msg || "未知原因"), "error");
+    showToast("IPC 连接失败，自动化功能不可用", "error");
+  });
 
   loadGroupsFromTauri();
   loadBackupsFromTauri();

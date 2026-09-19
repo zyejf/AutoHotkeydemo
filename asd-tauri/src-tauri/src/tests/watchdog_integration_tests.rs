@@ -1,8 +1,29 @@
 //! Watchdog 集成测试 — `ProcessWatchdog` 进程管理与状态机
 //!
-//! 这些测试涉及真实进程管理（spawn、kill、重启）和时序依赖，
-//! 全部标记为 `#[ignore]` 以避免在 CI 中运行慢测试。
-//! 可通过 `cargo test -- --ignored` 手动运行。
+//! 这些测试涉及真实进程管理（spawn、kill、重启）和时序依赖。
+//!
+//! **2026-09-19：已摘掉全部 `#[ignore]`（原 15 条）。**
+//! 原先挂 `#[ignore]` 的理由是「避免在 CI 中运行慢测试」，但**实测全量仅约 13 秒
+//! 且 15/15 通过**，该理由不成立。挂着 `#[ignore]` 的真实代价是：这些用例
+//! **永远不会被常规 `cargo test` 执行**（即 TD-058 定义的 **A 类「预防性排除」失效**），
+//! 回归只会在有人手动加 `-- --ignored` 时才浮现 —— 守护不跑等于没有守护。
+//!
+//! 唯一的时序抖动隐患已在此前修复：不再用固定 `sleep(200ms)` 断言子进程已退出，
+//! 改为轮询 `tick()` + 10s 超时（见 `test_watchdog_full_state_machine_flow` 内注释）。
+//!
+//! ⚠️ **将来若有人要为「真实外部进程」类用例新挂 `#[ignore]`，必须先满足下列解禁判据**
+//! （工程督导 2026-09-19 裁决：摘 `#[ignore]` 的依据是「能被确定性条件守住的慢」，而
+//! **依赖真实外部进程的用例有真实失败面** —— 摘了等于把偶发红引进 CI，是用一种债换
+//! 另一种债。所以这类 `#[ignore]` **可以挂，但要写明怎么算能摘**）：
+//!   1. **隔离**：用例必须在自己创建的临时目录里起进程（`temp_dir` + 唯一子目录），
+//!      不得复用/触碰任何可能属于他人的同名进程或文件；跑完必须 kill + 删目录。
+//!   2. **串行**：必须能证明在 `--test-threads=1` 下稳定（先跑通再谈并发）。
+//!   3. **外部依赖可自检**：拿不到外部依赖（如 `SystemRoot\System32\cmd.exe`）时，
+//!      必须**显式打印「跳过」并 return** —— 既不许假绿（静默通过），也不许假红（报错当失败）。
+//!   4. **解禁前连跑 N 次**：在本机与 CI 各连续跑 **≥10 次全绿**（含 `--test-threads=1`）
+//!      才可摘；摘的同时必须把本段判据一并删除或改写，不许留下过期说明。
+//!   5. **替代路径优先**：若能用替身（不杀真实进程、只断言调用序列）覆盖同一契约，
+//!      **优先用替身**，把真实进程用例降级为可选的手动验证。
 //!
 //! 覆盖场景：
 //! - 子进程启动与状态转换（Idle → Running）
@@ -57,7 +78,6 @@ fn spawn_quick_exit_child() -> std::process::Child {
 /// 4. 验证状态变为 `Running`，`child_pid` 不为 `None`
 /// 5. 清理：`graceful_shutdown` 终止子进程
 #[test]
-#[ignore = "涉及真实进程管理，需手动运行：cargo test -- --ignored test_watchdog_start_child_process"]
 fn test_watchdog_start_child_process() {
     let mut wd = ProcessWatchdog::new();
     assert_eq!(wd.state(), WatchdogStateEnum::Idle);
@@ -111,7 +131,6 @@ fn test_watchdog_start_child_process() {
 /// 2. kill 子进程模拟崩溃
 /// 3. tick 应返回 RestartNeeded，状态转为 Restarting
 #[test]
-#[ignore = "涉及真实进程管理，需手动运行：cargo test -- --ignored test_watchdog_child_crash_restart"]
 fn test_watchdog_child_crash_restart() {
     let mut wd = ProcessWatchdog::new();
 
@@ -151,7 +170,6 @@ fn test_watchdog_child_crash_restart() {
 /// 4. 等待 `WatchdogRunner` 检测并重启
 /// 5. 验证 `restart_count` 递增，状态回到 Running
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "涉及真实进程管理且需要时序协调，需手动运行"]
 async fn test_watchdog_runner_auto_restart() {
     let wd = ProcessWatchdog::new();
     let wd = Arc::new(Mutex::new(wd));
@@ -220,7 +238,6 @@ async fn test_watchdog_runner_auto_restart() {
 /// 1. 创建 watchdog，手动设置状态为 `Restarting`，`restart_count` 为上限
 /// 2. tick 应返回 MaxRetriesExceeded，状态转为 Failed
 #[test]
-#[ignore = "验证状态机极限，需手动运行：cargo test -- --ignored test_watchdog_restart_limit"]
 fn test_watchdog_restart_limit() {
     let mut wd = ProcessWatchdog::new();
 
@@ -243,7 +260,6 @@ fn test_watchdog_restart_limit() {
 
 /// 验证 Failed 状态下 tick 持续返回 `MaxRetriesExceeded`。
 #[test]
-#[ignore = "验证 Failed 状态稳定性"]
 fn test_watchdog_failed_state_persistent() {
     let mut wd = ProcessWatchdog::new();
     wd.set_state(WatchdogStateEnum::Failed);
@@ -270,7 +286,6 @@ fn test_watchdog_failed_state_persistent() {
 /// 每次 `begin_restart` 后 `restart_count` 递增，`backoff_duration` 取
 /// `BACKOFF_DURATIONS[restart_count]`。
 #[test]
-#[ignore = "验证退避时间序列，需手动运行：cargo test -- --ignored test_watchdog_exponential_backoff"]
 fn test_watchdog_exponential_backoff() {
     let mut wd = ProcessWatchdog::new();
 
@@ -305,7 +320,6 @@ fn test_watchdog_exponential_backoff() {
 
 /// 验证 Restarting 状态下未到退避时间时返回 `WaitForBackoff`。
 #[test]
-#[ignore = "验证退避等待逻辑"]
 fn test_watchdog_backoff_wait() {
     let mut wd = ProcessWatchdog::new();
     wd.set_state(WatchdogStateEnum::Restarting);
@@ -330,7 +344,6 @@ fn test_watchdog_backoff_wait() {
 
 /// 验证退避时间到期后返回 `RestartNeeded`。
 #[test]
-#[ignore = "验证退避到期逻辑"]
 fn test_watchdog_backoff_expired() {
     let mut wd = ProcessWatchdog::new();
     wd.set_state(WatchdogStateEnum::Restarting);
@@ -358,7 +371,6 @@ fn test_watchdog_backoff_expired() {
 
 /// 验证 `notify_heartbeat` 能从 Hung 状态恢复到 Running。
 #[test]
-#[ignore = "验证心跳恢复逻辑"]
 fn test_watchdog_heartbeat_recovery() {
     let mut wd = ProcessWatchdog::new();
     wd.set_state(WatchdogStateEnum::Hung);
@@ -375,7 +387,6 @@ fn test_watchdog_heartbeat_recovery() {
 /// 当 `restart_count > 0` 且连续收到 `STABLE_HEARTBEAT_THRESHOLD` 次心跳后，
 /// `restart_count` 应被重置为 0。
 #[test]
-#[ignore = "验证稳定心跳重置计数器"]
 fn test_watchdog_stable_heartbeat_resets_count() {
     let mut wd = ProcessWatchdog::new();
     wd.set_restart_count(3);
@@ -402,7 +413,6 @@ fn test_watchdog_stable_heartbeat_resets_count() {
 
 /// 验证 `graceful_shutdown` 能终止子进程并将状态转为 Idle。
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "涉及真实进程管理，需手动运行"]
 async fn test_watchdog_graceful_shutdown() {
     let mut wd = ProcessWatchdog::new();
 
@@ -423,7 +433,6 @@ async fn test_watchdog_graceful_shutdown() {
 
 /// 验证 `graceful_shutdown` 在无子进程时返回 Ok。
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "验证无子进程时的关机行为"]
 async fn test_watchdog_graceful_shutdown_no_child() {
     let wd = ProcessWatchdog::new();
     assert!(wd.child_pid().is_none());
@@ -441,7 +450,6 @@ async fn test_watchdog_graceful_shutdown_no_child() {
 
 /// 验证 `reset_to_restart` 能从 Failed 状态重置为 Restarting。
 #[test]
-#[ignore = "验证 reset_to_restart 状态转换"]
 fn test_watchdog_reset_to_restart() {
     let mut wd = ProcessWatchdog::new();
     wd.set_state(WatchdogStateEnum::Failed);
@@ -465,7 +473,6 @@ fn test_watchdog_reset_to_restart() {
 
 /// 验证 `reset_restart_count` 重置计数器但不改变状态。
 #[test]
-#[ignore = "验证 reset_restart_count 行为"]
 fn test_watchdog_reset_restart_count() {
     let mut wd = ProcessWatchdog::new();
     wd.set_restart_count(5);
@@ -519,7 +526,6 @@ fn test_max_restart_attempts_constant() {
 ///
 /// `Idle` → `Running`（`attach_child`）→ `Restarting`（崩溃）→ `Failed`（达上限）→ `Restarting`（`reset`）→ `Running`（重启）
 #[test]
-#[ignore = "综合状态机验证，需手动运行"]
 fn test_watchdog_full_state_machine_flow() {
     let mut wd = ProcessWatchdog::new();
 
