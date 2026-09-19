@@ -894,13 +894,91 @@ function Invoke-GuardSelfCheck {
         return 2
     }
 
-    Write-Host '✓ 守卫自检通过（三层都过）：' -ForegroundColor Green
-    Write-Host '  · 辅助函数层：5 条负向断言如期变红 + 3 条正向断言如期变绿（N1-N5 / P1-P3）' -ForegroundColor DarkGray
-    Write-Host '  · 判据组装层：C1/C2/C4/C5 坏包必 FAIL、好包必 PASS；C3 坏包非 PASS、好包 PASS，' -ForegroundColor DarkGray
-    Write-Host '                且坏包 + -StrictConfig 必 FAIL' -ForegroundColor DarkGray
-    Write-Host '  · 汇总层：含 FAIL 的包必 exit 非 0、全 PASS 必 exit 0、空判据集必 exit 非 0' -ForegroundColor DarkGray
+    # ── 横幅里的断言数**由断言集合自动推导**，不再手写 ──────────────────────────
+    # 为什么改：原先写死「三层都过」。后来陆续加了 MR1–MR5 / MC1r / MC3s / MD1–MD4，
+    #   加断言的人改了断言、没改这句 ⇒ 横幅与实际断言集合漂移。**写死的计数迟早会
+    #   漂移**，所以改成从本函数自身的 AST 里数：一条 `$broken +=` 就是一条断言，
+    #   消息前缀去重后就是一个断言组。删掉/新增任一断言块，数字自动跟着变 ——
+    #   验收靠**突变**（删掉 MR5 整块，数字必须变小），不靠人眼看代码。
+    # 为什么用 AST 而不是文本匹配：与上面 MR4 同一条理由 —— 行注释、块注释、字符串
+    #   里出现同样文字都会被文本匹配算进去（MR4 已被连续三轮找到伪造向量）。
+    # ⚠️ 它能证明什么、不能证明什么（与 MR4 同一边界，别夸大）：
+    #   能证明 —— 函数体里**存在**这些断言语句；
+    #   证明不了 —— 某条分支**这次是否被走到**（例如被前置 return 挡住）。
+    #   ⇒ 所以措辞用「断言 / 断言组」而不是「层」，且**不**宣称每条都执行过。
+    # ⚠️ 拿不到计数时**不许**默认报 0：「0 条断言都过」是假绿，比不报更糟。
+    $gN = -1
+    $gGroups = New-Object System.Collections.Generic.List[string]
+    $gPath = $PSCommandPath
+    if ($gPath -and (Test-Path -LiteralPath $gPath)) {
+        $gErr = $null
+        $gTok = $null
+        $gAst = [System.Management.Automation.Language.Parser]::ParseFile($gPath, [ref]$gTok, [ref]$gErr)
+        if (($null -ne $gAst) -and -not ($gErr -and $gErr.Count -gt 0)) {
+            $gFns = @($gAst.FindAll({
+                param($x)
+                ($x -is [System.Management.Automation.Language.FunctionDefinitionAst]) -and
+                ($x.Name -eq 'Invoke-GuardSelfCheck')
+            }, $true))
+            if ($gFns.Count -ge 1) {
+                $gAdds = @($gFns[0].FindAll({
+                    param($x)
+                    ($x -is [System.Management.Automation.Language.AssignmentStatementAst]) -and
+                    ($x.Operator -eq [System.Management.Automation.Language.TokenKind]::PlusEquals) -and
+                    ($x.Left -is [System.Management.Automation.Language.VariableExpressionAst]) -and
+                    ($x.Left.VariablePath.UserPath -eq 'broken')
+                }, $true))
+                $gN = $gAdds.Count
+                foreach ($gAdd in $gAdds) {
+                    $gRaw = $gAdd.Right.Extent.Text.Trim().Trim('"').Trim("'")
+                    $gIds = @()
+                    if ($gRaw -match '^([A-Za-z]+[0-9]+[a-z]*)') {
+                        $gIds = @($Matches[1])
+                    }
+                    elseif ($gRaw -match '^([A-Za-z]+)\$([A-Za-z_][A-Za-z0-9_]*)') {
+                        # 形如 "M$id 缺失：..."（C1/C2/C4/C5 循环里那几条）：前缀是常量、
+                        # 后面紧跟迭代变量，必须把外层 foreach 的字面量取值展开，
+                        # 否则这 4 个断言组会被并成 1 个，删掉其中一条也看不出来。
+                        $gPfx     = $Matches[1]
+                        $gVarName = $Matches[2]
+                        $gNode    = $gAdd.Parent
+                        while ($null -ne $gNode) {
+                            if (($gNode -is [System.Management.Automation.Language.ForEachStatementAst]) -and
+                                ($null -ne $gNode.Variable) -and
+                                ($gNode.Variable.VariablePath.UserPath -eq $gVarName)) {
+                                $gVals = @()
+                                foreach ($gS in @($gNode.Condition.FindAll({
+                                    param($y) $y -is [System.Management.Automation.Language.StringConstantExpressionAst]
+                                }, $true))) {
+                                    $gVals += ($gPfx + $gS.Value)
+                                }
+                                $gIds = $gVals
+                                break
+                            }
+                            $gNode = $gNode.Parent
+                        }
+                        if ($gIds.Count -eq 0) { $gIds = @($gPfx + '$' + $gVarName) }
+                    }
+                    else { $gIds = @('(未命名)') }
+                    foreach ($gId in $gIds) {
+                        if (-not $gGroups.Contains($gId)) { $gGroups.Add($gId) }
+                    }
+                }
+            }
+        }
+    }
+
+    if ($gN -lt 1) {
+        # 数不出来就说数不出来 —— 宁可黄着，也不要印一个「0 条断言都过」的假绿。
+        Write-Host '✓ 守卫自检通过（⚠ 断言条数未能自动统计 —— 横幅计数失效，请修本函数的 AST 统计；' -ForegroundColor Yellow
+        Write-Host '   本行**不是**「0 条断言都过」，别当绿灯读）' -ForegroundColor Yellow
+    }
+    else {
+        Write-Host "✓ 守卫自检通过（$gN 条断言 / $($gGroups.Count) 个断言组都过）：" -ForegroundColor Green
+        Write-Host "  · 断言组：$($gGroups -join '、')" -ForegroundColor DarkGray
+    }
     Write-Host '  （含义：判据在「故意破坏」时会真的失败，且失败会真的反映到退出码上 ——' -ForegroundColor DarkGray
-    Write-Host '    「判据会红」和「红了算不算数」是两件事，两层都验了）' -ForegroundColor DarkGray
+    Write-Host '    「判据会红」和「红了算不算数」是两件事，都验了）' -ForegroundColor DarkGray
     return 0
 }
 
