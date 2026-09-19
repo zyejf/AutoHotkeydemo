@@ -930,6 +930,13 @@ function Invoke-GuardSelfCheck {
             [pscustomobject]@{ Id = 'C1'; State = 'PASS' }
             [pscustomobject]@{ Id = 'C2'; State = 'PASS' }
         )
+        # ⚠️ 本条**单独不可能红**，这是预期的，不要当成「假守卫」删掉：
+        #    `ExitCode` 与 `Failed` 是从**同一个 `$failed`** 派生的（`Get-SmokeVerdict`
+        #    里 `elseif ($failed -gt 0) { $code = 1 }`），所以只要全 PASS 包的 `Failed`
+        #    被算错成非 0，就必然 `failed > 0` ⇒ 出口码非 0 ⇒ 下面那条 MD1 同时红。
+        #    ⇒ 它是**冗余信号**（信息量不超过下一条），不是**不会失败的检查**。
+        #    ⚠️ 该结论只有一轮突变的证据（把 `$failed` 改成算总数，两条一起红），
+        #       **未经独立复验**；若要删它，请先自己补一轮能让它单独红的突变再决定。
         if ($vPass.Failed -ne 0) { $broken += "MD1 计数错：全 PASS 的包 Failed 应为 0，实际 $($vPass.Failed)" }
         if ($vPass.ExitCode -ne 0) { $broken += "MD1 正向失效：全 PASS 的包应 exit 0，实际 $($vPass.ExitCode)（永远红的汇总同样没用）" }
 
