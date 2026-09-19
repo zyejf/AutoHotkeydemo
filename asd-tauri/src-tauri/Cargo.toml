@@ -46,7 +46,7 @@ parking_lot = "0.12"
 getrandom = "0.2"
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.8"
 asd-test-harness = { path = "../crates/asd-test-harness" }
 serial_test = "3"
 regex = "1"
