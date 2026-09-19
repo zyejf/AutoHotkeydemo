@@ -403,8 +403,8 @@ jobs:
       #      兜底到 `/-/npm/v1/security/audits/quick`（本机 npm 10.9.7 源码
       #      :323 / :336）。⇒ runner 并不是「还在用旧端点」，quick 只是**兜底**。
       #      因此「升级 npm 就能改用 bulk 端点」这个修法**不成立** —— 10.9.8
-      #      （actions/runner-images Ubuntu2404 Readme 文档值；本 step 首行
-      #      `npm --version` 会实测打印，可复核）首选就已经是 bulk。
+      #      （actions/runner-images Ubuntu2404 Readme 文档值；本 step 对每个目录
+      #      各打一次 `npm --version` 实测，可复核）首选就已经是 bulk。
       #   ② quick 端点已下线，恒返回 400（响应头 `npm-notice: This endpoint is
       #      being retired...` 被 `npm-registry-fetch/lib/check-response.js:14-16`
       #      打印成 `npm notice`，所以日志里先看到 notice 再看到 400）。
@@ -420,49 +420,69 @@ jobs:
       #   「有高危 CVE」伪装成「等等再看」，那是比红灯脱敏更坏的降级。
       #   三次都失败 → **仍然红灯（保持阻断）**，因为「查不动」不等于「没问题」；
       #   本仓规矩是不静默变绿（与 coverage job 的同类取舍一致）。
-      - name: 'npm audit · 前端生产依赖（阻断）'
-        working-directory: asd-tauri
+      #
+      # ⚠️ 2026-09-20 结构：两个目录（`asd-tauri` / `asd-tauri/e2e`）合并成**一个**
+      #   step。两条理由，都不是为了少写几行：
+      #   ① 端点故障判定串与重试逻辑**只此一份**。此前是两个逐字复制的 step，
+      #      只改一处就会漂 —— 正是 C10（三处门禁档位一致）要防的那类口径漂移。
+      #      现在判定收进 `is_audit_endpoint_failure()`，那两个字面量只出现一次。
+      #   ② 原先两个 step 串行，**第一个红了第二个就根本不执行**：前端目录一旦有
+      #      真漏洞，E2E 目录的审计结果就永远拿不到，红灯给的信息是残缺的。合并后
+      #      两个目录都会被审到，再按「任一未通过即 exit 1」汇总 —— 覆盖只增不减。
+      #
+      #   ⚠️ 语义不变量（改这段前先读懂）：**真漏洞只调用 npm 1 次并立即失败，
+      #      绝不重试**；只有端点故障才退避重试。已用 mock registry 复现 CI 的
+      #      失败链（bulk 503 → quick 400）验过四条路径，并做过「判定恒真」的
+      #      变异测试：变异后真漏洞会被重试 3 次，测试必须变红。
+      - name: 'npm audit · 生产依赖（阻断：前端 + E2E）'
+        # 合并成一个 step 的理由与语义不变量见上方注释块；此处只留实现。
+        # ⚠️ 判定串只允许出现在 is_audit_endpoint_failure() 里一处，别在别处再抄字面量。
         run: |
-          npm --version
-          for attempt in 1 2 3; do
-            if out=$(npm audit --package-lock-only --omit=dev --audit-level=high 2>&1); then
+          is_audit_endpoint_failure() {
+            case "$1" in
+              *"audits/quick"* | *"audit endpoint returned an error"*) return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
+          audit_blocking() {
+            local dir="$1" attempt out rc
+            echo "── npm audit（生产依赖，阻断）: $dir"
+            if [ ! -d "$dir" ]; then
+              echo "::error::$dir：目录不存在"
+              return 1
+            fi
+            ( cd "$dir" && npm --version )
+            for attempt in 1 2 3; do
+              set +e
+              out=$(cd "$dir" && npm audit --package-lock-only --omit=dev --audit-level=high 2>&1)
+              rc=$?
+              set -e
               printf '%s\n' "$out"
-              exit 0
-            fi
-            printf '%s\n' "$out"
-            if [[ "$out" != *"audits/quick"* && "$out" != *"audit endpoint returned an error"* ]]; then
-              echo "::error::npm audit 失败，但不是审计端点故障（多半是**真漏洞**）—— 不重试，按阻断处理"
-              exit 1
-            fi
-            if [ "$attempt" -lt 3 ]; then
-              echo "::warning::npm 审计端点故障（第 $attempt / 3 次），退避后重试"
-              sleep $((attempt * 10))
-            fi
-          done
-          echo "::error::npm 审计端点连续 3 次故障 —— 本次未能完成审计，按阻断处理（这是基础设施故障，不是依赖漏洞）"
-          exit 1
-      - name: 'npm audit · E2E 生产依赖（阻断）'
-        working-directory: asd-tauri/e2e
-        # 与上一步同款重试逻辑，理由见上一步的注释块（不重复写，避免两处口径漂移）
-        run: |
-          npm --version
-          for attempt in 1 2 3; do
-            if out=$(npm audit --package-lock-only --omit=dev --audit-level=high 2>&1); then
-              printf '%s\n' "$out"
-              exit 0
-            fi
-            printf '%s\n' "$out"
-            if [[ "$out" != *"audits/quick"* && "$out" != *"audit endpoint returned an error"* ]]; then
-              echo "::error::npm audit 失败，但不是审计端点故障（多半是**真漏洞**）—— 不重试，按阻断处理"
-              exit 1
-            fi
-            if [ "$attempt" -lt 3 ]; then
-              echo "::warning::npm 审计端点故障（第 $attempt / 3 次），退避后重试"
-              sleep $((attempt * 10))
-            fi
-          done
-          echo "::error::npm 审计端点连续 3 次故障 —— 本次未能完成审计，按阻断处理（这是基础设施故障，不是依赖漏洞）"
-          exit 1
+              if [ "$rc" -eq 0 ]; then
+                echo "✓ $dir：无 high 及以上漏洞"
+                return 0
+              fi
+              if ! is_audit_endpoint_failure "$out"; then
+                echo "::error::$dir：npm audit 失败，但不是审计端点故障（多半是**真漏洞**）—— 不重试，按阻断处理"
+                return 1
+              fi
+              if [ "$attempt" -lt 3 ]; then
+                echo "::warning::$dir：npm 审计端点故障（第 $attempt / 3 次），退避后重试"
+                sleep $((attempt * 10))
+              fi
+            done
+            echo "::error::$dir：npm 审计端点连续 3 次故障 —— 本次未能完成审计，按阻断处理（这是基础设施故障，不是依赖漏洞）"
+            return 1
+          }
+
+          failed=0
+          audit_blocking asd-tauri || failed=1
+          audit_blocking asd-tauri/e2e || failed=1
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::生产依赖审计未通过（逐目录结论见上方）"
+            exit 1
+          fi
       - name: 'npm audit · dev 依赖（仅报告，不阻断）'
         continue-on-error: true
         run: |
