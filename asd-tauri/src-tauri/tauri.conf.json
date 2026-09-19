@@ -24,6 +24,8 @@
   },
   "bundle": {
     "active": true,
+    "license": "GPL-2.0-only",
+    "licenseFile": "../../LICENSE",
     "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
@@ -41,7 +43,7 @@
       "ahk_executor/high_res_clock.ahk",
       "ahk_executor/AutoHotkey64.exe",
       "ahk_executor/asd_executor.bat",
-      "third-party/AutoHotkey-GPLv2.txt",
+      "third-party/AutoHotkey-license.txt",
       "third-party/THIRD-PARTY-NOTICES.md"
     ],
     "publisher": "ASD Team",

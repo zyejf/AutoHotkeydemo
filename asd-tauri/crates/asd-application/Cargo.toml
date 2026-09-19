@@ -2,6 +2,7 @@
 name = "asd-application"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 asd-domain = { path = "../asd-domain" }
