@@ -41,7 +41,7 @@ ASD 技能管理器 - 支持多种执行模式的按键连招管理系统。v4.0
 | `asd-tauri/crates/asd-application/src/group_service.rs` | GroupService（分组增删改查） |
 | `asd-tauri/crates/asd-application/src/recording_service.rs` | RecordingService（按键录制） |
 | `asd-tauri/crates/asd-application/src/time_format.rs` | 时间格式化工具 |
-| `asd-tauri/src-tauri/src/lib.rs` | 34 Tauri commands + 应用初始化 |
+| `asd-tauri/src-tauri/src/lib.rs` | 35 Tauri commands + 应用初始化 |
 | `asd-tauri/src-tauri/src/bridge.rs` | IpcBridge, TauriEventBridge, WatchdogBridge（trait 实现） |
 | `asd-tauri/src-tauri/src/infrastructure/ipc.rs` | IpcManager（interprocess 通信） |
 | `asd-tauri/src-tauri/src/infrastructure/watchdog.rs` | ProcessWatchdog + WatchdogRunner |
@@ -111,7 +111,7 @@ asd-tauri/
 │   └── asd-test-harness/   (测试支持 crate — 测试固件 + mock 工具)
 │       └── src/lib.rs      (TestHarness, 测试辅助)
 └── src-tauri/              (表现层 + 基础设施 — Tauri 主 crate)
-    ├── src/lib.rs           (34 Tauri commands)
+    ├── src/lib.rs           (35 Tauri commands)
     ├── src/bridge.rs        (IpcBridge, TauriEventBridge, WatchdogBridge)
     ├── src/infrastructure/  (IpcManager, ProcessWatchdog, Logging, Shutdown)
     ├── src/commands/        (config_cmd, group_cmd, hotkey_cmd, recording_cmd, system_cmd)

@@ -817,6 +817,28 @@ function renderExecutorStatus(s) {
   }
 }
 
+// B6 / TD-084：启动时配置文件加载失败**必须让用户知道**，不能只在日志里留一行。
+// ⚠️ Rust 侧已按错误类型分流（`ConfigLoadError::user_facing_failure`）：
+// 文件不存在 = 首次启动的正常路径，不会走到这里 —— 否则新用户一开机就会看到
+// 「配置丢失」的吓人提示（那是在修问题时引入回归）。这里只处理真故障。
+function checkConfigLoadFailure() {
+  api.getConfigLoadFailure().then(function(f) {
+    if (!f) return;
+    var detail = "配置文件加载失败[" + f.kind + "]: " + f.message + " | 路径: " + f.path;
+    addLog(detail, "error");
+    confirmDialog(
+      "配置文件未能读取",
+      "启动时没能读到你原来的配置，现在用的是空配置 —— 已有的分组很可能没有显示出来。"
+        + "原因：" + f.message + "。文件位置：" + f.path
+        + "。建议立刻到「备份管理」恢复最近的备份；在恢复前请不要保存配置，以免覆盖备份。",
+      function() { switchPage('backup'); loadBackupsFromTauri(); }
+    );
+  }).catch(function(e) {
+    // 连状态都拉不到时同样不能静默：至少留一条日志，让人能从诊断页看到。
+    addLog("读取配置加载失败状态出错: " + errMsg(e, "未知错误"), "error");
+  });
+}
+
 // 自助恢复：看门狗卡在 Failed（重启次数耗尽）时清空计数，把状态拉回就绪并重新拉起子进程。
 function resetWatchdogDiag() {
   api.resetWatchdog().then(function() {
@@ -1484,6 +1506,7 @@ function init() {
   loadGroupsFromTauri();
   loadBackupsFromTauri();
   loadSettingsFromTauri();
+  checkConfigLoadFailure();
 }
 
 init();

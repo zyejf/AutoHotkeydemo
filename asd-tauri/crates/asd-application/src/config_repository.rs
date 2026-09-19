@@ -23,6 +23,44 @@ pub enum ConfigLoadError {
     ParseError(String),
 }
 
+/// 启动时配置文件加载失败、且**必须让用户知道**的记录（B6 / TD-084）。
+///
+/// 为什么不直接把 `ConfigLoadError` 序列化出去：它含 `#[source] std::io::Error`，
+/// 既不 `Clone` 也不 `Serialize`，过不了 Tauri 命令边界。这里只带前端需要的三个字段。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ConfigLoadFailure {
+    /// `"parse"` = 文件在但不是合法 JSON；`"io"` = 文件在但读不出来（权限/非 UTF-8 等）。
+    pub kind: &'static str,
+    /// 面向用户的完整消息，与日志一致，便于直接粘给维护者。
+    pub message: String,
+    /// 配置文件路径 —— 用户要自己去翻备份时得知道文件在哪。
+    pub path: String,
+}
+
+impl ConfigLoadError {
+    /// 判定这次加载失败**是否必须让用户知道**。
+    ///
+    /// ⚠️ 依据不是「有没有出错」，而是「是不是正常路径」：
+    /// `FileNotFound` 是**首次启动的正常情况**（配置文件本来就不存在），
+    /// 无差别弹报错会让新用户一开机就看到「数据丢失」的吓人提示 —— 那是**引入回归**，
+    /// 不是修问题。只有 `ParseError` / `IoError` 才是真故障。
+    ///
+    /// 返回 `None` 表示「正常，不必打扰用户」。
+    #[must_use]
+    pub fn user_facing_failure(&self, path: &str) -> Option<ConfigLoadFailure> {
+        let kind = match self {
+            Self::FileNotFound(_) => return None,
+            Self::ParseError(_) => "parse",
+            Self::IoError(_) => "io",
+        };
+        Some(ConfigLoadFailure {
+            kind,
+            message: self.to_string(),
+            path: path.to_string(),
+        })
+    }
+}
+
 /// 配置文件仓库，提供配置的加载、保存和原子写入功能。
 ///
 /// 支持自动剥离 BOM、原子写入（先写临时文件再重命名）和详细的错误类型区分。
@@ -849,5 +887,71 @@ mod tests {
         let path = std::env::temp_dir().join("nonexistent_file_for_delete.txt");
         let result = ConfigRepository::delete_file(&path);
         assert!(result.is_err());
+    }
+
+    // ── B6 / TD-084：加载失败该不该打扰用户 ──────────────────────────────
+    // 核心不是「有没有出错」，而是「是不是正常路径」：FileNotFound 是首次启动的
+    // 正常情况，无差别上报会让新用户一开机就看到「数据丢失」—— 那是回归不是修复。
+
+    /// 首次启动（文件不存在）**不得**上报。
+    #[test]
+    fn test_file_not_found_is_not_a_user_facing_failure() {
+        let e = ConfigLoadError::FileNotFound(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "No such file or directory",
+        ));
+        assert!(
+            e.user_facing_failure("C:/x/config.json").is_none(),
+            "FileNotFound 是首次启动的正常路径，必须返回 None"
+        );
+    }
+
+    /// 内容不是合法 JSON 是真故障，必须上报，且 kind = "parse"。
+    #[test]
+    fn test_parse_error_is_user_facing() {
+        let e = ConfigLoadError::ParseError("expected value at line 1 column 1".to_string());
+        let f = e
+            .user_facing_failure("C:/x/config.json")
+            .expect("ParseError 必须上报");
+        assert_eq!(f.kind, "parse");
+        assert_eq!(f.path, "C:/x/config.json");
+        assert!(
+            f.message.contains("解析失败"),
+            "消息应含中文分类: {}",
+            f.message
+        );
+    }
+
+    /// 文件在但读不出来同样是真故障，kind = "io"。
+    #[test]
+    fn test_io_error_is_user_facing() {
+        let e = ConfigLoadError::IoError(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "denied",
+        ));
+        let f = e
+            .user_facing_failure("/p/config.json")
+            .expect("IoError 必须上报");
+        assert_eq!(f.kind, "io");
+        assert!(
+            f.message.contains("无法读取"),
+            "消息应含中文分类: {}",
+            f.message
+        );
+    }
+
+    /// 端到端：写一份坏 JSON，走**真实**加载路径，确认得到 parse 类型的用户可见失败。
+    #[test]
+    fn test_corrupt_file_yields_user_facing_failure() {
+        let dir = std::env::temp_dir().join("asd_b6_corrupt_probe");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("config.json");
+        std::fs::write(&path, "{ this is not json").expect("写入探针文件");
+        let err = ConfigRepository::load_from_file_checked(&path).expect_err("坏 JSON 必须失败");
+        let f = err
+            .user_facing_failure(&path.display().to_string())
+            .expect("坏 JSON 属于真故障，必须上报");
+        assert_eq!(f.kind, "parse");
+        let _ = std::fs::remove_file(&path);
     }
 }

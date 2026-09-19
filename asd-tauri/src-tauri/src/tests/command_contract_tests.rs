@@ -25,11 +25,11 @@
 ///
 /// 与 `AGENTS.md` 中「34 Tauri commands」的描述保持一致。
 /// 分项：`config_cmd` 11 + `group_cmd` 8 + `hotkey_cmd` 2 + `recording_cmd` 8 + `system_cmd` 5
-const EXPECTED_COMMAND_COUNT: usize = 34;
+const EXPECTED_COMMAND_COUNT: usize = 35;
 
 /// 各命令模块的期望注册数量，用于精确定位漂移来源。
 const EXPECTED_PER_MODULE: &[(&str, usize)] = &[
-    ("config_cmd", 11),
+    ("config_cmd", 12),
     ("group_cmd", 8),
     ("hotkey_cmd", 2),
     ("recording_cmd", 8),
@@ -106,7 +106,7 @@ fn tauri_command_count_matches_expected() {
         "Tauri command 总数与期望不符（实际 {}，期望 {}）。\n\
          若本次为有意的契约变更，请同步更新：\n\
          1. 本文件 EXPECTED_COMMAND_COUNT 与 EXPECTED_PER_MODULE\n\
-         2. AGENTS.md 中的「34 Tauri commands」描述\n\
+         2. AGENTS.md 中的「35 Tauri commands」描述\n\
          实际注册清单：{:?}",
         cmds.len(),
         EXPECTED_COMMAND_COUNT,

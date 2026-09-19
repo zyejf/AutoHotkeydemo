@@ -16,6 +16,7 @@
 
 use asd_application::backup_service;
 use asd_application::backup_service::{BackupInfo, ConfigDiff};
+use asd_application::config_repository::ConfigLoadFailure;
 use asd_application::error::AppError;
 use asd_application::state::AppState;
 use asd_domain::config::Config;
@@ -205,6 +206,21 @@ pub fn compare_configs_impl(
 #[tauri::command]
 pub fn get_config(state: tauri::State<'_, Arc<AppState>>) -> Result<Config, AppError> {
     get_config_impl(&state)
+}
+
+/// 取「启动时配置文件加载失败」的记录；`None` 表示配置正常（含首次启动）。
+///
+/// B6 / TD-084：加载失败时进程仍会启动、界面一切正常，但用户看到的是「我的分组没了」。
+/// 前端必须在启动后主动拉一次并明确告知，**不能**只在日志里留一行。
+///
+/// # Errors
+///
+/// 当前实现不会失败。
+#[tauri::command]
+pub fn get_config_load_failure(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<Option<ConfigLoadFailure>, AppError> {
+    Ok(state.config_load_failure())
 }
 
 /// 整体保存配置（先校验再写盘）。

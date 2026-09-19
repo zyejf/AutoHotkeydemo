@@ -1,4 +1,4 @@
-use crate::config_repository::ConfigRepository;
+use crate::config_repository::{ConfigLoadFailure, ConfigRepository};
 use crate::error::AppError;
 use asd_domain::config::{Config, WatchdogStateEnum};
 use asd_domain::models::SkillGroup;
@@ -90,6 +90,12 @@ pub struct AppState {
     watchdog: Arc<dyn ProcessWatcher>,
     event_emitter: Arc<dyn EventEmitter>,
     config_path: RwLock<Option<PathBuf>>,
+    /// 启动时配置文件加载失败的记录（B6 / TD-084）。
+    ///
+    /// 只记录**真故障**（`ParseError` / `IoError`）；`FileNotFound` 是首次启动的
+    /// 正常路径，**不记录** —— 否则新用户一开机就会看到「数据丢失」的吓人提示。
+    /// 前端在启动后主动来拉（推事件会因为在 `setup` 阶段前端尚未注册监听而丢失）。
+    config_load_failure: RwLock<Option<ConfigLoadFailure>>,
 }
 
 impl AppState {
@@ -116,7 +122,19 @@ impl AppState {
             watchdog,
             event_emitter,
             config_path: RwLock::new(None),
+            config_load_failure: RwLock::new(None),
         }
+    }
+
+    /// 记录启动时的配置加载失败。只应在 `user_facing_failure()` 返回 `Some` 时调用。
+    pub fn set_config_load_failure(&self, failure: ConfigLoadFailure) {
+        *self.config_load_failure.write() = Some(failure);
+    }
+
+    /// 取出启动时的配置加载失败记录（无则 `None`，表示配置正常加载或是首次启动）。
+    #[must_use]
+    pub fn config_load_failure(&self) -> Option<ConfigLoadFailure> {
+        self.config_load_failure.read().clone()
     }
 
     #[must_use]

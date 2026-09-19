@@ -714,12 +714,27 @@ pub fn run() {
                 },
                 |dir| dir.join("config.json"),
             );
+            // B6 / TD-084：配置加载失败**不得**再静默回退。但也不是所有失败都要打扰用户 ——
+            // `FileNotFound` 是首次启动的正常路径，无差别弹窗会让新用户一开机就看到
+            // 「数据丢失」。分流逻辑在 `ConfigLoadError::user_facing_failure`（有单测）。
+            let config_path_display = config_path.display().to_string();
+            let mut startup_config_failure = None;
             let config = match ConfigRepository::load_from_file_checked(&config_path) {
                 Ok(c) => c,
-                Err(e) => {
-                    tracing::error!("配置文件加载失败: {e}，使用默认配置");
-                    Config::default()
-                }
+                Err(e) => match e.user_facing_failure(&config_path_display) {
+                    None => {
+                        tracing::info!("配置文件不存在（首次启动），使用默认配置");
+                        Config::default()
+                    }
+                    Some(f) => {
+                        tracing::error!(
+                            "配置文件加载失败[{}]: {} —— 使用默认配置，原有配置数据可能丢失；路径: {}",
+                            f.kind, f.message, f.path
+                        );
+                        startup_config_failure = Some(f);
+                        Config::default()
+                    }
+                },
             };
 
             let (ipc_manager, outbound_rx) = IpcManager::new(ipc_pipe_name());
@@ -741,6 +756,11 @@ pub fn run() {
                 event_bridge,
                 watchdog_bridge,
             )?;
+
+            // 记录下来等前端启动后主动来拉（推事件会在 setup 阶段因前端尚未注册监听而丢失）。
+            if let Some(f) = startup_config_failure {
+                app_state.set_config_load_failure(f);
+            }
 
             let exe_path = resolve_ahk_executor_path(app).ok_or_else(|| {
                 "未找到 AHK 执行器：`ahk_executor/asd_executor.exe`（编译模式）与 "
@@ -790,6 +810,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::config_cmd::get_config,
+            commands::config_cmd::get_config_load_failure,
             commands::config_cmd::save_config,
             commands::config_cmd::validate_config,
             commands::config_cmd::list_backups,

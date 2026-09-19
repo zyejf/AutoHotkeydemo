@@ -43,6 +43,12 @@ export async function resetWatchdog() {
   return invoke('reset_watchdog');
 }
 
+// 启动时配置文件加载失败的记录；正常加载（含首次启动）为 null。
+// Rust 侧已按错误类型分流：文件不存在 = 首次启动，**不会**出现在这里（B6 / TD-084）。
+export async function getConfigLoadFailure() {
+  return invoke('get_config_load_failure');
+}
+
 export async function toggleHoldMode() {
   return invoke('toggle_hold_mode');
 }
