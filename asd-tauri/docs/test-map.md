@@ -58,10 +58,10 @@
 | Crate | 类型 | 文件路径 | 测试数 | 覆盖范围 |
 |-------|------|---------|-------|---------|
 | asd-application | 单元 | crates/asd-application/src/state.rs | 36 | AppState 状态管理与 trait object 装配 |
-| asd-application | 单元 | crates/asd-application/src/config_repository.rs | 28 | ConfigRepository 文件 I/O 与序列化 + **TD-027 新增 2 条**：文件存在但读不出来（非 UTF-8 / 路径是目录）必须报 `IoError` 且消息里**不得**出现「不存在」+ **TD-043 新增 1 条**：目标文件被短暂独占（Windows `share_mode(0)`）时 `atomic_write` 必须靠退避重试成功，而不是直接掉进 copy 回退（后者同样写不进被占用的目标）+ **再 1 条**直接测 `fallback_copy` 本身（这条分支真实环境很难触发，抽成独立函数才能测到，否则整段是未覆盖行拖低覆盖率） |
+| asd-application | 单元 | crates/asd-application/src/config_repository.rs | 32 | ConfigRepository 文件 I/O 与序列化 + **TD-027 新增 2 条**：文件存在但读不出来（非 UTF-8 / 路径是目录）必须报 `IoError` 且消息里**不得**出现「不存在」+ **TD-043 新增 1 条**：目标文件被短暂独占（Windows `share_mode(0)`）时 `atomic_write` 必须靠退避重试成功，而不是直接掉进 copy 回退（后者同样写不进被占用的目标）+ **再 1 条**直接测 `fallback_copy` 本身（这条分支真实环境很难触发，抽成独立函数才能测到，否则整段是未覆盖行拖低覆盖率） + **B6 / TD-084 新增 4 条**：`ConfigLoadError::user_facing_failure()` 的分流 —— `FileNotFound` 必须返回 `None`（首次启动的正常路径，上报就是回归），`ParseError`/`IoError` 必须返回 `Some`；另含 1 条端到端（写坏 JSON 走真实加载路径）。阳性对照：让 `FileNotFound` 也上报 → 1 条红 |
 | asd-application | 单元 | crates/asd-application/src/time_format.rs | 4 | 时间格式化工具 |
 | asd-application | 单元 | crates/asd-application/src/error.rs | 6 | AppError 错误类型 |
-| **单元小计** | — | — | **74** | — |
+| **单元小计** | — | — | **78** | — |
 
 ### 集成测试
 
@@ -76,7 +76,7 @@
 | asd-application | 集成 | crates/asd-application/tests/concurrency_tests.rs | 4 | AppState 并发安全（Arc<Mutex> 验证） |
 | asd-application | 集成 | crates/asd-application/tests/backtick_cjk_contract_tests.rs | 3 | **TD-050 新增**：反引号跨中文守护 —— 判据回归测试锁死 A 类（真损坏）与 B 类（刻意保留）形态，B 类不得靠加豁免过关 |
 | **集成小计** | — | — | **99** | — |
-| **总计** | — | — | **173** | — |
+| **总计** | — | — | **177** | — |
 
 ## asd-test-harness
 
@@ -247,7 +247,7 @@ Tauri 主 crate — 表现层 + 基础设施（IPC、Watchdog、Bridge、Command
 | 模糊测试 | 5 个 fuzz target |
 | E2E 测试 | 9 suite / 53 用例 |
 
-自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 161 + 72 + 173 + 3 + 257 = 666。
+自洽校验：各 crate「小计 = 明细之和」，上表 Rust 总数 = asd-domain + asd-ipc-protocol + asd-application + asd-test-harness + asd-tauri = 161 + 72 + 177 + 3 + 257 = 670。
 
 > **备注（T8-07† 处置）**：`docs/review/2026-08-20/task-8-tests.md` 分报告《总结》自报「发现总数 7（Important 3 + Minor 4）」，但正文仅列 T8-01~T8-06 共 6 条（其中 Minor 3 条：T8-04/T8-05/T8-06）。已核实第 4 条 Minor 无正文，属该报告自报计数笔误（正文实际为 Important 3 + Minor 3 = 6 条），无遗漏问题，占位 `T8-07†` 予以关闭。
 
