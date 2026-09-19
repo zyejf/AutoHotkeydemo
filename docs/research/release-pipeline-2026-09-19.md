@@ -5,7 +5,7 @@
 **取证方式：** 全部为**实读代码／实调 API／实跑 grep**；凡属推断处均显式标注「推断」或「未验证」。
 
 > ⚠️ **关于 `ci.yml` 行号（2026-09-19 两处订正，必读）**
-> 1. 本文所有 `ci.yml:N` 行号以我取证时的 **913 行版本**为准。**Tessa 随后在工作树里改写了 G3h 段（取证时 156-171 行，净 +13 行，尚未提交）**，故**该文件 171 行之后的所有行号整体 +13**（例：`e2e` job 的 `if:` 581、`release` job 的 `if:` 794→807、artifact 名 908→921、文件末 913→926）。**引用时请以锚点文本为准，不要只认行号。**
+> 1. 本文所有 `ci.yml:N` 行号以我取证时的 **913 行版本**为准。**该文件在此后被两次改写（均未提交）**：① Tessa 改写 G3h 段（取证时 156-171 行，净 +13）；② 主理人为 release job 加第三条护栏（`github.ref == 'refs/heads/main'`，净 +7）。故 **171 行之后的行号已累计漂移约 +20**（913 → 926 → **933**）。**§9 的补丁按 933 行版给出**；引用其余章节时请以**锚点文本**为准，不要只认行号。
 > 2. `on.push` 的表述已按 Rex 的复核订正：它**当前没有 `tags:` 过滤器**，详见 §1.2 与 §2 选项 A。
 
 ---
@@ -565,3 +565,119 @@ sed -n '15,20p;99,108p' asd-tauri/src-tauri/ahk_executor/hotkey_hook.ahk
 # X1：确认无活的 #[ignore]
 grep -rn "#\[ignore" --include=*.rs asd-tauri/ | grep -v "/target/"
 ```
+
+---
+
+## 9. 可直接粘贴的发布段补丁（2026-09-19，供主理人接入）
+
+> 本节是 §2 ADR-003 的**落地文本**。锚点按 ci.yml **933 行版**（release job `:799`、`if:` `:813`、`上传安装包 + 校验和` `:924`、inputs 末尾 `:56`、顶层 `concurrency` `:58-60`）。
+> ⚠️ **全部未实跑过一次**（约束：不得真实发版）。已实证 / 未验证的分界见 §9.4，**不许混**。
+
+### 9.1 新增 inputs（插在 `build_release` 之后、`concurrency:` 之前）
+
+```yaml
+      publish_release:
+        description: '⚠️ 真实发版：创建 GitHub Release 并上传安装包（GITHUB_TOKEN 经 API 建远端 tag，不可逆）。需同时勾选 build_release'
+        type: boolean
+        default: false
+      release_tag:
+        description: 'Release tag。留空自动生成 build-<YYYYMMDD>-<sha7>。禁止 v0.1.0（指向 2026-06-28 旧提交）'
+        type: string
+        required: false
+        default: ''
+```
+
+### 9.2 release job 加写权限（插在 `release:` 下、`if:` 之前）
+
+```yaml
+    permissions:
+      contents: write
+```
+
+缺它 `gh release create` 必红，且报错是误导性的权限串（本仓 TD-014 同型坑）。
+
+### 9.3 发布 step —— **放在最后一个（upload-artifact 之后）**
+
+理由：① artifact 是 90 天兜底，发布放前面一旦失败 job 中止 ⇒ **连 artifact 都没有**，严格更差；② 发布是唯一未跑过的步骤，先落袋已确定的东西；③ 冒烟（§3）插在 SHA256 与 upload-artifact 之间，不冲突。
+
+```yaml
+      - name: 发布 GitHub Release（需勾选 publish_release）
+        if: inputs.publish_release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sha   = '${{ github.sha }}'
+          $short = $sha.Substring(0, 7)
+
+          # 1) tag：留空自动生成；只认两种形态，其它一律拒（防手滑填分支名/旧 tag）
+          $tag = $env:REQUESTED_TAG.Trim()
+          if ($tag -eq '') {
+            $tag = "build-{0}-{1}" -f (Get-Date).ToUniversalTime().ToString('yyyyMMdd'), $short
+            Write-Host "自动生成 tag: $tag"
+          }
+          if ($tag -notmatch '^build-\d{8}-[0-9a-f]{7,40}$' -and $tag -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "release_tag 非法: '$tag'（允许 build-<YYYYMMDD>-<sha7> 或 v<X.Y.Z>）"
+          }
+          if ($tag -eq 'v0.1.0') { throw '禁止发布到 v0.1.0（指向 2026-06-28 旧提交）' }
+
+          # 2) 幂等闸门：已存在即硬失败，绝不覆盖
+          gh release view $tag --repo '${{ github.repository }}' 2>$null
+          if ($LASTEXITCODE -eq 0) { throw "Release '$tag' 已存在 —— 拒绝覆盖" }
+
+          # 3) 自撰说明（不用 --generate-notes：上一 Release 是 v0.1.0/2026-06-28，
+          #    它会吐出数百条提交；且需写清未签名 / 需联网 / 版本号不可信三件事）
+          $notes = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          $sum = Get-Content (Join-Path $env:RUNNER_TEMP 'release-artifacts' 'SHA256SUMS.txt') -Raw -Encoding utf8
+          @(
+            "## ASD 技能管理器 — $tag", ''
+            "- commit: ``$sha``（**溯源以此为准**；tauri.conf.json 版本长期停在 0.1.0，见 TD-078）"
+            '- 平台: Windows x64 / NSIS（installMode=currentUser）'
+            '- ⚠️ 未签名：SmartScreen「未知发布者」告警，需手动「更多信息 → 仍要运行」'
+            '- ⚠️ 首次安装需联网下载 WebView2；离线/内网装不上'
+            '- ℹ️ 历史 Release v0.1.0 无资产且指向 2026-06-28 旧提交，可用版本自本条起'
+            '', '### SHA256', '```', $sum.TrimEnd(), '```'
+          ) | Set-Content -Path $notes -Encoding utf8
+
+          # 4) 建 Release。--target 保证标定源码 == 本次构建 commit
+          #    ⚠️ 刻意不加 --verify-tag：它要求 tag 事先存在，而本步正是靠 --target 新建，加了自相矛盾
+          $files = @(Get-ChildItem (Join-Path $env:RUNNER_TEMP 'release-artifacts') -File | ForEach-Object { $_.FullName })
+          if ($files.Count -eq 0) { throw 'release-artifacts 为空，拒绝创建空 Release' }
+          gh release create $tag --repo '${{ github.repository }}' --target $sha `
+            --title "ASD 技能管理器 $tag" --notes-file $notes $files
+          if ($LASTEXITCODE -ne 0) { throw "gh release create 失败（exit=$LASTEXITCODE）" }
+          "已发布: https://github.com/${{ github.repository }}/releases/tag/$tag" |
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8
+```
+
+### 9.4 concurrency 守卫 —— job 层、静态 group、`cancel-in-progress: false`
+
+```yaml
+    concurrency:
+      group: release-publish-${{ github.repository }}
+      cancel-in-progress: false
+```
+
+| 选择 | 理由 |
+|---|---|
+| **job 层** | 顶层 `:58-60` 是 `ci-${{ github.ref }}`，保护全 CI 不堆积，**不能改** —— 改成静态会把所有分支的 CI 串行化，是回归 |
+| **静态 group** | 顶层按 ref 分组，tag 事件的 ref 与 main 不同 ⇒ 顶层**拦不住** tag 触发的第二次 run；静态组让两次 run 不论 ref 都进同一组 |
+| **`false`** | 发布上传中途被 cancel 会留下「Release 建了但资产不全」的半成品，排队比取消安全 |
+
+⚠️ **今天它只是纵深防御**：`on.push` 只有 `branches: [main, master]`、**没有 `tags:` 过滤器**，故 tag 创建事件**结构上匹配不到任何触发器**。风险只在将来有人加 `tags:` 时才成立。
+
+### 9.5 实证边界（强制）
+
+**已实证（实读 / 实调）**：release job 结构与 `:799 / :813 / :924` 锚点；inputs 末尾 `:56`；顶层 concurrency `:58-60`；`on.push` 无 `tags:` 过滤器；远端 Release `v0.1.0` 存在、0 资产、tag→`0fbfce5`；本机 github.com 000 / api 200 / gh 未登录。
+
+**未验证（推测，不得当结论）**：
+
+1. `gh release create --target` 建 tag 的实际行为 —— **未实跑**；
+2. `--verify-tag` 与新建 tag 冲突 —— **按 CLI 语义推断**，故建议去掉，**未实证**；
+3. API 建 tag 是否触发 `on.push.tags` —— **维持「未查证」**；Rex 的 N9 覆盖了 GITHUB_TOKEN 情形（不会二次触发），**采纳他的结论但非我实测**，PAT/OAuth 情形仍需注意；
+4. `permissions: contents: write` 是否够 —— 本仓未实测过写权限路径；
+5. **整个 step 一次都没跑过。**
+
+另：发布需**同时勾 `build_release` + `publish_release`**（job 级 `if` 已要求前者）。若想让 `publish_release` 单独生效，须把 job 的 `if` 改为 `inputs.build_release || inputs.publish_release` —— 那改的是主理人设定的语义，本方案不擅自改。
