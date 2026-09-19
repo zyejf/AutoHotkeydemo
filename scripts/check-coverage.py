@@ -179,6 +179,9 @@ def main() -> int:
                          "给一个副本就能安全地做漂移检测的阳性对照，不用动真基线")
     ap.add_argument("--update-baseline", action="store_true", help="把当前结果冻结为新基线")
     ap.add_argument("--show", action="store_true", help="只打印当前结果，不与基线比对")
+    ap.add_argument("--allow-scope-shrink", action="store_true",
+                    help="显式确认「语料范围缩小」（本次文件数少于基线记录的下限）。"
+                         "默认拒绝：缩小范围会让覆盖率数字因分母变小而虚高，是假信号")
     ap.add_argument("--tolerance-global", type=float, default=DEFAULT_TOL_GLOBAL_PP,
                     help=f"整体容差（百分点，默认 {DEFAULT_TOL_GLOBAL_PP}）")
     ap.add_argument("--tolerance-file", type=float, default=DEFAULT_TOL_FILE_PP,
@@ -224,6 +227,31 @@ def main() -> int:
 
     if args.update_baseline:
         baseline.parent.mkdir(parents=True, exist_ok=True)
+        # ---- 范围锚点（TD-058 ①）：语料文件数只增不减，缩小须显式确认 ----
+        # 只有「基线里有本次没有」那一条（见下方差集检查）挡不住「反复 update 把范围
+        # 一点点缩掉」：每次缩一点、每次 update 一次，基线跟着变小，就再也报不出来了。
+        # 所以下限必须**独立于基线的 files 字典**持久化，且不随 update 自动下调。
+        old_min = 0
+        if baseline.exists():
+            try:
+                old_min = int(
+                    (json.loads(baseline.read_text(encoding="utf-8")) or {}).get("min_files", 0) or 0
+                )
+            except (OSError, ValueError, TypeError):
+                old_min = 0
+        n_now = len(files)
+        if old_min and n_now < old_min:
+            if not args.allow_scope_shrink:
+                print(f"[FAIL] 语料范围缩小：本次 {n_now} 个文件 < 基线记录的下限 {old_min} 个。")
+                print("       缩小范围会让覆盖率因**分母变小**而虚高 —— 这是假信号，不是提升。")
+                print("       若确属有意（如删除了源码文件），显式确认后重跑：")
+                print("       python scripts/check-coverage.py --lcov <path> "
+                      "--update-baseline --allow-scope-shrink")
+                return 1
+            print(f"[WARN] 已显式确认语料范围缩小：下限 {old_min} -> {n_now} 个文件")
+            min_files = n_now          # 已显式确认：下限真的下调，别再被 max() 拉回去
+        else:
+            min_files = max(old_min, n_now)
         payload = {
             "_comment": (
                 "覆盖率基线（scripts/check-coverage.py 生成，TD-006）。"
@@ -234,6 +262,8 @@ def main() -> int:
                 "⚠️ 重取基线必须用**同一条命令**（见 developer-guide §4.6.1.2），否则等于换量程。"
             ),
             "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            # 范围锚点：语料文件数的历史最高水位。只增不减，缩小须 --allow-scope-shrink。
+            "min_files": min_files,
             **cur,
         }
         with baseline.open("w", encoding="utf-8", newline="\n") as f:
@@ -328,6 +358,17 @@ def main() -> int:
     # ---- 基线里有、本次没有的文件（被删/被改名）----
     for k in sorted(set(base_files) - set(per_file)):
         errors.append(f"{k} 在基线里但本次 lcov 没有 —— 被删除、改名或未纳入测量")
+
+    # ---- 范围锚点（TD-058 ①）：语料文件数不得低于历史最高水位 ----
+    # 上面那条差集检查看的是「具体哪个文件没了」；这条看的是「整体规模有没有缩水」。
+    # 两者互补：只靠差集，一次次的 --update-baseline 能把范围悄悄缩掉且不再报错。
+    min_files = int(base.get("min_files", 0) or 0)
+    if min_files and len(per_file) < min_files:
+        errors.append(
+            f"语料范围缩小：本次 {len(per_file)} 个文件 < 基线记录的下限 {min_files} 个"
+            " —— 缩小范围会让覆盖率因**分母变小**而虚高（假信号，不是提升）；"
+            "若属有意，先排查是不是 `--package` 列表被改小或测量命令变了"
+        )
 
     if new_files:
         print("[NEW] 以下文件首次出现，本次只登记不判：")
