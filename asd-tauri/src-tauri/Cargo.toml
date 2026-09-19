@@ -48,7 +48,7 @@ getrandom = "0.2"
 [dev-dependencies]
 criterion = "0.5"
 asd-test-harness = { path = "../crates/asd-test-harness" }
-serial_test = "3"
+serial_test = "4"
 regex = "1"
 
 [[bench]]
