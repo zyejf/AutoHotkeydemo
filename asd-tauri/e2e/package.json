@@ -19,7 +19,7 @@
     "@wdio/spec-reporter": "^9.31.2",
     "chai": "^4.5.0",
     "fs-extra": "^11.3.5",
-    "webdriverio": "^9.31.9"
+    "webdriverio": "^9.32.0"
   },
   "overrides": {
     "serialize-javascript": "^7.1.1"
