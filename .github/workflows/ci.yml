@@ -741,7 +741,7 @@ jobs:
       #    所以**不能**写成二进制下载，只能源码编译 —— 用缓存把「每次编译」变成「只编译一次」。
       - name: 缓存 tauri-driver 二进制
         id: tauri-driver-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/tauri-driver.exe
           key: tauri-driver-${{ runner.os }}-2.0.6
